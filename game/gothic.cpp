@@ -204,6 +204,7 @@ Gothic::Gothic() {
         modvdfs.emplace_back(std::move(mod));
       }
     }
+  Resources::mountWork(Gothic::nestedPath({u"_work"}, Dir::FT_Dir));
   Resources::loadVdfs(modvdfs, modFilter);
 
   if(wrldDef.empty()) {
@@ -468,10 +469,14 @@ float Gothic::interfaceScale(const Tempest::Widget* w) {
   }
 
 bool Gothic::isBenchmarkMode() const {
-  return isBenchmark;
+  return isBenchmark!=Benchmark::None;
   }
 
-void Gothic::setBenchmarkMode(bool b) {
+bool Gothic::isBenchmarkModeCi() const {
+  return isBenchmark==Benchmark::CiTooling;
+  }
+
+void Gothic::setBenchmarkMode(Benchmark b) {
   isBenchmark = b;
   }
 

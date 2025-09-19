@@ -332,6 +332,8 @@ add_shader(rtsm_hiz_pages.comp       rtsm/rtsm_hiz_pages.comp)
 add_shader(rtsm_culling.comp         rtsm/rtsm_culling.comp)
 add_shader(rtsm_position.comp        rtsm/rtsm_position.comp)
 
+add_shader(rtsm_bvh_build.comp       rtsm/rtsm_bvh_build.comp)
+
 add_shader(rtsm_meshlet_cull.comp    rtsm/rtsm_meshlet_cull.comp)
 add_shader(rtsm_meshlet_complex.comp rtsm/rtsm_meshlet_complex.comp)
 add_shader(rtsm_sample_cull.comp     rtsm/rtsm_sample_cull.comp)
@@ -358,7 +360,8 @@ add_shader(rtsm_omni_raster.comp     rtsm/rtsm_omni_raster.comp)
 
 # software ray-tracing
 #add_shader(sw_raytracing.comp swrt/sw_raytracing.comp -DANY_HIT -DUNIFORM_TRAVERSE "--target-env" "spirv1.3")
-add_shader(sw_raytracing.comp   swrt/sw_raytracing.comp -DANY_HIT)
+add_shader(sw_raytracing.comp   swrt/sw_raytracing.comp  -DANY_HIT)
+add_shader(sw_raytracing8.comp  swrt/sw_raytracing8.comp)
 add_shader(sw_raytracing64.comp swrt/sw_raytracing64.comp)
 
 # software rendering

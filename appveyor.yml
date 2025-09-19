@@ -3,7 +3,7 @@ configuration:
 
 environment:
   matrix:
-    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019  # used as mingw
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2015  # used as mingw
       GENERATOR:  "Ninja"
       RELEASABLE: true
       CC:         C:/msys64/mingw64/bin/gcc.exe
@@ -89,7 +89,7 @@ before_build:
 build_script:
   - cmake --version
   - cmd: if NOT "%VCVARSALL%" == "" call "%VCVARSALL%" %PLATFORM%
-  - cmd: cmake -H. -Bbuild -G "%GENERATOR%" -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo -DCMAKE_SH=CMAKE_SH-NOTFOUND
+  - cmd: cmake -H. -Bbuild -G "%GENERATOR%" -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo -DCMAKE_SH=CMAKE_SH-NOTFOUND -DCMAKE_POLICY_VERSION_MINIMUM=3.5
   - sh:  cmake -H. -Bbuild                  -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo
   - cmake --build ./build --target Gothic2Notr
 

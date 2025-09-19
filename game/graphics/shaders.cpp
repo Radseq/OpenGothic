@@ -265,6 +265,8 @@ void Shaders::compileShaders() {
     rtsmCullingOmni  = computeShader("rtsm_omni_culling.comp.sprv");
     rtsmPositionOmni = computeShader("rtsm_omni_position.comp.sprv");
 
+    rtsmBvhBuild     = computeShader("rtsm_bvh_build.comp.sprv");
+
     rtsmMeshletOmni  = computeShader("rtsm_omni_meshlet.comp.sprv");
     rtsmBackfaceOmni = computeShader("rtsm_omni_backface.comp.sprv");
     rtsmCompactOmni  = computeShader("rtsm_omni_compact.comp.sprv");
@@ -277,6 +279,7 @@ void Shaders::compileShaders() {
     }
 
   swRaytracing    = computeShader("sw_raytracing.comp.sprv");
+  swRaytracing8   = computeShader("sw_raytracing8.comp.sprv");
   swRaytracing64  = computeShader("sw_raytracing64.comp.sprv");
 
   if(Gothic::options().swRenderingPreset>0) {

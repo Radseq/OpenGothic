@@ -587,7 +587,8 @@ void Renderer::draw(Tempest::Attachment& result, Encoder<CommandBuffer>& cmd, ui
   drawRtsm(cmd, *wview);
   drawRtsmOmni(cmd, *wview);
   // drawSwRT(cmd, *wview);
-  drawSwRT64(cmd, *wview);
+  // drawSwRT8(cmd, *wview);
+  // drawSwRT64(cmd, *wview);
 
   prepareIrradiance(cmd,*wview);
   prepareExposure(cmd,*wview);
@@ -859,10 +860,38 @@ void Renderer::drawSwRT(Tempest::Encoder<Tempest::CommandBuffer>& cmd, const Wor
   cmd.dispatchThreads(swrt.outputImage.size());
   }
 
-void Renderer::drawSwRT64(Tempest::Encoder<Tempest::CommandBuffer>& cmd, const WorldView& wview) {
+void Renderer::drawSwRT8(Tempest::Encoder<Tempest::CommandBuffer>& cmd, const WorldView& wview) {
   if(!settings.swrtEnabled)
     return;
 
+  const auto& scene     = wview.sceneGlobals();
+  const auto& bvh       = wview.landscape().bvh8();
+  const auto  originLwc = scene.originLwc;
+
+  if(swrt.outputImage.isEmpty()) {
+    auto& device = Resources::device();
+    // swrt.outputImage = device.image2d(TextureFormat::R32U, zbuffer.size());
+    swrt.outputImage = device.image2d(TextureFormat::RGBA8, zbuffer.size());
+    }
+
+  cmd.setFramebuffer({});
+  cmd.setDebugMarker("Raytracing");
+  cmd.setPipeline(shaders.swRaytracing8);
+  cmd.setPushData(&originLwc, sizeof(originLwc));
+  cmd.setBinding(0, swrt.outputImage);
+  cmd.setBinding(1, scene.uboGlobal[SceneGlobals::V_Main]);
+  cmd.setBinding(2, gbufDiffuse);
+  cmd.setBinding(3, gbufNormal);
+  cmd.setBinding(4, zbuffer);
+  cmd.setBinding(5, bvh);
+
+  cmd.dispatchThreads(swrt.outputImage.size());
+  }
+
+void Renderer::drawSwRT64(Tempest::Encoder<Tempest::CommandBuffer>& cmd, const WorldView& wview) {
+  if(!settings.swrtEnabled)
+    return;
+/*
   const auto& scene     = wview.sceneGlobals();
   const auto& bvh       = wview.landscape().bvh64();
   const auto  originLwc = scene.originLwc;
@@ -887,6 +916,7 @@ void Renderer::drawSwRT64(Tempest::Encoder<Tempest::CommandBuffer>& cmd, const W
   cmd.setBinding(7, wview.landscape().bvh64Vbo);
 
   cmd.dispatchThreads(swrt.outputImage.size());
+  */
   }
 
 void Renderer::stashSceneAux(Encoder<CommandBuffer>& cmd) {
@@ -1232,6 +1262,13 @@ void Renderer::drawRtsm(Tempest::Encoder<Tempest::CommandBuffer>& cmd, WorldView
       Resources::recycle(std::move(rtsm.visList));
       rtsm.visList = device.ssbo(nullptr, clusterSz);
       }
+
+    if(rtsm.bvh.isEmpty()) {
+      //TODO: etimate memory requirements
+      rtsm.bvh    = device.ssbo(nullptr, 1024*1024*8);
+      rtsm.ibo    = device.ssbo(nullptr, clusterCnt*sizeof(uint32_t));
+      rtsm.bvhDbg = device.ssbo(nullptr, 1024*1024);
+      }
   }
 
   cmd.setDebugMarker("RTSM-rendering");
@@ -1300,6 +1337,17 @@ void Renderer::drawRtsm(Tempest::Encoder<Tempest::CommandBuffer>& cmd, WorldView
 
     cmd.setPipeline(shaders.rtsmPosition);
     cmd.dispatchIndirect(rtsm.visList,0);
+  }
+
+  // bvh
+  {
+    cmd.setBinding(0, rtsm.bvh);
+    cmd.setBinding(1, rtsm.ibo);
+    cmd.setBinding(2, rtsm.posList);
+
+    cmd.setBinding(9, rtsm.bvhDbg);
+    cmd.setPipeline(shaders.rtsmBvhBuild);
+    cmd.dispatch(1);
   }
 
   // tile hirarchy
