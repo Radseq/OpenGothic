@@ -415,6 +415,14 @@ Tempest::Vec3 Interactive::displayPosition() const {
   return p+displayOffset;
   }
 
+Tempest::Vec3 Interactive::getDisplayOffset() const {
+    return displayOffset;
+}
+
+uint32_t Interactive::getId() const {
+    return vobObjectID;
+}
+
 std::string_view Interactive::displayName() const {
   if(focName.empty())
     return "";

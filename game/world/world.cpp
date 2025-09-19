@@ -22,6 +22,123 @@
 #include "focus.h"
 #include "resources.h"
 
+#include <filesystem>
+#include <fstream>
+#include <unordered_map>
+#include <unordered_set>
+#include <string>
+#include <string_view>
+#include <mutex>
+#include <charconv>
+#include <locale>
+#include <memory>
+
+namespace fs = std::filesystem;
+using id_t = std::size_t;
+
+struct FileState {
+    std::mutex              m;        // per-file mutex
+    std::once_flag          loaded;   // load-once guard
+    std::unordered_set<id_t> seen;    // known IDs
+    fs::path                path;     // full path (normalized)
+};
+
+// Global registry of per-file states
+inline FileState& get_state(const fs::path& fullPath) {
+    static std::mutex map_m;
+    static std::unordered_map<fs::path, std::unique_ptr<FileState>> map;
+
+    const fs::path norm = fullPath.lexically_normal();
+    std::scoped_lock g(map_m);
+    auto it = map.find(norm);
+    if (it == map.end()) {
+        auto st = std::make_unique<FileState>();
+        st->path = norm;
+        it = map.emplace(norm, std::move(st)).first;
+    }
+    return *it->second;
+}
+
+inline std::string fit25(std::string s) {
+    if (s.size() < 25) s.append(25 - s.size(), ' ');
+    else if (s.size() > 25) s.resize(25);
+    return s;
+}
+
+
+inline std::string pos_to_string(float x, float y, float z) {
+    std::ostringstream oss;
+    oss.imbue(std::locale::classic());
+    oss << std::fixed << std::setprecision(3) << x << "," << y << "," << z; // keep compact
+    return oss.str();
+}
+
+// Append "npcName|instanceId|x,y,z" to `relativePath` (relative to CWD) iff `instanceId` is new.
+// Returns true if written, false if skipped or on error.
+inline bool append_obj(std::string_view relativePath,
+    std::string_view npcName,
+    std::string_view npcName2,
+    uint32_t instanceId,
+    float x, float y, float z, float xo, float yo, float zo)
+{
+    fs::path full = fs::current_path() / fs::path(relativePath);
+    if (full.has_parent_path()) {
+        std::error_code ec;
+        fs::create_directories(full.parent_path(), ec); // ignore errors here
+    }
+
+    FileState& st = get_state(full);
+
+    // Lock per-file before touching st.seen or loading from disk.
+    std::unique_lock lk(st.m);
+
+    //if (withInstanceIdCheck) {
+    //    // Load existing IDs once, under the lock (so no concurrent readers touch `seen` while it fills)
+    //    std::call_once(st.loaded, [&] {
+    //        if (fs::exists(full)) {
+    //            std::ifstream in(full, std::ios::binary);
+    //            std::string line;
+    //            while (std::getline(in, line)) {
+    //                // Expected: name|id|x,y,z
+    //                const auto p1 = line.find('|');
+    //                if (p1 == std::string::npos) continue;
+    //                const auto p2 = line.find('|', p1 + 1);
+    //                if (p2 == std::string::npos) continue;
+
+    //                std::string_view id_sv{ line.data() + p1 + 1, p2 - (p1 + 1) };
+    //                id_t parsed{};
+    //                if (std::from_chars(id_sv.data(), id_sv.data() + id_sv.size(), parsed).ec == std::errc{}) {
+    //                    st.seen.insert(parsed);
+    //                }
+    //            }
+    //        }
+    //        });
+
+    //    //Fast path: already seen -> skip
+    //    if (st.seen.contains(instanceId)) {
+    //        return false;
+    //    }
+    //}
+
+    std::ofstream out(full, std::ios::binary | std::ios::app);
+    if (!out) return false;
+
+    out.imbue(std::locale::classic()); // ensure '.' as decimal separator
+    const std::string colId = fit25(std::to_string(instanceId));
+    const std::string colPos = fit25(pos_to_string(x, y, z));
+    const std::string colPosOffset = fit25(pos_to_string(xo, yo, zo));
+    const std::string colName = fit25(std::string(npcName));
+    const std::string colName2 = fit25(std::string(npcName2));
+
+    out << colId << '|' << colPos << '|' << colPosOffset << '|' << colName << '|' << colName2 << '\n';
+
+    out.flush();
+    if (!out) return false;
+
+    //st.seen.insert(instanceId);
+    return true;
+}
+
 const char* materialTag(ItemMaterial src) {
   switch(src) {
     case ItemMaterial::MAT_WOOD:
@@ -594,8 +711,11 @@ Npc *World::addNpc(std::string_view name, std::string_view at) {
   return wobj.addNpc(id,at);
   }
 
+
+
 Npc *World::addNpc(size_t npcInstance, std::string_view at) {
-  return wobj.addNpc(npcInstance,at);
+  auto a = wobj.addNpc(npcInstance,at);
+  return a;
   }
 
 Npc* World::addNpc(size_t npcInstance, const Tempest::Vec3& at) {
@@ -806,6 +926,17 @@ void World::addTrigger(AbstractTrigger* trigger) {
   }
 
 void World::addInteractive(Interactive* inter) {
+
+    auto a = inter->position();
+    auto b = inter->getDisplayOffset();
+
+    auto c = inter->displayName();
+    auto d = inter->focusName();
+
+    auto f = inter->getId();
+
+    append_obj("logs/npcs_as_items.txt", c, d, f, a.x, a.y, a.z, b.x,b.y,b.z);
+
   wobj.addInteractive(inter);
   }
 

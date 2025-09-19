@@ -45,7 +45,10 @@ class Interactive : public Vob {
     bool                overrideFocus() const;
 
     Tempest::Vec3       displayPosition() const;
+    Tempest::Vec3       getDisplayOffset() const;
+
     std::string_view    displayName() const;
+    uint32_t            getId() const;
 
     auto                bBox() const -> const Tempest::Vec3*;
 
