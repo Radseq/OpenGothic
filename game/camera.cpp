@@ -722,7 +722,8 @@ void Camera::tick(uint64_t dt) {
       break;
       }
     case M_Free: {
-      angles = followRot(angles, state.spin, dtF, 10.f);
+      inter.target = origin;
+      angles       = followRot(angles, state.spin, dtF, 10.f);
       break;
       }
     case M_Pinned: {
@@ -731,8 +732,9 @@ void Camera::tick(uint64_t dt) {
 
       auto offset = pin.origin;
       rotMat.project(offset);
-      origin     = offset;
-      angles     = pin.spin;
+      origin       = offset;
+      inter.target = offset;
+      angles       = pin.spin;
       break;
       }
     }
