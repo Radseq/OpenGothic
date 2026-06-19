@@ -14,6 +14,7 @@
 #include "world/world.h"
 #include "utils/versioninfo.h"
 #include "utils/fileext.h"
+#include "utils/dbgpainter.h"
 #include "camera.h"
 #include "gothic.h"
 #include "resources.h"
@@ -22,20 +23,40 @@ using namespace Tempest;
 
 static std::string_view humansTorchOverlay = "_TORCH.MDS";
 
+std::string_view Npc::Routine::wayPointName() const {
+  return point!=nullptr ? point->name : fallbackName;
+  }
+
+
 void Npc::GoTo::save(Serialize& fout) const {
   fout.write(npc, uint8_t(flag), wp, pos);
   }
 
 void Npc::GoTo::load(Serialize& fin) {
   fin.read(npc, reinterpret_cast<uint8_t&>(flag), wp, pos);
+  //NOTE: no real need to version check
+  //if(fin.version()<53) {
+    if(flag==GoToHint::GT_Enemy || flag==GoToHint::GT_EnemyG)
+      clear(); // not persistent flags, and should be cleared by FAI
+  //  }
   }
 
 Vec3 Npc::GoTo::target() const {
   if(npc!=nullptr)
-    return npc->position();
+    return npc->centerPosition();
   if(wp!=nullptr)
-    return Vec3(wp->x,wp->y,wp->z);
+    return wp->position();
   return pos;
+  }
+
+bool Npc::GoTo::isClose(const Npc& self, float dist) const {
+  if(flag==GT_Enemy)
+    return self.fghAlgo.isInWRange(self, *npc, self.owner.script()); //need to be consistent with implAttack
+  if(npc!=nullptr)
+    return MoveAlgo::isClose(self, *npc, dist);
+  if(wp!=nullptr)
+    return MoveAlgo::isClose(self, *wp, dist);
+  return MoveAlgo::isClose(self, pos, dist);
   }
 
 bool Npc::GoTo::empty() const {
@@ -156,18 +177,19 @@ struct Npc::TransformBack {
   };
 
 
-Npc::Npc(World &owner, size_t instance, std::string_view waypoint, ProcessPolicy aiPolicy)
+Npc::Npc(World &owner, size_t instance, std::string_view waypoint, NpcProcessPolicy aiPolicy)
   :owner(owner),aiPolicy(aiPolicy),mvAlgo(*this) {
-  outputPipe          = owner.script().openAiOuput();
+  outputPipe     = owner.script().openAiOuput();
 
-  hnpc = std::make_shared<zenkit::INpc>();
-  hnpc->user_ptr        = this;
+  hnpc           = std::make_shared<zenkit::INpc>();
+  hnpc->user_ptr = this;
+  hnpc->id       = int32_t(instance & 0x7FFFFFFF);
+  hnpc->wp       = std::string(waypoint);
 
   if(instance==size_t(-1))
     return;
 
   owner.script().initializeInstanceNpc(hnpc, instance);
-  hnpc->wp       = std::string(waypoint);
 
   // vanilla behavior: equip best weapon and set non-zero damage type
   if(!isPlayer())
@@ -183,8 +205,8 @@ Npc::~Npc(){
     currentInteract->detach(*this,true);
   }
 
-void Npc::save(Serialize &fout, size_t id) {
-  fout.setEntry("worlds/",fout.worldName(),"/npc/",id,"/data");
+void Npc::save(Serialize &fout, size_t id, std::string_view directory) {
+  fout.setEntry("worlds/",fout.worldName(),directory,id,"/data");
   fout.write(*hnpc);
   fout.write(body,head,vHead,vTeeth,bdColor,vColor,bdFatness);
   fout.write(x,y,z,angle,sz);
@@ -221,16 +243,16 @@ void Npc::save(Serialize &fout, size_t id) {
   Vec3 phyPos = physic.position();
   fout.write(phyPos);
 
-  fout.setEntry("worlds/",fout.worldName(),"/npc/",id,"/visual");
+  fout.setEntry("worlds/",fout.worldName(),directory,id,"/visual");
   visual.save(fout,*this);
 
-  fout.setEntry("worlds/",fout.worldName(),"/npc/",id,"/inventory");
+  fout.setEntry("worlds/",fout.worldName(),directory,id,"/inventory");
   if(!invent.isEmpty() || id==size_t(-1))
     invent.save(fout);
   }
 
-void Npc::load(Serialize &fin, size_t id) {
-  fin.setEntry("worlds/",fin.worldName(),"/npc/",id,"/data");
+void Npc::load(Serialize &fin, size_t id, std::string_view directory) {
+  fin.setEntry("worlds/",fin.worldName(),directory,id,"/data");
 
   hnpc = std::make_shared<zenkit::INpc>();
   hnpc->user_ptr        = this;
@@ -244,6 +266,8 @@ void Npc::load(Serialize &fin, size_t id) {
   fin.read(x,y,z,angle,sz);
   fin.read(wlkMode,trGuild,talentsSk,talentsVl,refuseTalkMilis);
   durtyTranform = TR_Pos|TR_Rot|TR_Scale;
+  if(fin.version()<55)
+    angle -= 90;
 
   fin.read(permAttitude,tmpAttitude);
   fin.read(perceptionTime,perceptionNextTime);
@@ -286,13 +310,13 @@ void Npc::load(Serialize &fin, size_t id) {
   Vec3 phyPos = {};
   fin.read(phyPos);
 
-  fin.setEntry("worlds/",fin.worldName(),"/npc/",id,"/visual");
+  fin.setEntry("worlds/",fin.worldName(),directory,id,"/visual");
   visual.load(fin,*this);
   physic.setPosition(phyPos);
 
   setVisualBody(vHead,vTeeth,vColor,bdColor,body,head);
 
-  if(fin.setEntry("worlds/",fin.worldName(),"/npc/",id,"/inventory"))
+  if(fin.setEntry("worlds/",fin.worldName(),directory,id,"/inventory"))
     invent.load(fin,*this);
 
   // post-alignment
@@ -319,7 +343,7 @@ void Npc::saveAiState(Serialize& fout) const {
 
   fout.write(uint32_t(routines.size()));
   for(auto& i:routines) {
-    fout.write(i.start,i.end,i.callback,i.point);
+    fout.write(i.start,i.end,i.callback,i.point,i.fallbackName);
     }
   }
 
@@ -343,8 +367,11 @@ void Npc::loadAiState(Serialize& fin) {
   uint32_t size=0;
   fin.read(size);
   routines.resize(size);
-  for(auto& i:routines)
+  for(auto& i:routines) {
     fin.read(i.start,i.end,i.callback,i.point);
+    if(fin.version()>51)
+      fin.read(i.fallbackName);
+    }
   }
 
 void Npc::saveTrState(Serialize& fout) const {
@@ -397,7 +424,7 @@ bool Npc::performOutput(const AiQueue::AiAction &act) {
     return false;
   if(aiOutputBarrier>owner.tickCount() && act.target==this && !isPlayer())
     return false;
-  if(aiPolicy>=AiFar)
+  if(aiPolicy>=NpcProcessPolicy::AiFar)
     return true; // don't waste CPU on far-away svm-talks
   //if(act.act!=AI_OutputSvmOverlay && bodyStateMasked()!=BS_STAND)
   //  return false;
@@ -411,14 +438,15 @@ bool Npc::performOutput(const AiQueue::AiAction &act) {
   return false;
   }
 
-void Npc::setDirection(float x, float /*y*/, float z) {
-  float a=angleDir(x,z);
+void Npc::setDirection(const Tempest::Vec3& pos) {
+  float a = angleDir(pos.x, pos.z);
   setDirection(a);
   }
 
 void Npc::setDirection(float rotation) {
-  angle = rotation;
   durtyTranform |= TR_Rot;
+  angle = rotation;
+  physic.setRotation(angle);
   }
 
 void Npc::setDirectionY(float rotation) {
@@ -427,7 +455,7 @@ void Npc::setDirectionY(float rotation) {
   if(rotation<-90)
     rotation = -90;
   rotation = std::fmod(rotation,360.f);
-  if(!mvAlgo.isSwim() && !(interactive()!=nullptr && interactive()->isLadder()))
+  if(!mvAlgo.isDive() && !(interactive()!=nullptr && interactive()->isLadder()))
     return;
   angleY = rotation;
   durtyTranform |= TR_Rot;
@@ -439,9 +467,9 @@ void Npc::setRunAngle(float angle) {
   }
 
 float Npc::angleDir(float x, float z) {
-  float a=-90;
+  float a = 0;
   if(x!=0.f || z!=0.f)
-    a = 90+180.f*std::atan2(z,x)/float(M_PI);
+    a = 180.f*std::atan2(z,x)/float(M_PI);
   return a;
   }
 
@@ -457,8 +485,9 @@ bool Npc::resetPositionToTA() {
   if(!isPlayer())
     setInteraction(nullptr,true);
 
-  if(routines.size()==0)
-    return true;
+  // return monsters to their way-points
+  // if(routines.empty() && !isPlayer())
+  //   return currentTaPoint()!=nullptr;
 
   attachToPoint(nullptr);
   clearAiQueue();
@@ -471,18 +500,17 @@ bool Npc::resetPositionToTA() {
   if(isPlayer())
     return true;
 
-  auto& rot = currentRoutine();
-  auto  at  = rot.point;
+  auto at = currentTaPoint();
   if(at==nullptr)
     return false;
 
-  if(at->isLocked() && !isDead){
+  if(at->isLocked() && !isDead) {
     auto p = owner.findNextPoint(*at);
     if(p!=nullptr)
-      at=p;
+      at = p;
     }
-  setPosition (at->x, at->y, at->z);
-  setDirection(at->dirX,at->dirY,at->dirZ);
+  setPosition (at->position() );
+  setDirection(at->direction());
   owner.script().fixNpcPosition(*this,0,0);
 
   if(!isDead) {
@@ -502,10 +530,10 @@ void Npc::clearSpeed() {
   mvAlgo.clearSpeed();
   }
 
-void Npc::setProcessPolicy(ProcessPolicy t) {
+void Npc::setProcessPolicy(NpcProcessPolicy t) {
   if(aiPolicy==t)
     return;
-  if(aiPolicy==ProcessPolicy::Player)
+  if(aiPolicy==NpcProcessPolicy::Player)
     runAng = 0;
   aiPolicy=t;
   }
@@ -515,7 +543,7 @@ void Npc::setWalkMode(WalkBit m) {
   }
 
 bool Npc::isPlayer() const {
-  return aiPolicy==Npc::ProcessPolicy::Player;
+  return aiPolicy==NpcProcessPolicy::Player;
   }
 
 bool Npc::startClimb(JumpStatus jump) {
@@ -553,6 +581,7 @@ bool Npc::checkHealth(bool onChange, bool allowUnconscious) {
 void Npc::onNoHealth(bool death, HitSound sndMask) {
   invent.switchActiveWeapon(*this,Item::NSLOT);
   visual.dropWeapon(*this);
+  visual.dropShield(*this);
   dropTorch();
   visual.setToFightMode(WeaponState::NoWeapon);
   updateWeaponSkeleton();
@@ -572,7 +601,7 @@ void Npc::onNoHealth(bool death, HitSound sndMask) {
   // Note: clear perceptions for William in Jarkentar
   for(size_t i=0;i<PERC_Count;++i)
     setPerceptionDisable(PercType(i));
-  if(hnpc->voice>0 && sndMask!=HS_NoSound) {
+  if(hnpc->voice>0 && sndMask!=HS_NoSound && !isDive()) {
     emitSoundSVM(svm);
     }
 
@@ -595,7 +624,6 @@ bool Npc::hasAutoroll() const {
 void Npc::stopWalkAnimation() {
   if(interactive()==nullptr)
     visual.stopWalkAnim(*this);
-  // go2.clear();
   setAnimRotate(0);
   }
 
@@ -650,22 +678,35 @@ float Npc::rotationYRad() const {
   }
 
 Bounds Npc::bounds() const {
-  auto b = visual.bounds();
-  b.setObjMatrix(transform());
-  return b;
+  return visual.bounds();
   }
 
-float Npc::translateY() const {
-  return visual.pose().translateY();
+auto Npc::bBoxCol() const -> const Vec3* {
+  if(visual.visualSkeleton()==nullptr)
+    return nullptr;
+  return visual.visualSkeleton()->bboxCol;
+  }
+
+auto Npc::bBox() const -> const Vec3* {
+  if(visual.visualSkeleton()==nullptr)
+    return nullptr;
+  return visual.visualSkeleton()->bbox;
   }
 
 Vec3 Npc::centerPosition() const {
   auto p = position();
-  p.y = physic.centerY();
+  // p.y += 15; // seem to be off by ~15 centimeters, according to comparations vanilla testing
+  p.y += visual.pose().translateY();
   return p;
   }
 
-Npc *Npc::lookAtTarget() const {
+Vec3 Npc::collosionCenter() const {
+  auto p = position();
+  p += physic.centerAsym();
+  return p;
+  }
+
+Npc* Npc::lookAtTarget() const {
   return currentLookAtNpc;
   }
 
@@ -677,25 +718,19 @@ std::string_view Npc::formerPortalName() {
   return mvAlgo.formerPortalName();
   }
 
-float Npc::qDistTo(float x1, float y1, float z1) const {
-  float dx=x-x1;
-  float dy=y+translateY()-y1;
-  float dz=z-z1;
-  return dx*dx+dy*dy+dz*dz;
-  }
-
-float Npc::qDistTo(const Tempest::Vec3 pos) const {
-  return qDistTo(pos.x,pos.y,pos.z);
+float Npc::qDistTo(const Vec3 pos) const {
+  auto dp = pos - centerPosition();
+  return dp.quadLength();
   }
 
 float Npc::qDistTo(const WayPoint *f) const {
   if(f==nullptr)
     return 0.f;
-  return qDistTo(f->x,f->y,f->z);
+  return qDistTo(f->position());
   }
 
 float Npc::qDistTo(const Npc &p) const {
-  return qDistTo(p.x,p.y+p.translateY(),p.z);
+  return qDistTo(p.centerPosition());
   }
 
 float Npc::qDistTo(const Interactive &p) const {
@@ -708,10 +743,28 @@ float Npc::qDistTo(const Item& p) const {
   return qDistTo(pos);
   }
 
+Tempest::Vec3 Npc::fightDistanceTo(const Npc& tg) const {
+  //NOTE: game script decribe comabt distance as distance between BIP01
+  // however, in practice, it's easier and more relieble to use rootTr
+  Vec3 cen, tgCen;
+  if(auto sk = visual.visualSkeleton()) {
+    cen = sk->rootTr;
+    transform().project(cen);
+    }
+  cen += position();
+
+  if(auto sk = tg.visual.visualSkeleton()) {
+    tgCen = sk->rootTr;
+    transform().project(tgCen);
+    }
+  tgCen += tg.position();
+  return (cen-tgCen);
+  }
+
 uint8_t Npc::calcAniComb() const {
   if(currentTarget==nullptr)
     return 0;
-  auto dpos = currentTarget->position()-position();
+  auto dpos = currentTarget->position() - position();
   return Pose::calcAniComb(dpos,angle);
   }
 
@@ -727,7 +780,7 @@ Tempest::Vec3 Npc::displayPosition() const {
 void Npc::setVisual(std::string_view visual) {
   auto skelet = Resources::loadSkeleton(visual);
   setVisual(skelet);
-  setPhysic(owner.physic()->ghostObj(visual));
+  setPhysic(owner.physic()->ghostObj(skelet));
   }
 
 bool Npc::hasOverlay(std::string_view sk) const {
@@ -904,6 +957,7 @@ void Npc::setPhysic(DynamicWorld::NpcItem &&item) {
   physic = std::move(item);
   physic.setUserPointer(this);
   physic.setPosition(Vec3{x,y,z});
+  physic.setRotation(angle);
   }
 
 void Npc::setFatness(float f) {
@@ -916,6 +970,7 @@ void Npc::setScale(float x, float y, float z) {
   sz[1]=y;
   sz[2]=z;
   durtyTranform |= TR_Scale;
+  physic.setScale(Vec3{x,y,z});
   }
 
 const Animation::Sequence* Npc::playAnimByName(std::string_view name, BodyState bs) {
@@ -976,6 +1031,18 @@ bool Npc::hasAnim(std::string_view scheme) const {
   return visual.hasAnim(scheme);
   }
 
+bool Npc::hasAnim(Anim a) const {
+  auto st  = weaponState();
+  auto wlk = walkMode();
+  if(mvAlgo.isDive())
+    wlk = WalkBit::WM_Dive;
+  else if(mvAlgo.isSwim())
+    wlk = WalkBit::WM_Swim;
+  else if(mvAlgo.isInWater())
+    wlk = WalkBit::WM_Water;
+  return visual.hasAnim(a,st,wlk);
+  }
+
 bool Npc::hasSwimAnimations() const {
   return hasAnim("S_SWIM") && hasAnim("S_SWIMF");
   }
@@ -1015,19 +1082,27 @@ bool Npc::isFlyAnim() const {
   }
 
 bool Npc::isFalling() const {
-  return mvAlgo.isFalling();
+  return mvAlgo.state()==MoveAlgo::Falling;
   }
 
 bool Npc::isFallingDeep() const {
-  return mvAlgo.isInAir() && (visual.pose().isInAnim("S_FALL") || visual.pose().isInAnim("S_FALLB"));
+  return (mvAlgo.isInAir() || mvAlgo.isFalling()) && (visual.pose().isInAnim("S_FALL") || visual.pose().isInAnim("S_FALLB"));
   }
 
 bool Npc::isSlide() const {
-  return mvAlgo.isSlide();
+  return mvAlgo.state()==MoveAlgo::Slide;
   }
 
 bool Npc::isInAir() const {
-  return mvAlgo.isInAir();
+  return mvAlgo.state()==MoveAlgo::InAir;
+  }
+
+bool Npc::isJump() const {
+  return mvAlgo.state()==MoveAlgo::Jump;
+  }
+
+bool Npc::isJumpUp() const {
+  return mvAlgo.state()==MoveAlgo::JumpUp;
   }
 
 void Npc::invalidateTalentOverlays() {
@@ -1161,6 +1236,7 @@ int32_t Npc::attribute(Attribute a) const {
 void Npc::changeAttribute(Attribute a, int32_t val, bool allowUnconscious) {
   if(a>=ATR_MAX || val==0)
     return;
+
   if(val<0 && a==ATR_HITPOINTS) {
     if(isPlayer() && Gothic::inst().isGodMode())
       return;
@@ -1183,7 +1259,7 @@ void Npc::changeAttribute(Attribute a, int32_t val, bool allowUnconscious) {
 
   if(a==ATR_HITPOINTS) {
     checkHealth(true,allowUnconscious);
-    if(aiPolicy==AiFar || aiPolicy==AiFar2)
+    if(aiPolicy==NpcProcessPolicy::AiFar || aiPolicy==NpcProcessPolicy::AiFar2)
       aiState.started = true;
     }
   }
@@ -1343,9 +1419,39 @@ bool Npc::implTurnAway(const Npc &oth, uint64_t dt) {
   return rotateTo(dx,dz,step,AnimationSolver::TurnType::Std,dt);
   }
 
+bool Npc::implTurnToFai(const Npc& oth, uint64_t dt) {
+  if(&oth==this || oth.isDown())
+    return false;
+
+  auto ws = weaponState();
+  if(ws==WeaponState::NoWeapon)
+    return false;
+
+  auto  gl   = guild();
+  auto& gv   = owner.script().guildVal();
+  float step = float(gv.turn_speed[gl]);
+  //auto  dpos = fghAlgo.distVec(*currentTarget, *this);
+  auto dpos = currentTarget->collosionCenter() - collosionCenter();
+
+  // vanilla has a bug(or quirk) apparently, for that
+  // also would need to fallthru in FAI code, if no animation is performed
+  bool skipAnim = gv.turn_speed[gl] >= 100;
+  auto anim = skipAnim ? AnimationSolver::TurnType::None : AnimationSolver::TurnType::Std;
+  if(ws==WeaponState::Bow || ws==WeaponState::CBow || ws==WeaponState::Mage) {
+    anim = AnimationSolver::TurnType::None;
+    }
+
+  auto bs = bodyStateMasked();
+  if(bs!=BS_HIT) {
+    //NOTE: Troll rotates during the hit, but not very fast - seem to be regulat speed
+    step *= 2.f; // faster in combat
+    }
+  return rotateTo(dpos.x,dpos.z,step,anim,dt) && !skipAnim;
+  }
+
 bool Npc::implTurnTo(const Npc &oth, uint64_t dt) {
   if(&oth==this)
-    return true;
+    return false;
   auto dx = oth.x-x;
   auto dz = oth.z-z;
   return implTurnTo(dx,dz,AnimationSolver::TurnType::Std,dt);
@@ -1353,10 +1459,16 @@ bool Npc::implTurnTo(const Npc &oth, uint64_t dt) {
 
 bool Npc::implTurnTo(const Npc& oth, AnimationSolver::TurnType anim, uint64_t dt) {
   if(&oth==this)
-    return true;
+    return false;
   auto dx = oth.x-x;
   auto dz = oth.z-z;
   return implTurnTo(dx,dz,anim,dt);
+  }
+
+bool Npc::implTurnTo(const WayPoint* wp, AnimationSolver::TurnType anim, uint64_t dt) {
+  if(wp==nullptr)
+    return false;
+  return implTurnTo(wp->dir.x,wp->dir.z,anim,dt);
   }
 
 bool Npc::implTurnTo(float dx, float dz, AnimationSolver::TurnType anim, uint64_t dt) {
@@ -1372,16 +1484,14 @@ bool Npc::implWhirlTo(const Npc &oth, uint64_t dt) {
 bool Npc::implGoTo(uint64_t dt) {
   float dist = 0;
   if(go2.npc) {
-    if(go2.flag==GT_EnemyG)
-      dist = fghAlgo.prefferedAttackDistance(*this,*go2.npc,owner.script()); else
-      dist = fghAlgo.baseDistance(*this,*go2.npc,owner.script());
+    dist = fghAlgo.prefferedAttackDistance(*this,*go2.npc,owner.script());
     } else {
     // use smaller threshold, to avoid edge-looping in script
     dist = MoveAlgo::closeToPointThreshold*0.5f;
     if(!mvAlgo.checkLastBounce())
       dist = MoveAlgo::closeToPointThreshold*1.5f;
     if(go2.wp!=nullptr && go2.wp->useCounter()>1)
-      dist += 100;
+      dist = float(MAX_AI_USE_DISTANCE);
     }
   return implGoTo(dt,dist);
   }
@@ -1395,12 +1505,13 @@ bool Npc::implGoTo(uint64_t dt, float destDist) {
     return true;
     }
 
-  auto dpos = go2.target()-position();
+  auto target = go2.target();
+  auto dpos   = target - position();
 
   if(go2.flag==GT_Flee) {
     // nop
     }
-  else if(mvAlgo.isClose(go2.target(),destDist)) {
+  else if(go2.isClose(*this, destDist)) {
     bool finished = true;
     if(go2.flag==GT_Way) {
       go2.wp = go2.wp->hasLadderConn(wayPath.first()) ? wayPath.first() : wayPath.pop();
@@ -1414,11 +1525,12 @@ bool Npc::implGoTo(uint64_t dt, float destDist) {
         }
       }
     if(finished) {
-      if(go2.flag==Npc::GT_NextFp && implTurnTo(go2.wp->dirX,go2.wp->dirZ,AnimationSolver::TurnType::Std,dt))
+      if(go2.flag==Npc::GT_NextFp && implTurnTo(go2.wp,AnimationSolver::TurnType::Std,dt))
         return true;
       clearGoTo();
       }
-    } else {
+    }
+  else {
     if(setGoToLadder()) {
       mvAlgo.tick(dt);
       return true;
@@ -1444,44 +1556,63 @@ bool Npc::implAttack(uint64_t dt) {
   if(currentTarget->isDown()){
     // NOTE: don't clear internal target, to make scripts happy
     // currentTarget=nullptr;
-    if(go2.flag==GT_EnemyA || go2.flag==GT_EnemyG) {
-      stopWalking();
-      go2.clear();
-      }
     fghAlgo.onClearTarget();
     return false;
+    }
+
+  if(aiQueue.size()>0) {
+    // do not messup weapon change animations by MOVE intruction
+    return false;
+    }
+
+  const auto ws = weaponState();
+  const auto bs = bodyStateMasked();
+
+  if(bs==BS_HIT && (ws==WeaponState::Fist || ws==WeaponState::W1H || ws==WeaponState::W2H)) {
+    //NOTE: 'storm' attack has BS_RUN state and not meant to be auto-rotated
+    implTurnToFai(*currentTarget,dt);
+    mvAlgo.tick(dt,MoveAlgo::FaiMove);
+    return true;
     }
 
   if(!fghAlgo.hasInstructions())
     return false;
 
-  const auto bs = bodyStateMasked();
   if(bs==BS_LIE) {
     setAnim(Npc::Anim::Idle);
     mvAlgo.tick(dt,MoveAlgo::FaiMove);
     return true;
     }
-  if(bs==BS_STUMBLE || bs==BS_LIE || isInAir()) {
+  if(bs==BS_STUMBLE || bs==BS_FALL || isInAir()) {
     mvAlgo.tick(dt,MoveAlgo::FaiMove);
     return true;
     }
 
-  if(faiWaitTime>=owner.tickCount()) {
-    adjustAttackRotation(dt);
+  if(faiWaitTime>=owner.tickCount() || waitTime>=owner.tickCount()) {
+    implTurnToFai(*currentTarget,dt);
     mvAlgo.tick(dt,MoveAlgo::FaiMove);
     return true;
     }
 
-  auto ws = weaponState();
+  const auto act = fghAlgo.nextFromQueue(*this,*currentTarget,owner.script());
+
+  // NOTE: in original-game, this behaviour seem to be hardcoded
+  // test case: wolf jump-back quite often when close, but programmed to jump only if attacked
+  // so far promoting wait to jump seem to work best
+  const bool jmp = fghAlgo.isInCloseupRange(*this,*currentTarget,owner.script()) && fghAlgo.isInFocusAngle(*this,*currentTarget);
+
   // vanilla behavior, required for orcs in G1 orcgraveyard
-  if(ws==WeaponState::NoWeapon && isAiQueueEmpty()) {
-    if(drawWeaponMelee())
-      return true;
+  if(ws==WeaponState::NoWeapon && isAiQueueEmpty() && canSwitchWeapon()) {
+    drawWeaponMelee();
+    return true;
     }
-
-  FightAlgo::Action act = fghAlgo.nextFromQueue(*this,*currentTarget,owner.script());
 
   if(act==FightAlgo::MV_BLOCK) {
+    if(!fghAlgo.isInFocusAngle(*this, *currentTarget)) {
+      fghAlgo.consumeAction();
+      return true;
+      }
+
     switch(ws) {
       case WeaponState::Fist: {
         if(blockFist())
@@ -1502,13 +1633,17 @@ bool Npc::implAttack(uint64_t dt) {
     }
 
   if(act==FightAlgo::MV_ATTACK || act==FightAlgo::MV_ATTACKL || act==FightAlgo::MV_ATTACKR) {
-    if(canSenseNpc(*currentTarget,false)==SensesBit::SENSE_NONE) {
-      if(bs==BS_RUN)
-        setAnim(Npc::Anim::Idle); else
-        adjustAttackRotation(dt);
+    //NOTE: FIGHT_DIST_CANCEL in scipts is often longer, than senses_range of npc
+    const auto sense = fghAlgo.isInFocusAngle(*this,*currentTarget,5.f);
+    if(!sense) {
+      implTurnToFai(*currentTarget,dt);
       mvAlgo.tick(dt,MoveAlgo::FaiMove);
       return true;
       }
+#if 0
+    fghAlgo.consumeAction(); //debug
+    return true;
+#endif
 
     static const Anim ani[4] = {Anim::Attack, Anim::AttackL, Anim::AttackR};
     if((act!=FightAlgo::MV_ATTACK && bodyState()!=BS_RUN) &&
@@ -1517,11 +1652,10 @@ bool Npc::implAttack(uint64_t dt) {
       return true;
       }
 
-    auto ws = weaponState();
     if(ws==WeaponState::Bow || ws==WeaponState::CBow || ws==WeaponState::Mage) {
       bool obsticle = false;
       if(currentTarget!=nullptr) {
-        auto hit = owner.physic()->rayNpc(this->mapWeaponBone(),currentTarget->centerPosition());
+        auto hit = owner.physic()->rayNpc(this->mapWeaponBone(),currentTarget->centerPosition(),this);
         if(hit.hasCol && hit.npcHit!=currentTarget) {
           obsticle = true;
           // if(hit.npcHit!=nullptr && owner.script().personAttitude(*this,*hit.npcHit)==ATT_HOSTILE)
@@ -1546,38 +1680,42 @@ bool Npc::implAttack(uint64_t dt) {
       }
 
     if(ws==WeaponState::Mage) {
-      setAnimRotate(0);
-      if(!beginCastSpell())
+      const auto cast = beginCastSpell();
+      if(cast==BeginCastResult::BC_No)
         return false;
       fghAlgo.consumeAction();
       }
     else if(ws==WeaponState::Bow || ws==WeaponState::CBow) {
       if(shootBow()) {
         fghAlgo.consumeAction();
-        } else {
-        if(!implTurnTo(*currentTarget,AnimationSolver::TurnType::None,dt)) {
-          if(!aimBow())
-            setAnim(Anim::Idle);
-          }
+        }
+      else if(!implTurnToFai(*currentTarget,dt)) {
+        aimBow();
         }
       }
-    else if(ws==WeaponState::Fist) {
-      if(doAttack(Anim::Attack,BS_HIT) || mvAlgo.isSwim() || mvAlgo.isDive()) {
+    else if(ws==WeaponState::Fist || ws==WeaponState::W1H || ws==WeaponState::W2H) {
+      const auto hit = owner.physic()->ray(this->collosionCenter(),currentTarget->collosionCenter());
+      if(hit.hasCol) {
+        // blocked by wall
+        fghAlgo.consumeAction();
+        return true;
+        }
+      const auto atkType = (ws==WeaponState::Fist) ? Anim::Attack : ani[act-FightAlgo::MV_ATTACK];
+      const bool atk     = doAttack(atkType, BS_HIT);
+
+      if(atk || mvAlgo.isSwim() || mvAlgo.isDive()) {
         uint64_t aniTime = visual.pose().atkTotalTime()+1;
         implFaiWait(aniTime);
         if(bs==BS_RUN)
           implAniWait(aniTime);
         fghAlgo.consumeAction();
+        } else {
+        implTurnToFai(*currentTarget,dt);
         }
       }
     else {
-      if(doAttack(ani[act-FightAlgo::MV_ATTACK],BS_HIT)) {
-        uint64_t aniTime = visual.pose().atkTotalTime()+1;
-        implFaiWait(aniTime);
-        if(bs==BS_RUN)
-          implAniWait(aniTime);
-        fghAlgo.consumeAction();
-        }
+      // Attack action without any weapon. Can happend at weapon transition(orc shaman) - skip it.
+      fghAlgo.consumeAction();
       }
     return true;
     }
@@ -1594,6 +1732,11 @@ bool Npc::implAttack(uint64_t dt) {
       implFaiWait(visual.pose().animationTotalTime());
       fghAlgo.consumeAction();
       }
+    else if(!hasAnim(Npc::Anim::MoveL)) {
+      // avoid soft-locks
+      visual.setAnimRotate(*this,0);
+      fghAlgo.consumeAction();
+      }
     return true;
     }
 
@@ -1603,10 +1746,37 @@ bool Npc::implAttack(uint64_t dt) {
       implFaiWait(visual.pose().animationTotalTime());
       fghAlgo.consumeAction();
       }
+    else if(!hasAnim(Npc::Anim::MoveR)) {
+      // avoid soft-locks
+      visual.setAnimRotate(*this,0);
+      fghAlgo.consumeAction();
+      }
     return true;
     }
 
-  if(act==FightAlgo::MV_JUMPBACK) {
+  if(act==FightAlgo::MV_STRAFE_E) {
+    // finalize strafe
+    if(!setAnim(Npc::Anim::Idle))
+      return false;
+    fghAlgo.consumeAction();
+    return true;
+    }
+
+  if(act==FightAlgo::MV_JUMPBACK || (act==FightAlgo::MV_WAIT && jmp) || (act==FightAlgo::MV_TURN && jmp)) {
+    if(isSwim()) {
+      fghAlgo.consumeAction();
+      return true;
+      }
+    if(bodyStateMasked()==BS_PARADE) {
+      fghAlgo.consumeAction();
+      return true;
+      }
+    if(!fghAlgo.isInFocusAngle(*this, *currentTarget) && !jmp) {
+      //NOTE: jump-back is ultimate defence, so better to use it only if npc face player directly
+      fghAlgo.consumeAction();
+      aiState.loopNextTime = owner.tickCount(); // force ZS_MM_Attack_Loop call
+      return true;
+      }
     if(setAnim(Npc::Anim::MoveBack)) {
       implFaiWait(visual.pose().animationTotalTime());
       fghAlgo.consumeAction();
@@ -1614,72 +1784,94 @@ bool Npc::implAttack(uint64_t dt) {
     return true;
     }
 
-  if(act==FightAlgo::MV_MOVEA || act==FightAlgo::MV_MOVEG ||
-      act==FightAlgo::MV_TURNA || act==FightAlgo::MV_TURNG) {
-    if(!isAiQueueEmpty() && implAiTick(dt))
+  if(act==FightAlgo::MV_MOVE || act==FightAlgo::MV_TURN) {
+    if(currentTarget->isDown()) {
+      if(setAnim(Anim::Idle))
+        fghAlgo.consumeAction();
       return true;
-    go2.set(currentTarget,(act==FightAlgo::MV_MOVEG || act==FightAlgo::MV_TURNG) ?
-                             GoToHint::GT_EnemyG : GoToHint::GT_EnemyA);
+      }
 
-    float dist = 0;
-    if(act==FightAlgo::MV_MOVEG || act==FightAlgo::MV_TURNG)
-      dist = fghAlgo.prefferedGDistance(*this,*go2.npc,owner.script()); else
-      dist = fghAlgo.prefferedAttackDistance(*this,*go2.npc,owner.script());
+    const bool prGRange = fghAlgo.isInGRange(*this, *currentTarget, owner.script());
+    const bool prWRange = fghAlgo.isInWRange(*this, *currentTarget, owner.script());
+    const auto prBs     = bs;
 
-    static float padding = 10;
-    dist = std::max(dist-padding,0.f);
+    const float distance = qDistTo(*currentTarget);
+    const float range    = float(handle().senses_range);
 
-    const bool isClose = (qDistTo(*currentTarget) < dist*dist);
-    if((!isClose && implGoTo(dt)) || implTurnTo(*currentTarget,dt)) {
+    if(!prGRange && distance<range*range) {
+      // if npc is reasonably far, we can switch to propper pathfinding
+      const auto hit = owner.physic()->ray(this->collosionCenter(), currentTarget->collosionCenter());
+      if(hit.hasCol) {
+        auto near = owner.findWayPoint(currentTarget->position(), [this](const WayPoint &wp) {
+          if(!currentTarget->canRayHitPoint(wp.pos))
+            return false;
+          return true;
+          });
+        if(near!=nullptr) {
+          if(near!=wayPath.last()) {
+            wayPath = owner.wayTo(*this,*near);
+            go2.set(wayPath.first(), GT_Way);
+            }
+          return false;
+          }
+        }
+      }
+
+    if(prWRange) {
+      //NOTE: bloodfly and other monsters may run to close to player otherwise
+      //NOTE2: also for bloodfly we have to use 'hard-stop', to avoid trailing flight
+      visual.stopWalkAnim(*this);
+      //setAnim(Anim::Idle);
+      implTurnToFai(*currentTarget,dt);
+      } else {
+      if(mvAlgo.checkLastBounce()) {
+        if(implTurnToFai(*currentTarget,dt))
+          return true;
+        }
+      setAnim(AnimationSolver::Move);
+      go2.set(currentTarget, GT_Enemy);
+      mvAlgo.tick(dt, MoveAlgo::FaiMove);
       go2.clear();
+      wayPath.clear();
+      }
+
+    const bool isGRange = fghAlgo.isInGRange(*this, *currentTarget, owner.script());
+    const bool isWRange = fghAlgo.isInWRange(*this, *currentTarget, owner.script());
+    const bool isFocus  = fghAlgo.isInFocusAngle(*this, *currentTarget, 5.f);
+
+    if((isWRange || (isGRange!=prGRange) || prBs!=bodyStateMasked()) && isFocus) {
+      visual.setAnimRotate(*this, 0);
+      fghAlgo.consumeAction();
+      aiState.loopNextTime = owner.tickCount(); // force ZS_MM_Attack_Loop call
       implAiTick(dt);
       return true;
       }
 
-    if(act!=FightAlgo::MV_TURNA && act!=FightAlgo::MV_TURNG)
-      setAnim(Anim::Idle);
-    go2.clear();
-    fghAlgo.consumeAction();
-    aiState.loopNextTime = owner.tickCount(); // force ZS_MM_Attack_Loop call
     implAiTick(dt);
-
-    //auto next = fghAlgo.nextFromQueue(*this,*currentTarget,owner.script());
     return true;
     }
 
   if(act==FightAlgo::MV_WAIT) {
     implFaiWait(200);
     fghAlgo.consumeAction();
-    setAnim(AnimationSolver::Idle);
+    stopWalkAnimation();
     return true;
     }
 
   if(act==FightAlgo::MV_WAITLONG) {
     implFaiWait(300);
     fghAlgo.consumeAction();
-    setAnim(AnimationSolver::Idle);
+    stopWalkAnimation();
     return true;
     }
 
   if(act==FightAlgo::MV_NULL) {
     fghAlgo.consumeAction();
-    setAnim(AnimationSolver::Idle);
+    stopWalkAnimation();
     return true;
     }
 
   return true;
-  }
-
-void Npc::adjustAttackRotation(uint64_t dt) {
-  if(currentTarget!=nullptr && !currentTarget->isDown()) {
-    auto ws = weaponState();
-    if(ws!=WeaponState::NoWeapon) {
-      enum AnimationSolver::TurnType anim = !hasAutoroll() ? AnimationSolver::TurnType::None : AnimationSolver::TurnType::Std;
-      if(ws==WeaponState::Bow || ws==WeaponState::CBow || ws==WeaponState::Mage)
-         anim = AnimationSolver::TurnType::None;
-      implTurnTo(*currentTarget,anim,dt);
-      }
-    }
   }
 
 bool Npc::implAiTick(uint64_t dt) {
@@ -1718,22 +1910,25 @@ void Npc::implSetFightMode(const Animation::EvCount& ev) {
 
   if(ev.weaponCh==zenkit::MdsFightMode::NONE && (ws==WeaponState::W1H || ws==WeaponState::W2H)) {
     if(auto melee = invent.currentMeleeWeapon()) {
+      auto at = centerPosition();
       if(melee->handle().material==ItemMaterial::MAT_METAL)
-        sfxWeapon = ::Sound(owner,::Sound::T_Regular,"UNDRAWSOUND_ME.WAV",{x,y+translateY(),z},2500,false); else
-        sfxWeapon = ::Sound(owner,::Sound::T_Regular,"UNDRAWSOUND_WO.WAV",{x,y+translateY(),z},2500,false);
+        sfxWeapon = ::Sound(owner,::Sound::T_Regular,"UNDRAWSOUND_ME.WAV",at,2500,false); else
+        sfxWeapon = ::Sound(owner,::Sound::T_Regular,"UNDRAWSOUND_WO.WAV",at,2500,false);
       sfxWeapon.play();
       }
     }
   else if(ev.weaponCh==zenkit::MdsFightMode::SINGLE_HANDED || ev.weaponCh==zenkit::MdsFightMode::DUAL_HANDED) {
     if(auto melee = invent.currentMeleeWeapon()) {
+      auto at = centerPosition();
       if(melee->handle().material==ItemMaterial::MAT_METAL)
-        sfxWeapon = ::Sound(owner,::Sound::T_Regular,"DRAWSOUND_ME.WAV",{x,y+translateY(),z},2500,false); else
-        sfxWeapon = ::Sound(owner,::Sound::T_Regular,"DRAWSOUND_WO.WAV",{x,y+translateY(),z},2500,false);
+        sfxWeapon = ::Sound(owner,::Sound::T_Regular,"DRAWSOUND_ME.WAV",at,2500,false); else
+        sfxWeapon = ::Sound(owner,::Sound::T_Regular,"DRAWSOUND_WO.WAV",at,2500,false);
       sfxWeapon.play();
       }
     }
   else if(ev.weaponCh==zenkit::MdsFightMode::BOW || ev.weaponCh==zenkit::MdsFightMode::CROSSBOW) {
-    sfxWeapon = ::Sound(owner,::Sound::T_Regular,"DRAWSOUND_BOW",{x,y+translateY(),z},2500,false);
+    auto at = centerPosition();
+    sfxWeapon = ::Sound(owner,::Sound::T_Regular,"DRAWSOUND_BOW",at,2500,false);
     sfxWeapon.play();
     }
   dropTorch();
@@ -1766,8 +1961,7 @@ bool Npc::implAiFlee(uint64_t dt) {
     });
 
   if(go2.flag!=GT_Flee && go2.flag!=GT_No) {
-    go2.clear();
-    setAnim(Anim::Idle);
+    clearGoTo();
     }
 
   auto anim = (go2.flag!=GT_No)?AnimationSolver::TurnType::None:AnimationSolver::TurnType::Std;
@@ -1777,8 +1971,8 @@ bool Npc::implAiFlee(uint64_t dt) {
     if(implTurnTo(-dx,-dz,anim,dt))
       return (go2.flag==GT_Flee);
     } else {
-    auto  dx  = wp->x-x;
-    auto  dz  = wp->z-z;
+    auto  dx  = wp->pos.x-x;
+    auto  dz  = wp->pos.z-z;
     if(implTurnTo(dx,dz,anim,dt))
       return (go2.flag==GT_Flee);
     }
@@ -1792,8 +1986,10 @@ bool Npc::setGoToLadder() {
   if(go2.wp==nullptr || go2.wp!=wayPath.first())
     return false;
   auto inter = go2.wp->ladder;
+  if(inter==nullptr)
+    return false;
   auto pos   = inter->nearestPoint(*this);
-  if(mvAlgo.isClose(pos,MAX_AI_USE_DISTANCE)) {
+  if(MoveAlgo::isClose(*this,pos,MAX_AI_USE_DISTANCE)) {
     if(!inter->isAvailable())
       setAnim(AnimationSolver::Idle);
     else if(setInteraction(inter))
@@ -1818,10 +2014,11 @@ void Npc::takeDamage(Npc &other, const Bullet* b) {
     return;
 
   assert(b==nullptr || !b->isSpell());
-  const bool isJumpb = visual.pose().isJumpBack();
-  const bool isBlock = (!other.isMonster() || other.inventory().activeWeapon()!=nullptr) &&
-                       fghAlgo.isInFocusAngle(*this,other) &&
-                       visual.pose().isDefence(owner.tickCount());
+  const auto& pose    = visual.pose();
+  const bool  isJumpb = pose.isJumpBack(owner.tickCount()) && fghAlgo.isInJumpBackAngle(*this,other);
+  const bool  isBlock = (!other.isMonster() || other.inventory().activeWeapon()!=nullptr) &&
+                         fghAlgo.isInFocusAngle(*this,other) &&
+                         pose.isDefence(owner.tickCount());
 
   lastHit = &other;
   if(!isPlayer())
@@ -1841,7 +2038,7 @@ void Npc::takeDamage(Npc& other, const Bullet* b, const VisualFx* vfx, int32_t s
     return;
 
   lastHitSpell = splId;
-  lastHit = &other;
+  lastHit      = &other;
   if(!isPlayer())
     setOther(&other);
 
@@ -1884,23 +2081,29 @@ void Npc::takeDamage(Npc& other, const Bullet* b, const CollideMask bMask, int32
     owner.addWeaponHitEffect(other,b,*this).play();
 
   if(isDown()) {
-    // check again after PERC_ASSESSDAMAGE script
     onNoHealth(dontKill,HS_NoSound);
     return;
     }
 
   if(hitResult.hasHit) {
-    if(bodyStateMasked()!=BS_UNCONSCIOUS && interactive()==nullptr && !isSwim() && !mvAlgo.isClimb()) {
+    auto state = bodyStateMasked();
+    if(interactive()==nullptr && ((state&BS_FLAG_INTERRUPTABLE)!=BS_NONE || state==BS_RUN || state==BS_NONE)) {
+      //NONE/RUN requires for monsters like waran
       const bool noInter = (hnpc->bodystate_interruptable_override!=0);
       if(!noInter) {
-        visual.setAnimRotate(*this,0);
+        //NOTE: kepp rotation animation: this results in more accurate fight with trolls
+        // visual.setAnimRotate(*this,0);
         visual.interrupt(); // TODO: put down in pipeline, at Pose and merge with setAnimAngGet
         }
 
-      if(damageType & (1<<zenkit::DamageType::FLY))
-        setAnimAngGet(lastHitType=='A' ? Anim::FallDeepA : Anim::FallDeepB); else
-        setAnimAngGet(lastHitType=='A' ? Anim::StumbleA : Anim::StumbleB);
+      if((damageType & (1<<zenkit::DamageType::FLY))==0)
+        setAnimAngGet(lastHitType=='A' ? Anim::StumbleA  : Anim::StumbleB);
       }
+    }
+
+  // throw enemy
+  if(hitResult.hasHit && (damageType & (1<<zenkit::DamageType::FLY))) {
+    mvAlgo.accessDamFly(x-other.x, z-other.z, lastHitType);
     }
 
   if(hitResult.value>0) {
@@ -1921,10 +2124,6 @@ void Npc::takeDamage(Npc& other, const Bullet* b, const CollideMask bMask, int32
           }
         }
       }
-    }
-
-  if((damageType & (1<<zenkit::DamageType::FLY)) && !isLie()) {
-    mvAlgo.accessDamFly(x-other.x,z-other.z); // throw enemy
     }
   }
 
@@ -1958,7 +2157,7 @@ void Npc::takeDrownDamage() {
   }
 
 Npc *Npc::updateNearestEnemy() {
-  if(aiPolicy!=ProcessPolicy::AiNormal)
+  if(aiPolicy!=NpcProcessPolicy::AiNormal)
     return nullptr;
 
   Npc*  ret  = nullptr;
@@ -1984,7 +2183,7 @@ Npc *Npc::updateNearestEnemy() {
   }
 
 Npc* Npc::updateNearestBody() {
-  if(aiPolicy!=ProcessPolicy::AiNormal)
+  if(aiPolicy!=NpcProcessPolicy::AiNormal)
     return nullptr;
 
   Npc*  ret  = nullptr;
@@ -2122,7 +2321,7 @@ void Npc::tickAnimationTags() {
 
   for(auto& i:ev.morph)
     visual.startMMAnim(*this,i.anim,i.node);
-  if(ev.groundSounds>0 && isPlayer() && (bodyStateMasked()!=BodyState::BS_SNEAK))
+  if(ev.groundSounds>0 && isPlayer() && bodyStateMasked()!=BodyState::BS_SNEAK)
     world().sendImmediatePerc(*this,*this,*this,PERC_ASSESSQUIETSOUND);
   if(ev.def_opt_frame>0)
     commitDamage();
@@ -2132,9 +2331,11 @@ void Npc::tickAnimationTags() {
 
 void Npc::tick(uint64_t dt) {
   static bool dbg = false;
-  static int  kId = -1;
+  static int  kId = 432;
   if(dbg && !isPlayer() && hnpc->id!=kId)
     return;
+
+  assert(go2.flag!=GoToHint::GT_Enemy && go2.flag!=GoToHint::GT_EnemyG);
 
   tickAnimationTags();
 
@@ -2150,8 +2351,10 @@ void Npc::tick(uint64_t dt) {
       if(tickSz>0) {
         t-=v;
         int dmg = t/tickSz - (t-int(dt))/tickSz;
-        if(dmg>0)
+        if(dmg>0) {
+          lastHit = nullptr;
           changeAttribute(ATR_HITPOINTS,-dmg,false);
+          }
         }
       }
     }
@@ -2169,8 +2372,9 @@ void Npc::tick(uint64_t dt) {
     }
 
   if(waitTime>=owner.tickCount() || aniWaitTime>=owner.tickCount() || outWaitTime>owner.tickCount()) {
-    if(!isPlayer() && faiWaitTime<owner.tickCount())
-      adjustAttackRotation(dt);
+    if(!isPlayer() && go2.flag!=GT_Flee && faiWaitTime<owner.tickCount() && currentTarget!=nullptr) {
+      implTurnToFai(*currentTarget,dt);
+      }
     mvAlgo.tick(dt,MoveAlgo::WaitMove);
     return;
     }
@@ -2205,7 +2409,7 @@ bool Npc::prepareTurn() {
     visual.stopDlgAnim(*this);
     }
   return true;
-}
+  }
 
 void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
   if(isInAir())
@@ -2267,8 +2471,7 @@ void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
         queue.pushFront(std::move(act));
         break;
         }
-      currentFp       = nullptr;
-      currentFpLock   = FpLock();
+      attachToPoint(nullptr);
       go2.set(act.target);
       wayPath.clear();
       break;
@@ -2279,8 +2482,7 @@ void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
         }
       auto fp = owner.findNextFreePoint(*this,act.s0);
       if(fp!=nullptr) {
-        currentFp       = fp;
-        currentFpLock   = FpLock(*fp);
+        attachToPoint(fp);
         go2.set(fp,GoToHint::GT_NextFp);
         wayPath.clear();
         }
@@ -2330,10 +2532,12 @@ void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
         }
       break;
     case AI_PlayAnim:{
+      owner.script().eventPlayAni(*this, act.s0);
       if(auto sq = playAnimByName(act.s0,BS_NONE)) {
         implAniWait(uint64_t(sq->totalTime()));
+        implFaiWait(uint64_t(sq->totalTime()));
         } else {
-        if(visual.isAnimExist(act.s0))
+        if(visual.hasAnim(act.s0))
           queue.pushFront(std::move(act));
         }
       break;
@@ -2342,8 +2546,9 @@ void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
       BodyState bs = BodyState(act.i0);
       if(auto sq = playAnimByName(act.s0,bs)) {
         implAniWait(uint64_t(sq->totalTime()));
+        implFaiWait(uint64_t(sq->totalTime()));
         } else {
-        if(visual.isAnimExist(act.s0)) {
+        if(visual.hasAnim(act.s0)) {
           queue.pushFront(std::move(act));
           } else {
           /* ZS_MM_Rtn_Sleep will set NPC_WALK mode and run T_STAND_2_SLEEP animation.
@@ -2424,9 +2629,7 @@ void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
 
       if(inter!=nullptr) {
         auto pos = inter->nearestPoint(*this);
-        auto dp  = pos-position();
-        dp.y = 0;
-        if(currentInteract==nullptr && dp.quadLength()>MAX_AI_USE_DISTANCE*MAX_AI_USE_DISTANCE) { // too far
+        if(currentInteract==nullptr && !MoveAlgo::isClose(*this, pos, MAX_AI_USE_DISTANCE)) { // too far
           go2.set(pos);
           // go to MOBSI and then complete AI_UseMob
           queue.pushFront(std::move(act));
@@ -2442,7 +2645,7 @@ void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
         return;
         }
 
-      go2.clear();
+      clearGoTo();
       break;
       }
     case AI_UseItem: {
@@ -2466,8 +2669,8 @@ void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
         }
       break;
     case AI_Teleport: {
-      setPosition(act.point->x,act.point->y,act.point->z);
-      setDirection(act.point->dirX,act.point->dirY,act.point->dirZ);
+      setPosition (act.point->position() );
+      setDirection(act.point->direction());
       if(isPlayer()) {
         updateTransform();
         Gothic::inst().camera()->reset(this);
@@ -2475,31 +2678,27 @@ void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
       }
       break;
     case AI_DrawWeapon:
-      if(!isDead()) {
-        fghAlgo.onClearTarget();
+      if(canSwitchWeapon()) {
         if(!drawWeaponMelee() &&
            !drawWeaponBow())
           queue.pushFront(std::move(act));
         }
       break;
     case AI_DrawWeaponMelee:
-      if(!isDead()) {
-        fghAlgo.onClearTarget();
+      if(canSwitchWeapon()) {
         if(!drawWeaponMelee())
           queue.pushFront(std::move(act));
         }
       break;
     case AI_DrawWeaponRange:
-      if(!isDead()) {
-        fghAlgo.onClearTarget();
+      if(canSwitchWeapon()) {
         if(!drawWeaponBow())
           queue.pushFront(std::move(act));
         }
       break;
     case AI_DrawSpell: {
-      if(!isDead()) {
+      if(canSwitchWeapon()) {
         const int32_t spell = act.i0;
-        fghAlgo.onClearTarget();
         if(drawSpell(spell))
           aiExpectedInvest = act.i1; else
           queue.pushFront(std::move(act));
@@ -2534,7 +2733,7 @@ void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
     case AI_OutputSvm:
     case AI_OutputSvmOverlay:{
       if(performOutput(act)) {
-        if(aiPolicy!=ProcessPolicy::AiFar2) {
+        if(aiPolicy!=NpcProcessPolicy::AiFar2) {
           uint64_t msgTime = 0;
           if(act.act==AI_Output) {
             msgTime = owner.script().messageTime(act.s0);
@@ -2603,8 +2802,8 @@ void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
     case AI_AlignToWp:
     case AI_AlignToFp:{
       if(auto fp = currentFp){
-        if(fp->dirX!=0.f || fp->dirZ!=0.f){
-          if(implTurnTo(fp->dirX,fp->dirZ,AnimationSolver::TurnType::Std,dt))
+        if(fp->dir.x!=0.f || fp->dir.z!=0.f){
+          if(implTurnTo(fp->dir.x,fp->dir.z,AnimationSolver::TurnType::Std,dt))
             queue.pushFront(std::move(act));
           }
         }
@@ -2631,9 +2830,18 @@ void Npc::nextAiAction(AiQueue& queue, uint64_t dt) {
       if(act.target==nullptr || !act.target->isUnconscious())
         break;
 
-      if(!fghAlgo.isInAttackRange(*this,*act.target,owner.script())){
+      if(!fghAlgo.isInFinishRange(*this,*act.target,owner.script())){
         queue.pushFront(std::move(act));
-        implGoTo(dt,fghAlgo.prefferedAttackDistance(*this,*act.target,owner.script()));
+        go2.set(act.target);
+        setAnim(Npc::Anim::Move);
+        implGoTo(dt,fghAlgo.attackFinishDistance(owner.script()));
+        }
+      else if(!isStanding()) {
+        clearGoTo();
+        queue.pushFront(std::move(act));
+        }
+      else if(!implTurnTo(*act.target,dt)) {
+        queue.pushFront(std::move(act));
         }
       else if(canFinish(*act.target)){
         setTarget(act.target);
@@ -2704,7 +2912,8 @@ bool Npc::startState(ScriptFn id, std::string_view wp, gtime endTime, bool noFin
       // NOTE: B_AssessQuietSound can cause soft-lock on npc without this
       aiState.started = false;
       }
-    hnpc->wp = wp;
+    if(!wp.empty())
+      hnpc->wp = wp;
     return true;
     }
 
@@ -2715,11 +2924,11 @@ bool Npc::startState(ScriptFn id, std::string_view wp, gtime endTime, bool noFin
 
   {
     // ZS_GotoBed -> ZS_Sleep relie on clean state
-    for(size_t i=0;i<PERC_Count;++i)
+    for(size_t i=0; i<PERC_Count; ++i)
       setPerceptionDisable(PercType(i));
   }
 
-  if(wp=="TOT" && aiPolicy!=Player && aiPolicy!=AiNormal) {
+  if(wp=="TOT" && aiPolicy!=NpcProcessPolicy::Player && aiPolicy!=NpcProcessPolicy::AiNormal) {
     // workaround for Pedro removal script
     auto& point = owner.deadPoint();
     attachToPoint(nullptr);
@@ -2727,10 +2936,13 @@ bool Npc::startState(ScriptFn id, std::string_view wp, gtime endTime, bool noFin
     }
 
   auto& st = owner.script().aiState(id);
-  // allowed player states are hard-coded
-  // https://forum.worldofplayers.de/forum/threads/1533803-G1-AI_StartState-hardcoded-ZS-states-for-Player?p=26034737&viewfull=1#post26034737
-  if(isPlayer() && !isPlayerEnabledState(st))
+  if(isPlayer() && !isPlayerEnabledState(st)) {
+    // disable for now, as it causes infinite lock in freeze state
+    // https://github.com/Try/OpenGothic/issues/906
+    // extra 'aiStandup' to avoid issue with B_StopMagicFreeze
+    aiPush(AiQueue::aiStandup());
     return false;
+    }
 
   aiState.started      = false;
   aiState.funcIni      = st.funcIni;
@@ -2740,8 +2952,6 @@ bool Npc::startState(ScriptFn id, std::string_view wp, gtime endTime, bool noFin
   aiState.eTime        = endTime;
   aiState.loopNextTime = owner.tickCount();
   aiState.hint         = st.name();
-  // WA: for gothic1 dialogs
-  perceptionNextTime   = owner.tickCount();
   return true;
   }
 
@@ -2757,6 +2967,9 @@ void Npc::clearState(bool noFinalize) {
   }
 
 bool Npc::isPlayerEnabledState(const ::AiState& st) const {
+  // allowed player states are hard-coded
+  // https://forum.worldofplayers.de/forum/threads/1533803-G1-AI_StartState-hardcoded-ZS-states-for-Player?p=26034737&viewfull=1#post26034737
+
   static const std::array playerEnabledStatesG1 = {
     "ZS_DEAD",   "ZS_UNCONSCIOUS", "ZS_MAGICFREEZE",
     "ZS_PYRO",   "ZS_ASSESSMAGIC", "ZS_ASSESSSTOPMAGIC",
@@ -2785,51 +2998,62 @@ void Npc::tickRoutine() {
   if(!aiState.funcIni.isValid() && !isPlayer()) {
     auto r = currentRoutine();
     if(r.callback.isValid()) {
-      if(r.point!=nullptr)
-        hnpc->wp = r.point->name;
       auto t = endTime(r);
-      startState(r.callback,r.point ? r.point->name : "",t,false);
+      startState(r.callback, r.wayPointName(), t, false);
       }
     else if(hnpc->start_aistate!=0) {
-      startState(uint32_t(hnpc->start_aistate),"");
+      auto endTime = owner.time();
+      endTime.addMilis(uint64_t(gtime(4, 0).toInt()));
+      startState(uint32_t(hnpc->start_aistate), "", endTime, false);
       }
     }
 
   if(!aiState.funcIni.isValid())
     return;
 
-  /*HACK: don't process far away Npc*/
-  if(aiPolicy==Npc::ProcessPolicy::AiFar2 && routines.size()==0)
-    return;
-
-  if(aiState.started) {
-    if(aiState.loopNextTime<=owner.tickCount()) {
-      aiState.loopNextTime = owner.tickCount()+1000; // one tick per second?
-      int loop = LOOP_CONTINUE;
-      if(aiState.funcLoop.isValid()) {
-        loop = owner.script().invokeState(this,currentOther,currentVictim,aiState.funcLoop);
-        } else {
-        // ZS_DEATH   have no loop-function, in G1, G2-classic
-        // ZS_GETMEAT have no loop-function, in G2-notr
-        loop = owner.version().hasZSStateLoop() ? 1 : 0;
-        }
-
-      if(aiState.eTime<=owner.time()) {
-        // Avoid interruption of ZS_TALK/ZS_ATTACK
-        if(currentTarget==nullptr && outputPipe->isFinished())
-          loop = LOOP_END;
-        }
-
-      if(loop!=LOOP_CONTINUE) {
-        clearState(false);
-        currentOther  = nullptr;
-        currentVictim = nullptr;
-        }
-      }
-    } else {
+  auto& sc = owner.script();
+  if(!aiState.started) {
     aiState.started      = true;
     aiState.loopNextTime = owner.tickCount();
-    owner.script().invokeState(this,currentOther,currentVictim,aiState.funcIni);
+    // WA: for gothic1 dialogs
+    perceptionNextTime   = owner.tickCount();
+    sc.invokeState(this,currentOther,currentVictim,aiState.funcIni);
+    return;
+    }
+
+  const bool fastPath = (aiPolicy==NpcProcessPolicy::AiFar2 && routines.empty()); //HACK: don't process far away Npc
+  if(aiState.loopNextTime<=owner.tickCount()) {
+    aiState.loopNextTime = owner.tickCount() + perceptionTimeClampt();
+    int loop = LOOP_CONTINUE;
+    if(aiState.funcLoop.isValid()) {
+      static const float MAX_DIST = 300;
+      if(fastPath && currentFp!=nullptr && qDistTo(currentFp) < MAX_DIST*MAX_DIST) {
+        loop = LOOP_CONTINUE;
+        }
+      else if(fastPath && currentFp!=nullptr) {
+        // for debugging
+        loop = sc.invokeState(this,currentOther,currentVictim,aiState.funcLoop);
+        }
+      else {
+        loop = sc.invokeState(this,currentOther,currentVictim,aiState.funcLoop);
+        }
+      } else {
+      // ZS_DEATH   have no loop-function, in G1, G2-classic
+      // ZS_GETMEAT have no loop-function, in G2-notr
+      loop = owner.version().hasZSStateLoop() ? 1 : 0;
+      }
+
+    if(aiState.eTime<=owner.time()) {
+      // Avoid interruption of ZS_TALK/ZS_ATTACK
+      if(currentTarget==nullptr && outputPipe->isFinished())
+        loop = LOOP_END;
+      }
+
+    if(loop!=LOOP_CONTINUE) {
+      clearState(false);
+      currentOther  = nullptr;
+      currentVictim = nullptr;
+      }
     }
   }
 
@@ -2837,11 +3061,9 @@ void Npc::setTarget(Npc *t) {
   if(currentTarget==t)
     return;
 
-  currentTarget=t;
-  if(!go2.empty() && !isPlayer()) {
-    stopWalking();
-    go2.clear();
-    }
+  currentTarget = t;
+  if(!go2.empty() && !isPlayer())
+    clearGoTo();
   }
 
 Npc *Npc::target() const {
@@ -2875,7 +3097,7 @@ void Npc::setAiOutputBarrier(uint64_t dt, bool overlay) {
   }
 
 void Npc::emitSoundEffect(std::string_view sound, float range, bool freeSlot) {
-  auto sfx = ::Sound(owner,::Sound::T_Regular,sound,{x,y+translateY(),z},range,freeSlot);
+  auto sfx = ::Sound(owner,::Sound::T_Regular,sound,centerPosition(),range,freeSlot);
   sfx.play();
   }
 
@@ -3011,42 +3233,52 @@ void Npc::commitSpell() {
     }
   }
 
-const Npc::Routine& Npc::currentRoutine() const {
-  auto time = owner.time();
-  time = gtime(int32_t(time.hour()),int32_t(time.minute()));
+const Npc::Routine& Npc::currentRoutine(bool assertWp) const {
+  // find routine for current time
+  // if there is no such routine search counter clock-wise until one is found
+  auto time = owner.time().timeInDay();
   for(auto& i:routines) {
+    if(assertWp && i.point==nullptr)
+      continue;
     if(i.end<i.start && (time<i.end || i.start<=time))
       return i;
     if(i.start<=time && time<i.end)
       return i;
     }
 
-  // take a previous routine if none was found for current time
   const auto     day   = gtime(24,0).toInt();
-  const Routine* prevR = nullptr;
+  const Routine* rtn   = nullptr;
   int64_t        delta = std::numeric_limits<int64_t>::max();
-  time = time.timeInDay();
   for(auto& i:routines) {
+    if(assertWp && i.point==nullptr)
+      continue;
     int64_t d = time.toInt() - i.end.toInt();
     if(d<0)
       d += day;
-    if(d<=delta && d>0) {
-      prevR = &i;
+    // take the last one if multiple with same end time exist
+    if(d<=delta) {
+      rtn   = &i;
       delta = d;
       }
     }
 
-  if(prevR!=nullptr)
-    return *prevR;
-
+  if(rtn!=nullptr)
+    return *rtn;
   static Routine r;
   return r;
   }
 
+const WayPoint* Npc::currentTaPoint() const {
+  if(routines.empty())
+    return owner.findPoint(hnpc->wp,false);
+  return currentRoutine(true).point;
+  }
+
 gtime Npc::endTime(const Npc::Routine &r) const {
   auto wtime = owner.time();
-  auto time  = gtime(int32_t(wtime.hour()),int32_t(wtime.minute()));
+  auto time  = wtime.timeInDay();
 
+  //NOTE: should we consider time extension for invalid routine sequences?
   if(r.end<r.start) {
     if(time<r.end)
       return gtime(wtime.day(),r.end.hour(),r.end.minute());
@@ -3056,6 +3288,10 @@ gtime Npc::endTime(const Npc::Routine &r) const {
     if(r.end.hour()==0 || r.end<time)
       return gtime(wtime.day()+1,r.end.hour(),r.end.minute()); else
       return gtime(wtime.day(),r.end.hour(),r.end.minute());
+    }
+  if(r.start==r.end && r.end.toInt()==0) {
+    // for example Rtn_Start_1081 in NTR is filled with zeros
+    return gtime(wtime.day()+1,r.end.hour(),r.end.minute());
     }
   // error - routine is not active now
   return wtime;
@@ -3141,9 +3377,10 @@ void Npc::aiPush(AiQueue::AiAction&& a) {
 void Npc::resumeAiRoutine() {
   clearState(false);
   auto& r = currentRoutine();
-  auto  t = endTime(r);
-  if(r.callback.isValid())
-    startState(r.callback,r.point ? r.point->name : "",t,false);
+  if(r.callback.isValid()) {
+    auto t = endTime(r);
+    startState(r.callback,r.wayPointName(),t,false);
+    }
   }
 
 Item* Npc::addItem(const size_t item, size_t count) {
@@ -3161,14 +3398,12 @@ Item* Npc::takeItem(Item& item) {
     return nullptr;
 
   auto state = bodyStateMasked();
-  if(state!=BS_STAND && state!=BS_SNEAK) {
-    setAnim(Anim::Idle);
+  if(state!=BS_STAND && state!=BS_SNEAK && state!=BS_SWIM && state!=BS_DIVE) {
     return nullptr;
     }
 
-  auto dpos = item.position()-position();
-  dpos.y-=translateY();
-  const Animation::Sequence* sq = setAnimAngGet(Npc::Anim::ItmGet,Pose::calcAniCombVert(dpos));
+  const auto  dpos = item.midPosition()-centerPosition();
+  const auto* sq   = setAnimAngGet(Npc::Anim::ItmGet, Pose::calcAniCombVert(dpos));
   if(sq==nullptr)
     return nullptr;
 
@@ -3271,16 +3506,20 @@ void Npc::clearInventory() {
   invent.clear(owner.script(),*this);
   }
 
-Item *Npc::currentArmor() {
+Item* Npc::currentArmor() {
   return invent.currentArmor();
   }
 
-Item *Npc::currentMeleeWeapon() {
+Item* Npc::currentMeleeWeapon() {
   return invent.currentMeleeWeapon();
   }
 
-Item *Npc::currentRangedWeapon() {
+Item* Npc::currentRangedWeapon() {
   return invent.currentRangedWeapon();
+  }
+
+Item* Npc::currentShield() {
+  return invent.currentShield();
   }
 
 Vec3 Npc::mapWeaponBone() const {
@@ -3323,7 +3562,7 @@ bool Npc::rotateTo(float dx, float dz, float step, AnimationSolver::TurnType ani
   float da = a-angle;
 
   if(anim == AnimationSolver::TurnType::None || std::cos(double(da)*M_PI/180.0)>0) {
-    if(float(std::abs(int(da)%180))<=(step*2.f)) {
+    if(float(std::abs(int(da)%360))<=(step*2.f)) {
       setAnimRotate(0);
       setDirection(a);
       return false;
@@ -3396,7 +3635,13 @@ void Npc::unequipItem(size_t item) {
   }
 
 bool Npc::canSwitchWeapon() const {
-  return !(mvAlgo.isFalling() || mvAlgo.isInAir() || mvAlgo.isSlide() || mvAlgo.isSwim());
+  if(isUnconscious())
+    return false;
+  auto bs = bodyStateMasked();
+  if(bs==BS_STAND || bs==BS_WALK || bs==BS_RUN || bs==BS_SNEAK || bs==BS_NONE)
+    return true;
+  return false;
+  // return !(mvAlgo.isFalling() || mvAlgo.isInAir() || mvAlgo.isSlide() || mvAlgo.isSwim());
   }
 
 bool Npc::closeWeapon(bool noAnim) {
@@ -3509,7 +3754,7 @@ bool Npc::drawMage(uint8_t slot) {
   }
 
 bool Npc::drawSpell(int32_t spell) {
-  if(isFalling() || mvAlgo.isSwim() || bodyStateMasked()==BS_CASTING)
+  if(mvAlgo.isFalling() || mvAlgo.isSwim() || bodyStateMasked()==BS_CASTING)
     return false;
   auto weaponSt=weaponState();
   if(weaponSt!=WeaponState::NoWeapon && weaponSt!=WeaponState::Mage) {
@@ -3538,13 +3783,17 @@ bool Npc::canFinish(Npc& oth) {
   auto ws = weaponState();
   if(ws!=WeaponState::W1H && ws!=WeaponState::W2H)
     return false;
-  if(!oth.isUnconscious() || !fghAlgo.isInAttackRange(*this,oth,owner.script()))
+
+  if(!oth.isUnconscious())
+    return false;
+
+  if(!fghAlgo.isInFinishRange(*this,oth,owner.script()))
     return false;
   return true;
   }
 
 bool Npc::doAttack(Anim anim, BodyState bs) {
-  auto weaponSt=weaponState();
+  auto weaponSt = weaponState();
   if(weaponSt==WeaponState::NoWeapon || weaponSt==WeaponState::Mage)
     return false;
 
@@ -3621,20 +3870,22 @@ bool Npc::blockSword() {
   // return setAnimAngGet(Anim::AttackBlock,calcAniComb())!=nullptr;
   }
 
-bool Npc::beginCastSpell() {
+Npc::BeginCastResult Npc::beginCastSpell() {
   if(castLevel!=CS_NoCast)
-    return false;
+    return BeginCastResult::BC_No;
 
-  if(!isStanding())
-    return false;
+  auto bs = bodyStateMasked();
+  if(bs!=BS_STAND)
+    return BeginCastResult::BC_No;
 
   auto active=invent.activeWeapon();
   if(active==nullptr)
-    return false;
+    return BeginCastResult::BC_No;
 
+  setAnimRotate(0);
   if(attribute(ATR_MANA)<=0) {
     setAnim(Anim::MagNoMana);
-    return false;
+    return BeginCastResult::BC_NoMana;
     }
 
   // castLevel        = CS_Invest_0;
@@ -3645,34 +3896,34 @@ bool Npc::beginCastSpell() {
 
   const SpellCode code = SpellCode(owner.script().invokeMana(*this,currentTarget,manaInvested));
   switch(code) {
-    case SpellCode::SPL_SENDSTOP:
-    case SpellCode::SPL_DONTINVEST:
+    case SPL_SENDSTOP:
+    case SPL_DONTINVEST:
       setAnim(Anim::MagNoMana);
       castLevel        = CS_NoCast;
       currentSpellCast = size_t(-1);
       castNextTime     = 0;
-      return false;
-    case SpellCode::SPL_STATUS_CANINVEST_NO_MANADEC:
-    case SpellCode::SPL_RECEIVEINVEST:
-    case SpellCode::SPL_NEXTLEVEL: {
+      return BeginCastResult::BC_NoMana;
+    case SPL_STATUS_CANINVEST_NO_MANADEC:
+    case SPL_RECEIVEINVEST:
+    case SPL_NEXTLEVEL: {
       ++manaInvested;
       auto ani = owner.script().spellCastAnim(*this,*active);
       if(!visual.startAnimSpell(*this,ani,true))
         Log::d("Couldn't start animation for spell '",currentSpellCast,"'");
       castLevel = CS_Invest_0;
-      return true;
+      return BeginCastResult::BC_Invest;
       }
-    case SpellCode::SPL_SENDCAST: {
+    case SPL_SENDCAST: {
       castLevel = CS_Cast_0;
-      return false;
+      return BeginCastResult::BC_Cast;
       }
     default:
       Log::d("unexpected Spell_ProcessMana result: '",int(code),"' for spell '",currentSpellCast,"'");
       endCastSpell();
-      return false;
+      return BeginCastResult::BC_No;
     }
 
-  return true;
+  return BeginCastResult::BC_No;
   }
 
 bool Npc::tickCast(uint64_t dt) {
@@ -3700,7 +3951,7 @@ bool Npc::tickCast(uint64_t dt) {
     if(active!=nullptr) {
       auto ani = owner.script().spellCastAnim(*this,*active);
       bool g2  = owner.version().game==2;
-      if(g2 || visual.isAnimExist(string_frm("T_MAGRUN_2_",ani,"CAST")))
+      if(g2 || visual.hasAnim(string_frm("T_MAGRUN_2_",ani,"CAST")))
         if(!visual.startAnimSpell(*this,ani,false))
           return true;
       }
@@ -3804,6 +4055,11 @@ bool Npc::aimBow() {
   auto active=invent.activeWeapon();
   if(active==nullptr)
     return false;
+  auto bs = bodyStateMasked();
+  if(bs!=BS_STAND && bs!=BS_AIMNEAR && bs!=BS_AIMFAR && bs!=BS_HIT) {
+    setAnim(Anim::Idle);
+    return false;
+    }
   if(!setAnim(Anim::AimBow))
     return false;
   visual.setAnimRotate(*this,0);
@@ -3816,7 +4072,7 @@ bool Npc::shootBow(Interactive* focOverride) {
     return false;
 
   auto bs = bodyStateMasked();
-  if(bs==BS_RUN) {
+  if(bs!=BS_STAND && bs!=BS_AIMNEAR && bs!=BS_AIMFAR && bs!=BS_HIT) {
     setAnim(Anim::Idle);
     return true;
     }
@@ -3908,7 +4164,7 @@ void Npc::setPerceptionTime(uint64_t time) {
   }
 
 uint64_t Npc::perceptionTimeClampt() const {
-  return std::max<uint64_t>(perceptionTime, 1000);
+  return std::max<uint64_t>(perceptionTime, 1);
   }
 
 void Npc::setPerceptionEnable(PercType t, size_t fn) {
@@ -3929,15 +4185,16 @@ void Npc::startDialog(Npc& pl) {
   }
 
 bool Npc::perceptionProcess(Npc &pl) {
-  static bool disable=false;
-  if(disable)
+  static bool dbg = false;
+  static int  kId = -1;
+  if(dbg && hnpc->id!=kId)
     return false;
 
   if(isPlayer())
     return true;
 
   bool ret=false;
-  if(processPolicy()!=Npc::AiNormal) {
+  if(processPolicy()!=NpcProcessPolicy::AiNormal) {
     perceptionNextTime = owner.tickCount()+perceptionTimeClampt();
     return ret;
     }
@@ -3973,6 +4230,11 @@ bool Npc::perceptionProcess(Npc &pl) {
   }
 
 bool Npc::perceptionProcess(Npc &pl, Npc* victim, float quadDist, PercType perc) {
+  if(!aiState.started && aiState.funcIni.isValid()) {
+    // avoid ugly soft-lock (ZS_MM_Attack <-> B_MM_AssessWarn) for the orks near ramp
+    return false;
+    }
+
   float r = float(world().script().percRanges().at(perc, hnpc->senses_range));
   r = r*r;
 
@@ -4013,6 +4275,7 @@ bool Npc::setInteraction(Interactive *id, bool quick) {
 
   if(id->attach(*this)) {
     currentInteract = id;
+    attachToPoint(nullptr); //NOTE: Fajeth campfire
     if(!quick) {
       visual.stopAnim(*this,"");
       setAnimRotate(0);
@@ -4073,13 +4336,21 @@ void Npc::setStateTime(int64_t time) {
   aiState.sTime = owner.tickCount()-uint64_t(time);
   }
 
-void Npc::addRoutine(gtime s, gtime e, uint32_t callback, const WayPoint *point) {
+void Npc::addRoutine(gtime s, gtime e, uint32_t callback, std::string_view point) {
+  auto wp = world().findPoint(point,false);
+
   Routine r;
   r.start    = s;
   r.end      = e;
   r.callback = callback;
-  r.point    = point;
+  r.point    = wp;
+  if(wp==nullptr)
+    r.fallbackName = point;
   routines.push_back(r);
+
+  std::stable_sort(routines.begin(), routines.end(), [](const Routine& l, const Npc::Routine& r) {
+    return l.start < r.start;
+    });
   }
 
 void Npc::excRoutine(size_t callback) {
@@ -4130,7 +4401,7 @@ Npc::JumpStatus Npc::tryJump() {
   float len = MoveAlgo::climbMove;
   float rot = rotationRad();
   float s   = std::sin(rot), c = std::cos(rot);
-  Vec3  dp  = Vec3{len*s, 0, -len*c};
+  Vec3  dp  = Vec3{len*c, 0, len*s};
 
   auto& g  = owner.script().guildVal();
   auto  gl = guild();
@@ -4149,7 +4420,7 @@ Npc::JumpStatus Npc::tryJump() {
 
   JumpStatus ret;
   DynamicWorld::CollisionTest info;
-  if(!isInAir() && physic.testMove(pos0+dp,info)) {
+  if(!mvAlgo.isJumpUp() && physic.testMove(pos0+dp,info)) {
     // jump forward
     ret.anim   = Anim::Jump;
     ret.noClimb = true;
@@ -4174,7 +4445,7 @@ Npc::JumpStatus Npc::tryJump() {
   if(!physic.testMove(pos1,pos0,info) ||
      !physic.testMove(pos2,pos1,info)) {
     // check approximate path of climb failed
-    ret.anim    = Anim::Jump;
+    ret.anim    = Anim::JumpUp;
     ret.noClimb = true;
     return ret;
     }
@@ -4194,14 +4465,14 @@ Npc::JumpStatus Npc::tryJump() {
     return ret;
     }
 
-  if(isInAir() && dY<=jumpLow + translateY()) {
+  if(mvAlgo.isJumpUp() && dY<=jumpLow + visual.pose().translateY()) {
     // jumpup -> climb
     ret.anim   = Anim::JumpHang;
     ret.height = jumpY;
     return ret;
     }
 
-  if(isInAir()) {
+  if(mvAlgo.isJumpUp()) {
     ret.anim    = Anim::Idle;
     ret.noClimb = true;
     return ret;
@@ -4271,6 +4542,7 @@ void Npc::clearAiQueue() {
   waitTime    = 0;
   faiWaitTime = 0;
   fghAlgo.onClearTarget();
+  wayPath.clear();
   clearGoTo();
   }
 
@@ -4280,7 +4552,6 @@ void Npc::attachToPoint(const WayPoint *p) {
   }
 
 void Npc::clearGoTo() {
-  wayPath.clear();
   if(!go2.empty()) {
     stopWalking();
     go2.clear();
@@ -4294,12 +4565,60 @@ void Npc::stopWalking() {
   stopWalkAnimation();
   }
 
+void Npc::drawVobBox(DbgPainter& p) const {
+  physic.debugDraw(p);
+
+  p.setBrush(Tempest::Color(0,1,0));
+  p.drawPoint(position());
+
+  const auto cen = centerPosition();
+  p.setBrush(Tempest::Color(0,0,1));
+  p.drawPoint(cen);
+
+  p.setPen(Tempest::Color(1,1,1));
+  p.drawLine(cen, cen+Tempest::Vec3(0,25,0));
+  p.setPen(Tempest::Color(1,1,0));
+  p.drawLine(cen, cen+Tempest::Vec3(25,0,0));
+  p.setPen(Tempest::Color(1,0.5f,0));
+  p.drawLine(cen, cen+Tempest::Vec3(0,0,25));
+
+  if(auto sk = visual.visualSkeleton()) {
+    auto bbox = sk->bboxCol;
+
+    auto tr = transform();
+    tr.translate(0,visual.pose().translateY(),0);
+
+    p.setPen(Color(1,0,0));
+    p.drawObb(tr, bbox);
+    }
+  }
+
+void Npc::drawVobRay(DbgPainter& p, const Npc& oth) const {
+  const bool freeLos = true;
+  const auto mid     = oth.physic.center();
+  p.setPen(Color(0,1,0));
+
+  if(canRayHitPoint(mid,freeLos)) {
+    // mid of dead npc may endedup inside a wall; extra check for physical center
+    p.drawLine(mapHeadBone(), mid);
+    return;
+    }
+  if(oth.visual.visualSkeleton()==nullptr)
+    return;
+  if(oth.visual.visualSkeleton()->BIP01_HEAD==size_t(-1))
+    return;
+  auto head = oth.visual.mapHeadBone();
+  if(canRayHitPoint(head,freeLos)) {
+    p.drawLine(mapHeadBone(), head);
+    return;
+    }
+  p.setPen(Color(1,0,0));
+  p.drawLine(mapHeadBone(), head);
+  }
+
 bool Npc::canSeeNpc(const Npc &oth, bool freeLos) const {
-  const auto mid = oth.bounds().midTr;
-  if(canSeeNpc(mid,freeLos))
-    return true;
-  const auto ppos = oth.physic.position();
-  if(oth.isDown() && canSeeNpc(ppos,freeLos)) {
+  const auto mid = oth.physic.center();
+  if(canRayHitPoint(mid,freeLos)) {
     // mid of dead npc may endedup inside a wall; extra check for physical center
     return true;
     }
@@ -4308,7 +4627,7 @@ bool Npc::canSeeNpc(const Npc &oth, bool freeLos) const {
   if(oth.visual.visualSkeleton()->BIP01_HEAD==size_t(-1))
     return false;
   auto head = oth.visual.mapHeadBone();
-  if(canSeeNpc(head,freeLos))
+  if(canRayHitPoint(head,freeLos))
     return true;
   return false;
   }
@@ -4323,39 +4642,48 @@ bool Npc::canSeeSource() const {
   return false;
   }
 
-bool Npc::canSeeNpc(const Vec3 pos, bool freeLos) const {
-  return canRayHitPoint(pos, freeLos);
+bool Npc::canRayHitPoint(const Tempest::Vec3 pos, bool freeLos, float extRange) const {
+  float ang = freeLos ? 180.f : -1;
+  return canRayHitPoint(pos, ang, extRange);
   }
 
-bool Npc::canRayHitPoint(const Tempest::Vec3 pos, bool freeLos, float extRange) const {
+bool Npc::canRayHitPoint(const Tempest::Vec3 pos, float angOverride, float extRange) const {
+  const float range = float(hnpc->senses_range) + extRange;
+  if(qDistTo(pos)>range*range)
+    return false;
+  // npc eyesight height by default
+  return canRayHitPoint(visual.mapHeadBone(), pos, angOverride, extRange);
+  }
+
+bool Npc::canRayHitPoint(const Tempest::Vec3 self, const Tempest::Vec3 pos, float angOverride, float extRange) const {
   const float range = float(hnpc->senses_range) + extRange;
   if(qDistTo(pos)>range*range)
     return false;
 
   static const double ref = std::cos(100*M_PI/180.0); // spec requires +-100 view angle range
   const DynamicWorld* w   = owner.physic();
-  // npc eyesight height
-  auto head = visual.mapHeadBone();
+  bool freeLos = angOverride>=180.f;
   if(freeLos) {
-    return !w->ray(head, pos).hasCol;
+    return !w->ray(self, pos).hasCol;
     }
 
-  float dx  = x-pos.x, dz=z-pos.z;
+  float dx  = self.x-pos.x, dz=self.z-pos.z;
   float dir = angleDir(dx,dz);
   float da  = float(M_PI)*(visual.viewDirection()-dir)/180.f;
-  if(double(std::cos(da))<=ref) {
-    if(!w->ray(head, pos).hasCol)
+  auto  ca  = angOverride > 0 ? std::cos(angOverride*M_PI/180.0) : ref;
+  if(double(std::cos(da))<=ca) {
+    if(!w->ray(self, pos).hasCol)
       return true;
     }
   return false;
   }
 
 SensesBit Npc::canSenseNpc(const Npc &oth, bool freeLos, float extRange) const {
-  const auto mid     = oth.bounds().midTr;
-  const auto st      = oth.bodyStateMasked();
   // NOTE1: https://github.com/Try/OpenGothic/pull/589#issuecomment-2045897394
   // NOTE2: interacting with chest(lockpicking) or some MOBSI should not produce 'noise'
-  const bool isNoisy = (st!=BodyState::BS_SNEAK && st!=BS_MOBINTERACT && oth.isPlayer());
+  // NOTE3: seem npc can't hear player in general case, and hearing relevant only for sendImmediatePerc cases
+  const bool isNoisy = false;
+  const auto mid     = oth.centerPosition();
   return canSenseNpc(mid,freeLos,isNoisy,extRange);
   }
 
@@ -4379,37 +4707,41 @@ SensesBit Npc::canSenseNpc(const Tempest::Vec3 pos, bool freeLos, bool isNoisy, 
   }
 
 bool Npc::canSeeItem(const Item& it, bool freeLos) const {
-  DynamicWorld* w = owner.physic();
   static const double ref = std::cos(100*M_PI/180.0); // spec requires +-100 view angle range
 
   const auto  itMid = it.midPosition();
+  const auto  cen   = visual.mapHeadBone();
+  const auto  dir   = itMid - cen;
   const float range = float(hnpc->senses_range);
-  if(qDistTo(itMid)>range*range)
+
+  if(dir.quadLength()>range*range)
     return false;
 
   if(!freeLos) {
-    float dx  = x-itMid.x, dz=z-itMid.z;
+    float dx  = dir.x, dz = dir.z;
     float dir = angleDir(dx,dz);
     float da  = float(M_PI)*(visual.viewDirection()-dir)/180.f;
     if(double(std::cos(da))>ref)
       return false;
     }
 
-  // npc eyesight height
-  auto head = visual.mapHeadBone();
-  auto r    = w->ray(head,itMid);
-  auto err  = (head-itMid)*(1.f-r.hitFraction);
-  if(!r.hasCol || err.length()<25.f) {
-    return true;
+  if(auto bbox = it.bBox()) {
+    // npc eyesight height
+    auto  at     = it.midPosition();
+    auto  tMax   = (at - cen).length();
+    auto  dir    = (at - cen)/tMax;
+    float tHit   = DynamicWorld::rayBox(cen, dir, tMax, it.transform(), bbox[0], bbox[1]);
+
+    const auto r = owner.physic()->ray(cen, cen+dir*tHit);
+    if(r.hasCol)
+      return false;
+    } else {
+    const auto r = owner.physic()->ray(cen, itMid);
+    if(r.hasCol)
+      return false;
     }
-  if(y<=itMid.y && itMid.y<=head.y) {
-    auto pl = Vec3(head.x,itMid.y,head.z);
-    r   = w->ray(pl,itMid);
-    err = (pl-itMid)*(1.f-r.hitFraction);
-    if(!r.hasCol || err.length()<65.f)
-      return true;
-    }
-  return false;
+
+  return true;
   }
 
 bool Npc::isAlignedToGround() const {
@@ -4436,7 +4768,7 @@ Matrix4x4 Npc::mkPositionMatrix() const {
   if(align) {
     float rot  = rotationRad();
     float s    = std::sin(rot), c = std::cos(rot);
-    auto  dir  = Vec3(s,0,-c);
+    auto  dir  = Vec3(c,0,s);
     auto  norm = Vec3::normalize(ground);
 
     float cx = Vec3::dotProduct(norm,dir);
@@ -4446,7 +4778,7 @@ Matrix4x4 Npc::mkPositionMatrix() const {
   Matrix4x4 mt = Matrix4x4();
   mt.identity();
   mt.translate(x,y,z);
-  mt.rotateOY(180-angle);
+  mt.rotateOY(90-angle);
   if(angY!=0)
     mt.rotateOX(-angY);
   if(isPlayer() && !align) {
@@ -4457,10 +4789,10 @@ Matrix4x4 Npc::mkPositionMatrix() const {
   }
 
 void Npc::updateTransform() {
-  updateAnimation(0);
+  updateAnimation(0, true);
   }
 
-void Npc::updateAnimation(uint64_t dt) {
+void Npc::updateAnimation(uint64_t dt, bool force) {
   const auto camera = Gothic::inst().camera();
   if(isPlayer() && camera!=nullptr && camera->isFree())
     dt = 0;
@@ -4483,17 +4815,11 @@ void Npc::updateAnimation(uint64_t dt) {
       pos = mkPositionMatrix();
       }
 
-    if(mvAlgo.isSwim()) {
-      float chest = mvAlgo.canFlyOverWater() ? 0 : (translateY()-visual.pose().rootNode().at(3,1));
-      float y     = pos.at(3,1);
-      pos.set(3,1,y+chest);
-      }
-
     visual.setObjMatrix(pos,false);
     durtyTranform = 0;
     }
 
-  bool syncAtt = visual.updateAnimation(this,nullptr,owner,dt);
+  bool syncAtt = visual.updateAnimation(this,nullptr,owner,dt,force);
   if(syncAtt)
     visual.syncAttaches();
   }

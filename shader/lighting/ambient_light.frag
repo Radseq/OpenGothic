@@ -28,13 +28,10 @@ float textureSsao() { return textureLod(ssao, uv, 0).r; }
 float textureSsao() { return 1; }
 #endif
 
-vec3 skyIrradiance() {
+vec3 skyIrradiance(vec3 n) {
 #if 0
   return scene.ambient * Fd_LambertInv;
 #else
-  vec3 n = texelFetch(gbufNormal, ivec2(gl_FragCoord.xy), 0).rgb;
-  n = normalize(n*2.0 - vec3(1.0));
-
   ivec3 d;
   d.x = n.x>=0 ? 1 : 0;
   d.y = n.y>=0 ? 1 : 0;
@@ -66,20 +63,16 @@ void main() {
   const float ao     = textureSsao();
 
   vec3 ambient = scene.ambient;
-  vec3 sky     = skyIrradiance();
+  vec3 sky     = skyIrradiance(norm);
 
-  //vec3 lcolor  = mix(ambient, sky, max(0, norm.y*0.8));
-  vec3 luminance  = (ambient + sky)*0.5;
-  // vec3 lcolor  = ambient + sky*clamp(norm.y*0.5, 0,1);
+  vec3 luminance  = vec3(0);
+  luminance += ambient;
+  luminance += sky*0.8;
+  luminance += (norm.y*0.25+0.75) * NightAmbient * Fd_Lambert;
 
-  vec3 color = luminance * ao;  // * Fd_Lambert is accounted in integration
-  color *= linear;
-
-  // outColor = vec4(vec3(grayscale(color)), 0);
-  // return;
-
-  // night shift
-  color += purkinjeShift(color); //TODO: use it globally at tonemapping
+  vec3 color = linear;
+  color *= luminance;
+  color *= ao;
   color *= scene.exposure;
 
   outColor = vec4(color, 1);

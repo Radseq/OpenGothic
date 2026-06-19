@@ -2,7 +2,6 @@
 
 #include "graphics/mesh/skeleton.h"
 #include "game/serialize.h"
-#include "utils/string_frm.h"
 #include "world/objects/npc.h"
 #include "world/objects/interactive.h"
 #include "world/objects/item.h"
@@ -297,6 +296,27 @@ void MdlVisual::dropWeapon(Npc& npc) {
   npc.delItem(itm->clsId(),1);
   }
 
+void MdlVisual::dropShield(Npc& npc) {
+  MeshAttach* att  = &sword;
+  auto&       pose = *skInst;
+
+  if(fgtMode!=WeaponState::W1H && fgtMode!=WeaponState::W2H)
+    return;
+
+  auto p = pos;
+  if(att->boneId<pose.boneCount())
+    p = pose.bone(att->boneId);
+
+  Item* itm = npc.currentShield();
+  if(itm==nullptr)
+    return;
+
+  auto it = npc.world().addItemDyn(itm->clsId(),p,npc.handle().symbol_index());
+  it->setCount(1);
+
+  npc.delItem(itm->clsId(),1);
+  }
+
 void MdlVisual::startEffect(World& owner, Effect&& vfx, int32_t slot, bool noSlot) {
   uint64_t timeUntil = vfx.effectPrefferedTime();
   if(timeUntil!=0)
@@ -475,7 +495,7 @@ bool MdlVisual::isUsingTorch() const {
   return torch.view!=nullptr;
   }
 
-bool MdlVisual::updateAnimation(Npc* npc, Interactive* mobsi, World& world, uint64_t dt) {
+bool MdlVisual::updateAnimation(Npc* npc, Interactive* mobsi, World& world, uint64_t dt, bool force) {
   Pose&    pose      = *skInst;
   uint64_t tickCount = world.tickCount();
   auto     pos3      = Vec3{pos.at(3,0), pos.at(3,1), pos.at(3,2)};
@@ -499,7 +519,7 @@ bool MdlVisual::updateAnimation(Npc* npc, Interactive* mobsi, World& world, uint
 
   solver.update(tickCount);
   pose.setObjectMatrix(pos,false);
-  const bool changed = pose.update(tickCount);
+  const bool changed = pose.update(tickCount, force);
 
   if(changed)
     view.setPose(pos,pose);
@@ -543,6 +563,9 @@ Vec3 MdlVisual::mapHeadBone() const {
 
 void MdlVisual::stopAnim(Npc& npc, std::string_view anim) {
   skInst->stopAnim(anim);
+  // Avoid issues with pfx on/off events within looped animations. Such as for Rupert and Bulko.
+  if(anim.empty())
+    effects.clear();
   if(!skInst->hasAnim())
     startAnimAndGet(npc,AnimationSolver::Idle,0,fgtMode,npc.walkMode());
   }
@@ -555,10 +578,6 @@ bool MdlVisual::stopItemStateAnim(Npc& npc) {
   return true;
   }
 
-bool MdlVisual::hasAnim(std::string_view scheme) const {
-  return solver.solveFrm(scheme)!=nullptr;
-  }
-
 void MdlVisual::stopWalkAnim(Npc &npc) {
   skInst->stopWalkAnim();
   if(!skInst->hasAnim())
@@ -569,9 +588,12 @@ bool MdlVisual::isStanding() const {
   return skInst->isStanding();
   }
 
-bool MdlVisual::isAnimExist(std::string_view name) const {
-  const Animation::Sequence *sq = solver.solveFrm(name);
-  return sq!=nullptr;
+bool MdlVisual::hasAnim(std::string_view scheme) const {
+  return solver.solveFrm(scheme)!=nullptr;
+  }
+
+bool MdlVisual::hasAnim(AnimationSolver::Anim a, WeaponState st, WalkBit wlk) const {
+  return solver.solveAnim(a,st,wlk,*skInst)!=nullptr;
   }
 
 const Animation::Sequence* MdlVisual::startAnimAndGet(std::string_view name, uint64_t tickCount, bool forceAnim) {
@@ -745,7 +767,7 @@ bool MdlVisual::startAnim(Npc &npc, WeaponState st) {
   const Animation::Sequence *sq = solver.solveAnim(st,fgtMode,run);
   if(sq==nullptr)
     return false;
-  if(skInst->startAnim(solver,sq,0,run ? BS_RUN : BS_NONE,Pose::NoHint,npc.world().tickCount()))
+  if(skInst->startAnim(solver,sq,0,run ? BS_RUN : BS_STAND,Pose::NoHint,npc.world().tickCount()))
     return true;
   return false;
   }
@@ -766,7 +788,7 @@ void MdlVisual::interrupt() {
 
 Tempest::Vec3 MdlVisual::displayPosition() const {
   if(skeleton!=nullptr)
-    return {0,skeleton->colisionHeight()*1.5f,0};
+    return {0,skeleton->colisionHeight()*1.6f,0};
   return {0.f,0.f,0.f};
   }
 
@@ -779,7 +801,7 @@ float MdlVisual::viewDirection() const {
     }
   float rx = p.at(2,0);
   float rz = p.at(2,2);
-  return float(std::atan2(rz,rx)) * 180.f / float(M_PI);
+  return float(std::atan2(rz,rx)) * 180.f / float(M_PI) - 90.f;
   }
 
 const Animation::Sequence* MdlVisual::continueCombo(Npc& npc, AnimationSolver::Anim a, BodyState bs,
@@ -926,7 +948,7 @@ bool MdlVisual::startAnimDialog(Npc &npc) {
 void MdlVisual::startMMAnim(Npc&, std::string_view anim, std::string_view bone) {
   MdlVisual::MeshAttach* mesh[] = {&head,&sword,&shield,&bow,&ammunition,&stateItm};
   for(auto i:mesh) {
-    if(i->bone!=bone)
+    if(i->bone!=bone && !bone.empty())
       continue;
     i->view.startMMAnim(anim,1,uint64_t(-1));
     }
@@ -946,7 +968,7 @@ void MdlVisual::stopDlgAnim(Npc& npc) {
     skInst->stopAnim(buf);
     }
 
-  if(npc.processPolicy()<=Npc::AiNormal) {
+  if(npc.processPolicy()<=NpcProcessPolicy::AiNormal) {
     // avoid PCI traffic on distant npc's
     startFaceAnim(npc,"VISEME",1,0);
     }

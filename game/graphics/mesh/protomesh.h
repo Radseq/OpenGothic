@@ -16,6 +16,7 @@
 #include "resources.h"
 
 class PackedMesh;
+class PhysicMeshShape;
 
 class ProtoMesh {
   public:
@@ -83,13 +84,13 @@ class ProtoMesh {
     std::vector<SubMeshId>         submeshId;
 
     std::vector<Pos>               pos;
-    Tempest::Vec3                  bbox[2];
+    Tempest::Vec3                  bboxMesh[2];
 
     std::string                    scheme, fname;
 
     size_t                         skinedNodesCount() const;
-    Tempest::Matrix4x4             mapToRoot(size_t node) const;
     size_t                         findNode(std::string_view name,size_t def=size_t(-1)) const;
+    const Tempest::Vec3*           bbox() const;
 
   private:
     void                           setupScheme(std::string_view s);

@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
+
+inline std::string_view menuMain = "MENU_MAIN";
 
 enum Guild: uint32_t {
   GIL_NONE                    = 0,  // (keine)
@@ -123,7 +126,8 @@ enum Guild: uint32_t {
   };
 
 enum {
-  MAX_AI_USE_DISTANCE=150
+  MAX_AI_USE_DISTANCE   = 165,
+  MOBSI_SEARCH_DISTANCE = 100*10,
   };
 
 enum {
@@ -131,6 +135,7 @@ enum {
   ReferenceBowRangeG2 = 1500,
   MaxBowRange         = 4500,
   MaxMagRange         = 3500, // from Focus_Ranged
+  MaxFightRange       = 4500,
   };
 
 enum BodyState:uint32_t {
@@ -145,6 +150,7 @@ enum BodyState:uint32_t {
   BS_FLAG_INTERRUPTABLE    = 1 << 15,
   BS_FLAG_FREEHANDS        = 1 << 16,
 
+  BS_STAND                 = BS_FLAG_INTERRUPTABLE | BS_FLAG_FREEHANDS,
   BS_MOD_MASK              = BS_MOD_HIDDEN | BS_MOD_DRUNK | BS_MOD_NUTS | BS_MOD_BURNING | BS_MOD_CONTROLLED,
   BS_FLAG_MASK             = BS_FLAG_INTERRUPTABLE | BS_FLAG_FREEHANDS,
 
@@ -179,7 +185,6 @@ enum BodyState:uint32_t {
   BS_PETRIFIED             = 29,
   BS_CONTROLLING           = 30 | BS_FLAG_INTERRUPTABLE,
   BS_MAX                   = 31,
-  BS_STAND                 = BS_FLAG_INTERRUPTABLE | BS_FLAG_FREEHANDS,
 
   BS_MAX_FLAGS             = BS_MAX | BS_MOD_MASK | BS_FLAG_MASK,
   };
@@ -390,6 +395,7 @@ enum Action:uint32_t {
 
 
 enum PercType : uint8_t {
+  PERC_None               = 0,
   // active perceptions
   PERC_ASSESSPLAYER       = 1,
   PERC_ASSESSENEMY        = 2,
@@ -496,6 +502,13 @@ inline const char* MaterialGroupNames[] = {
   "EARTH",
   "WATER",
   "SNOW",
+  };
+
+enum class NpcProcessPolicy : uint8_t {
+  Player,
+  AiNormal,
+  AiFar,
+  AiFar2
   };
 
 enum AiStateCode : int32_t {

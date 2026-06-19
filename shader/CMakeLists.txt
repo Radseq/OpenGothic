@@ -63,11 +63,22 @@ function(add_shader OUTPUT SOURCE)
     list(APPEND VARS "-g")
   endif()
 
+  set(GLSL_CMD ${GLSLANGVALIDATOR})
+  list(APPEND GLSL_CMD "-V")
+  list(APPEND GLSL_CMD ${VARS})
+  list(APPEND GLSL_CMD "--P")
+  list(APPEND GLSL_CMD "#extension GL_GOOGLE_include_directive:enable")
+  list(APPEND GLSL_CMD "-I${CMAKE_SOURCE_DIR}/shader")
+  list(APPEND GLSL_CMD ${SOURCE_FILE})
+  list(APPEND GLSL_CMD "-o")
+  list(APPEND GLSL_CMD ${OUTPUT_FILE})
+
   add_custom_command(
     OUTPUT     ${OUTPUT_FILE}
     DEPENDS    ${SOURCE_FILE} ${GLSL_SOURCES}
     COMMAND    ${CMAKE_COMMAND} -E make_directory "${PROJECT_BINARY_DIR}/sprv/"
-    COMMAND    ${GLSLANGVALIDATOR} -V ${VARS} -I"${CMAKE_SOURCE_DIR}/shader" "${SOURCE_FILE}" -o ${OUTPUT_FILE}
+    COMMAND    ${GLSL_CMD}
+    VERBATIM
     )
 endfunction(add_shader)
 
@@ -196,6 +207,8 @@ add_shader(item.vert                 inventory/item.vert)
 add_shader(item.frag                 inventory/item.frag)
 
 add_shader(stash.frag                stash.frag)
+add_shader(bink.frag                 bink/bink.frag)
+add_shader(downscale.frag            downscale.frag)
 
 add_shader(direct_light.frag         lighting/direct_light.frag)
 add_shader(direct_light_sh.frag      lighting/direct_light.frag -DSHADOW_MAP)
@@ -270,6 +283,9 @@ else()
 endif()
 add_shader(hiz_pot.comp              hiz/hiz_pot.comp)
 
+# RayQuery
+add_shader(rt_dbg.frag               lighting/rt_dbg/rt_dbg.frag -DRAY_QUERY -DRAY_QUERY_AT)
+
 # Global illumination
 add_shader(probe_dbg.vert            lighting/rt/probe_dbg.vert)
 add_shader(probe_dbg.frag            lighting/rt/probe_dbg.frag)
@@ -289,6 +305,9 @@ add_shader(probe_lighting.comp       lighting/rt/probe_lighting.comp)
 
 add_shader(probe_ambient.vert        triangle.vert)
 add_shader(probe_ambient.frag        lighting/rt/probe_ambient.frag)
+
+# Pathtracing
+add_shader(pathtrace.frag            lighting/pt/pathtrace.frag -DRAY_QUERY -DRAY_QUERY_AT)
 
 # CMAA2
 add_shader(cmaa2_edges_color2x2_quality_0.comp     antialiasing/cmaa2/edge_color2x2.comp -DCMAA2_STATIC_QUALITY_PRESET=0)
@@ -332,22 +351,19 @@ add_shader(rtsm_hiz_pages.comp       rtsm/rtsm_hiz_pages.comp)
 add_shader(rtsm_culling.comp         rtsm/rtsm_culling.comp)
 add_shader(rtsm_position.comp        rtsm/rtsm_position.comp)
 
-add_shader(rtsm_bvh_build.comp       rtsm/rtsm_bvh_build.comp)
-
 add_shader(rtsm_meshlet_cull.comp    rtsm/rtsm_meshlet_cull.comp)
-add_shader(rtsm_meshlet_complex.comp rtsm/rtsm_meshlet_complex.comp)
-add_shader(rtsm_sample_cull.comp     rtsm/rtsm_sample_cull.comp)
 add_shader(rtsm_primitive_cull.comp  rtsm/rtsm_primitive_cull.comp)
 
 add_shader(rtsm_raster.comp          rtsm/rtsm_raster.comp)
 add_shader(rtsm_direct_light.frag    rtsm/rtsm_direct_light.frag)
 
 add_shader(rtsm_rendering.comp       rtsm/rtsm_rendering.comp)
-add_shader(rtsm_omni_rendering.comp  rtsm/rtsm_rendering.comp)
+add_shader(rtsm_omni_rendering.comp  rtsm/rtsm_omni_rendering.comp)
 add_shader(rtsm_dbg.frag             rtsm/rtsm_dbg.frag)
 
 add_shader(rtsm_omni_clear.comp      rtsm/rtsm_omni_clear.comp)
 add_shader(rtsm_cull_lights.comp     rtsm/rtsm_cull_lights.comp)
+add_shader(rtsm_compact_lights.comp  rtsm/rtsm_compact_lights.comp)
 add_shader(rtsm_omni_lights.comp     rtsm/rtsm_omni_lights.comp)
 add_shader(rtsm_omni_bboxes.comp     rtsm/rtsm_omni_bboxes.comp)
 add_shader(rtsm_omni_culling.comp    rtsm/rtsm_omni_culling.comp)
@@ -355,6 +371,7 @@ add_shader(rtsm_omni_position.comp   rtsm/rtsm_position.comp -DOMNI)
 add_shader(rtsm_omni_meshlet.comp    rtsm/rtsm_omni_meshlet.comp)
 add_shader(rtsm_omni_backface.comp   rtsm/rtsm_omni_backface.comp)
 add_shader(rtsm_omni_compact.comp    rtsm/rtsm_omni_compact.comp)
+add_shader(rtsm_omni_task.comp       rtsm/rtsm_omni_task.comp)
 add_shader(rtsm_omni_primitive.comp  rtsm/rtsm_omni_primitive.comp)
 add_shader(rtsm_omni_raster.comp     rtsm/rtsm_omni_raster.comp)
 

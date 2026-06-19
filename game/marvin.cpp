@@ -56,6 +56,7 @@ Marvin::Marvin() {
    %d - integer
    %f - floating point number
    */
+  // http://forenarchiv.worldofplayers.de/thread.php?id=85859&post=45890#45890
   cmd = std::vector<Cmd>{
     // gdb-like commands
     {"p %v",                       C_PrintVar},
@@ -63,7 +64,7 @@ Marvin::Marvin() {
     {"set var %v %s",              C_SetVar},
 
     // animation
-    {"play ani %s",                C_Invalid},
+    {"play ani %s",                C_PlayAni},
     {"play faceani %s",            C_Invalid},
     {"remove overlaymds %s",       C_Invalid},
     {"toggle aniinfo",             C_Invalid},
@@ -97,9 +98,9 @@ Marvin::Marvin() {
     {"ztoggle renderportals",      C_Invalid},
     {"ztoggle rendervob",          C_Invalid},
     {"ztoggle showportals",        C_Invalid},
-    {"ztoggle showtraceray",       C_Invalid},
+    {"ztoggle showtraceray",       C_ToggleShowRay},
     {"ztoggle tnl",                C_Invalid},
-    {"ztoggle vobbox",             C_Invalid},
+    {"ztoggle vobbox",             C_ToggleVobBox},
     {"zvideores %d %d %d",         C_Invalid},
 
     // game
@@ -148,6 +149,7 @@ Marvin::Marvin() {
     {"toggle gi",                  C_ToggleGI},
     {"toggle vsm",                 C_ToggleVsm},
     {"toggle rtsm",                C_ToggleRtsm},
+    {"toggle pathtrace",           C_TogglePathtrace},
     };
   }
 
@@ -319,7 +321,7 @@ bool Marvin::exec(std::string_view v) {
       auto wpoint = world->findPoint(ret.argv[0]);
       if(wpoint==nullptr)
         return false;
-      player->setPosition(wpoint->x,wpoint->y,wpoint->z);
+      player->setPosition(wpoint->position());
       player->updateTransform();
       Gothic::inst().camera()->reset(player);
       return true;
@@ -341,7 +343,7 @@ bool Marvin::exec(std::string_view v) {
       Npc* player = Gothic::inst().player();
       if(c==nullptr || player==nullptr)
         return false;
-      auto pos = c->destPosition();
+      auto pos = c->destTarget();
       player->setPosition(pos.x,pos.y,pos.z);
       player->updateTransform();
       c->reset();
@@ -349,6 +351,14 @@ bool Marvin::exec(std::string_view v) {
       }
     case C_ToggleFrame:{
       Gothic::inst().setFRate(!Gothic::inst().doFrate());
+      return true;
+      }
+    case C_ToggleShowRay:{
+      Gothic::inst().setVobRays(!Gothic::inst().doVobRays());
+      return true;
+      }
+    case C_ToggleVobBox:{
+      Gothic::inst().setVobBox(!Gothic::inst().doVobBox());
       return true;
       }
     case C_ToggleTime:{
@@ -447,6 +457,13 @@ bool Marvin::exec(std::string_view v) {
       return setVariable(world, ret.argv[0], ret.argv[1]);
       }
 
+    case C_PlayAni: {
+      Npc*   player = Gothic::inst().player();
+      if(player==nullptr)
+        return false;
+      return player->playAnimByName(ret.argv[0], BS_NONE) != nullptr;
+      }
+
     case C_ToggleGI:
       Gothic::inst().toggleGi();
       return true;
@@ -455,6 +472,9 @@ bool Marvin::exec(std::string_view v) {
       return true;
     case C_ToggleRtsm:
       Gothic::inst().toggleRtsm();
+      return true;
+    case C_TogglePathtrace:
+      Gothic::inst().togglePathtrace();
       return true;
     }
 
@@ -471,7 +491,7 @@ bool Marvin::addItemOrNpcBySymbolName(World* world, std::string_view name, const
   if(sym==nullptr || sym->parent()==uint32_t(-1))
     return false;
 
-  if(sym->type()!=zenkit::DaedalusDataType::INSTANCE)
+  if(sym->type()!=zenkit::DaedalusDataType::INSTANCE || sym->address()==0)
     return false;
 
   const auto* cls = sym;
@@ -479,7 +499,7 @@ bool Marvin::addItemOrNpcBySymbolName(World* world, std::string_view name, const
     cls = sc.findSymbol(cls->parent());
     }
 
-  if (cls==nullptr)
+  if(cls==nullptr)
     return false;
 
   if(cls->name()=="C_NPC")

@@ -39,7 +39,7 @@ bool isShadow(vec3 rayOrigin, vec3 direction, float R) {
   {
     const float dirLength    = length(direction);
     const vec3  rayDirection = -direction/dirLength;
-    const float rayDistance  = dirLength - 30; //NOTE: padding of 30cm, in case if light inside wall
+    const float rayDistance  = dirLength - cenPosition.w*0.0375; //NOTE: padding of ~3%, in case if light inside wall
     if(rayDistance<=0)
       return false;
 
@@ -121,8 +121,7 @@ void main() {
   const vec3 d      = texelFetch(gbufDiffuse, ivec2(gl_FragCoord.xy), 0).xyz;
   const vec3 linear = textureAlbedo(d.rgb);
 
-  vec3 color = linear*color*light*Fd_Lambert*0.1;
-  //color *= scene.exposure;
+  vec3 ret = linear * (color * light) * max(1.0, scene.exposure) * Fd_Lambert * 0.25;
 
-  outColor = vec4(color,0.0);
+  outColor = vec4(ret, 0.0);
   }

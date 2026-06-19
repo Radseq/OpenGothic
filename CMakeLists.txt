@@ -18,13 +18,14 @@ if(MSVC)
   add_definitions(-D_CRT_SECURE_NO_WARNINGS)
   add_definitions(-D_CRT_NONSTDC_NO_DEPRECATE)
   add_definitions(-D_ITERATOR_DEBUG_LEVEL=0)
-  add_definitions(-DNOMINMAX)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4800")
 endif()
 
 if(NOT MSVC)
   target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wconversion -Wno-strict-aliasing -Werror)
-
+  if(CMAKE_COMPILER_IS_GNUCC AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "8.0")
+    target_compile_options(${PROJECT_NAME} PRIVATE -Wno-class-memaccess)
+  endif()
   if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "7.1" AND NOT APPLE AND NOT ${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")
     target_compile_options(${PROJECT_NAME} PRIVATE -Wno-format-truncation)
   endif()
@@ -39,6 +40,7 @@ if(NOT MSVC)
 endif()
 
 if(WIN32)
+  add_definitions(-DNOMINMAX)
   if(MSVC)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup" )
   elseif(${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")
@@ -86,9 +88,9 @@ include_directories("game")
 ## submodule dependencies
 
 # edd-dbg
-add_subdirectory(lib/edd-dbg)
-include_directories(lib/edd-dbg/include)
 if(WIN32)
+  add_subdirectory(lib/edd-dbg)
+  include_directories(lib/edd-dbg/include)
   target_link_libraries(${PROJECT_NAME} edd_dbg)
 endif()
 
@@ -118,13 +120,18 @@ add_definitions(-DTSF_NO_STDIO)
 include_directories(lib/TinySoundFont)
 
 # Tempest
-set(TEMPEST_BUILD_SHARED ON  CACHE INTERNAL "")
+if(WIN32)
+  set(TEMPEST_BUILD_SHARED ON  CACHE INTERNAL "")
+else()
+  set(TEMPEST_BUILD_SHARED OFF CACHE INTERNAL "")
+endif()
 add_subdirectory(lib/Tempest/Engine)
 include_directories(lib/Tempest/Engine/include)
 target_link_libraries(${PROJECT_NAME} Tempest)
 
 # zip
 include_directories(lib/miniz)
+add_definitions(-DMINIZ_NO_STDIO)
 add_library(miniz STATIC "lib/miniz/miniz.h" "lib/miniz/miniz.c")
 target_link_libraries(${PROJECT_NAME} miniz)
 
@@ -169,12 +176,6 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_SOURCE_DIR}/scripts/Gothic2Notr.bat
         ${CMAKE_CURRENT_BINARY_DIR}/opengothic/Gothic2Notr.bat)
-elseif(UNIX)
-    add_custom_command(
-        TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_SOURCE_DIR}/scripts/Gothic2Notr.sh
-        ${CMAKE_CURRENT_BINARY_DIR}/opengothic/Gothic2Notr.sh)
 endif()
 
 # in debug mode, enable sanitizers

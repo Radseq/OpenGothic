@@ -13,10 +13,7 @@ class Landscape final {
   public:
     Landscape(VisualObjects& visual, const PackedMesh& wmesh);
 
-    const Tempest::StorageBuffer& bvh()   const { return bvhNodes;   }
-    const Tempest::StorageBuffer& bvh8()  const { return bvh8Nodes;  }
-    // const Tempest::StorageBuffer& bvh64() const { return bvhNodes64; }
-    // Tempest::StorageBuffer bvhNodes64, bvh64Ibo, bvh64Vbo;
+    const Tempest::StorageBuffer& bvh()   const { return bvhNodes; }
 
   private:
     using Item = VisualObjects::Item;
@@ -30,5 +27,4 @@ class Landscape final {
     Tempest::StorageBuffer meshletDesc;
 
     Tempest::StorageBuffer bvhNodes;
-    Tempest::StorageBuffer bvh8Nodes;
   };

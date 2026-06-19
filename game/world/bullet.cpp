@@ -107,6 +107,13 @@ float Bullet::pathLength() const {
   return obj->pathLength();
   }
 
+bool Bullet::onEffectCollide(Npc& other) {
+  const bool ret = onCollide(other);
+  if(ret)
+    onStop();
+  return ret;
+  }
+
 void Bullet::onStop() {
   flg = Flg(flg|Stopped);
   updateMatrix();
@@ -129,17 +136,15 @@ void Bullet::onCollide(zenkit::MaterialGroup matId) {
   vfx.setLooped(false);
   vfx.setPhysicsDisable();
   wrld->runEffect(std::move(vfx));
-  if(obj==nullptr || obj->hitCount()>3 || obj->isSpell())
-    onStop();
   }
 
-void Bullet::onCollide(Npc& npc) {
+bool Bullet::onCollide(Npc& npc) {
   if(&npc==origin() || isFinished())
-    return;
+    return false;
 
   if(ow!=nullptr) {
     // no damage between ally npc's, only emit pfx effect
-    const bool friendlyFire = wrld->script().isFriendlyFire(*ow,npc);
+    const bool friendlyFire = wrld->script().isFriendlyFire(*ow, npc);
     if(!friendlyFire) {
       if(isSpell())
         npc.takeDamage(*ow,this,vfx.handle(),spellId()); else
@@ -151,7 +156,7 @@ void Bullet::onCollide(Npc& npc) {
   vfx.setPhysicsDisable();
   wrld->runEffect(std::move(vfx));
 
-  onStop();
+  return true;
   }
 
 void Bullet::updateMatrix() {

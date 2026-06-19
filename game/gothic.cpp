@@ -51,6 +51,7 @@ Gothic::Gothic() {
   showFpsCounter = systemPackIniFile->getI("DEBUG","Show_FPS_Counter");
   opts.hideFocus = systemPackIniFile->getI("PARAMETERS","HideFocus");
   opts.cameraFov = systemPackIniFile->getF("PARAMETERS","VerticalFOV");
+  opts.fpsLimit  = std::max(0, systemPackIniFile->getI("PARAMETERS", "FPS_Limit", 0));
   if(opts.cameraFov<1.f) {
     opts.cameraFov = 67.5;
     }
@@ -60,6 +61,9 @@ Gothic::Gothic() {
     }
   opts.inventoryCellSize = systemPackIniFile->getI("INTERFACE","InventoryCellSize",opts.inventoryCellSize);
   opts.inventoryCellSize = std::max(opts.inventoryCellSize, 10);
+
+  opts.newChapterSize.w    = systemPackIniFile->getI("INTERFACE","NewChapterSizeX",opts.newChapterSize.w);
+  opts.newChapterSize.h    = systemPackIniFile->getI("INTERFACE","NewChapterSizeY",opts.newChapterSize.h);
 
   opts.saveGameImageSize.w = systemPackIniFile->getI("INTERFACE","SaveGameImageSizeX",opts.saveGameImageSize.w);
   opts.saveGameImageSize.h = systemPackIniFile->getI("INTERFACE","SaveGameImageSizeY",opts.saveGameImageSize.h);
@@ -73,7 +77,7 @@ Gothic::Gothic() {
   setFRate(true);
 #else
   setMarvinEnabled(CommandLine::inst().isDevMode());
-  setFRate(CommandLine::inst().isBenchmarkMode());
+  setFRate(CommandLine::inst().isBenchmarkMode()!=Benchmark::None);
 #endif
   setBenchmarkMode(CommandLine::inst().isBenchmarkMode());
 
@@ -120,6 +124,10 @@ Gothic::Gothic() {
   defaults->set("GAME", "highlightMeleeFocus", 0);
   defaults->set("GAME", "useQuickSaveKeys",    1);
 
+  defaults->set("GAME", "animatedWindows",     1);
+  defaults->set("GAME", "subTitles",           1);
+  defaults->set("GAME", "subTitlesPlayer",     1);
+
   // switch related language options
   defaults->set("GAME", "language", -1);
   defaults->set("GAME", "voice",    -1);
@@ -143,6 +151,7 @@ Gothic::Gothic() {
 
   defaults->set("SOUND", "musicEnabled",  1);
   defaults->set("SOUND", "musicVolume",   0.5f);
+  defaults->set("SOUND", "soundEnabled",  1);
   defaults->set("SOUND", "soundVolume",   0.5f);
 
   //defaults->set("ENGINE", "zEnvMappingEnabled", 0);
@@ -204,8 +213,13 @@ Gothic::Gothic() {
         modvdfs.emplace_back(std::move(mod));
       }
     }
-  Resources::mountWork(Gothic::nestedPath({u"_work"}, Dir::FT_Dir));
+  /*
+   '/work' seem to have lowest priority
+   load it last with zenkit::VfsOverwriteBehavior::NONE
+   any other order will interact with time-stamp based override, resulting in inconsistent behaviour
+  */
   Resources::loadVdfs(modvdfs, modFilter);
+  Resources::mountWork(Gothic::nestedPath({u"_work"}, Dir::FT_Dir));
 
   if(wrldDef.empty()) {
     if(version().game==2)
@@ -349,7 +363,6 @@ SoundFx *Gothic::loadSoundFx(std::string_view name) {
   }
 
 SoundFx *Gothic::loadSoundWavFx(std::string_view name) {
-  auto snd   = Resources::loadSoundBuffer(name);
   auto cname = std::string(name);
 
   std::lock_guard<std::mutex> guard(syncSnd);
@@ -358,6 +371,7 @@ SoundFx *Gothic::loadSoundWavFx(std::string_view name) {
     return &it->second;
 
   try {
+    auto snd = Resources::loadSoundBuffer(name);
     auto ret = sndWavCache.emplace(name,SoundFx(std::move(snd)));
     return &ret.first->second;
     }
@@ -689,6 +703,12 @@ std::string_view Gothic::defaultOutputUnits() const {
   return ouDef;
   }
 
+std::string_view Gothic::menuMain() const {
+  if(game && game->script())
+    return game->script()->menuMain();
+  return ::menuMain;
+  }
+
 std::unique_ptr<zenkit::DaedalusVm> Gothic::createPhoenixVm(std::string_view datFile, const ScriptLang lang) {
   auto sc = loadScript(datFile, lang);
   setupCommonScriptClasses(sc);
@@ -836,6 +856,13 @@ void Gothic::settingsSetF(std::string_view sec, std::string_view name, float val
   instance->onSettingsChanged();
   }
 
+float Gothic::settingsSoundVolume() {
+  const bool  soundEnabled = settingsGetI("SOUND","soundEnabled")!=0;
+  const float soundVolume  = settingsGetF("SOUND","soundVolume");
+
+  return soundEnabled ? soundVolume : 0.f;
+  }
+
 void Gothic::flushSettings() {
   instance->iniFile->flush();
   }
@@ -883,7 +910,7 @@ void Gothic::setupSettings() {
   if(game!=nullptr)
     game->setupSettings();
 
-  const float soundVolume = settingsGetF("SOUND","soundVolume");
+  const float soundVolume = settingsSoundVolume();
   sndDev.setGlobalVolume(soundVolume);
 
   auto ord  = Gothic::settingsGetS("GAME","invCatOrder");

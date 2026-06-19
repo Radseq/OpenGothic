@@ -79,7 +79,16 @@ void WorldObjects::load(Serialize &fin) {
   for(size_t i=0; i<sz; ++i)
     npcArr[i] = std::make_unique<Npc>(owner,size_t(-1),"");
   for(size_t i=0; i<npcArr.size(); ++i) {
-    npcArr[i]->load(fin,i);
+    npcArr[i]->load(fin,i,"/npc/");
+    }
+
+  if(fin.version()>50) {
+    sz = fin.directorySize("worlds/",fin.worldName(),"/npc_invalid/");
+    npcInvalid.resize(sz);
+    for(size_t i=0; i<npcInvalid.size(); ++i)
+      npcInvalid[i] = std::make_unique<Npc>(owner,size_t(-1),"");
+    for(size_t i=0; i<npcInvalid.size(); ++i)
+      npcInvalid[i]->load(fin,i,"/npc_invalid/");
     }
 
   fin.setEntry("worlds/",fin.worldName(),"/items");
@@ -115,13 +124,13 @@ void WorldObjects::save(Serialize &fout) {
   fout.setEntry("worlds/",fout.worldName(),"/version");
   fout.write(Serialize::Version::Current);
 
-  for(size_t i=0; i<npcArr.size(); ++i) {
-    npcArr[i]->save(fout,i);
-    }
+  for(size_t i=0; i<npcArr.size(); ++i)
+    npcArr[i]->save(fout,i,"/npc/");
+  for(size_t i=0; i<npcInvalid.size(); ++i)
+    npcInvalid[i]->save(fout,i,"/npc_invalid/");
 
   fout.setEntry("worlds/",fout.worldName(),"/items");
-  uint32_t sz = uint32_t(itemArr.size());
-  fout.write(sz);
+  fout.write(uint32_t(itemArr.size()));
   for(auto& i:itemArr)
     i->save(fout);
 
@@ -210,20 +219,23 @@ void WorldObjects::tick(uint64_t dt, uint64_t dtPlayer) {
   const float nearDist              = 3000*3000;
   const float farDist               = 6000*6000;
 
-  auto cpos  = camera!=nullptr ? camera->destPosition() : Vec3();
+  auto cpos  = camera!=nullptr ? camera->originLwc() : Vec3();
   auto plPos = pl!=nullptr ? pl->position() : cpos;
   for(auto& i:npcArr) {
     float dist = (i->position()-plPos).quadLength();
     if(dist<nearDist){
       npcNear.push_back(i.get());
       if(i.get()!=pl)
-        i->setProcessPolicy(Npc::ProcessPolicy::AiNormal);
+        i->setProcessPolicy(NpcProcessPolicy::AiNormal);
       } else
     if(dist<farDist) {
-      i->setProcessPolicy(Npc::ProcessPolicy::AiFar);
+      i->setProcessPolicy(NpcProcessPolicy::AiFar);
       } else {
-      i->setProcessPolicy(Npc::ProcessPolicy::AiFar2);
+      i->setProcessPolicy(NpcProcessPolicy::AiFar2);
       }
+    // debug
+    // if(i.get()!=pl)
+    //   i->setProcessPolicy(NpcProcessPolicy::AiFar2);
     }
   tickNear(dt);
 
@@ -240,7 +252,7 @@ void WorldObjects::tick(uint64_t dt, uint64_t dtPlayer) {
       i.perceptionProcess(*pl);
       }
 
-    if(i.processPolicy()==Npc::AiNormal) {
+    if(i.processPolicy()==NpcProcessPolicy::AiNormal) {
       for(auto& r:passive)
         passivePerceptionProcess(r, *ptr, *pl);
       }
@@ -274,36 +286,22 @@ uint32_t WorldObjects::mobsiId(const void* ptr) const {
   }
 
 Npc* WorldObjects::addNpc(size_t npcInstance, std::string_view at) {
-  auto pos = owner.findPoint(at);
-  if(pos==nullptr)
-    Log::e("addNpc: invalid waypoint");
-
   Npc* npc = new Npc(owner,npcInstance,at);
-  if(pos!=nullptr && pos->isLocked()){
-    auto p = owner.findNextPoint(*pos);
-    if(p)
-      pos=p;
-    }
-
-  bool valid = false;
-  if(pos!=nullptr) {
-    valid = true;
-    }
-  if(npc->resetPositionToTA()) {
-    valid = true;
-    }
-
-  if(valid) {
-    if(auto p = npc->currentWayPoint())
-      pos = p;
-    if(pos==nullptr)
-      pos = &owner.deadPoint();
-    npc->setPosition  (pos->x,pos->y,pos->z);
-    npc->setDirection (pos->dirX,pos->dirY,pos->dirZ);
+  if(auto pos = npc->currentTaPoint()) {
+    if(pos->isLocked()) {
+      auto p = owner.findNextPoint(*pos);
+      if(p!=nullptr)
+        pos = p;
+      }
+    npc->setPosition  (pos->position() );
+    npc->setDirection (pos->direction());
     npc->attachToPoint(pos);
     npc->updateTransform();
+    owner.script().invokeRefreshAtInsert(*npc);
     npcArr.emplace_back(npc);
     } else {
+    const auto* sym = owner.script().findSymbol(npcInstance);
+    Log::e("addNpc: ", npcInstance, " (", (sym!=nullptr ? sym->name() : "nullptr" ), ") has invalid spawnpoint (", at, ")");
     auto& point = owner.deadPoint();
     npc->attachToPoint(nullptr);
     npc->setPosition(point.position());
@@ -343,8 +341,8 @@ Npc* WorldObjects::insertPlayer(std::unique_ptr<Npc> &&npc, std::string_view at)
     if(p)
       pos=p;
     }
-  npc->setPosition  (pos->x,pos->y,pos->z);
-  npc->setDirection (pos->dirX,pos->dirY,pos->dirZ);
+  npc->setPosition  (pos->groundPos  );
+  npc->setDirection (pos->direction());
   npc->attachToPoint(pos);
   npc->updateTransform();
   npcArr.emplace_back(std::move(npc));
@@ -376,9 +374,8 @@ void WorldObjects::removeNpc(Npc& npc) {
 
 void WorldObjects::tickNear(uint64_t /*dt*/) {
   for(Npc* i:npcNear) {
-    auto pos = i->position() + Vec3(0,i->translateY(),0);
     for(CollisionZone* z:collisionZn)
-      if(z->checkPos(pos))
+      if(z->checkPos(*i))
         z->onIntersect(*i);
     }
   }
@@ -447,7 +444,7 @@ bool WorldObjects::isTargeted(Npc& dst) {
 bool WorldObjects::isTargetedBy(Npc& npc, Npc& dst) {
   if(npc.target()!=&dst)
     return false;
-  if(npc.processPolicy()!=Npc::AiNormal || npc.weaponState()==WeaponState::NoWeapon)
+  if(npc.processPolicy()!=NpcProcessPolicy::AiNormal || npc.weaponState()==WeaponState::NoWeapon)
     return false;
   if(!npc.isAttack())
     return false;
@@ -456,7 +453,7 @@ bool WorldObjects::isTargetedBy(Npc& npc, Npc& dst) {
 
 Npc *WorldObjects::findHero() {
   for(auto& i:npcArr){
-    if(i->processPolicy()==Npc::ProcessPolicy::Player)
+    if(i->processPolicy()==NpcProcessPolicy::Player)
       return i.get();
     }
   return nullptr;
@@ -634,7 +631,7 @@ Bullet& WorldObjects::shootBullet(const Item& itmId, const Vec3& pos, const Vec3
   bullets.emplace_back(owner,itmId,pos);
   auto& b = bullets.back();
 
-  const float rgnBias = 50.f;
+  const float rgnBias = 0.f;
   const float l = dir.length();
   b.setDirection(dir*speed/l);
   b.setTargetRange(tgRange + rgnBias);
@@ -648,12 +645,11 @@ Item *WorldObjects::addItem(size_t itemInstance, std::string_view at) {
   const WayPoint* waypoint = owner.findPoint(at);
 
   if(waypoint != nullptr) {
-    pos = {waypoint->x, waypoint->y, waypoint->z};
-    dir = {waypoint->dirX, waypoint->dirY, waypoint->dirZ};
-  }
+    pos = waypoint->position();
+    dir = waypoint->direction();
+    }
 
   item = addItem(itemInstance, pos, dir);
-
   return item;
   }
 
@@ -831,9 +827,38 @@ void WorldObjects::marchCsCameras(DbgPainter& p) const {
       }
   }
 
+void WorldObjects::drawVobBoxNpcNear(DbgPainter& p) const {
+  for(auto& i:npcNear)
+    i->drawVobBox(p);
+
+  auto camera = Gothic::inst().camera();
+  const float nearDist = 3000*3000;
+  for(auto& i:interactiveObj) {
+    auto bbox = i->bBox();
+    auto pos  = (bbox[0]+bbox[1])*0.5f;
+    if((pos-camera->originLwc()).quadLength() > nearDist)
+      continue;
+    i->drawVobBox(p);
+    }
+
+  for(auto& i:items) {
+    auto pos = i->midPosition();
+    if((pos-camera->originLwc()).quadLength() > nearDist)
+      continue;
+    i->drawVobBox(p);
+    }
+
+  for(auto& i:collisionZn) {
+    auto pos = i->position();
+    if((pos-camera->originLwc()).quadLength() > nearDist)
+      continue;
+    i->drawVobBox(p);
+    }
+  }
+
 Interactive *WorldObjects::availableMob(const Npc &pl, std::string_view dest) {
-  const float  dist=100*10.f;
-  Interactive* ret =nullptr;
+  const float  dist = MOBSI_SEARCH_DISTANCE;
+  Interactive* ret  = nullptr;
 
   if(auto i = pl.interactive()){
     if(i->checkMobName(dest))
@@ -891,7 +916,7 @@ void WorldObjects::sendPassivePerc(Npc &self, Npc &other, Npc* victim, Item* itm
 
 void WorldObjects::sendImmediatePerc(Npc& self, Npc& other, Npc& victim, Item* itm, int32_t perc) {
   const auto pl = owner.player();
-  if(pl==nullptr || pl->bodyStateMasked()==BS_SNEAK)
+  if(pl==nullptr)
     return;
 
   PerceptionMsg r;
@@ -909,10 +934,10 @@ void WorldObjects::sendImmediatePerc(Npc& self, Npc& other, Npc& victim, Item* i
   }
 
 void WorldObjects::passivePerceptionProcess(PerceptionMsg& msg, Npc& npc, Npc& pl) {
-  if(npc.isPlayer() || npc.isDead())
+  if(npc.isPlayer() || npc.isDown())
     return;
 
-  if(npc.processPolicy()!=Npc::AiNormal)
+  if(npc.processPolicy()!=NpcProcessPolicy::AiNormal)
     return;
 
   if(msg.self==&npc)
@@ -924,24 +949,14 @@ void WorldObjects::passivePerceptionProcess(PerceptionMsg& msg, Npc& npc, Npc& p
   if(distance > range*range)
     return;
 
-  if(npc.isDown() || npc.isPlayer())
-    return;
-
   if(msg.other==nullptr)
     return;
 
-  /*
-  // active only
-  const bool active = isActivePerception(PercType(msg.what));
-  if(active && npc.canSenseNpc(*msg.other, true)==SensesBit::SENSE_NONE) {
-    return;
+  //NOTE: in vanilla "passive perceptions" are ignoring INpc::senses
+  if((msg.what==PERC_ASSESSENTERROOM || msg.what==PERC_ASSESSQUIETSOUND) &&
+     ((SensesBit(npc.handle().senses) & SensesBit::SENSE_HEAR)==SensesBit::SENSE_NONE)) {
+    //return;
     }
-
-  // approximation of behavior of original G2
-  if(active && msg.victim!=nullptr && npc.canSenseNpc(*msg.victim,true,float(msg.other->handle().senses_range))==SensesBit::SENSE_NONE) {
-    return;
-    }
-  */
 
   if(msg.item!=size_t(-1) && msg.other!=nullptr)
     owner.script().setInstanceItem(*msg.other,msg.item);
@@ -953,8 +968,14 @@ void WorldObjects::resetPositionToTA() {
     r.curState = 0;
 
   for(auto& i:npcInvalid)
-    npcArr.push_back(std::move(i));
+    if(i->handlePtr().use_count()>1)
+      npcArr.push_back(std::move(i)); else
+      npcRemoved.push_back(std::move(i));
   npcInvalid.clear();
+
+  for(auto& i : npcArr) {
+    i->attachToPoint(nullptr);
+    }
 
   for(size_t i=0;i<npcArr.size();) {
     auto& n = *npcArr[i];
@@ -1070,7 +1091,7 @@ template<class T>
 bool WorldObjects::testObj(T &src, const Npc &pl, const WorldObjects::SearchOpt &opt,float& rlen){
   const float qmax  = opt.rangeMax*opt.rangeMax;
   const float qmin  = opt.rangeMin*opt.rangeMin;
-  const float plAng = pl.rotationRad()+float(M_PI/2);
+  const float plAng = pl.rotationRad();
   const float ang   = float(std::cos(double(opt.azi)*M_PI/180.0));
 
   auto& npc=deref(src);
@@ -1087,7 +1108,7 @@ bool WorldObjects::testObj(T &src, const Npc &pl, const WorldObjects::SearchOpt 
     return false;
 
   auto pos   = npc.position();
-  auto dpos  = pl.position()-pos;
+  auto dpos  = pos - pl.position();
   auto angle = std::atan2(dpos.z,dpos.x);
 
   if(std::cos(plAng-angle)<ang && !bool(opt.flags&SearchFlg::NoAngle))

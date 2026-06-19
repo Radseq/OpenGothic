@@ -16,7 +16,7 @@ Effect::Effect(PfxEmitter&& pfx, std::string_view node)
   }
 
 Effect::Effect(const VisualFx& vfx, World& owner, const Npc& src, SpellFxKey key)
-  :Effect(vfx, owner, src.position(), key) {
+  :Effect(vfx, owner, src.centerPosition(), key) {
   }
 
 Effect::Effect(const VisualFx& v, World& owner, const Vec3& inPos, SpellFxKey k) {
@@ -359,12 +359,13 @@ void Effect::setupCollision(World& owner) {
     auto n   = origin;
     auto sId = splId;
     auto b   = bullet;
-    pfx.setPhysicsEnable(owner,[vfx,n,sId,b](Npc& npc){
-      if(n!=&npc) {
+    pfx.setPhysicsEnable(owner,[vfx,n,sId,b](Npc& npc) {
+      if(b!=nullptr) {
+        b->onEffectCollide(npc);
+        }
+      else if(n!=&npc) {
         auto src = (n!=nullptr ? n : &npc);
         npc.takeDamage(*src,b,vfx,sId);
-        if(b!=nullptr)
-          b->setFlags(Bullet::Stopped);
         }
       });
     }

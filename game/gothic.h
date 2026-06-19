@@ -55,8 +55,11 @@ class Gothic final {
 
       bool     hideFocus         = false;
       float    cameraFov         = 67.5f;
+      int      fpsLimit          = 0;
       float    interfaceScale    = 1;
       int      inventoryCellSize = 70;
+
+      Tempest::Size newChapterSize = {800, 600};
 
       Tempest::Size saveGameImageSize = {0, 0};
 
@@ -75,6 +78,8 @@ class Gothic final {
     std::string_view defaultSave()        const;
     std::string_view defaultGameDatFile() const;
     std::string_view defaultOutputUnits() const;
+
+    std::string_view menuMain() const;
 
     void         setGame(std::unique_ptr<GameSession> &&w);
     auto         clearGame() -> std::unique_ptr<GameSession>;
@@ -131,11 +136,17 @@ class Gothic final {
     bool         doClock() const { return showTime; }
     void         setClock(bool t) { showTime = t; }
 
+    bool         doVobBox() const { return vobBox; }
+    void         setVobBox(bool v) { vobBox = v; }
+
+    bool         doVobRays() const { return vobRays; }
+    void         setVobRays(bool v) { vobRays = v; }
+
     bool         isBenchmarkMode() const;
     bool         isBenchmarkModeCi() const;
     void         setBenchmarkMode(Benchmark b);
 
-    Tempest::Signal<void()> toggleGi, toggleVsm, toggleRtsm;
+    Tempest::Signal<void()> toggleGi, toggleVsm, toggleRtsm, togglePathtrace;
 
     LoadState    checkLoading() const;
     bool         finishLoading();
@@ -200,6 +211,7 @@ class Gothic final {
     static void                           settingsSetS(std::string_view sec, std::string_view name, std::string_view val);
     static float                          settingsGetF(std::string_view sec, std::string_view name);
     static void                           settingsSetF(std::string_view sec, std::string_view name, float val);
+    static float                          settingsSoundVolume();
     static void                           flushSettings();
 
   private:
@@ -212,6 +224,8 @@ class Gothic final {
     bool                                    desktop        = false;
     bool                                    showFpsCounter = false;
     bool                                    showTime       = false;
+    bool                                    vobBox         = false;
+    bool                                    vobRays        = false;
     Benchmark                               isBenchmark    = Benchmark::None;
 
     std::string                             wrldDef, plDef, gameDatDef, ouDef;

@@ -45,10 +45,16 @@ class Renderer final {
 
     bool requiresTlas() const;
 
+    Tempest::StorageImage&  usesImage2d(Tempest::StorageImage& ret, Tempest::TextureFormat frm, uint32_t w, uint32_t h, bool mips = false);
+    Tempest::StorageImage&  usesImage2d(Tempest::StorageImage& ret, Tempest::TextureFormat frm, Tempest::Size sz, bool mips = false);
+    Tempest::StorageImage&  usesImage3d(Tempest::StorageImage& ret, Tempest::TextureFormat frm, uint32_t w, uint32_t h, uint32_t d, bool mips = false);
+    Tempest::ZBuffer&       usesZBuffer(Tempest::ZBuffer&      ret, Tempest::TextureFormat frm, uint32_t w, uint32_t h);
+    Tempest::StorageBuffer& usesSsbo(Tempest::StorageBuffer& ret, size_t size);
+    Tempest::StorageBuffer& usesScratch(Tempest::StorageBuffer& ret, size_t size);
+
     void prepareUniforms();
     void resetShadowmap();
     void resetSkyFog();
-    void resetGiData();
 
     void prepareSky       (Tempest::Encoder<Tempest::CommandBuffer>& cmd, WorldView& wview);
     void prepareSSAO      (Tempest::Encoder<Tempest::CommandBuffer>& cmd, WorldView& wview);
@@ -81,11 +87,11 @@ class Renderer final {
     void drawSunMoon      (Tempest::Encoder<Tempest::CommandBuffer>& cmd, const WorldView& wview, bool isSun);
 
     void drawSwRT         (Tempest::Encoder<Tempest::CommandBuffer>& cmd, const WorldView& wview);
-    void drawSwRT8        (Tempest::Encoder<Tempest::CommandBuffer>& cmd, const WorldView& wview);
-    void drawSwRT64       (Tempest::Encoder<Tempest::CommandBuffer>& cmd, const WorldView& wview);
+    void drawPathtrace    (Tempest::Encoder<Tempest::CommandBuffer>& cmd, WorldView& wview, uint8_t fId);
 
     void stashSceneAux    (Tempest::Encoder<Tempest::CommandBuffer>& cmd);
 
+    void drawRayQueryDbg  (Tempest::Encoder<Tempest::CommandBuffer>& cmd, const WorldView& wview);
     void drawProbesDbg    (Tempest::Encoder<Tempest::CommandBuffer>& cmd, const WorldView& wview);
     void drawProbesHitDbg (Tempest::Encoder<Tempest::CommandBuffer>& cmd);
     void drawVsmDbg       (Tempest::Encoder<Tempest::CommandBuffer>& cmd, const WorldView& wview);
@@ -96,6 +102,7 @@ class Renderer final {
     void toggleGi();
     void toggleVsm();
     void toggleRtsm();
+    void togglePathtrace();
 
     struct Settings {
       const uint32_t shadowResolution   = 2048;
@@ -103,6 +110,7 @@ class Renderer final {
       bool           rtsmEnabled        = false;
       bool           swrEnabled         = false;
       bool           swrtEnabled        = false;
+      bool           pathTraceEnabled   = false;
 
       bool           zEnvMappingEnabled = false;
       bool           zCloudShadowScale  = false;
@@ -195,8 +203,13 @@ class Renderer final {
       Tempest::StorageImage     probesGBuffRayT;
       Tempest::StorageImage     probesLighting;
       Tempest::StorageImage     probesLightingPrev;
-      bool                      fisrtFrame = false;
       } gi;
+
+    struct {
+      Tempest::Attachment       frame;
+      uint32_t                  numFrames = 0;
+      Tempest::Matrix4x4        mvpLast;
+      } pt;
 
     struct {
       Tempest::StorageBuffer    epipoles;
@@ -219,29 +232,26 @@ class Renderer final {
 
     struct {
       Tempest::StorageImage     outputImage;
-      } swr;
-
-    struct {
-      Tempest::StorageImage     outputImage;
       Tempest::StorageImage     outputImageClr;
 
       Tempest::StorageImage     pages;
       Tempest::StorageBuffer    visList;
       Tempest::StorageBuffer    posList;
-      Tempest::StorageBuffer    complexTiles;
 
-      Tempest::StorageBuffer    bvh, ibo, bvhDbg;
-
-      Tempest::StorageImage     tiles;
-      Tempest::StorageImage     primBins;
-
-      Tempest::StorageBuffer    visibleLights;
-      Tempest::StorageImage     lightTiles;
-      Tempest::StorageImage     lightBins;
+      Tempest::StorageImage     meshTiles;
       Tempest::StorageImage     primTiles;
 
-      Tempest::StorageImage     dbg64, dbg, dbg16, dbg8;
+      Tempest::StorageBuffer    visibleLights;
+      Tempest::StorageBuffer    drawTasks;
+      Tempest::StorageImage     lightTiles;
+      Tempest::StorageImage     lightBins, primTilesOmni;
+
+      Tempest::StorageImage     dbg64, dbg32, dbg16, dbg8;
       } rtsm;
+
+    struct {
+      Tempest::StorageImage     outputImage;
+      } swr;
 
     struct {
       Tempest::StorageImage     outputImage;

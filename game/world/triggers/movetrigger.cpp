@@ -42,8 +42,15 @@ MoveTrigger::MoveTrigger(Vob* parent, World& world, const zenkit::VMover& mover,
     float len   = Vec3(dx,dy,dz).length();
 
     if(speed>0) {
+      /*
+       * Distance between keyframe positions doesn't have to be exactly zero to use rotation speed,
+       * it seem there is some small threshold.
+       * Otherwise the boat close to Lares in L'Hiver mod would jump between two keyframes.
+       */
+      static const float rotationThreshold = 0.01f;
+
       uint64_t ticks = 0;
-      if(len>0)
+      if(len>rotationThreshold)
         ticks = uint64_t(len/speed); else
         ticks = uint64_t((angle/360.f) * 1000.f/scaleRotSpeed(speed));
       keyframes[i].ticks = std::max<uint64_t>(1,ticks);
@@ -255,12 +262,16 @@ void MoveTrigger::postProcessTrigger() {
 
 uint32_t MoveTrigger::nextFrame(uint32_t i) const {
   uint32_t size = uint32_t(keyframes.size());
-  return (i+1)%size;
+  if(behavior==zenkit::MoverBehavior::LOOP)
+    return (i+1)%size;
+  return std::min<uint32_t>(i+1, size-1);
   }
 
 uint32_t MoveTrigger::prevFrame(uint32_t i) const {
   uint32_t size = uint32_t(keyframes.size());
-  return (i+size-1)%size;
+  if(behavior==zenkit::MoverBehavior::LOOP)
+    return (i+size-1)%size;
+  return std::max<uint32_t>(i, 1) - 1;
   }
 
 void MoveTrigger::tick(uint64_t dt) {
@@ -273,11 +284,13 @@ void MoveTrigger::tick(uint64_t dt) {
     targetFrame = 0;
     frameTime  -= stayOpenTime;
     }
+  if(frame==targetFrame) {
+    postProcessTrigger();
+    return;
+    }
   advanceAnim();
   updateFrame();
-  if(frame==targetFrame)
-    postProcessTrigger(); else
-    emitSound(sfxMoving);
+  emitSound(sfxMoving);
   }
 
 void MoveTrigger::updateFrame() {
@@ -302,6 +315,7 @@ void MoveTrigger::updateFrame() {
 
 float MoveTrigger::calcProgress(uint32_t f1, uint32_t f2) const {
   float a = float(frameTime)/float(keyframes[f1].ticks);
+  a = std::clamp(a,0.f,1.f);
   if(state==Close)
     a = 1 - a;
   bool start = (f1==0 && state!=Loop);

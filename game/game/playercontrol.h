@@ -8,6 +8,7 @@
 
 class DialogMenu;
 class InventoryMenu;
+class DbgPainter;
 class World;
 class Interactive;
 class Npc;
@@ -20,11 +21,12 @@ class PlayerControl final {
     PlayerControl(DialogMenu& dlg, InventoryMenu& inv);
     ~PlayerControl();
 
-    void  onKeyPressed (KeyCodec::Action a, Tempest::Event::KeyType key, KeyCodec::Mapping mapping = KeyCodec::Mapping::Primary);
-    void  onKeyReleased(KeyCodec::Action a, KeyCodec::Mapping mapping = KeyCodec::Mapping::Primary);
+    void  onKeyPressed (KeyCodec::Action a, Tempest::Event::KeyType key, KeyCodec::Mapping mapping);
+    void  onKeyReleased(KeyCodec::Action a, KeyCodec::Mapping mapping);
     bool  isPressed(KeyCodec::Action a) const;
-    void  onRotateMouse(float dAngle);
-    void  onRotateMouseDy(float dAngle);
+    void  onRotateMouse(float dAngleX, float dAngleY);
+
+    void  drawVobRay(DbgPainter& p) const;
 
     void  changeZoom(int delta);
     void  tickFocus();
@@ -147,7 +149,6 @@ class PlayerControl final {
     size_t         pickLockProgress = 0;
 
     float          runAngleDest   = 0.f;
-    uint64_t       runAngleSmooth = 0;
     uint64_t       turnAniSmooth  = 0;
     int            rotationAni    = 0;
     bool           g2Ctrl         = false;
@@ -163,7 +164,7 @@ class PlayerControl final {
     void           toggleWalkMode();
     void           toggleSneakMode();
     void           moveFocus(FocusAction act);
-    Focus          findFocus(Focus *prev);
+    Focus          findFocus(const Focus* prev) const;
 
     void           clrDraw();
     void           implMove(uint64_t dt);

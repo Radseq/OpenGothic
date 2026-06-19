@@ -6,7 +6,6 @@
 #include <zenkit/vobs/MovableObject.hh>
 
 #include "game/serialize.h"
-#include "graphics/mesh/skeleton.h"
 #include "utils/string_frm.h"
 #include "world/triggers/abstracttrigger.h"
 #include "world/objects/npc.h"
@@ -55,16 +54,18 @@ Interactive::Interactive(Vob* parent, World &world, const zenkit::VMovableObject
 
   if(vobType==zenkit::VirtualObjectType::oCMobDoor) {
     auto& door = reinterpret_cast<const zenkit::VDoor&>(vob);
-    locked      = door.locked;
-    keyInstance = door.key;
-    pickLockStr = door.pick_string;
+    locked        = door.locked;
+    keyInstance   = door.key;
+    pickLockStr   = door.pick_string;
+    isLockCracked = !door.locked;
     }
 
   if(isContainer() && (flags&Flags::Startup)==Flags::Startup) {
     auto& container = reinterpret_cast<const zenkit::VContainer&>(vob);
-    locked      = container.locked;
-    keyInstance = container.key;
-    pickLockStr = container.pick_string;
+    locked        = container.locked;
+    keyInstance   = container.key;
+    pickLockStr   = container.pick_string;
+    isLockCracked = !container.locked;
 
     auto items  = std::move(container.contents);
     if(items.size()>0) {
@@ -121,7 +122,7 @@ void Interactive::load(Serialize &fin) {
     std::string name;
     Npc*        user       = nullptr;
     bool        attachMode = false;
-    Phase       started    = NonStarted;
+    Phase       started    = NotStarted;
 
     fin.read(name,user,attachMode,reinterpret_cast<uint8_t&>(started));
 
@@ -172,6 +173,46 @@ void Interactive::postValidate() {
   for(auto& i:attPos)
     if(i.user!=nullptr && i.user->interactive()!=this)
       i.user = nullptr;
+  if(visual.updateAnimation(nullptr,this,world,0,true))
+    animChanged = true;
+  }
+
+void Interactive::drawVobBox(DbgPainter& p) const {
+  p.setPen(Tempest::Color(1,0,0));
+  //p.drawAabb(bbox[0], bbox[1]);
+  if(auto mesh = visual.protoMesh()) {
+    p.drawObb(transform(), mesh->bbox());
+    }
+
+  for(auto& i:attPos) {
+    p.setBrush(Tempest::Color(0,1,0));
+    p.drawPoint(nodePosition(nullptr, i));
+    }
+  }
+
+void Interactive::drawVobRay(DbgPainter& p, const Npc& npc) const {
+  auto head = npc.mapHeadBone();
+
+  if(auto mesh = visual.protoMesh()) {
+    auto  bbox   = mesh->bbox();
+    auto  boxMin = bbox[0];
+    auto  boxMax = bbox[1];
+    auto  at     = (boxMin+boxMax)*0.5f;
+    transform().project(at);
+
+    auto  tMax   = (at - head).length();
+    auto  dir    = Tempest::Vec3::normalize(at - head);
+    float tHit   = DynamicWorld::rayBox(head, dir, tMax, transform(), boxMin, boxMax, 0.1f);
+
+    bool accessable = true;
+    if(!npc.canRayHitPoint(head+dir*tHit))
+      accessable = false;
+    p.setPen(accessable ? Tempest::Color(0,1,0) : Tempest::Color(1,0,0));
+    p.drawLine(head, head+dir*tHit);
+
+    p.setPen(Tempest::Color(1,1,0));
+    p.drawLine(head+dir*tHit, at);
+    }
   }
 
 void Interactive::resetPositionToTA(int32_t state) {
@@ -195,16 +236,16 @@ void Interactive::setVisual(const zenkit::VirtualObject& vob) {
   if(auto mesh = visual.protoMesh()) {
     attPos.resize(mesh->pos.size());
     for(size_t i=0;i<attPos.size();++i){
-      attPos[i].name = mesh->pos[i].name;
-      attPos[i].pos  = mesh->pos[i].transform;
-      attPos[i].node = mesh->pos[i].node;
+      attPos[i].name   = mesh->pos[i].name;
+      attPos[i].pos    = mesh->pos[i].transform;
+      attPos[i].nodeId = mesh->pos[i].node;
       }
     }
   setAnim(Interactive::Active); // setup default anim
   }
 
 void Interactive::updateAnimation(uint64_t dt) {
-  if(visual.updateAnimation(nullptr,this,world,dt))
+  if(visual.updateAnimation(nullptr,this,world,dt,false))
     animChanged = true;
   }
 
@@ -230,12 +271,13 @@ void Interactive::tick(uint64_t dt) {
     // Note: oCMobInter::rewind, oCMobInter with killed user has to go back to state=-1
     // All other cases, oCMobFire, oCMobDoor in particular - preserve old state
     const int destSt = -1;
-    if(destSt!=state && (vobType==zenkit::VirtualObjectType::oCMobInter || rewind)) {
-      if(!setAnim(nullptr,Anim::Out))
-        return;
-      auto prev = state;
-      setState(state-1);
-      loopState = (prev==state);
+    for(auto& i:attPos) {
+      if(destSt!=state && (i.started==Quit || rewind)) {
+        if(!setAnim(nullptr,Anim::Out))
+          return;
+        setState(state-1);
+        i.started = NotStarted;
+        }
       }
     return;
     }
@@ -292,7 +334,7 @@ void Interactive::implTick(Pos& p) {
   Npc&       npc    = *p.user;
   const bool attach = (p.attachMode^reverseState);
 
-  if(p.started==NonStarted) {
+  if(p.started==NotStarted) {
     const bool omit = (!isLadder() && reverseState && state>0);
     if(omit) {
       loopState = false;
@@ -320,7 +362,7 @@ void Interactive::implTick(Pos& p) {
     npc.quitInteraction();
     loopState = false;
     p.user    = nullptr;
-    p.started = NonStarted;
+    p.started = NotStarted;
     return;
     }
 
@@ -446,7 +488,7 @@ bool Interactive::setMobState(std::string_view scheme, int32_t st) {
     return ret;
 
   string_frm name("S_S",st);
-  if(visual.startAnimAndGet(name,world.tickCount())!=nullptr || !visual.isAnimExist(name)) {
+  if(visual.startAnimAndGet(name,world.tickCount())!=nullptr || !visual.hasAnim(name)) {
     setState(st);
     return ret;
     }
@@ -468,7 +510,7 @@ void Interactive::invokeStateFunc(Npc& npc) {
 void Interactive::emitTriggerEvent(TriggerEvent::Type type) const {
   if(triggerTarget.empty())
     return;
-  const TriggerEvent evt(triggerTarget,vobName,type);
+  const TriggerEvent evt(triggerTarget,vobName,waitAnim,type);
   world.triggerEvent(evt);
   }
 
@@ -534,24 +576,39 @@ uint32_t Interactive::stateMask() const {
   }
 
 bool Interactive::canSeeNpc(const Npc& npc, bool freeLos) const {
+  const auto* w    = world.physic();
+  const auto  head = npc.mapHeadBone();
+  if(auto mesh = visual.protoMesh()) {
+    auto  bbox = mesh->bbox();
+    auto  at   = (bbox[0]+bbox[1])*0.5f;
+    transform().project(at);
+
+    auto  tMax = (at - head).length();
+    auto  dir  = (at - head)/tMax;
+    float tHit = DynamicWorld::rayBox(head, dir, tMax, transform(), bbox[0], bbox[1]);
+
+    auto  ray  = w->ray(head, head+dir*tHit);
+    if(ray.hasCol && ray.vob!=this && !isLadder()) // maybe need to trace to closes point of bbox instead?
+      return false;
+    }
+
   for(auto& i:attPos){
-    auto pos = nodePosition(npc,i);
-    if(npc.canSeeNpc(pos,freeLos))
+    auto pos = nodePosition(&npc,i);
+    if(npc.canRayHitPoint(pos,freeLos))
       return true;
     }
 
   // graves
-  if(attPos.size()==0){
-    auto pos = displayPosition();
-    if(npc.canSeeNpc(pos,freeLos))
-      return true;
+  if(attPos.size()==0) {
+    // ray-box test should be engough
+    return true;
     }
   return false;
   }
 
 Tempest::Vec3 Interactive::nearestPoint(const Npc& to) const {
   if(auto p = findNearest(to))
-    return worldPos(*p);
+    return nodePosition(&to, *p);
   return displayPosition();
   }
 
@@ -562,7 +619,7 @@ P* Interactive::findNearest(Inter& in, const Npc& to) {
   for(auto& i:in.attPos) {
     if(i.user || !i.isAttachPoint())
       continue;
-    float d = in.qDistanceTo(to,i);
+    float d = in.qDistTo(to,i);
     if(d<dist || p==nullptr) {
       p    = &i;
       dist = d;
@@ -577,6 +634,11 @@ const Interactive::Pos* Interactive::findNearest(const Npc& to) const {
 
 Interactive::Pos* Interactive::findNearest(const Npc& to) {
   return findNearest<Interactive::Pos, Interactive>(*this,to);
+  }
+
+float Interactive::qDistTo(const Npc &npc, const Interactive::Pos &to) const {
+  auto p = nodePosition(&npc, to);
+  return npc.qDistTo(p);
   }
 
 void Interactive::implAddItem(std::string_view name) {
@@ -602,21 +664,24 @@ void Interactive::autoDetachNpc() {
 bool Interactive::checkUseConditions(Npc& npc) {
   const bool isPlayer = npc.isPlayer();
 
-  auto& sc = npc.world().script();
+  auto& sc = world.script();
 
   if(isPlayer) {
     const bool             g1             = Gothic::inst().version().game==1;
-    const size_t           ItKE_lockpick  = world.script().lockPickId();
+    const size_t           ItKE_lockpick  = sc.lockPickId();
     const size_t           lockPickCnt    = npc.inventory().itemCount(ItKE_lockpick);
     const bool             canLockPick    = ((g1 || npc.talentSkill(TALENT_PICKLOCK)!=0) && lockPickCnt>0);
 
-    const size_t           keyInst        = keyInstance.empty() ? size_t(-1) : world.script().findSymbolIndex(keyInstance);
+    const size_t           keyInst        = keyInstance.empty() ? size_t(-1) : sc.findSymbolIndex(keyInstance);
     const bool             needToPicklock = (pickLockStr.size()>0);
 
-    if(keyInst!=size_t(-1) && npc.itemCount(keyInst)>0)
+    if(keyInst!=size_t(-1) && (isLockCracked || npc.itemCount(keyInst)>0)) {
+      isLockCracked = true;
       return true;
-    if((canLockPick || isLockCracked) && needToPicklock)
+      }
+    if(needToPicklock && (isLockCracked || canLockPick)) {
       return true;
+      }
 
     if(keyInst!=size_t(-1) && needToPicklock) { // key+lockpick
       sc.printMobMissingKeyOrLockpick(npc);
@@ -638,7 +703,7 @@ bool Interactive::checkUseConditions(Npc& npc) {
       }
 
     if(!useWithItem.empty()) {
-      size_t it = world.script().findSymbolIndex(useWithItem);
+      size_t it = sc.findSymbolIndex(useWithItem);
       if(it!=size_t(-1) && npc.itemCount(it)==0) {
         sc.printMobMissingItem(npc);
         return false;
@@ -662,20 +727,6 @@ Interactive::Pos *Interactive::findFreePos() {
       return &i;
       }
   return nullptr;
-  }
-
-Tempest::Vec3 Interactive::worldPos(const Interactive::Pos &to) const {
-  auto mesh = visual.protoMesh();
-  if(mesh==nullptr)
-    return Tempest::Vec3();
-
-  auto mat  = transform();
-  auto pos  = mesh->mapToRoot(to.node);
-  mat.mul(pos);
-
-  Tempest::Vec3 ret = {};
-  mat.project(ret);
-  return ret;
   }
 
 bool Interactive::isAvailable() const {
@@ -714,6 +765,7 @@ bool Interactive::canQuitAtState(const Npc& npc, int32_t state) const {
     anim = string_frm("T_",scheme,"_S",state,"_2_STAND"); else
     anim = string_frm("T_",scheme,"_",pos,"_S",state,"_2_STAND");
 
+  // should match with this->animNpc(npc,Interactive::ToStand);
   if(npc.hasAnim(anim))
     return true;
   return state==stateNum && reverseState;
@@ -722,13 +774,12 @@ bool Interactive::canQuitAtState(const Npc& npc, int32_t state) const {
 bool Interactive::attach(Npc& npc, Interactive::Pos& to) {
   assert(to.user==nullptr);
 
-  auto mat = nodeTranform(npc,to);
-  float x=0, y=0, z=0;
-  mat.project(x,y,z);
+  auto mat = nodeTranform(&npc,to);
 
-  const Tempest::Vec3 mv = {x,y-npc.translateY(),z};
+  Tempest::Vec3 mv = {};
+  mat.project(mv);
 
-  if((npc.position()-mv).quadLength()>MAX_AI_USE_DISTANCE*MAX_AI_USE_DISTANCE) {
+  if((npc.centerPosition()-mv).quadLength()>MAX_AI_USE_DISTANCE*MAX_AI_USE_DISTANCE) {
     if(npc.isPlayer()) {
       auto& sc = npc.world().script();
       sc.printMobTooFar(npc);
@@ -765,7 +816,7 @@ bool Interactive::attach(Npc& npc, Interactive::Pos& to) {
     }
 
   to.user       = &npc;
-  to.started    = NonStarted;
+  to.started    = NotStarted;
   to.attachMode = true;
   return true;
   }
@@ -800,6 +851,7 @@ bool Interactive::detach(Npc &npc, bool quick) {
             return false;
           }
         i.user       = nullptr;
+        i.started    = (canQuitAtState(npc,state) || !quick) ? NotStarted : Quit;
         i.attachMode = false;
         loopState    = false;
         npc.quitInteraction();
@@ -842,35 +894,50 @@ void Interactive::setDir(Npc &npc, const Tempest::Matrix4x4 &mat) {
   mat.project(x0,y0,z0);
   mat.project(x1,y1,z1);
 
-  npc.setDirection(x1-x0,y1-y0,z1-z0);
+  npc.setDirection(Tempest::Vec3(x1-x0, y1-y0, z1-z0));
   }
 
-float Interactive::qDistanceTo(const Npc &npc, const Interactive::Pos &to) const {
-  auto p = worldPos(to);
-  return npc.qDistTo(p.x,p.y-npc.translateY(),p.z);
+Tempest::Vec3 Interactive::nodePosition(const Npc* npc, const Interactive::Pos &to) const {
+  auto  p = nodeTranform(npc, to);
+  float x = p.at(3,0);
+  float y = p.at(3,1);
+  float z = p.at(3,2);
+  return Tempest::Vec3(x,y,z);
+  //NOTE: no need in 'ground rays' - distance to point check allows extra distance on Y
+#if 0
+  if(!groundPos)
+    return Tempest::Vec3(x,y,z);
+
+  auto pos = Tempest::Vec3(x,y,z);
+  auto ray = world.physic()->ray(pos, pos+Tempest::Vec3(0,MOBSI_SEARCH_DISTANCE,0));
+  if(ray.hasCol) {
+    // project position on landscape
+    pos = ray.v;
+    }
+  return pos;
+#endif
   }
 
-Tempest::Matrix4x4 Interactive::nodeTranform(const Npc &npc, const Pos& p) const {
+Tempest::Matrix4x4 Interactive::nodeTranform(const Npc* npc, const Pos& to) const {
   auto mesh = visual.protoMesh();
   if(mesh==nullptr)
-    return Tempest::Matrix4x4();
+    return transform();
 
-  auto nodeId = mesh->findNode(p.name);
-  if(p.isDistPos()) {
-    auto pos = position();
-    Tempest::Matrix4x4 npos;
-    if(nodeId!=size_t(-1)) {
-      npos = visual.bone(nodeId);
-      } else {
-      npos.identity();
-      }
+  const auto nodeId = to.nodeId; //mesh->findNode(p.name);
+  if(nodeId==size_t(-1))
+    return transform();
+
+  if(to.isDistPos() && npc!=nullptr) {
+    auto  pos   = position();
+    auto  npos  = visual.bone(nodeId);
+
     float nodeX = npos.at(3,0) - pos.x;
     float nodeY = npos.at(3,1) - pos.y;
     float nodeZ = npos.at(3,2) - pos.z;
     float dist  = std::sqrt(nodeX*nodeX + nodeZ*nodeZ);
 
-    float npcX  = npc.position().x - pos.x;
-    float npcZ  = npc.position().z - pos.z;
+    float npcX  = npc->position().x - pos.x;
+    float npcZ  = npc->position().z - pos.z;
     float npcA  = 180.f*std::atan2(npcZ,npcX)/float(M_PI);
 
     npos.identity();
@@ -887,30 +954,18 @@ Tempest::Matrix4x4 Interactive::nodeTranform(const Npc &npc, const Pos& p) const
     return npos;
     }
 
-  if(nodeId!=size_t(-1))
-    return visual.bone(nodeId);
-
-  return transform();
+  return visual.bone(nodeId);
   }
 
-Tempest::Vec3 Interactive::nodePosition(const Npc &npc, const Pos &p) const {
-  auto  mat = nodeTranform(npc,p);
-  float x   = mat.at(3,0);
-  float y   = mat.at(3,1);
-  float z   = mat.at(3,2);
-  return {x,y,z};
-  }
-
-Tempest::Matrix4x4 Interactive::nodeTranform(std::string_view nodeName) const {
+Tempest::Matrix4x4 Interactive::mapBone(std::string_view nodeName) const {
   auto mesh = visual.protoMesh();
-  if(mesh==nullptr || mesh->skeleton==nullptr)
-    return Tempest::Matrix4x4();
+  if(mesh==nullptr)
+    return transform();
 
-  auto id  = mesh->skeleton->findNode(nodeName);
-  auto ret = transform();
-  if(id!=size_t(-1))
-    ret = visual.bone(id);
-  return ret;
+  const auto nodeId = mesh->findNode(nodeName);
+  if(nodeId==size_t(-1))
+    return transform();
+  return visual.bone(nodeId);
   }
 
 const Animation::Sequence* Interactive::setAnim(Interactive::Anim t) {
@@ -937,9 +992,9 @@ const Animation::Sequence* Interactive::setAnim(Interactive::Anim t) {
   }
 
 bool Interactive::setAnim(Npc* npc, Anim dir) {
-  const Npc::Anim            dest = toNpcAnim(dir);
-  const Animation::Sequence* sqNpc=nullptr;
-  const Animation::Sequence* sqMob=nullptr;
+  const Npc::Anim            dest  = toNpcAnim(dir);
+  const Animation::Sequence* sqNpc = nullptr;
+  const Animation::Sequence* sqMob = nullptr;
 
   if(npc!=nullptr) {
     sqNpc = npc->setAnimAngGet(dest);
@@ -970,7 +1025,7 @@ void Interactive::setState(int st) {
   onStateChanged();
   }
 
-const Animation::Sequence* Interactive::animNpc(const AnimationSolver &solver, Anim t) {
+const Animation::Sequence* Interactive::animNpc(const AnimationSolver &solver, Anim t) const {
   std::string_view tag      = schemeName();
   int              st[]     = {state,state+t};
   string_frm<12>   ss[2]    = {};
@@ -982,7 +1037,7 @@ const Animation::Sequence* Interactive::animNpc(const AnimationSolver &solver, A
     st[1] = state<1 ? 0 : stateNum - 1;
     }
   else if(t==Anim::ToStand) {
-    st[0] = state<1 ? 0 : stateNum - 1;
+    st[0] = state<1 ? 0 : state;
     st[1] = -1;
     }
 
@@ -1014,7 +1069,7 @@ void Interactive::marchInteractives(DbgPainter &p) const {
   p.setBrush(Tempest::Color(1.0,0,0,1));
 
   for(auto& m:attPos) {
-    auto pos = worldPos(m);
+    auto pos = nodePosition(nullptr, m);
 
     float x = pos.x;
     float y = pos.y;

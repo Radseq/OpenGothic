@@ -3,7 +3,6 @@
 #include <Tempest/Matrix4x4>
 #include <zenkit/vobs/MovableObject.hh>
 
-#include "physics/physicmesh.h"
 #include "graphics/mesh/animationsolver.h"
 #include "graphics/objvisual.h"
 #include "world/triggers/abstracttrigger.h"
@@ -31,6 +30,9 @@ class Interactive : public Vob {
     void                load(Serialize& fin) override;
     void                save(Serialize& fout) const override;
     void                postValidate();
+
+    void                drawVobBox(DbgPainter& p) const;
+    void                drawVobRay(DbgPainter& p, const Npc& npc) const;
 
     void                resetPositionToTA(int32_t state);
     void                updateAnimation(uint64_t dt);
@@ -78,22 +80,16 @@ class Interactive : public Vob {
     bool                isStaticState() const;
     bool                isDetachState(const Npc& npc) const;
     bool                canQuitAtState(const Npc& npc, int32_t state) const;
-    bool                attach (Npc& npc);
-    bool                detach(Npc& npc,bool quick);
+    bool                attach(Npc& npc);
+    bool                detach(Npc& npc, bool quick);
     bool                isAttached(const Npc& to);
 
-    auto                animNpc(const AnimationSolver &solver, Anim t) -> const Animation::Sequence*;
+    auto                animNpc(const AnimationSolver &solver, Anim t) const -> const Animation::Sequence*;
     void                marchInteractives(DbgPainter& p) const;
 
   protected:
-    Tempest::Matrix4x4  nodeTranform(std::string_view nodeName) const;
-    void                moveEvent() override;
-    float               extendedSearchRadius() const override;
-    virtual void        onStateChanged(){}
-
-  private:
     enum Phase : uint8_t {
-      NonStarted = 0,
+      NotStarted = 0,
       Started    = 1,
       Quit       = 2,
       };
@@ -101,10 +97,10 @@ class Interactive : public Vob {
     struct Pos final {
       std::string         name;
       Npc*                user       = nullptr;
-      Phase               started    = NonStarted;
+      Phase               started    = NotStarted;
       bool                attachMode = false;
+      size_t              nodeId     = 0;
 
-      size_t              node=0;
       Tempest::Matrix4x4  pos;
 
       std::string_view    posTag() const;
@@ -112,6 +108,15 @@ class Interactive : public Vob {
       bool                isDistPos() const;
       };
 
+    Tempest::Vec3       nodePosition(const Npc* npc, const Pos &to) const;
+    Tempest::Matrix4x4  nodeTranform(const Npc* npc, const Pos &to) const;
+    Tempest::Matrix4x4  mapBone(std::string_view nodeName) const;
+
+    void                moveEvent() override;
+    float               extendedSearchRadius() const override;
+    virtual void        onStateChanged(){}
+
+  private:
     void                setVisual(const zenkit::VirtualObject& vob);
     void                invokeStateFunc(Npc &npc);
     void                implTick(Pos &p);
@@ -135,10 +140,7 @@ class Interactive : public Vob {
     Pos*                findNearest(const Npc& to);
     const Pos*          findFreePos() const;
     Pos*                findFreePos();
-    auto                worldPos(const Pos &to) const -> Tempest::Vec3;
-    float               qDistanceTo(const Npc &npc, const Pos &to) const;
-    Tempest::Matrix4x4  nodeTranform(const Npc &npc, const Pos &p) const;
-    auto                nodePosition(const Npc &npc, const Pos &p) const -> Tempest::Vec3;
+    float               qDistTo(const Npc &npc, const Pos &to) const;
 
     std::string         vobName;
     std::string         focName;
@@ -172,7 +174,5 @@ class Interactive : public Vob {
     bool                animChanged   = false;
 
     std::vector<Pos>    attPos;
-    PhysicMesh          physic;
-
     ObjVisual           visual;
   };

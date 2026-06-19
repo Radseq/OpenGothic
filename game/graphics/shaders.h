@@ -35,8 +35,9 @@ class Shaders {
     Tempest::ComputePipeline copyBuf;
     Tempest::ComputePipeline copyImg;
     Tempest::ComputePipeline patch;
-    Tempest::RenderPipeline  copy;
+    Tempest::RenderPipeline  copy, downscale;
     Tempest::RenderPipeline  stash;
+    Tempest::RenderPipeline  bink;
 
     Tempest::ComputePipeline ssao, ssaoBlur;
 
@@ -71,6 +72,10 @@ class Shaders {
     Tempest::ComputePipeline clusterInit, clusterPatch;
     Tempest::ComputePipeline visibilityPassSh, visibilityPassHiZ, visibilityPassHiZCr;
 
+    // RT/RQ
+    Tempest::RenderPipeline  rtDbg;
+    Tempest::RenderPipeline  rtPathtrace;
+
     // GI
     Tempest::RenderPipeline  probeDbg, probeHitDbg;
     Tempest::ComputePipeline probeInit, probeClear, probeClearHash, probeMakeHash;
@@ -95,20 +100,19 @@ class Shaders {
     Tempest::ComputePipeline vsmRendering;
 
     // RTSM (Experimental)
+    Tempest::RenderPipeline  rtsmDirectLight;
+
     Tempest::ComputePipeline rtsmClear, rtsmPages, rtsmFogPages, rtsmHiZ;
     Tempest::ComputePipeline rtsmCulling, rtsmPosition;
-    Tempest::ComputePipeline rtsmMeshletCull, rtsmMeshletComplex, rtsmSampleCull, rtsmPrimCull;
+    Tempest::ComputePipeline rtsmMeshletCull, rtsmPrimCull;
     Tempest::ComputePipeline rtsmRaster;
 
     Tempest::ComputePipeline rtsmClearOmni;
-    Tempest::ComputePipeline rtsmCullLights, rtsmCullingOmni;
+    Tempest::ComputePipeline rtsmCullLights, rtsmCompactLights, rtsmCullingOmni;
     Tempest::ComputePipeline rtsmPositionOmni;
-    Tempest::ComputePipeline rtsmBvhBuild;
     Tempest::ComputePipeline rtsmMeshletOmni, rtsmBackfaceOmni;
-    Tempest::ComputePipeline rtsmLightsOmni, rtsmBboxesOmni, rtsmCompactOmni;
+    Tempest::ComputePipeline rtsmLightsOmni, rtsmBboxesOmni, rtsmCompactOmni, rtsmTaskOmni;
     Tempest::ComputePipeline rtsmPrimOmni, rtsmRasterOmni;
-
-    Tempest::RenderPipeline  rtsmDirectLight;
 
     Tempest::ComputePipeline rtsmRendering, rtsmRenderingOmni; //reference
     Tempest::RenderPipeline  rtsmDbg;
@@ -135,6 +139,7 @@ class Shaders {
       bool                    trivial      = false;
       };
 
+    void                     compileKeyShaders();
     void                     compileShaders();
 
     Tempest::RenderPipeline  postEffect(std::string_view name);
