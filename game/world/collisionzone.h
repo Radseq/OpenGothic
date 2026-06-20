@@ -8,6 +8,7 @@
 class World;
 class ParticleFx;
 class Serialize;
+class DbgPainter;
 class Npc;
 
 class CollisionZone final {
@@ -19,6 +20,8 @@ class CollisionZone final {
     CollisionZone& operator = (CollisionZone&& other);
     ~CollisionZone();
 
+    void          drawVobBox(DbgPainter& p) const;
+
     void          save(Serialize& fout) const;
     void          load(Serialize &fin);
 
@@ -29,11 +32,14 @@ class CollisionZone final {
 
     const std::vector<Npc*>& intersections() const { return intersect; }
 
-    bool          checkPos(const Tempest::Vec3& pos) const;
+    bool          checkPos(const Npc& npc) const;
     void          onIntersect(Npc& npc);
     void          tick(uint64_t dt);
 
   private:
+    bool          checkPos(const Tempest::Vec3& pos, const Tempest::Vec3* bbox) const;
+    bool          checkPos(const Tempest::Vec3& pos, const Tempest::Vec3& size) const;
+
     World*                    owner = nullptr;
     std::function<void(Npc&)> cb;
 

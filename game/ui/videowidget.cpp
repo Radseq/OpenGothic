@@ -5,10 +5,12 @@
 #include <Tempest/Log>
 #include <Tempest/Application>
 #include <Tempest/Platform>
+#include <Tempest/Fence>
 
 #include <cstddef>
 
 #include "bink/video.h"
+#include "graphics/shaders.h"
 #include "gamemusic.h"
 #include "gothic.h"
 
@@ -46,7 +48,8 @@ struct VideoWidget::Sound : Tempest::SoundProducer {
   };
 
 struct VideoWidget::SoundContext {
-  SoundContext(Context& ctx, SoundDevice& dev, uint16_t sampleRate, bool isMono):  ctx(ctx) {
+  SoundContext(Context& ctx, SoundDevice& dev, uint16_t sampleRate, bool isMono):
+    ctx(ctx), sampleRate(sampleRate), numChannels(isMono ? 1 : 2) {
     snd = dev.load(std::unique_ptr<VideoWidget::Sound>(new VideoWidget::Sound(*this,sampleRate,isMono)));
     }
 
@@ -56,6 +59,11 @@ struct VideoWidget::SoundContext {
 
   void play() {
     snd.play();
+    }
+
+  uint64_t tickCount() const {
+    auto smp = processedSamples;
+    return uint64_t(smp*1000)/uint64_t(std::max(sampleRate * numChannels, 1));
     }
 
   void pushSamples(const std::vector<float>& s) {
@@ -69,6 +77,10 @@ struct VideoWidget::SoundContext {
   Tempest::SoundEffect snd;
   std::mutex           syncSamples;
   std::vector<float>   samples;
+
+  uint64_t             processedSamples = 0;
+  uint16_t             sampleRate = 0;
+  uint16_t             numChannels = 0;
   };
 
 void VideoWidget::Sound::renderSound(int16_t *out, size_t n) {
@@ -83,6 +95,7 @@ void VideoWidget::Sound::renderSound(int16_t *out, size_t n) {
     out[i] = (v < -1.00004566f ? int16_t(-32768) : (v > 1.00001514f ? int16_t(32767) : int16_t(v * 32767.5f)));
     }
   ctx.samples.erase(ctx.samples.begin(),ctx.samples.begin()+int(n));
+  ctx.processedSamples += n;
   }
 
 struct VideoWidget::Context {
@@ -93,37 +106,106 @@ struct VideoWidget::Context {
       sndCtx[i].reset(new SoundContext(*this,sndDev,aud.sampleRate,aud.isMono));
       }
 
-    const float volume = Gothic::inst().settingsGetF("SOUND","soundVolume");
-    frameTime = Application::tickCount();
+    const float volume = Gothic::settingsSoundVolume();
     sndDev.setGlobalVolume(volume);
     for(size_t i=0; i<vid.audioCount(); ++i)
       sndCtx[i]->play();
+
+    for(size_t i=0; i<Resources::MaxFramesInFlight; ++i) {
+      cmd[i] = Resources::device().commandBuffer();
+      }
+
+    frameTime = Application::tickCount();
     }
 
   ~Context() {
+    for(auto& i:sync)
+      i.wait();
     }
 
-  void advance() {
+  void advance(Tempest::Device& device, uint8_t fId) {
     auto& f = vid.nextFrame();
-    if(pm.w()!=f.width() || pm.h()!=f.height())
-      pm = Pixmap(f.width(),f.height(),TextureFormat::RGBA8);
-
-    yuvToRgba(f,pm);
+    yuvToRgba(f, device, fId);
     for(size_t i=0; i<vid.audioCount(); ++i)
       sndCtx[i]->pushSamples(f.audio(uint8_t(i)).samples);
 
-    uint64_t destTick = frameTime+(1000*vid.fps().den*vid.currentFrame())/vid.fps().num;
-    uint64_t tick     = Application::tickCount();
-    if(tick<destTick) {
+    const uint64_t destTick = (1000*vid.fps().den*vid.currentFrame())/vid.fps().num;
+    const uint64_t tickVis  = Application::tickCount() - frameTime;
+    const uint64_t tickSnd  = tickSound();
+    const uint64_t tick     = std::min(tickVis, tickSnd);
+
+    if(destTick > tick) {
       Application::sleep(uint32_t(destTick-tick));
+      return;
       }
     }
 
-  void yuvToRgba(const Bink::Frame& f,Pixmap& pm) {
-    auto planeY = f.plane(0);
-    auto planeU = f.plane(1);
-    auto planeV = f.plane(2);
-    auto dst    = reinterpret_cast<uint8_t*>(pm.data());
+  uint64_t tickSound() const {
+    uint64_t tickSnd = uint64_t(-1);
+    // return tickSnd;
+
+    for(size_t i=0; i<vid.audioCount(); ++i)
+      tickSnd = std::min(tickSnd, sndCtx[i]->tickCount());
+    return tickSnd;
+    }
+
+  void yuvToRgba(const Bink::Frame& f, Tempest::Device& device, uint8_t fId) {
+    if(uint32_t(frameImg.w())!=f.width() || uint32_t(frameImg.h())!=f.height()) {
+      Resources::recycle(std::move(frameImg));
+      frameImg = device.attachment(Tempest::RGBA8, f.width(), f.height());
+      }
+    sync[fId].wait();
+
+    // alignment for ssbo offsets
+    auto alignBuf = [](size_t size, size_t align) { return (size+align-1) & ~(align-1); };
+
+    auto& planeY = f.plane(0);
+    auto& planeU = f.plane(1);
+    auto& planeV = f.plane(2);
+
+    auto  align  = std::max<size_t>(device.properties().ssbo.offsetAlign, 4);
+    auto  sizeY  = alignBuf(f.height()*planeY.stride(),     align);
+    auto  sizeU  = alignBuf((f.height()/2)*planeU.stride(), align);
+    auto  sizeV  = alignBuf((f.height()/2)*planeV.stride(), align);
+    auto  size   = sizeY + sizeU + sizeV;
+
+    auto& stage  = staging[fId];
+    if(stage.byteSize()!=size) {
+      Resources::recycle(std::move(stage));
+      stage = device.ssbo(BufferHeap::Upload, Uninitialized, size);
+      }
+    stage.update(planeY.data(), 0,           (f.height())  *planeY.stride());
+    stage.update(planeU.data(), sizeY,       (f.height()/2)*planeU.stride());
+    stage.update(planeV.data(), sizeY+sizeU, (f.height()/2)*planeV.stride());
+
+    {
+      auto cmd = this->cmd[fId].startEncoding(device);
+      cmd.setFramebuffer({{frameImg, Vec4(0), Tempest::Preserve}});
+
+      struct Push { uint32_t strideY; uint32_t strideU; uint32_t strideV; } push = {};
+      push.strideY = planeY.stride();
+      push.strideU = planeU.stride();
+      push.strideV = planeV.stride();
+
+      cmd.setDebugMarker("Bink");
+      cmd.setPushData(push);
+      cmd.setBinding(0, stage, 0);
+      cmd.setBinding(1, stage, sizeY);
+      cmd.setBinding(2, stage, sizeY + sizeU);
+      cmd.setPipeline(Shaders::inst().bink);
+      cmd.draw(nullptr, 0, 3);
+    }
+    sync[fId] = device.submit(this->cmd[fId]);
+    }
+
+  [[deprecated]]
+  void yuvToRgba(const Bink::Frame& f, Pixmap& pm) {
+    if(pm.w()!=f.width() || pm.h()!=f.height())
+      pm = Pixmap(f.width(),f.height(),TextureFormat::RGBA8);
+    auto& planeY = f.plane(0);
+    auto& planeU = f.plane(1);
+    auto& planeV = f.plane(2);
+    auto  dst    = reinterpret_cast<uint8_t*>(pm.data());
 
     const uint32_t w = pm.w();
     for(uint32_t y=0; y<pm.h(); ++y)
@@ -155,8 +237,12 @@ struct VideoWidget::Context {
   std::unique_ptr<zenkit::Read> fin;
   Input                         input;
   Bink::Video                   vid;
-  Pixmap                        pm;
   uint64_t                      frameTime = 0;
+
+  Tempest::Attachment           frameImg;
+  Tempest::CommandBuffer        cmd    [Resources::MaxFramesInFlight];
+  Tempest::StorageBuffer        staging[Resources::MaxFramesInFlight];
+  Tempest::Fence                sync   [Resources::MaxFramesInFlight];
 
   Tempest::SoundDevice          sndDev;
   std::vector<std::unique_ptr<SoundContext>> sndCtx;
@@ -265,9 +351,8 @@ void VideoWidget::paint(Tempest::Device& device, uint8_t fId) {
   if(ctx==nullptr)
     return;
   try {
-    ctx->advance();
-    tex[fId] = device.texture(ctx->pm,false);
-    frame    = &tex[fId];
+    ctx->advance(device, fId);
+    frame = &textureCast<Texture2d&>(ctx->frameImg);
     update();
     }
   catch(const Bink::VideoDecodingException& e) { // video exception is recoverable

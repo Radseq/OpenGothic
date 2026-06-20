@@ -38,9 +38,6 @@ MainWindow::MainWindow(Device& device)
     mobileUi(player),
 #endif
     player(dialogs,inventory) {
-  for(uint8_t i=0;i<Resources::MaxFramesInFlight;++i)
-    fence[i] = device.fence();
-
   Gothic::inst().onSettingsChanged.bind(this,&MainWindow::onSettings);
   onSettings();
 
@@ -61,7 +58,6 @@ MainWindow::MainWindow(Device& device)
 
   focusImg   = Resources::loadTexture("FOCUS_HIGHLIGHT.TGA");
 
-  background = Resources::loadTextureUncached("STARTSCREEN.TGA");
   loadBox    = Resources::loadTexture("PROGRESS.TGA");
   loadVal    = Resources::loadTexture("PROGRESS_BAR.TGA");
 
@@ -168,7 +164,9 @@ void MainWindow::paintEvent(PaintEvent& event) {
   auto world = Gothic::inst().world();
   auto st    = Gothic::inst().checkLoading();
 
-  std::string_view info;
+  if(!Gothic::inst().isInGame() && st==Gothic::LoadState::Idle && background.isEmpty()) {
+    background = Resources::loadTextureUncached("STARTSCREEN.TGA");
+    }
 
   if(world==nullptr && !background.isEmpty()) {
     p.setBrush(Color(0.0));
@@ -241,13 +239,6 @@ void MainWindow::paintEvent(PaintEvent& event) {
           }
         }
       }
-
-    if(world && world->player()) {
-      if(world->player()->hasCollision())
-        info = "[c]";
-      else
-        info = world->roomAt(world->player()->position());
-      }
     }
 
   if(auto c = Gothic::inst().camera()) {
@@ -267,19 +258,29 @@ void MainWindow::paintEvent(PaintEvent& event) {
   if(Gothic::inst().doFrate() && !Gothic::inst().isDesktop()) {
     char fpsT[64]={};
     std::snprintf(fpsT,sizeof(fpsT),"fps = %.2f",fps.get());
-    //string_frm fpsT("fps = ", fps.get(), " ", info);
 
     auto& fnt = Resources::font(scale);
     fnt.drawText(p,5,fnt.pixelSize()+5,fpsT);
     }
 
-  if(Gothic::inst().doClock() && world!=nullptr) {
-    if (!Gothic::inst().isDesktop()) {
+  if(!Gothic::inst().isDesktop() && world!=nullptr) {
+    if(Gothic::inst().doClock()) {
       auto hour = world->time().hour();
       auto min  = world->time().minute();
       auto& fnt = Resources::font(scale);
       string_frm clockT(int(hour),":",int(min));
       fnt.drawText(p,w()-fnt.textSize(clockT).w-5,fnt.pixelSize()+5,clockT);
+      }
+
+    auto c = Gothic::inst().camera();
+    if(Gothic::inst().doVobBox() && c!=nullptr) {
+      DbgPainter dbg(p,c->viewProj(),w(),h());
+      world->drawVobBoxNpcNear(dbg);
+      }
+
+    if(Gothic::inst().doVobRays() && c!=nullptr) {
+      DbgPainter dbg(p,c->viewProj(),w(),h());
+      player.drawVobRay(dbg);
       }
     }
 
@@ -306,11 +307,15 @@ void MainWindow::resizeEvent(SizeEvent&) {
 void MainWindow::mouseDownEvent(MouseEvent &event) {
   if(event.button<sizeof(mouseP))
     mouseP[event.button]=true;
-  player.onKeyPressed(keycodec.tr(event),KeyEvent::K_NoKey);
+  auto act     = keycodec.tr(event);
+  auto mapping = keycodec.mapping(event);
+  player.onKeyPressed(act,KeyEvent::K_NoKey,mapping);
   }
 
 void MainWindow::mouseUpEvent(MouseEvent &event) {
-  player.onKeyReleased(keycodec.tr(event));
+  auto act     = keycodec.tr(event);
+  auto mapping = keycodec.mapping(event);
+  player.onKeyReleased(act,mapping);
   if(event.button<sizeof(mouseP))
     mouseP[event.button]=false;
   }
@@ -336,7 +341,7 @@ void MainWindow::processMouse(MouseEvent& event, bool enable) {
     }
   }
 
-void MainWindow::tickMouse() {
+void MainWindow::tickMouse(uint64_t dt) {
   auto camera = Gothic::inst().camera();
   if(dialogs.hasContent() || Gothic::inst().isPause() || camera==nullptr || camera->isCutscene()) {
     dMouse = Point();
@@ -349,28 +354,40 @@ void MainWindow::tickMouse() {
     return;
     }
 
+  if(dMouse==Point())
+    return;
+
   const bool  camLookaroundInverse = Gothic::inst().settingsGetI("GAME","camLookaroundInverse");
   const float mouseSensitivity     = Gothic::inst().settingsGetF("GAME","mouseSensitivity")/MouseUtil::mouseSysSpeed();
   PointF dpScaled = PointF(float(dMouse.x)*mouseSensitivity,float(dMouse.y)*mouseSensitivity);
   dpScaled.x/=float(w());
   dpScaled.y/=float(h());
-
-  dpScaled*=1000.f;
-  dpScaled.y /= 7.f;
   if(camLookaroundInverse)
     dpScaled.y *= -1.f;
 
+  static float mul = 270.f;
+  dpScaled *= mul;
+
+  static float psMax = 720.f;
+  const float  dtF   = float(dt)/1000.f;
+  dpScaled.x = std::clamp(dpScaled.x, -(psMax*dtF), psMax*dtF);
+  dpScaled.y = std::clamp(dpScaled.y, -(psMax*dtF), psMax*dtF);
+
+  // Log::d("mouse dMouse   = ", dMouse.x,   ", ", dMouse.y);
+  // Log::d("mouse dpScaled = ", dpScaled.x, ", ", dpScaled.y);
+
   camera->onRotateMouse(PointF(dpScaled.y,-dpScaled.x));
   if(!inventory.isActive()) {
-    player.onRotateMouse  (-dpScaled.x);
-    player.onRotateMouseDy(-dpScaled.y);
+    player.onRotateMouse(-dpScaled.x, -dpScaled.y);
     }
 
   dMouse = Point();
   }
 
 void MainWindow::onSettings() {
-  auto zMaxFps = Gothic::inst().settingsGetI("ENGINE","zMaxFps");
+  auto zMaxFps = Gothic::options().fpsLimit;
+  if(zMaxFps<=0)
+    zMaxFps = Gothic::inst().settingsGetI("ENGINE", "zMaxFps");
   if(zMaxFps>0)
     maxFpsInv = 1000u/uint64_t(zMaxFps); else
     maxFpsInv = 0;
@@ -437,7 +454,7 @@ void MainWindow::keyDownEvent(KeyEvent &event) {
     }
   uiKeyUp=nullptr;
 
-  auto act = keycodec.tr(event);
+  auto act     = keycodec.tr(event);
   auto mapping = keycodec.mapping(event);
   player.onKeyPressed(act,event.key,mapping);
 
@@ -509,18 +526,19 @@ void MainWindow::keyUpEvent(KeyEvent &event) {
       return;
     }
 
-  const char* menuEv=nullptr;
 
-  auto act = keycodec.tr(event);
+  auto act     = keycodec.tr(event);
   auto mapping = keycodec.mapping(event);
-  if(act==KeyCodec::Escape)
-    menuEv="MENU_MAIN";
-  else if(act==KeyCodec::Log)
-    menuEv="MENU_LOG";
-  else if(act==KeyCodec::Status)
-    menuEv="MENU_STATUS";
 
-  if(menuEv!=nullptr) {
+  std::string_view menuEv;
+  if(act==KeyCodec::Escape)
+    menuEv = Gothic::inst().menuMain();
+  else if(act==KeyCodec::Log)
+    menuEv = "MENU_LOG";
+  else if(act==KeyCodec::Status)
+    menuEv = "MENU_STATUS";
+
+  if(!menuEv.empty()) {
     rootMenu.setMenu(menuEv,act);
     rootMenu.showVersion(act==KeyCodec::Escape);
     if(auto pl = Gothic::inst().player())
@@ -558,8 +576,14 @@ void MainWindow::paintFocus(Painter& p, const Focus& focus, const Matrix4x4& vp)
   if(pl==nullptr)
     return;
 
+  auto pw  = 1.f;
   auto pos = focus.displayPosition();
-  vp.project(pos.x,pos.y,pos.z);
+  vp.project(pos.x,pos.y,pos.z,pw);
+
+  if(pw<=0.f)
+    return;
+
+  pos /= pw;
 
   int   ix  = int((0.5f*pos.x+0.5f)*float(w()));
   int   iy  = int((0.5f*pos.y+0.5f)*float(h()));
@@ -587,16 +611,18 @@ void MainWindow::paintFocus(Painter& p, const Focus& focus, const Matrix4x4& vp)
     auto tr = vp;
     tr.mul(focus.npc->transform());
 
-    auto b    = focus.npc->bounds();
+    const auto b    = focus.npc->bounds();
+    const auto bbox = b.bbox; //focus.npc->bBox();
+
     Vec3 bx[] = {
-      {b.bbox[0].x,b.bbox[0].y,b.bbox[0].z},
-      {b.bbox[1].x,b.bbox[0].y,b.bbox[0].z},
-      {b.bbox[1].x,b.bbox[1].y,b.bbox[0].z},
-      {b.bbox[0].x,b.bbox[1].y,b.bbox[0].z},
-      {b.bbox[0].x,b.bbox[0].y,b.bbox[1].z},
-      {b.bbox[1].x,b.bbox[0].y,b.bbox[1].z},
-      {b.bbox[1].x,b.bbox[1].y,b.bbox[1].z},
-      {b.bbox[0].x,b.bbox[1].y,b.bbox[1].z},
+      {bbox[0].x, bbox[0].y, bbox[0].z},
+      {bbox[1].x, bbox[0].y, bbox[0].z},
+      {bbox[1].x, bbox[1].y, bbox[0].z},
+      {bbox[0].x, bbox[1].y, bbox[0].z},
+      {bbox[0].x, bbox[0].y, bbox[1].z},
+      {bbox[1].x, bbox[0].y, bbox[1].z},
+      {bbox[1].x, bbox[1].y, bbox[1].z},
+      {bbox[0].x, bbox[1].y, bbox[1].z},
       };
 
     int min[2]={ix,iy-20}, max[2]={ix,iy-20};
@@ -883,11 +909,10 @@ uint64_t MainWindow::tick() {
   else if(runtimeMode==R_Suspended) {
     auto camera = Gothic::inst().camera();
     if(camera!=nullptr && camera->isFree()) {
-      player.tickCameraMove(dt);
-      tickMouse();
+      tickMouse(dt);
       }
     update();
-    return dt;
+    return 0;
     }
 
   dialogs.tick(dt);
@@ -899,7 +924,7 @@ uint64_t MainWindow::tick() {
     ;//clearInput();
   if(document.isActive())
     clearInput();
-  tickMouse();
+  tickMouse(dt);
   player.tickMove(dt);
   update();
   return dt;
@@ -922,32 +947,32 @@ void MainWindow::tickCamera(uint64_t dt) {
                              ws==WeaponState::W2H);
   auto       pos          = pl!=nullptr ? pl->cameraBone(camera.isFirstPerson()) : Vec3();
 
-  if(!camera.isCutscene()) {
+  if(!camera.isCutscene() && !camera.isFree()) {
     const bool fs = SystemApi::isFullscreen(hwnd());
     if(!fs && mouseP[Event::ButtonLeft]) {
-      camera.setSpin(camera.destSpin());
-      camera.setDestPosition(pos);
+      camera.setSpin(camera.spin());
+      camera.setTarget(pos);
       }
     else if(dialogs.isActive() && !dialogs.isMobsiDialog()) {
       dialogs.dialogCamera(camera);
       }
     else if(inventory.isActive()) {
-      camera.setDestPosition(pos);
+      camera.setTarget(pos);
       }
     else if(player.focus().npc!=nullptr && meleeFocus && pl!=nullptr) {
-      auto spin = camera.destSpin();
+      auto spin = camera.spin();
       spin.y = pl->rotation();
-      camera.setDestSpin(spin);
-      camera.setDestPosition(pos);
+      camera.setSpin(spin);
+      camera.setTarget(pos);
       }
-    else if(pl!=nullptr) {
-      auto spin = camera.destSpin();
+    else if(pl!=nullptr && !camera.isFree()) {
+      auto spin = camera.spin();
       if(pl->interactive()==nullptr && !pl->isDown())
         spin.y = pl->rotation();
       if(pl->isDive() && !camera.isMarvin())
         spin.x = -pl->rotationY();
-      camera.setDestSpin(spin);
-      camera.setDestPosition(pos);
+      camera.setSpin(spin);
+      camera.setTarget(pos);
       }
     }
 
@@ -959,10 +984,15 @@ void MainWindow::tickCamera(uint64_t dt) {
   }
 
 Camera::Mode MainWindow::solveCameraMode() const {
-  if(auto camera = Gothic::inst().camera()) {
-    if(camera->isFree())
-      return Camera::Normal;
-    }
+  const auto camera = Gothic::inst().camera();
+  if(camera!=nullptr && camera->isFree())
+    return Camera::Normal;
+
+  if(dialogs.isActive())
+    return Camera::Dialog;
+
+  if(camera!=nullptr && camera->isFirstPerson())
+    return Camera::FirstPerson;
 
   if(inventory.isOpen()==InventoryMenu::State::Equip ||
      inventory.isOpen()==InventoryMenu::State::Ransack)
@@ -972,9 +1002,6 @@ Camera::Mode MainWindow::solveCameraMode() const {
     if(pl->interactive()!=nullptr)
       return Camera::Mobsi;
     }
-
-  if(dialogs.isActive())
-    return Camera::Dialog;
 
   if(auto pl = Gothic::inst().player()) {
     if(pl->isDead())
@@ -1040,13 +1067,38 @@ void MainWindow::loadGame(std::string_view slot) {
   }
 
 void MainWindow::saveGame(std::string_view slot, std::string_view name) {
-  auto tex = renderer.screenshoot(cmdId);
-  auto pm  = device.readPixels(textureCast<const Texture2d&>(tex));
-
   if(dialogs.isActive())
     return;
   if(auto w = Gothic::inst().world(); w!=nullptr && w->currentCs()!=nullptr)
     return;
+
+  auto tex  = renderer.screenshoot(cmdId);
+  auto lres = Attachment();
+
+  static int32_t kThumbW = 800;
+  const  int32_t kThumbH = tex.w()>0 ? int32_t((tex.h() * kThumbW) / tex.w()) : 0;
+  if(kThumbW>0 && kThumbH>0 && kThumbW<tex.w() && kThumbH<tex.h()) {
+    lres = device.attachment(Tempest::TextureFormat::RGBA8, uint32_t(kThumbW), uint32_t(kThumbH));
+    }
+
+  if(!lres.isEmpty()) {
+    // reduce size of the save entry preview screenshot for faster save & load
+    CommandBuffer cmd;
+    {
+    auto enc = cmd.startEncoding(device);
+    enc.setDebugMarker("Downscale screenhoot");
+    enc.setFramebuffer({{lres, Vec4(), Tempest::Preserve}});
+    enc.setPushData(IVec2(lres.w(), lres.h()));
+    enc.setBinding(0, tex, Sampler::nearest());
+    enc.setPipeline(Shaders::inst().downscale);
+    enc.draw(nullptr, 0, 3);
+    }
+    auto sync = device.submit(cmd);
+    sync.wait();
+    }
+
+  auto& thumb = lres.isEmpty() ? tex : lres;
+  auto  pm    = device.readPixels(textureCast<const Texture2d&>(thumb));
 
   Gothic::inst().startSave(std::move(textureCast<Texture2d&>(tex)),[slot=std::string(slot),name=std::string(name),pm](std::unique_ptr<GameSession>&& game){
     if(!game)
@@ -1099,6 +1151,9 @@ void MainWindow::onWorldLoaded() {
     c->setViewport(uint32_t(w()),uint32_t(h()));
 
   renderer.onWorldChanged();
+
+  if(auto pl = Gothic::inst().player())
+    rootMenu.setPlayer(*pl);
 
   if(auto pl = Gothic::inst().player())
     pl->multSpeed(1.f);
@@ -1174,7 +1229,7 @@ void MainWindow::render(){
 
     /*
       Note: game update goes first
-      once player position is updated, animation bones(cameraBone in particular) ca be updated
+      once player position is updated, animation bones(cameraBone in particular) can be updated
       lastly - camera position
       */
     const uint64_t dt = tick();
@@ -1210,7 +1265,7 @@ void MainWindow::render(){
     auto enc = cmd.startEncoding(device);
     renderer.draw(enc,cmdId,swapchain.currentImage(),uiMesh[cmdId],numMesh[cmdId],inventory,video);
     }
-    device.submit(cmd,sync);
+    sync = device.submit(cmd);
     device.present(swapchain);
     cmdId = (cmdId+1u)%Resources::MaxFramesInFlight;
 

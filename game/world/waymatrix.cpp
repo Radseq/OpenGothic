@@ -13,12 +13,19 @@ using namespace Tempest;
 WayMatrix::WayMatrix(World &world, const zenkit::WayNet& dat)
   :world(world) {
 
-  wayPoints.resize(dat.waypoints.size());
-  for(size_t i=0;i<wayPoints.size();++i){
-    wayPoints[i] = WayPoint(dat.waypoints[i]);
+  wayPoints.resize(dat.points.size());
+  for(size_t i=0; i<wayPoints.size(); ++i){
+    wayPoints[i] = WayPoint(*dat.points[i]);
     }
 
-  edges = dat.edges;
+  edges.resize(dat.edges.size());
+  for(size_t i=0; i<edges.size(); ++i){
+    WayEdge e = {};
+    e.a = size_t(std::distance(dat.points.begin(), std::find(dat.points.begin(), dat.points.end(), dat.edges[i].first )));
+    e.b = size_t(std::distance(dat.points.begin(), std::find(dat.points.begin(), dat.points.end(), dat.edges[i].second)));
+    edges[i] = e;
+    }
+
   stk[0].reserve(256);
   stk[1].reserve(256);
   }
@@ -36,7 +43,7 @@ void WayMatrix::buildIndex() {
     fpInd.push_back(&i);
 
   std::sort(fpInd.begin(),fpInd.end(),[](const WayPoint* a,const WayPoint* b){
-    return a->x<b->x;
+    return a->pos.x < b->pos.x;
     });
 
   for(auto& i:edges) {
@@ -56,22 +63,21 @@ const WayPoint *WayMatrix::findWayPoint(const Vec3& at, const std::function<bool
   const WayPoint* ret =nullptr;
   float           dist=std::numeric_limits<float>::max();
   for(auto& w:wayPoints) {
+    const float l = (w.pos - at).quadLength();
+    if(l>=dist)
+      continue;
     if(!filter(w))
       continue;
-    auto  dp0 = at-w.position();
-    float l0  = dp0.quadLength();
 
-    if(l0<dist){
-      ret  = &w;
-      dist = l0;
-      }
+    ret  = &w;
+    dist = l;
     }
   return ret;
   }
 
 const WayPoint *WayMatrix::findFreePoint(const Vec3& at, std::string_view name, const std::function<bool(const WayPoint&)>& filter) const {
   auto&  index = findFpIndex(name);
-  return findFreePoint(at.x,at.y,at.z,index,filter);
+  return findFreePoint(at,index,filter);
   }
 
 const WayPoint *WayMatrix::findNextPoint(const Vec3& at) const {
@@ -93,11 +99,11 @@ const WayPoint *WayMatrix::findNextPoint(const Vec3& at) const {
   }
 
 void WayMatrix::addFreePoint(const Vec3& pos, const Vec3& dir, std::string_view name) {
-  freePoints.emplace_back(pos,dir,name);
+  freePoints.emplace_back(pos,dir,name,true);
   }
 
 void WayMatrix::addStartPoint(const Vec3& pos, const Vec3& dir, std::string_view name) {
-  startPoints.emplace_back(pos,dir,name);
+  startPoints.emplace_back(pos,dir,name,true);
   }
 
 const WayPoint &WayMatrix::startPoint() const {
@@ -122,6 +128,15 @@ const WayPoint& WayMatrix::deadPoint() const {
       return *i;
   static WayPoint p(Vec3(-1000,-1000,-1000),"TOT");
   return p;
+  }
+
+const WayPoint* WayMatrix::findWayPoint(std::string_view name) const {
+  auto it = std::lower_bound(indexPoints.begin(),indexPoints.end(),name,[](const WayPoint* a, std::string_view b){
+    return a->name<b;
+    });
+  if(it!=indexPoints.end() && !(*it)->isFreePoint() && name==(*it)->name)
+    return *it;
+  return nullptr;
   }
 
 const WayPoint* WayMatrix::findPoint(std::string_view name, bool inexact) const {
@@ -160,7 +175,7 @@ void WayMatrix::marchPoints(DbgPainter &p) const {
   auto &points = *ppoints;
   int id = 0;
   for(auto& i:points) {
-    float x = i.x, y = i.y, z = i.z;
+    float x = i.pos.x, y = i.pos.y, z = i.pos.z;
     p.mvp.project(x,y,z);
     if(z<0.f || z>1.f)
       continue;
@@ -179,8 +194,13 @@ void WayMatrix::marchPoints(DbgPainter &p) const {
 void WayMatrix::adjustWaypoints(std::vector<WayPoint> &wp) {
   for(auto& w:wp) {
     auto ray = world.physic()->landRay(w.position());
-    if(ray.hasCol)
-      w.y = ray.v.y;
+    if(ray.hasCol) {
+      //NOTE: what about water?
+      w.groundPos = ray.v;
+      } else {
+      // some way-point are underground
+      w.groundPos = w.pos;
+      }
     indexPoints.push_back(&w);
     }
   }
@@ -239,21 +259,21 @@ const WayMatrix::FpIndex &WayMatrix::findFpIndex(std::string_view name) const {
     }
   // TODO: good index, not sort by 'x' :)
   std::sort(id.index.begin(),id.index.end(),[](const WayPoint* a,const WayPoint* b){
-    return a->x<b->x;
+    return a->pos.x < b->pos.x;
     });
 
   it = fpIndex.insert(it,std::move(id));
   return *it;
   }
 
-const WayPoint *WayMatrix::findFreePoint(float x, float y, float z, const FpIndex& ind,
+const WayPoint *WayMatrix::findFreePoint(const Vec3& at, const FpIndex& ind,
                                          const std::function<bool(const WayPoint&)>& filter) const {
   float R = distanceThreshold;
-  auto b = std::lower_bound(ind.index.begin(),ind.index.end(), x-R ,[](const WayPoint *a, float b){
-    return a->x<b;
+  auto b = std::lower_bound(ind.index.begin(),ind.index.end(), at.x-R ,[](const WayPoint *a, float b){
+    return a->pos.x < b;
     });
-  auto e = std::upper_bound(ind.index.begin(),ind.index.end(), x+R ,[](float a,const WayPoint *b){
-    return a<b->x;
+  auto e = std::upper_bound(ind.index.begin(),ind.index.end(), at.x+R ,[](float a,const WayPoint *b){
+    return a < b->pos.x;
     });
 
   const WayPoint* ret=nullptr;
@@ -261,11 +281,10 @@ const WayPoint *WayMatrix::findFreePoint(float x, float y, float z, const FpInde
   float dist  = R*R;
   for(auto i=b;i!=e;++i){
     auto& w  = **i;
-    float dx = w.x-x;
-    float dy = w.y-y;
-    float dz = w.z-z;
-    float l  = dx*dx+dy*dy+dz*dz;
-    if(l>dist)
+    if(!w.isFreePoint())
+      continue;
+    float l = (w.pos - at).quadLength();
+    if(l>=dist)
       continue;
     if(!filter(w))
       continue;
@@ -281,7 +300,8 @@ WayPath WayMatrix::wayTo(const WayPoint** begin, size_t beginSz, const Tempest::
 
   intptr_t endId = std::distance<const WayPoint*>(&wayPoints[0],&end);
   if(endId<0 || size_t(endId)>=wayPoints.size()){
-    if(end.name.find("FP_")==0) {
+    if(!end.isConnected()) {
+      // free-point
       WayPath ret;
       ret.add(end);
       return ret;

@@ -1,11 +1,15 @@
 #include "collisionzone.h"
 
+#include <Tempest/Log>
+
 #include "world/objects/npc.h"
 #include "worldobjects.h"
 #include "world.h"
 
 #include "game/serialize.h"
 #include "graphics/pfx/particlefx.h"
+
+#include "utils/dbgpainter.h"
 
 CollisionZone::CollisionZone() {
   }
@@ -57,6 +61,18 @@ CollisionZone::~CollisionZone() {
     owner->disableCollizionZone(*this);
   }
 
+void CollisionZone::drawVobBox(DbgPainter& p) const {
+  switch(type) {
+    case T_BBox:
+      p.setPen(Tempest::Color(1,0,1));
+      p.drawAabb(pos-size, pos+size);
+      break;
+    case T_Capsule:
+      break;
+    }
+
+  }
+
 void CollisionZone::save(Serialize& fout) const {
   fout.write(uint32_t(intersect.size()));
   for(auto i:intersect)
@@ -78,17 +94,41 @@ void CollisionZone::load(Serialize& fin) {
       }
   }
 
-bool CollisionZone::checkPos(const Tempest::Vec3& p) const {
+bool CollisionZone::checkPos(const Npc& npc) const {
+  //NOTE: according to test-case in Karibik bbox seem to be visual one, not the collision box
+  // auto bbox = npc.bBoxCol();
+  auto bbox = npc.bBox();
+  auto pos  = npc.centerPosition();
+  return checkPos(pos, bbox);
+  }
+
+bool CollisionZone::checkPos(const Tempest::Vec3& pos, const Tempest::Vec3* bbox) const {
+  if(bbox==nullptr)
+    return checkPos(pos, Tempest::Vec3(0));
+  const auto sz  = (bbox[1] - bbox[0])*0.5f;
+  const auto off = (bbox[1] + bbox[0])*0.5f;
+  return checkPos(pos+off, sz);
+  }
+
+bool CollisionZone::checkPos(const Tempest::Vec3& p, const Tempest::Vec3& npcSz) const {
   auto dp = p - pos;
+  auto sz = size + npcSz;
   if(type==T_BBox) {
-    if(std::fabs(dp.x)<size.x &&
-       std::fabs(dp.y)<size.y &&
-       std::fabs(dp.z)<size.z)
+    if(std::fabs(dp.x)<sz.x &&
+       std::fabs(dp.y)<sz.y &&
+       std::fabs(dp.z)<sz.z)
       return true;
     }
   else if(type==T_Capsule) {
-    if(dp.x*dp.x+dp.z*dp.z<size.x*size.x &&
-       std::fabs(dp.y)<std::fabs(size.y))
+    // spells (fire rain)
+    static bool once = false;
+    if(!once) {
+      once = true;
+      Tempest::Log::d("TODO: CollisionZone capsule collision");
+      // assert(false);
+      }
+    if(dp.x*dp.x+dp.z*dp.z<sz.x*sz.x &&
+       std::fabs(dp.y)<std::fabs(sz.y))
       return true;
     }
   return false;
@@ -107,8 +147,7 @@ void CollisionZone::onIntersect(Npc& npc) {
 void CollisionZone::tick(uint64_t /*dt*/) {
   for(size_t i=0;i<intersect.size();) {
     Npc& npc = *intersect[i];
-    auto pos = npc.position();
-    if(!checkPos(pos+Tempest::Vec3(0,npc.translateY(),0))) {
+    if(!checkPos(npc)) {
       intersect[i] = intersect.back();
       intersect.pop_back();
       } else {

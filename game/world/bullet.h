@@ -43,7 +43,6 @@ class Bullet final : public DynamicWorld::BulletCallback {
     void     setTarget(const Npc* n);
 
     Flg      flags()     const { return flg;  }
-    void     setFlags(Flg f) { flg=f; }
     ItemMaterial itemMaterial() const;
 
     auto     damage() const -> const DamageCalculator::Damage& { return dmg; }
@@ -57,11 +56,13 @@ class Bullet final : public DynamicWorld::BulletCallback {
     bool     isFinished() const;
     float    pathLength() const;
 
+    bool     onEffectCollide(Npc& other);
+
   protected:
     void     onStop() override;
     void     onMove() override;
     void     onCollide(zenkit::MaterialGroup matId) override;
-    void     onCollide(Npc& other) override;
+    bool     onCollide(Npc& other) override;
 
   private:
     DynamicWorld::BulletBody* obj=nullptr;

@@ -55,7 +55,12 @@ DialogMenu::~DialogMenu() {
   }
 
 void DialogMenu::setupSettings() {
-  dlgAnimation = Gothic::settingsGetI("GAME","animatedWindows");
+  dlgAnimation        = Gothic::settingsGetI("GAME","animatedWindows");
+  showSubtitles       = Gothic::settingsGetI("GAME","subTitles");
+  showSubtitlesPlayer = Gothic::settingsGetI("GAME","subTitlesPlayer");
+
+  const float volume = Gothic::settingsSoundVolume();
+  soundDevice.setGlobalVolume(volume);
   }
 
 void DialogMenu::tick(uint64_t dt) {
@@ -172,7 +177,7 @@ void DialogMenu::dialogCamera(Camera& camera) {
   if(pl && other){
     auto p0 = pl   ->cameraBone();
     auto p1 = other->cameraBone();
-    camera.setPosition((p0+p1)*0.5f + Vec3(0,50,0));
+    camera.setTarget((p0+p1)*0.5f + Vec3(0,50,0));
     p0 -= p1;
 
     if(pl==other) {
@@ -371,6 +376,10 @@ bool DialogMenu::haveToWaitOutput() const {
   return false;
   }
 
+bool DialogMenu::haveToShowSubtitles(bool isPl) const {
+  return showSubtitles && (showSubtitlesPlayer || !isPl);
+  }
+
 void DialogMenu::startTrade() {
   if(pl!=nullptr && other!=nullptr)
     trade.trade(*pl,*other);
@@ -408,7 +417,7 @@ void DialogMenu::paintEvent(Tempest::PaintEvent &e) {
   const int      dw = std::min(w(),int(600*scale));
   const int      dh = int(100*scale);
 
-  if(current.time>0 && trade.isOpen()==InventoryMenu::State::Closed) {
+  if(current.time>0 && trade.isOpen()==InventoryMenu::State::Closed && haveToShowSubtitles(curentIsPl)) {
     if(ambient!=nullptr) {
       int dlgW = dw;
       int dlgH = dh;

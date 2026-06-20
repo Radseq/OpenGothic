@@ -28,6 +28,9 @@ class Marvin {
 
       // rendering
       C_ToggleFrame,
+      C_ToggleShowRay,
+      C_ToggleVobBox,
+
       // game
       C_ToggleDesktop,
       C_ToggleTime,
@@ -57,11 +60,13 @@ class Marvin {
       C_SetTime,
 
       C_Insert,
+      C_PlayAni,
 
       // opengothic specific
       C_ToggleGI,
       C_ToggleVsm,
       C_ToggleRtsm,
+      C_TogglePathtrace,
       };
 
     struct Cmd {

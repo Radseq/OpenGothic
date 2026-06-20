@@ -33,7 +33,15 @@ class SaveGameHeader;
 class Serialize {
   public:
     enum Version : uint16_t {
-      Current = 50
+      Current    = 55,
+      MinVersion = 36,
+
+      Last_2025  = 53,
+      Last_2024  = 49,
+      Last_2023  = 46,
+      Last_2022  = 41,
+      Last_2021  = 36,
+      First      = 36, // first zip-based version
       };
     Serialize(Tempest::ODevice& fout);
     Serialize(Tempest::IDevice&  fin);
@@ -242,6 +250,9 @@ class Serialize {
     void implRead (SaveGameHeader&       p);
 
     void implWrite(const Tempest::Pixmap& p);
+    void implWrite(const Tempest::Pixmap& p, const char* ext);
+    template<class Ext>
+    void implWrite(std::tuple<const Tempest::Pixmap&, Ext> p) { implWrite(std::get<0>(p), std::get<1>(p)); }
     void implRead (Tempest::Pixmap&       p);
 
     void implWrite(const zenkit::INpc& h);

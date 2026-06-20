@@ -40,7 +40,8 @@ struct WorldSound::WSound final {
 struct WorldSound::Zone final {
   Tempest::Vec3 bbox[2]={};
   std::string   name;
-  bool          checkPos(float x,float y,float z) const {
+  bool          checkPos(const Tempest::Vec3& v) const { return checkPos(v.x, v.y, v.z); }
+  bool          checkPos(float x, float y, float z) const {
     return
         bbox[0].x <= x && x<bbox[1].x &&
         bbox[0].y <= y && y<bbox[1].y &&
@@ -118,12 +119,16 @@ Sound WorldSound::addDlgSound(std::string_view s, const Tempest::Vec3& pos, floa
   if(snd.isEmpty())
     return Sound();
 
-  auto ret = implAddSound(game.loadSound(snd), pos,range);
+  auto ret = implAddSound(game.loadSound(snd), pos, range);
   if(ret.isEmpty())
     return Sound();
 
+  //WA for https://github.com/Try/OpenGothic/issues/922
+  static float fixupMultiplyer = 2.f;
+
   std::lock_guard<std::mutex> guard(sync);
   initSlot(*ret.val);
+  ret.setVolume(fixupMultiplyer);
   timeLen = snd.timeLength();
   effect.emplace_back(ret.val);
   return ret;
@@ -149,7 +154,7 @@ Sound WorldSound::implAddSound(Tempest::SoundEffect&& eff, const Tempest::Vec3& 
   ex->maxDist = rangeMax;
   ex->setOcclusion(0);
 
-  return Sound(ex);
+  return Sound(ex, pos);
   }
 
 void WorldSound::tick(Npc& player) {
@@ -222,22 +227,21 @@ void WorldSound::tickSoundZone(Npc& player) {
   nextSoundUpdate = owner.tickCount()+5*1000;
 
   Zone* zone = def.get();
-  if(currentZone!=nullptr &&
-     currentZone->checkPos(plPos.x,plPos.y+player.translateY(),plPos.z)){
+  if(currentZone!=nullptr && currentZone->checkPos(plPos)){
     zone = currentZone;
     } else {
     for(auto& z:zones) {
-      if(z.checkPos(plPos.x,plPos.y+player.translateY(),plPos.z)) {
+      if(z.checkPos(plPos)) {
         zone = &z;
         }
       }
     }
 
-  gtime           time  = owner.time().timeInDay();
-  bool            isDay = (gtime(4,0)<=time && time<=gtime(21,0));
-  bool            isFgt = owner.isTargeted(player);
+  gtime time  = owner.time().timeInDay();
+  bool  isDay = (gtime(4,0)<=time && time<=gtime(21,0));
+  bool  isFgt = owner.isTargeted(player) || player.isDead();
 
-  GameMusic::Tags mode  = GameMusic::Std;
+  GameMusic::Tags mode = GameMusic::Std;
   if(isFgt) {
     if(player.weaponState()==WeaponState::NoWeapon) {
       mode  = GameMusic::Thr;

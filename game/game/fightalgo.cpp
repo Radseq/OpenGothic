@@ -8,6 +8,11 @@
 #include "gothic.h"
 #include "serialize.h"
 
+// According to Gothic1 scripts:
+// W  - Weapon Range (FIGHT_RANGE_FIST * 3)
+// G  - Walking range (3 * W). Buffer for ranged fighters in which they should switch to a melee weapon.
+// FK - Long-range combat range (30m)
+
 FightAlgo::FightAlgo() {
   }
 
@@ -37,7 +42,7 @@ void FightAlgo::fillQueue(Npc &npc, Npc &tg, GameScript& owner) {
 
   const bool focus = isInFocusAngle(npc,tg);
 
-  if(tg.isPrehit() && isInWRange(tg,npc,owner) && isInFocusAngle(tg,npc)){
+  if(tg.isPrehit() && isInWRange(tg,npc,owner) && isInFocusAngle(tg,npc) && focus){
     if(tg.bodyStateMasked()==BS_RUN)
       if(fillQueue(owner,ai.enemy_stormprehit))
         return;
@@ -47,11 +52,11 @@ void FightAlgo::fillQueue(Npc &npc, Npc &tg, GameScript& owner) {
 
   if(ws==WeaponState::Fist || ws==WeaponState::W1H || ws==WeaponState::W2H) {
     if(isInWRange(npc,tg,owner)) {
-      if(focus)
-        if(fillQueue(owner,ai.my_w_focus))
-          return;
       if(focus && npc.bodyStateMasked()==BS_RUN)
         if(fillQueue(owner,ai.my_w_runto))
+          return;
+      if(focus && npc.bodyStateMasked()!=BS_RUN)
+        if(fillQueue(owner,ai.my_w_focus))
           return;
       if(fillQueue(owner,ai.my_w_nofocus))
         return;
@@ -61,7 +66,7 @@ void FightAlgo::fillQueue(Npc &npc, Npc &tg, GameScript& owner) {
       if(focus && npc.bodyStateMasked()==BS_RUN)
         if(fillQueue(owner,ai.my_g_runto))
           return;
-      if(focus)
+      if(focus && npc.bodyStateMasked()!=BS_RUN)
         if(fillQueue(owner,ai.my_g_focus))
           return;
       }
@@ -103,14 +108,10 @@ FightAlgo::Action FightAlgo::nextFromQueue(Npc& npc, Npc& tg, GameScript& owner)
   if(tr[0]==MV_NULL) {
     switch(queueId) {
       case FightAiMove::TURN:
-        if(!isInGRange(npc,tg,owner))
-          tr[0] = MV_TURNG; else
-          tr[0] = MV_TURNA;
+        tr[0] = MV_TURN;
         break;
       case FightAiMove::RUN:{
-        if(!isInGRange(npc,tg,owner))
-          tr[0] = MV_MOVEG; else
-          tr[0] = MV_MOVEA;
+        tr[0] = MV_MOVE;
         break;
         }
       case FightAiMove::RUN_BACK:{
@@ -123,6 +124,7 @@ FightAlgo::Action FightAlgo::nextFromQueue(Npc& npc, Npc& tg, GameScript& owner)
         }
       case FightAiMove::STRAFE:{
         tr[0] = owner.rand(2) ? MV_STRAFEL : MV_STRAFER;
+        tr[1] = FightAlgo::MV_STRAFE_E;
         break;
         }
       case FightAiMove::ATTACK:{
@@ -227,6 +229,11 @@ void FightAlgo::onTakeHit() {
   hitFlg = true;
   for(auto& i:tr)
     i = MV_NULL;
+  queueId = zenkit::FightAiMove::NOP;
+  }
+
+float FightAlgo::qDistTo(const Npc& npc, const Npc& tg) const {
+  return npc.fightDistanceTo(tg).quadLength();
   }
 
 float FightAlgo::baseDistance(const Npc& npc, const Npc& tg,  GameScript &owner) const {
@@ -238,7 +245,7 @@ float FightAlgo::baseDistance(const Npc& npc, const Npc& tg,  GameScript &owner)
 
 float FightAlgo::prefferedAttackDistance(const Npc& npc, const Npc& tg,  GameScript &owner) const {
   auto&  gv      = owner.guildVal();
-  float  baseTg  = float(gv.fight_range_base[tg .guild()]);
+  float  baseTg  = float(gv.fight_range_base[tg.guild()]);
   float  baseNpc = float(gv.fight_range_base[npc.guild()]);
   return baseTg + baseNpc + weaponRange(owner,npc);
   }
@@ -246,49 +253,92 @@ float FightAlgo::prefferedAttackDistance(const Npc& npc, const Npc& tg,  GameScr
 float FightAlgo::prefferedGDistance(const Npc& npc, const Npc& tg, GameScript &owner) const {
   auto   gl      = npc.guild();
   auto&  gv      = owner.guildVal();
-  float  baseTg  = float(gv.fight_range_base[tg .guild()]);
+  float  baseTg  = float(gv.fight_range_base[tg.guild()]);
   float  baseNpc = float(gv.fight_range_base[npc.guild()]);
   return float(baseTg + baseNpc + float(gv.fight_range_g[gl])) + weaponRange(owner,npc);
   }
 
-bool FightAlgo::isInAttackRange(const Npc &npc,const Npc &tg, GameScript &owner) const {
-  // tested in vanilla on Bloofly's:
-  //  60 weapon range (Spiked club) is not enough to hit
-  //  70 weapon range (Rusty Sword) is good to hit
-  auto  dist   = npc.qDistTo(tg);
-  auto  pd     = prefferedAttackDistance(npc,tg,owner);
-  if(npc.hasState(BS_RUN))
-    pd += 20; // padding, for wolf
-  return (dist<=pd*pd);
+float FightAlgo::attackFinishDistance(GameScript &owner) const {
+  float NPC_ATTACK_FINISH_DISTANCE = 180;
+  if(auto var = owner.findSymbol("NPC_ATTACK_FINISH_DISTANCE")) {
+    if(var->type()==zenkit::DaedalusDataType::INT)
+      NPC_ATTACK_FINISH_DISTANCE = float(var->get_int());
+    else if(var->type()==zenkit::DaedalusDataType::FLOAT)
+      NPC_ATTACK_FINISH_DISTANCE = var->get_float();
+    }
+  return NPC_ATTACK_FINISH_DISTANCE;
   }
 
-bool FightAlgo::isInWRange(const Npc& npc, const Npc& tg, GameScript& owner) const {
-  auto dist = npc.qDistTo(tg);
+bool FightAlgo::isInAttackRange(const Npc &npc, const Npc &tg, GameScript &owner) const {
+  auto dist = qDistTo(npc, tg);
   auto pd   = prefferedAttackDistance(npc,tg,owner);
   return (dist<=pd*pd);
   }
 
+bool FightAlgo::isInFinishRange(const Npc& npc, const Npc& tg, GameScript& owner) const {
+  auto dist = qDistTo(npc, tg);
+  auto pd   = attackFinishDistance(owner);
+  return (dist<=pd*pd);
+  }
+
+bool FightAlgo::isInCloseupRange(const Npc& npc, const Npc& tg, GameScript& owner) const {
+  // script: automatic movement of the figure (if too close) to 0.75*FightRange
+  auto dist = qDistTo(npc, tg);
+  auto pd   = baseDistance(npc,tg,owner) * 0.75f;
+  return (dist<=pd*pd);
+  }
+
+bool FightAlgo::isInWRange(const Npc& npc, const Npc& tg, GameScript& owner) const {
+  // tested in vanilla on Bloofly's:
+  //  60 weapon range (Spiked club) is not enough to hit
+  //  70 weapon range (Rusty Sword) is good to hit
+  static float padding = 0; // padding
+  auto dist = qDistTo(npc, tg);
+  auto pd   = prefferedAttackDistance(npc,tg,owner) + padding;
+  return (dist<=pd*pd);
+  }
+
 bool FightAlgo::isInGRange(const Npc &npc, const Npc &tg, GameScript &owner) const {
-  auto  dist    = npc.qDistTo(tg);
-  auto  pd      = prefferedGDistance(npc,tg,owner);
+  auto dist = qDistTo(npc, tg);
+  auto pd   = prefferedGDistance(npc,tg,owner);
   return (dist<=pd*pd);
   }
 
 bool FightAlgo::isInFocusAngle(const Npc &npc, const Npc &tg) const {
   static const float maxAngle = std::cos(float(30.0*M_PI/180.0));
+  return angleTest(npc, tg, maxAngle);
+  }
 
-  const auto  dpos  = npc.position()-tg.position();
-  const float plAng = npc.rotationRad()+float(M_PI/2);
+bool FightAlgo::isInFocusAngle(const Npc& npc, const Npc& tg, float ang) const {
+  const float maxAngle = std::cos(float(ang*M_PI/180.0));
+  return angleTest(npc, tg, maxAngle);
+  }
+
+bool FightAlgo::isInJumpBackAngle(const Npc& npc, const Npc& tg) const {
+  static const float maxAngle = std::cos(float(90.0*M_PI/180.0));
+  return angleTest(npc, tg, maxAngle);
+  }
+
+bool FightAlgo::angleTest(const Npc& npc, const Npc& tg, float cosMax) {
+  // must be consistent with collisions
+  const auto  dpos = tg.collosionCenter() - npc.collosionCenter();
+  const float plAng = npc.rotationRad();
 
   const float da = plAng-std::atan2(dpos.z,dpos.x);
   const float c  = std::cos(da);
 
-  if(c<maxAngle)
+  if(c<cosMax)
     return false;
   return true;
   }
 
 float FightAlgo::weaponRange(GameScript &owner, const Npc &npc) {
+  /*
+  NOTE: comments from G2 scripts:
+    Bip01 bis BBox
+    FAI_W = BASE + ItemRange (or Fist)
+    FAI_G = BASE + ItemRange (or Fist) + G
+  */
   auto  gl  = npc.guild();
   auto& gv  = owner.guildVal();
   auto  w   = npc.inventory().activeWeapon();

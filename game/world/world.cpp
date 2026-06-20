@@ -226,7 +226,7 @@ World::World(GameSession& game, std::string_view file, bool startup, std::functi
     loadProgress(70);
 
     globFx.reset(new GlobalEffects(*this));
-    wmatrix.reset(new WayMatrix(*this,world.world_way_net));
+    wmatrix.reset(new WayMatrix(*this, *world.way_net));
     for(auto& vob:world.world_vobs)
       wobj.addRoot(vob,startup);
 
@@ -247,7 +247,7 @@ void World::createPlayer(std::string_view cls) {
   if(id==size_t(-1))
     return;
   std::string_view waypoint = wmatrix->startPoint().name;
-  auto             npc      = std::make_unique<Npc>(*this, id, waypoint, Npc::ProcessPolicy::Player);
+  auto             npc      = std::make_unique<Npc>(*this, id, waypoint, NpcProcessPolicy::Player);
   npcPlayer = wobj.insertPlayer(std::move(npc), waypoint);
   game.script()->setInstanceNPC("HERO",*npcPlayer);
   }
@@ -262,12 +262,12 @@ void World::insertPlayer(std::unique_ptr<Npc> &&npc, std::string_view waypoint) 
 void World::setPlayer(Npc* npc) {
   if(npc==nullptr)
     return;
-  npcPlayer->setProcessPolicy(Npc::ProcessPolicy::AiNormal);
+  npcPlayer->setProcessPolicy(NpcProcessPolicy::AiNormal);
   if(!npcPlayer->isDead()) {
     npcPlayer->resumeAiRoutine();
     }
   
-  npc->setProcessPolicy(Npc::ProcessPolicy::Player);
+  npc->setProcessPolicy(NpcProcessPolicy::Player);
   npc->clearState(true);
   npc->clearAiQueue();
 
@@ -542,6 +542,11 @@ Focus World::findFocus(const Npc &pl, const Focus& def) {
   WorldObjects::SearchOpt optMob {policy.mob_range1,  policy.mob_range2,  policy.mob_azi,  collAlgo};
   WorldObjects::SearchOpt optItm {policy.item_range1, policy.item_range2, policy.item_azi, collAlgo, collType};
 
+  if(pl.weaponState()==WeaponState::NoWeapon) {
+    // used only for dialogs it seems
+    optNpc.rangeMax = std::max(optNpc.rangeMax, policy.npc_longrange);
+    }
+
   auto n     = policy.npc_prio <0 ? nullptr : wobj.findNpcNear    (pl,def.npc,        optNpc);
   auto it    = policy.item_prio<0 ? nullptr : wobj.findItem       (pl,def.item,       optItm);
   auto inter = policy.mob_prio <0 ? nullptr : wobj.findInteractive(pl,def.interactive,optMob);
@@ -688,6 +693,10 @@ void World::marchCsCameras(DbgPainter& p) const {
   wobj.marchCsCameras(p);
   }
 
+void World::drawVobBoxNpcNear(DbgPainter& p) const {
+  wobj.drawVobBoxNpcNear(p);
+  }
+
 AiOuputPipe *World::openDlgOuput(Npc &player, Npc &npc) {
   return game.openDlgOuput(player,npc);
   }
@@ -756,19 +765,21 @@ size_t World::hasItems(std::string_view tag, size_t itemCls) {
 
 Bullet& World::shootSpell(const Item &itm, const Npc &npc, const Npc *target) {
   Tempest::Vec3   dir     = {1.f,0.f,0.f};
-  auto            pos     = npc.position();
+  auto            pos     = npc.collosionCenter();
   const VisualFx* vfx     = script().spellVfx(itm.spellId());
   float           tgRange = vfx==nullptr ? 0 : vfx->emTrjTargetRange;
 
   if(target!=nullptr) {
-    auto  tgPos = target->position();
-    if(vfx!=nullptr) {
-      pos   = npc.mapBone(vfx->emTrjOriginNode);
+    auto tgPos = target->collosionCenter();
+    if(vfx!=nullptr && !vfx->emTrjOriginNode.empty()) {
+      pos = npc.mapBone(vfx->emTrjOriginNode);
+      }
+    if(vfx!=nullptr && !vfx->emTrjTargetNode.empty()) {
       tgPos = target->mapBone(vfx->emTrjTargetNode);
       }
     dir = tgPos-pos;
     } else {
-    float a = npc.rotationRad()-float(M_PI/2);
+    float a = npc.rotationRad();
     dir.x = std::cos(a);
     dir.z = std::sin(a);
     pos  = npc.mapWeaponBone();
@@ -784,7 +795,7 @@ Bullet& World::shootBullet(const Item &itm, const Npc &npc, const Npc *target, c
   auto          pos = npc.mapWeaponBone();
 
   if(target!=nullptr) {
-    dir = target->centerPosition() - pos;
+    dir = target->collosionCenter() - pos;
 
     float lxz   = std::sqrt(dir.x*dir.x+0*0+dir.z*dir.z);
     float speed = DynamicWorld::bulletSpeed;
@@ -804,7 +815,7 @@ Bullet& World::shootBullet(const Item &itm, const Npc &npc, const Npc *target, c
     dir/=t;
     dir.y += 0.5f*DynamicWorld::gravity*t;
     } else {
-    float a = npc.rotationRad()-float(M_PI/2);
+    float a = npc.rotationRad();
     dir.x = std::cos(a);
     dir.z = std::sin(a);
     }
@@ -839,8 +850,8 @@ void World::sendImmediatePerc(Npc& self, Npc& other, Npc& victim, Item& item, in
   }
 
 Sound World::addWeaponHitEffect(Npc& src, const Bullet* srcArrow, Npc& reciver) {
-  auto p0 = src.position();
-  auto p1 = reciver.position();
+  auto p0 = src.centerPosition();
+  auto p1 = reciver.centerPosition();
 
   Tempest::Matrix4x4 pos;
   pos.identity();
@@ -1003,6 +1014,10 @@ const WayPoint *World::findPoint(std::string_view name, bool inexact) const {
   return wmatrix->findPoint(name,inexact);
   }
 
+const WayPoint* World::findWayPoint(std::string_view name) const {
+  return wmatrix->findWayPoint(name);
+  }
+
 const WayPoint* World::findWayPoint(const Tempest::Vec3& pos) const {
   return wmatrix->findWayPoint(pos,[](const WayPoint&){ return true; });
   }
@@ -1015,31 +1030,30 @@ const WayPoint* World::findWayPoint(const Tempest::Vec3& pos, std::string_view n
   return wmatrix->findWayPoint(pos,[name](const WayPoint& wp) -> bool {
     if(wp.isLocked())
       return false;
-    if(!wp.checkName(name))
+    if(!wp.checkName(name,false))
       return false;
     return true;
     });
   }
 
-const WayPoint *World::findFreePoint(const Npc &npc, std::string_view name) const {
+const WayPoint* World::findFreePoint(const Npc &npc, std::string_view name) const {
   if(auto p = npc.currentWayPoint()){
     if(p->isFreePoint() && p->checkName(name)) {
       return p;
       }
     }
-  auto pos = npc.position();
-  pos.y+=npc.translateY();
 
+  const auto pos = npc.centerPosition();
   return wmatrix->findFreePoint(pos,name,[&npc](const WayPoint& wp) -> bool {
     if(wp.isLocked())
       return false;
-    if(!npc.canRayHitPoint(Tempest::Vec3(wp.x,wp.y+10,wp.z),true))
+    if(!npc.canRayHitPoint(Tempest::Vec3(wp.pos.x,wp.pos.y+10,wp.pos.z)))
       return false;
     return true;
     });
   }
 
-const WayPoint *World::findFreePoint(const Tempest::Vec3& pos, std::string_view name) const {
+const WayPoint* World::findFreePoint(const Tempest::Vec3& pos, std::string_view name) const {
   return wmatrix->findFreePoint(pos,name,[](const WayPoint& wp) -> bool {
     if(wp.isLocked())
       return false;
@@ -1047,9 +1061,8 @@ const WayPoint *World::findFreePoint(const Tempest::Vec3& pos, std::string_view 
     });
   }
 
-const WayPoint *World::findNextFreePoint(const Npc &npc, std::string_view name) const {
-  auto pos = npc.position();
-  pos.y+=npc.translateY();
+const WayPoint* World::findNextFreePoint(const Npc &npc, std::string_view name) const {
+  auto pos = npc.centerPosition();
   auto cur = npc.currentWayPoint();
   if(cur!=nullptr && !cur->checkName(name)) {
     cur = nullptr;
@@ -1057,7 +1070,7 @@ const WayPoint *World::findNextFreePoint(const Npc &npc, std::string_view name) 
   auto filter = [&](const WayPoint& wp) {
     if(wp.isLocked() || &wp==cur)
       return false;
-    if(!npc.canRayHitPoint(Tempest::Vec3(wp.x,wp.y+10,wp.z),true))
+    if(!npc.canRayHitPoint(Tempest::Vec3(wp.pos.x,wp.pos.y+10,wp.pos.z)))
       return false;
     return true;
     };
@@ -1066,15 +1079,13 @@ const WayPoint *World::findNextFreePoint(const Npc &npc, std::string_view name) 
   }
 
 const WayPoint* World::findNextWayPoint(const Npc &npc) const {
-  auto pos = npc.position();
-  pos.y+=npc.translateY();
-
+  auto pos     = npc.centerPosition();
   auto nearest = npc.currentWayPoint();
   if(nearest==nullptr || nearest->isFreePoint()) {
     nearest = findWayPoint(pos);
     }
   auto filter  = [&](const WayPoint& wp) {
-    if(!npc.canRayHitPoint(Tempest::Vec3(wp.x,wp.y+10,wp.z),true))
+    if(!npc.canRayHitPoint(Tempest::Vec3(wp.pos.x,wp.pos.y+10,wp.pos.z)))
       return false;
     return nearest != &wp;
     };
@@ -1106,24 +1117,32 @@ void World::detectItem(const Tempest::Vec3& p, const float r, const std::functio
   }
 
 WayPath World::wayTo(const Npc &npc, const WayPoint &end) const {
-  auto p     = npc.position();
+  const auto npcPos = npc.centerPosition();
 
   auto begin = npc.currentWayPoint();
-  if(begin==&end && MoveAlgo::isClose(npc.position(),end)) {
+  if(begin==&end && MoveAlgo::isClose(npc,end)) {
     return WayPath();
     }
-  if(begin && !begin->isFreePoint() && MoveAlgo::isClose(npc.position(),*begin)) {
-    return wmatrix->wayTo(&begin,1,p,end);
+  if(begin==&end && !end.isConnected() && npc.canRayHitPoint(end.position()+Tempest::Vec3(0,10,0))) {
+    WayPath ret;
+    ret.add(end);
+    return ret;
     }
-  auto near = wmatrix->findWayPoint(p, [&npc](const WayPoint &wp) {
-    if(!npc.canRayHitPoint(Tempest::Vec3(wp.x,wp.y+10,wp.z),true))
+  if(begin && begin->isConnected() && MoveAlgo::isClose(npc,*begin)) {
+    return wmatrix->wayTo(&begin,1,npcPos,end);
+    }
+  auto near = wmatrix->findWayPoint(npcPos, [&npc](const WayPoint &wp) {
+    if(!npc.canRayHitPoint(wp.pos))
       return false;
     return true;
     });
-  if(near==nullptr)
-    return WayPath();
 
-  if(MoveAlgo::isClose(p,*near) && near==&end)
+  if(near==nullptr) {
+    // fallback to any closest point
+    near = wmatrix->findWayPoint(npcPos, [](const WayPoint &wp) { return true; });
+    }
+
+  if(MoveAlgo::isClose(npc,*near) && near==&end)
     return WayPath();
 
   std::vector<const WayPoint*> wpoint;
@@ -1134,10 +1153,10 @@ WayPath World::wayTo(const Npc &npc, const WayPoint &end) const {
       wpoint.push_back(i.point);
     }
 
-  return wmatrix->wayTo(wpoint.data(),wpoint.size(),p,end);
+  return wmatrix->wayTo(wpoint.data(),wpoint.size(),npcPos,end);
   }
 
-GameScript &World::script() const {
+GameScript& World::script() const {
   return *game.script();
   }
 

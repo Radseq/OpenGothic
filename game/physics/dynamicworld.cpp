@@ -8,26 +8,29 @@
 #include <algorithm>
 #include <cmath>
 #include <cassert>
+#include <cstddef>
 
 #include "graphics/mesh/submesh/packedmesh.h"
 #include "world/objects/item.h"
 #include "world/bullet.h"
 #include "world/world.h"
 
-const float DynamicWorld::ghostPadding=50-22.5f;
-const float DynamicWorld::ghostHeight =140;
-const float DynamicWorld::worldHeight =20000;
+#include "utils/dbgpainter.h"
+
+//#include "BulletCollision/CollisionShapes/btCylinderShape.h"
+
+const float DynamicWorld::worldHeight = 20000; //TODO: remove
 
 struct DynamicWorld::HumShape:btCapsuleShape {
-  HumShape(btScalar radius, btScalar height):btCapsuleShape(
-      CollisionWorld::toMeters(height<=0.f ? 0.f : radius),
-      CollisionWorld::toMeters(height)) {}
+  //NOTE: total height is height+2*radius
+  HumShape(btScalar radius, btScalar height):btCapsuleShape(CollisionWorld::toMeters(radius),
+                                                            CollisionWorld::toMeters(height)) {}
 
   // "human" object mush have identyty scale/rotation matrix. Only translation allowed.
   void getAabb(const btTransform& t, btVector3& aabbMin, btVector3& aabbMax) const override {
     const btScalar rad = getRadius();
     btVector3      extent(rad,rad,rad);
-    extent[m_upAxis]  = rad + getHalfHeight();
+    extent[m_upAxis]  = getHalfHeight() + rad;
     btVector3  center = t.getOrigin();
 
     aabbMin = center - extent;
@@ -37,26 +40,63 @@ struct DynamicWorld::HumShape:btCapsuleShape {
 
 struct DynamicWorld::NpcBody : btRigidBody {
   NpcBody(btCollisionShape* shape):btRigidBody(0,nullptr,shape){}
-  ~NpcBody() {
-    delete m_collisionShape;
+  ~NpcBody() { delete m_collisionShape; }
+
+  Tempest::Vec3 pos      = {};
+  float         h        = 0;
+  float         gPadd    = 0.f;
+  float         stepSz   = 0.f;
+  bool          enable   = true;
+  size_t        frozen   = size_t(-1);
+  uint64_t      lastMove = 0;
+
+  // relevant for npc-to-npc collison
+  float         angle    = 0;
+  Tempest::Vec3 bboxCen  = {};
+  Tempest::Vec3 bboxSize = {};
+  float         maxRXZ   = 0;
+  float         maxRY    = 0;
+
+  float         maxR     = 0;
+
+  Tempest::Vec3 offsetCenter(float c, float s) const {
+    auto off = bboxCen;
+    return Tempest::Vec3(off.x*c - off.z*s,
+                         off.y,
+                         off.x*s + off.z*c);
     }
 
-  Tempest::Vec3 pos={};
-  float         r=0, h=0, rX=0, rZ=0;
-  bool          enable=true;
-  size_t        frozen=size_t(-1);
-  uint64_t      lastMove=0;
+  float ellipsoidRadius(Tempest::Vec3 dir, float c, float s) const {
+    s = -s; // need to cancel object rotation
+
+    Tempest::Vec3 radius = bboxSize;
+    dir = Tempest::Vec3(dir.x*c - dir.z*s,
+                        dir.y,
+                        dir.x*s + dir.z*c);
+    return (dir * radius).length();
+    }
 
   Npc* toNpc() {
     return reinterpret_cast<Npc*>(getUserPointer());
     }
 
+  auto groundOffset() const {
+    const float extPadding = 15.f; // Khorinis port hack
+    return h*0.5f + gPadd*0.5f + extPadding;
+    }
+
+  auto centerPosition() const {
+    float padd = groundOffset();
+    return Tempest::Vec3(pos.x, pos.y+padd, pos.z);
+    }
+
   void setPosition(const Tempest::Vec3& p) {
-    auto m = CollisionWorld::toMeters(p+Tempest::Vec3(0,(h-r-ghostPadding)*0.5f+r+ghostPadding,0));
     pos = p;
+
+    auto m = p + Tempest::Vec3(0,groundOffset(),0);
     btTransform trans;
     trans.setIdentity();
-    trans.setOrigin(m);
+    trans.setOrigin(CollisionWorld::toMeters(m));
     setWorldTransform(trans);
     }
   };
@@ -73,17 +113,18 @@ struct DynamicWorld::NpcBodyList final {
     }
 
   NpcBody* create(const Tempest::Vec3 &min, const Tempest::Vec3 &max) {
-    static const float dimMax = 45.f;
+    auto  size    = max - min;
+    float radius  = std::min(size.y*0.5f, std::min(size.x, size.z))*0.5f; // npc-to-landscape collision size
+    float height  = size.y;
 
-    float dx     = max.x-min.x;
-    float dz     = max.z-min.z;
-    float dim    = (dx+dz)*0.5f; // npc-to-landscape collision size
-    float height = max.y-min.y;
+    // ghostPadding = 90;
+    float ghostPadding = height*0.5f;
+    float cHeight      = std::max(height-2.f*radius-ghostPadding, 0.f);
 
-    if(dim>dimMax)
-      dim = dimMax;
-
-    btCollisionShape* shape = new HumShape(dim*0.5f, std::max(height-ghostPadding,0.f)*0.5f);
+    //NOTE: it seem vanilla uses elipsoids at some point, at least for npc-2-npc collisions
+    btCollisionShape* shape = new HumShape(radius, cHeight);
+    //btCollisionShape* shape = new btCylinderShape(CollisionWorld::toMeters(Tempest::Vec3(radius, height*0.5f, radius)));
+    //btCollisionShape* shape = new btCapsuleShape(CollisionWorld::toMeters(radius), CollisionWorld::toMeters(height));
     NpcBody*          obj   = new NpcBody(shape);
 
     btTransform trans;
@@ -92,8 +133,33 @@ struct DynamicWorld::NpcBodyList final {
     obj->setUserIndex(C_Ghost);
     obj->setCollisionFlags(btCollisionObject::CF_NO_CONTACT_RESPONSE);
 
+    obj->h      = height;
+    obj->gPadd  = ghostPadding;
+
+    obj->bboxCen  = (max+min)*0.5f;
+    obj->bboxSize = (max-min)*0.5f;
+
+    // safe tunneling size
+    obj->stepSz   = radius;
+    obj->stepSz   = std::min(obj->stepSz, std::abs(max.x));
+    obj->stepSz   = std::min(obj->stepSz, std::abs(min.x));
+    obj->stepSz   = std::min(obj->stepSz, std::abs(max.z));
+    obj->stepSz   = std::min(obj->stepSz, std::abs(min.z));
+
+    // searchable radius, where we use logica-position(obj->pos), instead of physical center
+    obj->maxRXZ   = std::max(obj->maxRXZ, std::abs(max.x));
+    obj->maxRXZ   = std::max(obj->maxRXZ, std::abs(min.x));
+    obj->maxRXZ   = std::max(obj->maxRXZ, std::abs(max.z));
+    obj->maxRXZ   = std::max(obj->maxRXZ, std::abs(min.z));
+    obj->maxRY    = std::max(obj->maxRY,  std::abs(max.y));
+    obj->maxRY    = std::max(obj->maxRY,  std::abs(min.y));
+
+    maxRXZ = std::max(maxRXZ, obj->maxRXZ);
+    maxRY  = std::max(maxRY,  obj->maxRY);
+
+    obj->maxR = std::max(obj->maxRXZ, obj->maxRY);
+
     add(obj);
-    resize(*obj,height,dx,dz);
     return obj;
     }
 
@@ -104,119 +170,143 @@ struct DynamicWorld::NpcBodyList final {
     body.push_back(r);
     }
 
-  bool del(void* b){
-    if(del(b,body))
+  bool del(void* b) {
+    if(del(b,body,false))
       return true;
-    if(del(b,frozen)){
-      srt=false;
+    if(del(b,frozen,true))
       return true;
-      }
     return false;
     }
 
-  bool del(void* b,std::vector<Record>& arr){
+  bool del(void* b, std::vector<Record>& arr, bool preserveOrder) {
     for(size_t i=0;i<arr.size();++i){
       if(arr[i].body!=b)
         continue;
-      arr[i]=arr.back();
-      arr.pop_back();
+      if(preserveOrder) {
+        arr.erase(arr.begin()+ptrdiff_t(i));
+        } else {
+        arr[i]=arr.back();
+        arr.pop_back();
+        }
       return true;
       }
     return false;
     }
 
-  bool delMisordered(NpcBody* b,std::vector<Record>& arr){
-    auto&       fr = arr[b->frozen];
-    const float x  = fr.x;
-    if((b->frozen==0 || arr[b->frozen-1].x<x) &&
-       (b->frozen+1==arr.size() || x<arr[b->frozen+1].x)) {
-      fr.x = fr.body->pos.x;
-      return false;
-      } else {
-      fr.body = nullptr;
-      return true;
-      }
-    }
-
-  void resize(NpcBody& n, float h, float dx, float dz){
-    n.rX = dx;
-    n.rZ = dz;
-
-    // n.r = (dx+dz)*0.25f;
-    n.r = std::max((dx+dz)*0.5f, dz)*0.5f;
-    n.h = h;
-
-    maxR = std::max(maxR,n.r);
-    }
-
   void onMove(NpcBody& n){
-    if(n.frozen!=size_t(-1)) {
-      if(delMisordered(&n,frozen)){
-        n.lastMove = tick;
-        n.frozen   = size_t(-1);
-
-        Record r;
-        r.body = &n;
-        body.push_back(r);
-        }
-      } else {
+    if(n.frozen==size_t(-1)) {
       n.lastMove = tick;
+      return;
       }
+
+    auto&       fr = frozen[n.frozen];
+    const float x  = fr.x;
+    if((n.frozen==0 || frozen[n.frozen-1].x<x) &&
+       (n.frozen+1==frozen.size() || x<frozen[n.frozen+1].x)) {
+      // still ordered
+      fr.x = fr.body->pos.x;
+      return;
+      }
+
+    fr.body = nullptr;
+
+    Record r;
+    r.body = &n;
+    body.push_back(r);
+
+    n.lastMove = tick;
+    n.frozen   = size_t(-1);
     }
 
-  bool rayTest(NpcBody& npc, const Tempest::Vec3& s, const Tempest::Vec3& e, float extR, float& proj) {
+  float raySphereTest(const Tempest::Vec3& origin, const Tempest::Vec3& dir, const Tempest::Vec3& sphere, float R) const {
+    auto oc = origin - sphere;
+
+    // Quadratic coefficients for (ray.origin + t*ray.direction - center)^2 = radius^2
+    float a = 1.f; // Always 1 if direction is normalized
+    float b = 2.0f * Tempest::Vec3::dotProduct(oc, dir);
+    float c = Tempest::Vec3::dotProduct(oc,oc) - R*R;
+
+    float discriminant = b * b - 4 * a * c;
+    if(discriminant < 0)
+      return -1;
+    // Find the nearest intersection point (smallest positive t)
+    float t0 = (-b - std::sqrt(discriminant)) / (2.0f * a);
+    float t1 = (-b + std::sqrt(discriminant)) / (2.0f * a);
+
+    if(t0 > 0)
+      return t0;
+    if(t1 > 0)
+      return t1;
+    return -1; // Intersection is behind the ray
+    }
+
+  float rayEllipseTest(const Tempest::Vec3& origin, const Tempest::Vec3& dir, const Tempest::Vec3& cen, const Tempest::Vec3& size) const {
+    if(size.x<=0.001f || size.y<=0.001f || size.z<=0.001f)
+      return -1.f;
+
+    auto  ori = origin - cen;
+    auto  oc  = Tempest::Vec3(ori.x/size.x, ori.y/size.y, ori.z/size.z);
+    auto  dx  = Tempest::Vec3(dir.x/size.x, dir.y/size.y, dir.z/size.z);
+    auto  ndx = Tempest::Vec3::normalize(dx);
+
+    float t   = raySphereTest(oc, ndx, Tempest::Vec3(0.f), 1.f);
+    if(t<=0)
+      return t;
+
+    auto hit = (ndx*t);
+    hit.x *= size.x;
+    hit.y *= size.y;
+    hit.z *= size.z;
+
+    return hit.length();
+    }
+
+  bool rayTest(NpcBody& npc, const Tempest::Vec3& s, const Tempest::Vec3& dir, float tMax, float extR, float& proj) {
     if(!npc.enable)
       return false;
-    auto  ln   = e       - s;
-    auto  at   = npc.pos - s;
 
-    float lenL = ln.length();
-
-    float dot  = Tempest::Vec3::dotProduct(ln,at);
-
-    proj = dot/(lenL<=0 ? 1.f : (lenL*lenL));
-    proj = std::max(0.f,std::min(proj,1.f));
-
-    // TODO: ray-box intersection
-    auto& tr   = npc.getWorldTransform();
-    auto  pos  = CollisionWorld::toCentimeters(tr.getOrigin());
-
-    auto  nr   = ln*proj + s;
-    auto  dp   = nr      - pos;
-    float R    = 0.5f*(npc.rX + npc.rZ) + extR;
-    if(dp.x*dp.x+dp.z*dp.z > R*R)
+    if(raySphereTest(s, dir, npc.pos, npc.maxR+extR)<0.f)
       return false;
-    if(npc.h<abs(dp.y))
+
+    const float acos = std::cos(npc.angle), asin = std::sin(npc.angle);
+    const auto  pos  = npc.pos + npc.offsetCenter(acos, asin);
+
+    static float multiplyer = 2; // to address overly small bboxes
+    const float t = rayEllipseTest(s, dir, pos, npc.bboxSize*multiplyer+extR);
+    if(t<0.f || t>=tMax)
       return false;
+    proj = t;
     return true;
     }
 
-  NpcBody* rayTest(const Tempest::Vec3& s, const Tempest::Vec3& e, float extR) {
+  auto rayTest(const Tempest::Vec3& s, const Tempest::Vec3& e, float extR, const Npc* except) {
     NpcBody* ret     = nullptr;
-    float    minProj = 2;
+    auto     dir     = Tempest::Vec3::normalize(e-s);
+    auto     tMax    = (e-s).length();
+    float    tHit    = tMax;
 
     for(auto i:body) {
       float proj = 0;
-      if(rayTest(*i.body, s, e, extR, proj)) {
-        if(proj<minProj) {
-          ret     = i.body;
-          minProj = proj;
+      if(i.body->toNpc()!=except && rayTest(*i.body, s, dir, tMax, extR, proj)) {
+        if(proj<tHit) {
+          ret  = i.body;
+          tHit = proj;
           }
         }
       }
     for(auto i:frozen) {
       float proj = 0;
-      if(i.body!=nullptr && rayTest(*i.body, s, e, extR, proj)) {
-        if(proj<minProj) {
-          ret     = i.body;
-          minProj = proj;
+      if(i.body!=nullptr && i.body->toNpc()!=except && rayTest(*i.body, s, dir, tMax, extR, proj)) {
+        if(proj<tHit) {
+          ret  = i.body;
+          tHit = proj;
           }
         }
       }
     return ret;
     }
 
-  bool hasCollision(const DynamicWorld::NpcItem& obj,Tempest::Vec3& normal) {
+  bool hasCollision(const DynamicWorld::NpcItem& obj, Tempest::Vec3& normal, Npc*& npc, float& colDepth) {
     static bool disable=false;
     if(disable)
       return false;
@@ -224,26 +314,19 @@ struct DynamicWorld::NpcBodyList final {
     const NpcBody* pn = dynamic_cast<const NpcBody*>(obj.obj);
     if(pn==nullptr)
       return false;
-    const NpcBody& n = *pn;
 
-    if(srt){
-      if(hasCollision(n,frozen,normal,true))
-        return true;
-      return hasCollision(n,body,normal,false);
-      } else {
-      if(hasCollision(n,body,normal,false))
-        return true;
-      //adjustSort();
-      return hasCollision(n,frozen,normal,false);
-      }
+    const NpcBody& n = *pn;
+    if(hasCollision(n,frozen,normal,npc,colDepth,true))
+      return true;
+    return hasCollision(n,body,normal,npc,colDepth,false);
     }
 
-  bool hasCollision(const NpcBody& n,const std::vector<Record>& arr,Tempest::Vec3& normal, bool sorted) {
+  bool hasCollision(const NpcBody& n, const std::vector<Record>& arr, Tempest::Vec3& normal, Npc*& npc, float& colDepth, bool sorted) const {
     auto l = arr.begin();
     auto r = arr.end();
 
     if(sorted) {
-      const float dX = maxR+n.r;
+      const float dX = maxRXZ + n.maxRXZ;
       l = std::lower_bound(arr.begin(),arr.end(),n.pos.x-dX,[](const Record& b,float x){ return b.x<x; });
       r = std::upper_bound(arr.begin(),arr.end(),n.pos.x+dX,[](float x,const Record& b){ return x<b.x; });
       }
@@ -255,31 +338,49 @@ struct DynamicWorld::NpcBodyList final {
     bool ret=false;
     for(;l!=r;++l){
       auto& v = (*l);
-      if(v.body!=nullptr && v.body->enable && hasCollision(n,*v.body,normal))
+      if(v.body!=nullptr && v.body->enable && hasCollision(n,*v.body,normal,colDepth)) {
+        npc = v.body->toNpc();
         ret = true;
+        }
       }
     return ret;
     }
 
-  bool hasCollision(const NpcBody& a, const NpcBody& b, Tempest::Vec3& normal){
+  bool hasCollision(const NpcBody& a, const NpcBody& b, Tempest::Vec3& normal, float& colDepth) const {
+    const float objMaxRXZ = a.maxRXZ + b.maxRXZ;
+    const float objMaxRY  = a.maxRY  + b.maxRY;
+
+    if((Tempest::Vec2(a.pos.x,a.pos.z)-Tempest::Vec2(b.pos.x,b.pos.z)).quadLength() > objMaxRXZ*objMaxRXZ)
+      return false;
+
+    if(std::abs(a.pos.y-b.pos.y) > objMaxRY)
+      return false;
+
     if(&a==&b)
       return false;
-    auto dx = a.pos.x-b.pos.x, dy = a.pos.y-b.pos.y, dz = a.pos.z-b.pos.z;
-    auto r  = a.r+b.r;
 
-    if(dx*dx+dz*dz>r*r)
-      return false;
-    if(dy>b.h || dy<-a.h)
-      return false;
+    const float acos = std::cos(a.angle), asin = std::sin(a.angle);
+    const float bcos = std::cos(b.angle), bsin = std::sin(b.angle);
 
-    normal.x += dx;
-    normal.y += dy;
-    normal.z += dz;
-    return true;
+    const auto  apos = a.pos + a.offsetCenter(acos, asin);
+    const auto  bpos = b.pos + b.offsetCenter(bcos, bsin);
+    const auto  dir  = bpos - apos;
+
+    auto dlen = dir.length();
+    auto ndir = Tempest::Vec3::normalize(dir);
+    const float rA = a.ellipsoidRadius( ndir, acos, asin);
+    const float rB = b.ellipsoidRadius(-ndir, bcos, bsin);
+
+    if(dlen < rA + rB) {
+      float depth = (rA + rB - dlen)*0.5f;
+      colDepth = std::max(colDepth, depth);
+      normal -= ndir*depth;
+      return true;
+      }
+    return false;
     }
 
   void adjustSort() {
-    srt=true;
     std::sort(frozen.begin(),frozen.end(),[](Record& a,Record& b){
       return a.x < b.x;
       });
@@ -323,9 +424,10 @@ struct DynamicWorld::NpcBodyList final {
 
   DynamicWorld&         wrld;
   std::vector<Record>   body, frozen;
-  bool                  srt=false;
-  uint64_t              tick=0;
-  float                 maxR=0;
+
+  uint64_t              tick   = 0;
+  float                 maxRXZ = 0;
+  float                 maxRY  = 0;
   };
 
 struct DynamicWorld::BulletsList final {
@@ -358,8 +460,10 @@ struct DynamicWorld::BulletsList final {
   void onMoveNpc(NpcBody& npc, NpcBodyList& list){
     for(auto& i:body) {
       float proj = 0;
-      if(i.cb!=nullptr && list.rayTest(npc,i.lastPos,i.pos,i.tgRange,proj)) {
-        i.cb->onCollide(*npc.toNpc());
+      auto  dp = i.pos - i.lastPos; // move is symetrical: move of npc and move of projectile is the same
+      if(i.cb!=nullptr && list.rayTest(npc, i.pos, Tempest::Vec3::normalize(dp), dp.length(), i.tgRange, proj)) {
+        if(i.cb->onCollide(*npc.toNpc()))
+          i.cb->onStop();
         }
       }
     }
@@ -496,26 +600,69 @@ DynamicWorld::RayLandResult DynamicWorld::landRay(const Tempest::Vec3& from, flo
   world->updateAabbs();
   if(maxDy==0)
     maxDy = worldHeight;
-  return ray(Tempest::Vec3(from.x,from.y+ghostPadding,from.z), Tempest::Vec3(from.x,from.y-maxDy,from.z));
+  return ray(from, Tempest::Vec3(from.x,from.y-maxDy,from.z));
   }
 
-DynamicWorld::RayWaterResult DynamicWorld::waterRay(const Tempest::Vec3& from) const {
+DynamicWorld::RayWaterResult DynamicWorld::waterRay(const Tempest::Vec3& from, float stepHeight) const {
   world->updateAabbs();
-  return implWaterRay(from, Tempest::Vec3(from.x,from.y+worldHeight,from.z));
+  return implWaterRay(from, Tempest::Vec3(from.x,from.y+worldHeight,from.z), stepHeight);
   }
 
-DynamicWorld::RayWaterResult DynamicWorld::waterRay(const Tempest::Vec3& from, const Tempest::Vec3& to) const {
-  world->updateAabbs();
-  return implWaterRay(from, to);
-  }
-
-DynamicWorld::RayWaterResult DynamicWorld::implWaterRay(const Tempest::Vec3& from, const Tempest::Vec3& to) const {
+DynamicWorld::RayWaterResult DynamicWorld::implWaterRay(const Tempest::Vec3& from, const Tempest::Vec3& to, float stepHeight) const {
   struct CallBack:btCollisionWorld::ClosestRayResultCallback {
     using ClosestRayResultCallback::ClosestRayResultCallback;
 
     btScalar addSingleResult(btCollisionWorld::LocalRayResult& rayResult, bool normalInWorldSpace) override {
       return ClosestRayResultCallback::addSingleResult(rayResult,normalInWorldSpace);
       }
+    };
+
+  const auto sFrom = from-Tempest::Vec3(0,stepHeight,0);
+  CallBack callback{CollisionWorld::toMeters(sFrom), CollisionWorld::toMeters(to)};
+  callback.m_flags = btTriangleRaycastCallback::kF_KeepUnflippedNormal | btTriangleRaycastCallback::kF_FilterBackfaces;
+
+  if(waterBody!=nullptr) {
+    btTransform rayFromTrans,rayToTrans;
+    rayFromTrans.setIdentity();
+    rayFromTrans.setOrigin(callback.m_rayFromWorld);
+    rayToTrans.setIdentity();
+    rayToTrans.setOrigin(callback.m_rayToWorld);
+    world->rayTestSingle(rayFromTrans, rayToTrans,
+                         waterBody.get(),
+                         waterBody->getCollisionShape(),
+                         waterBody->getWorldTransform(),
+                         callback);
+    }
+
+  RayWaterResult ret;
+  if(callback.hasHit()) {
+    const float waterY = callback.m_hitPointWorld.y()*100.f;
+    const auto  cave   = ray(from,Tempest::Vec3(to.x,std::max(waterY,from.y),to.z));
+    if(cave.hasCol && cave.v.y<waterY) {
+      ret.wdepth = -std::numeric_limits<float>::infinity();
+      ret.hasCol = false;
+      } else {
+      ret.wdepth = waterY;
+      ret.hasCol = true;
+      }
+    return ret;
+    }
+
+  ret.wdepth = -std::numeric_limits<float>::infinity();
+  ret.hasCol = false;
+  return ret;
+  }
+
+DynamicWorld::RayCamResult DynamicWorld::cameraRay(const Tempest::Vec3& from, const Tempest::Vec3& to) const {
+  struct CallBack:btCollisionWorld::AllHitsRayResultCallback {
+    using AllHitsRayResultCallback::AllHitsRayResultCallback;
+
+    btScalar addSingleResult(btCollisionWorld::LocalRayResult& rayResult, bool normalInWorldSpace) override {
+      hits++;
+      return AllHitsRayResultCallback::addSingleResult(rayResult,normalInWorldSpace);
+      }
+
+    uint32_t hits = 0;
     };
 
   CallBack callback{CollisionWorld::toMeters(from), CollisionWorld::toMeters(to)};
@@ -534,22 +681,8 @@ DynamicWorld::RayWaterResult DynamicWorld::implWaterRay(const Tempest::Vec3& fro
                          callback);
     }
 
-  RayWaterResult ret;
-  if(callback.hasHit()) {
-    float waterY = callback.m_hitPointWorld.y()*100.f;
-    auto  cave   = ray(from,Tempest::Vec3(to.x,waterY,to.z));
-    if(cave.hasCol && cave.v.y<waterY) {
-      ret.wdepth = from.y-worldHeight;
-      ret.hasCol = false;
-      } else {
-      ret.wdepth = waterY;
-      ret.hasCol = true;
-      }
-    return ret;
-    }
-
-  ret.wdepth = from.y-worldHeight;
-  ret.hasCol = false;
+  RayCamResult ret;
+  ret.waterCol = int(callback.m_collisionObjects.size());
   return ret;
   }
 
@@ -559,6 +692,7 @@ DynamicWorld::RayLandResult DynamicWorld::ray(const Tempest::Vec3& from, const T
     zenkit::MaterialGroup matId  = zenkit::MaterialGroup::UNDEFINED;
     const char*           sector = nullptr;
     Category              colCat = C_Null;
+    Interactive*          vob    = nullptr;
 
     bool needsCollision(btBroadphaseProxy* proxy0) const override {
       auto obj=reinterpret_cast<btCollisionObject*>(proxy0->m_clientObject);
@@ -578,6 +712,9 @@ DynamicWorld::RayLandResult DynamicWorld::ray(const Tempest::Vec3& from, const T
         sector = mt->sectorName(id);
         }
       colCat = Category(rayResult.m_collisionObject->getUserIndex());
+      if(colCat==C_Object) {
+        vob = reinterpret_cast<Interactive*>(rayResult.m_collisionObject->getUserPointer());
+        }
       return ClosestRayResultCallback::addSingleResult(rayResult,normalInWorldSpace);
       }
     };
@@ -595,21 +732,28 @@ DynamicWorld::RayLandResult DynamicWorld::ray(const Tempest::Vec3& from, const T
       hitNorm.y = callback.m_hitNormalWorld.y();
       hitNorm.z = callback.m_hitNormalWorld.z();
       }
+    if(callback.colCat==DynamicWorld::C_Object) {
+      // ignore normal, for sake of sliding
+      }
+    } else {
+    hitPos.y = -std::numeric_limits<float>::infinity();
     }
+
   RayLandResult ret;
   ret.v           = hitPos;
   ret.n           = hitNorm;
   ret.mat         = callback.matId;
   ret.hasCol      = callback.hasHit();
   ret.hitFraction = callback.m_closestHitFraction;
-  ret.sector = callback.sector;
+  ret.sector      = callback.sector;
+  ret.vob         = callback.vob;
   return ret;
   }
 
-DynamicWorld::RayQueryResult DynamicWorld::rayNpc(const Tempest::Vec3& from, const Tempest::Vec3& to) const {
+DynamicWorld::RayQueryResult DynamicWorld::rayNpc(const Tempest::Vec3& from, const Tempest::Vec3& to, const Npc* except) const {
   RayQueryResult r;
   static_cast<RayLandResult&>(r) = ray(from,to);
-  if(auto ptr = npcList->rayTest(from,(r.hasCol ? r.v : to),1)) {
+  if(auto ptr = npcList->rayTest(from, (r.hasCol ? r.v : to), 1, except)) {
     r.npcHit = ptr->toNpc();
     r.hasCol = true;
     }
@@ -650,26 +794,27 @@ float DynamicWorld::soundOclusion(const Tempest::Vec3& from, const Tempest::Vec3
   if(callback.cnt>=CallBack::FRAC_MAX)
     return 1;
 
-  float fr=0;
+  float tlen = (callback.m_rayFromWorld-callback.m_rayToWorld).length();
+  float tr   = 1.f;
   std::sort(callback.frac,callback.frac+callback.cnt);
   for(size_t i=1;i<callback.cnt;i+=2) {
-    fr += (callback.frac[i]-callback.frac[i-1]);
+    auto t = std::exp(-(callback.frac[i]-callback.frac[i-1])*tlen/3.5f);
+    tr *= t;
     }
-
-  float tlen = (callback.m_rayFromWorld-callback.m_rayToWorld).length();
-  // let's say: 1.5 meter wall blocks sound completely :)
-  return (tlen*fr)/1.5f;
+  return std::clamp(1.f-tr, 0.f, 1.f);
   }
 
-DynamicWorld::NpcItem DynamicWorld::ghostObj(std::string_view visual) {
+DynamicWorld::NpcItem DynamicWorld::ghostObj(const Skeleton* src) {
   Tempest::Vec3 min={0,0,0}, max={0,0,0};
-  if(auto sk=Resources::loadSkeleton(visual)) {
-    min = sk->bboxCol[0];
-    max = sk->bboxCol[1];
+  if(src != nullptr) {
+    min = src->bboxCol[0];
+    max = src->bboxCol[1];
+
+    min.y += src->rootTr.y;
+    max.y += src->rootTr.y;
     }
-  auto  obj = npcList->create(min,max);
-  float dim = std::max(obj->rX,obj->rZ);
-  return NpcItem(this,obj,dim*0.5f);
+  auto obj = npcList->create(min,max);
+  return NpcItem(this,obj);
   }
 
 DynamicWorld::Item DynamicWorld::staticObj(const PhysicMeshShape *shape, const Tempest::Matrix4x4 &m) {
@@ -770,10 +915,12 @@ void DynamicWorld::moveBullet(BulletBody &b, const Tempest::Vec3& dir, uint64_t 
 
   world->rayCast(pos, to, callback);
 
+  bool stopBullet = false;
   if(callback.matId != zenkit::MaterialGroup::NONE) {
     if(isSpell){
       if(b.cb!=nullptr)
         b.cb->onCollide(callback.matId);
+      stopBullet = true;
       } else {
       if(callback.matId==zenkit::MaterialGroup::METAL ||
          callback.matId==zenkit::MaterialGroup::STONE) {
@@ -800,15 +947,18 @@ void DynamicWorld::moveBullet(BulletBody &b, const Tempest::Vec3& dir, uint64_t 
         } else {
         float a = callback.m_closestHitFraction;
         b.move(pos + (to-pos)*a);
+        b.addPathLen((to-pos).length()*a);
+        b.addHit();
         if(b.cb!=nullptr)
           b.cb->onCollide(callback.matId);
+        stopBullet = true;
         }
       }
-    b.addHit();
     } else {
-    if(auto ptr = npcList->rayTest(pos,to,b.targetRange())) {
+    if(auto ptr = npcList->rayTest(pos,to,b.targetRange(),nullptr)) {
       if(b.cb!=nullptr)
-        b.cb->onCollide(*ptr->toNpc());
+        stopBullet |= b.cb->onCollide(*ptr->toNpc()); else
+        stopBullet  = true;
       }
     const float l = b.speed();
     auto        d = b.direction();
@@ -817,7 +967,10 @@ void DynamicWorld::moveBullet(BulletBody &b, const Tempest::Vec3& dir, uint64_t 
     b.move(to);
     b.setDirection(d);
     b.addPathLen(l*dtF);
-    if(b.cb!=nullptr && b.pathLength()>10000)
+    }
+
+  if(stopBullet || b.hitCount()>3 || b.pathLength()>10000) {
+    if(b.cb!=nullptr)
       b.cb->onStop();
     }
   }
@@ -876,17 +1029,68 @@ float DynamicWorld::materialDensity(zenkit::MaterialGroup mat) {
   return 2000.f;
   }
 
+float DynamicWorld::rayBox(const Tempest::Vec3& orig, const Tempest::Vec3& dir, const float TMax,
+                           const Tempest::Matrix4x4& obj, const Tempest::Vec3& min, const Tempest::Vec3& max,
+                           const float padd) {
+  using namespace Tempest;
+
+  auto tmp = obj;
+  tmp.inverse();
+
+  auto tOri = orig;
+  auto tDir = dir;
+  auto zero = 0.f;
+  tmp.project(tOri);
+  tmp.project(tDir.x, tDir.y, tDir.z, zero);
+
+  float tHit = rayBox(tOri, Vec3(tDir.x, tDir.y, tDir.z), TMax, min, max, padd);
+  if(tHit==TMax)
+    return TMax;
+
+  //NOTE: worry about non-uniform scale matrix
+  tDir *= tHit; zero = 0;
+  tmp.project(tDir.x, tDir.y, tDir.z, zero);
+  return tDir.length();
+  }
+
+float DynamicWorld::rayBox(const Tempest::Vec3& orig, const Tempest::Vec3& dir, const float TMax,
+                           const Tempest::Vec3& boxMin, const Tempest::Vec3& boxMax,
+                           const float padd) {
+  using namespace Tempest;
+
+  Vec3  invDir = Vec3(1.f/dir.x, 1.f/dir.y, 1.f/dir.z);
+
+  Vec3  tMin  = (boxMin - orig)*invDir;
+  Vec3  tMax  = (boxMax - orig)*invDir;
+  Vec3  t1    = Vec3{std::min(tMin.x, tMax.x), std::min(tMin.y, tMax.y), std::min(tMin.z, tMax.z)};
+  Vec3  t2    = Vec3{std::max(tMin.x, tMax.x), std::max(tMin.y, tMax.y), std::max(tMin.z, tMax.z)};
+
+  float tNear = std::max(0.f,  std::max(t1.x, std::max(t1.y, t1.z)));
+  float tFar  = std::min(TMax, std::min(t2.x, std::min(t2.y, t2.z)));
+
+  return tNear > tFar ? TMax : std::max(0.f, tNear-padd);
+  }
+
 std::string_view DynamicWorld::validateSectorName(std::string_view name) const {
   return landMesh->validateSectorName(name);
   }
 
 bool DynamicWorld::hasCollision(const NpcItem& it, CollisionTest& out) {
-  if(npcList->hasCollision(it,out.normal)){
-    out.normal /= out.normal.length();
-    out.npcCol = true;
-    return true;
+  bool ret = false;
+
+  out.normal = Tempest::Vec3();
+  if(npcList->hasCollision(it,out.normal,out.npc,out.npcCol)){
+    ret = true;
     }
-  return world->hasCollision(*it.obj,out.normal,out.vob);
+  if(world->hasCollision(*it.obj,out.normal,out.vob)) {
+    out.landCol = true;
+    ret = true;
+    }
+
+  if(!ret)
+    return false;
+  out.normal = Tempest::Vec3::normalize(out.normal);
+  return true;
   }
 
 DynamicWorld::NpcItem::~NpcItem() {
@@ -901,7 +1105,8 @@ void DynamicWorld::NpcItem::setPosition(const Tempest::Vec3& pos) {
   if(obj) {
     implSetPosition(pos);
     owner->npcList->onMove(*obj);
-    owner->bulletList->onMoveNpc(*obj,*owner->npcList);
+    //NOTE: not very usefull, but can create non-trivial cases, for spells
+    // owner->bulletList->onMoveNpc(*obj,*owner->npcList);
     }
   }
 
@@ -920,6 +1125,15 @@ void DynamicWorld::NpcItem::setUserPointer(void *p) {
   obj->setUserPointer(p);
   }
 
+auto DynamicWorld::NpcItem::center() const -> Tempest::Vec3 {
+  if(obj) {
+    const btTransform&  tr  = obj->getWorldTransform();
+    const Tempest::Vec3 ret = {tr.getOrigin().x(), tr.getOrigin().y(), tr.getOrigin().z()};
+    return ret*100.f;
+    }
+  return {};
+  }
+
 float DynamicWorld::NpcItem::centerY() const {
   if(obj) {
     const btTransform& tr = obj->getWorldTransform();
@@ -929,8 +1143,48 @@ float DynamicWorld::NpcItem::centerY() const {
   return 0;
   }
 
+auto DynamicWorld::NpcItem::centerAsym() const -> Tempest::Vec3 {
+  const float acos = std::cos(obj->angle), asin = std::sin(obj->angle);
+  return obj->offsetCenter(acos, asin);
+  }
+
+float DynamicWorld::NpcItem::groundOffset() const {
+  return obj->groundOffset();
+  }
+
 const Tempest::Vec3& DynamicWorld::NpcItem::position() const {
   return obj->pos;
+  }
+
+void DynamicWorld::NpcItem::setRotation(float a) {
+  obj->angle = float(a*M_PI)/180.f - float(M_PI_2);
+  }
+
+void DynamicWorld::NpcItem::setScale(const Tempest::Vec3&) {
+  // NOP for now
+  }
+
+void DynamicWorld::NpcItem::debugDraw(DbgPainter& p) const {
+  btVector3 aabb0, aabb1;
+  obj->getAabb(aabb0, aabb1);
+
+  const auto min = Tempest::Vec3(aabb0.x()*100.f, aabb0.y()*100.f, aabb0.z()*100.f);
+  const auto max = Tempest::Vec3(aabb1.x()*100.f, aabb1.y()*100.f, aabb1.z()*100.f);
+  p.setPen(Tempest::Color(1,0.5f,0));
+  p.drawAabb(min, max);
+  /*
+  auto tr = Tempest::Matrix4x4::mkIdentity();
+  tr.translate(obj->pos);
+  tr.rotateOY(-float(obj->angle*180.f/M_PI));
+
+  p.setPen(Tempest::Color(1,0,1));
+  p.drawObb(tr, obj->bbox);
+
+  auto& a = *obj;
+  const float acos = std::cos(a.angle), asin = std::sin(a.angle);
+  const auto apos = a.pos + a.offsetCenter(acos, asin);
+  p.drawPoint(apos, 10);
+  */
   }
 
 bool DynamicWorld::NpcItem::testMove(const Tempest::Vec3& to, CollisionTest& out) {
@@ -978,8 +1232,9 @@ DynamicWorld::MoveCode DynamicWorld::NpcItem::tryMove(const Tempest::Vec3& to, C
   }
 
 DynamicWorld::MoveCode DynamicWorld::NpcItem::implTryMove(const Tempest::Vec3& to, const Tempest::Vec3& pos0, CollisionTest& out) {
-  auto initial = pos0;
-  auto r       = obj->r;
+  const auto initial = pos0; // avoid self-reference
+
+  auto r       = obj->stepSz;
   int  count   = 1;
   auto dp      = to-initial;
 
@@ -990,26 +1245,42 @@ DynamicWorld::MoveCode DynamicWorld::NpcItem::implTryMove(const Tempest::Vec3& t
     count = std::max(countXZ,countY);
     }
 
-  auto prev = initial;
+  float skipNpc    = 0;
+  bool  skipLnd    = false;
+  bool  secondPass = false;
   for(int i=1; i<=count; ++i) {
-    auto pos = initial+(dp*float(i))/float(count);
+    const auto pos = initial + dp*(float(i)/float(count));
     implSetPosition(pos);
-    if(owner->hasCollision(*this,out)) {
-      if(i>1) {
-        // moved a bit
-        out.partial = prev;
-        return MoveCode::MC_Partial;
-        }
-      implSetPosition(initial);
-      if(owner->hasCollision(*this,out)) {
-        // was in collision from the start
-        implSetPosition(to);
-        return MoveCode::MC_OK;
-        }
-      return MoveCode::MC_Fail;
-      }
-    }
 
+    if(!owner->hasCollision(*this,out))
+      continue;
+
+    if((skipNpc>=out.npcCol) && (!out.landCol || skipLnd))
+      continue;
+
+    if(i>1) {
+      // moved a bit
+      out.partial = initial + dp*(float(i-1)/float(count));
+      implSetPosition(out.partial);
+      return MoveCode::MC_Partial;
+      }
+
+    implSetPosition(initial);
+    if(i==1 && !secondPass) {
+      // maybe we were stuck into something(npc) from the start?
+      CollisionTest tmpOut = {};
+      if(!owner->hasCollision(*this,tmpOut)) {
+        return MoveCode::MC_Fail;
+        }
+      skipNpc    = tmpOut.npcCol;
+      skipLnd    = tmpOut.landCol;
+      secondPass = true;
+      i          = 0;
+      continue;
+      }
+
+    return MoveCode::MC_Fail;
+    }
   return MoveCode::MC_OK;
   }
 

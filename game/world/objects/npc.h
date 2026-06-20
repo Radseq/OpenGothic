@@ -24,23 +24,16 @@ class WayPoint;
 
 class Npc final {
   public:
-    enum ProcessPolicy : uint8_t {
-      Player,
-      AiNormal,
-      AiFar,
-      AiFar2
-      };
-
     using JumpStatus = MoveAlgo::JumpStatus;
 
     enum GoToHint : uint8_t {
       GT_No,
       GT_Way,
       GT_NextFp,
-      GT_EnemyA,
+      GT_Enemy,
       GT_Item,
       GT_Point,
-      GT_EnemyG,
+      GT_EnemyG, //deprecated
       GT_Flee,
       };
 
@@ -72,19 +65,29 @@ class Npc final {
       CS_Emit_Last   = 63,
       };
 
+    enum BeginCastResult : uint8_t {
+      BC_No,
+      BC_NoMana,
+      BC_Cast,
+      BC_Invest,
+      };
+
     using Anim = AnimationSolver::Anim;
 
-    Npc(World &owner, size_t instance, std::string_view waypoint, ProcessPolicy aiPolicy = AiNormal);
+    Npc(World &owner, size_t instance, std::string_view waypoint, NpcProcessPolicy aiPolicy = NpcProcessPolicy::AiNormal);
     Npc(const Npc&)=delete;
     ~Npc();
 
-    void       save(Serialize& fout, size_t id);
-    void       load(Serialize& fout, size_t id);
+    void       save(Serialize& fout, size_t id, std::string_view directory);
+    void       load(Serialize& fout, size_t id, std::string_view directory);
     void       postValidate();
+
+    void       drawVobBox(DbgPainter& p) const;
+    void       drawVobRay(DbgPainter& p, const Npc& npc) const;
 
     bool       setPosition (float x,float y,float z);
     bool       setPosition (const Tempest::Vec3& pos);
-    void       setDirection(float x,float y,float z);
+    void       setDirection(const Tempest::Vec3& pos);
     void       setDirection(float rotation);
     void       setDirectionY(float rotation);
     void       setRunAngle  (float angle);
@@ -100,13 +103,15 @@ class Npc final {
     float      runAngle() const { return runAng; }
     float      fatness() const { return bdFatness; }
     Bounds     bounds() const;
+    auto       bBox() const -> const Tempest::Vec3*;
+    auto       bBoxCol() const -> const Tempest::Vec3*;
 
     void       stopDlgAnim();
     void       clearSpeed();
     bool       resetPositionToTA();
 
-    void       setProcessPolicy(ProcessPolicy t);
-    auto       processPolicy() const -> ProcessPolicy { return aiPolicy; }
+    void       setProcessPolicy(NpcProcessPolicy t);
+    auto       processPolicy() const -> NpcProcessPolicy { return aiPolicy; }
 
     bool       isPlayer() const;
     void       setWalkMode(WalkBit m);
@@ -117,20 +122,20 @@ class Npc final {
 
     auto       world() -> World&;
 
-    float      translateY() const;
     auto       centerPosition() const -> Tempest::Vec3;
+    auto       collosionCenter() const -> Tempest::Vec3;
     Npc*       lookAtTarget() const;
     auto       portalName() -> std::string_view;
     auto       formerPortalName() -> std::string_view;
 
-    float      qDistTo(float x, float y, float z) const;
     float      qDistTo(const Tempest::Vec3 pos) const;
     float      qDistTo(const WayPoint* p) const;
     float      qDistTo(const Npc& p) const;
     float      qDistTo(const Interactive& p) const;
     float      qDistTo(const Item& p) const;
+    auto       fightDistanceTo(const Npc& npc) const -> Tempest::Vec3;
 
-    void       updateAnimation(uint64_t dt);
+    void       updateAnimation(uint64_t dt, bool force = false);
     void       updateTransform();
 
     std::string_view displayName() const;
@@ -173,6 +178,7 @@ class Npc final {
     void       startFaceAnim(std::string_view anim, float intensity, uint64_t duration);
     bool       stopItemStateAnim();
     bool       hasAnim(std::string_view scheme) const;
+    bool       hasAnim(Anim a) const;
     bool       hasSwimAnimations() const;
     bool       isFinishingMove() const;
 
@@ -184,6 +190,8 @@ class Npc final {
     bool       isFallingDeep() const;
     bool       isSlide() const;
     bool       isInAir() const;
+    bool       isJump() const;
+    bool       isJumpUp() const;
     bool       isStanding() const;
     bool       isSwim() const;
     bool       isInWater() const;
@@ -263,7 +271,7 @@ class Npc final {
     bool      swingSwordL();
     bool      swingSwordR();
     bool      blockSword();
-    bool      beginCastSpell();
+    auto      beginCastSpell() -> BeginCastResult;
     void      endCastSpell(bool playerCtrl = false);
     void      setActiveSpellInfo(int32_t info);
     int32_t   activeSpellLevel() const;
@@ -306,7 +314,7 @@ class Npc final {
     uint64_t  stateTime() const;
     void      setStateTime(int64_t time);
 
-    void      addRoutine(gtime s, gtime e, uint32_t callback, const WayPoint* point);
+    void      addRoutine(gtime s, gtime e, uint32_t callback, std::string_view point);
     void      excRoutine(size_t callback);
     void      multSpeed(float s);
 
@@ -351,6 +359,7 @@ class Npc final {
     Item*     currentArmor();
     Item*     currentMeleeWeapon();
     Item*     currentRangedWeapon();
+    Item*     currentShield();
     auto      mapWeaponBone() const -> Tempest::Vec3;
     auto      mapHeadBone() const -> Tempest::Vec3;
     auto      mapBone(std::string_view bone) const -> Tempest::Vec3;
@@ -368,16 +377,18 @@ class Npc final {
     void      clearAiQueue();
 
     auto      currentWayPoint() const -> const WayPoint* { return currentFp; }
+    auto      currentTaPoint() const -> const WayPoint*;
     void      attachToPoint(const WayPoint* p);
     GoToHint  moveHint() const { return go2.flag; }
     void      clearGoTo();
     void      stopWalking();
 
     bool      canSeeNpc(const Npc& oth, bool freeLos) const;
-    bool      canSeeNpc(const Tempest::Vec3 pos, bool freeLos) const;
     bool      canSeeItem(const Item& it, bool freeLos) const;
     bool      canSeeSource() const;
     bool      canRayHitPoint(const Tempest::Vec3 pos, bool freeLos = true, float extRange=0.f) const;
+    bool      canRayHitPoint(const Tempest::Vec3 pos, float angOverride, float extRange=0.f) const;
+    bool      canRayHitPoint(const Tempest::Vec3 self, const Tempest::Vec3 pos, float angOverride, float extRange=0.f) const;
 
     auto      canSenseNpc(const Npc& oth, bool freeLos, float extRange=0.f) const -> SensesBit;
     auto      canSenseNpc(const Tempest::Vec3 pos, bool freeLos, bool isNoisy, float extRange=0.f) const -> SensesBit;
@@ -410,10 +421,13 @@ class Npc final {
 
   private:
     struct Routine final {
-      gtime           start;
-      gtime           end;
-      ScriptFn        callback;
-      const WayPoint* point=nullptr;
+      gtime            start;
+      gtime            end;
+      ScriptFn         callback;
+      const WayPoint*  point = nullptr;
+      std::string      fallbackName;
+
+      std::string_view wayPointName() const;
       };
 
     enum TransformBit : uint8_t {
@@ -446,6 +460,7 @@ class Npc final {
       void             save(Serialize& fout) const;
       void             load(Serialize&  fin);
       Tempest::Vec3    target() const;
+      bool             isClose(const Npc& self, float dist) const;
 
       bool             empty() const;
       void             clear();
@@ -465,7 +480,7 @@ class Npc final {
     int       aiOutputOrderId() const;
     bool      performOutput(const AiQueue::AiAction &ai);
 
-    auto      currentRoutine() const -> const Routine&;
+    auto      currentRoutine(bool assertWp = false) const -> const Routine&;
     gtime     endTime(const Routine& r) const;
 
     bool      implPointAt(const Tempest::Vec3& to);
@@ -473,14 +488,15 @@ class Npc final {
     bool      implLookAtNpc(uint64_t dt);
     bool      implLookAt (float dx, float dy, float dz, uint64_t dt);
     bool      implTurnAway(const Npc& oth, uint64_t dt);
+    bool      implTurnToFai(const Npc& oth, uint64_t dt);
     bool      implTurnTo (const Npc& oth, uint64_t dt);
     bool      implTurnTo (const Npc& oth, AnimationSolver::TurnType anim, uint64_t dt);
+    bool      implTurnTo (const WayPoint* wp, AnimationSolver::TurnType anim, uint64_t dt);
     bool      implTurnTo (float dx, float dz, AnimationSolver::TurnType anim, uint64_t dt);
     bool      implWhirlTo(const Npc& oth, uint64_t dt);
     bool      implGoTo   (uint64_t dt);
     bool      implGoTo   (uint64_t dt, float destDist);
-    bool      implAttack  (uint64_t dt);
-    void      adjustAttackRotation(uint64_t dt);
+    bool      implAttack (uint64_t dt);
     bool      implAiTick (uint64_t dt);
     void      implAiWait (uint64_t dt);
     void      implAniWait(uint64_t dt);
@@ -586,7 +602,7 @@ class Npc final {
     uint64_t                       outWaitTime=0;
 
     uint64_t                       aiOutputBarrier=0;
-    ProcessPolicy                  aiPolicy=ProcessPolicy::AiNormal;
+    NpcProcessPolicy               aiPolicy=NpcProcessPolicy::AiNormal;
     AiState                        aiState;
     ScriptFn                       aiPrevState;
     AiQueue                        aiQueue;

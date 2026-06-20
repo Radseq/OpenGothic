@@ -27,7 +27,7 @@ void GameSession::HeroStorage::save(Npc& npc) {
   Serialize          sr{wr};
   sr.setEntry("hero");
 
-  npc.save(sr,0);
+  npc.save(sr,0,"/npc/");
   }
 
 void GameSession::HeroStorage::putToWorld(World& owner, std::string_view wayPoint) const {
@@ -38,7 +38,7 @@ void GameSession::HeroStorage::putToWorld(World& owner, std::string_view wayPoin
   sr.setEntry("hero");
 
   if(auto pl = owner.player()) {
-    pl->load(sr,0);
+    pl->load(sr,0,"/npc/");
     auto pos = owner.findPoint(wayPoint);
     if(pos==nullptr) {
        // freemine.zen
@@ -47,14 +47,14 @@ void GameSession::HeroStorage::putToWorld(World& owner, std::string_view wayPoin
     pl->attachToPoint(pos);
     } else {
     auto ptr = std::make_unique<Npc>(owner,-1,wayPoint);
-    ptr->load(sr,0);
+    ptr->load(sr,0,"/npc/");
     owner.insertPlayer(std::move(ptr),wayPoint);
     }
 
   if(auto pl = owner.player()) {
     if(auto pos = pl->currentWayPoint()) {
-      pl->setPosition  (pos->x,pos->y,pos->z);
-      pl->setDirection (pos->dirX,pos->dirY,pos->dirZ);
+      pl->setPosition (pos->position() );
+      pl->setDirection(pos->direction());
       }
     if(pl->isInAir()) {
       pl->stopAnim("");
@@ -90,6 +90,7 @@ GameSession::GameSession(std::string file) {
   //std::string_view hero = "PC_HERO";
   //std::string_view hero = "FireGolem";
   //std::string_view hero = "Dragon_Undead";
+  //std::string_view hero = "Wolf";
   //std::string_view hero = "Sheep";
   //std::string_view hero = "Giant_Bug";
   //std::string_view hero = "OrcWarrior_Rest";
@@ -98,8 +99,10 @@ GameSession::GameSession(std::string file) {
   //std::string_view hero = "Scavenger";
   //std::string_view hero = "StoneGolem";
   //std::string_view hero = "Waran";
+  //std::string_view hero = "FireWaran";
   //std::string_view hero = "Bloodfly";
   //std::string_view hero = "Gobbo_Skeleton";
+  //std::string_view hero = "Swampshark";
   if(!Gothic::inst().isBenchmarkMode())
     wrld->createPlayer(hero);
   wrld->postInit();
@@ -193,8 +196,8 @@ void GameSession::save(Serialize &fout, std::string_view name, const Pixmap& scr
     fout.write(i.name);
   }
 
-  fout.setEntry("preview.png");
-  fout.write(screen);
+  fout.setEntry("preview.jpg");
+  fout.write(std::tie(screen,"jpg"));
 
   fout.setEntry("game/session");
   fout.write(ticks,wrldTime,wrldTimePart,wrld->name());
@@ -224,10 +227,8 @@ void GameSession::save(Serialize &fout, std::string_view name, const Pixmap& scr
   }
 
 void GameSession::setupSettings() {
-  constexpr const float soundScale = 2.f;
-
-  const float soundVolume = Gothic::inst().settingsGetF("SOUND","soundVolume");
-  sound.setGlobalVolume(soundVolume*soundScale);
+  const float soundVolume = Gothic::settingsSoundVolume();
+  sound.setGlobalVolume(soundVolume);
   }
 
 void GameSession::setWorld(std::unique_ptr<World> &&w) {

@@ -5,10 +5,9 @@
 
 #include <cctype>
 
+#include "game/compatibility/directmemory.h"
 #include "game/definitions/spelldefinitions.h"
 #include "game/serialize.h"
-#include "game/compatibility/ikarus.h"
-#include "game/compatibility/lego.h"
 #include "utils/string_frm.h"
 #include "world/objects/npc.h"
 #include "world/objects/item.h"
@@ -34,6 +33,20 @@ struct ScopeVar final {
 
   std::shared_ptr<zenkit::DaedalusInstance> prev;
   zenkit::DaedalusSymbol&                   sym;
+  };
+
+struct ScopeCtx final {
+  ScopeCtx(GameScript& script, NpcProcessPolicy pp) : script(script) {
+    prev = script.aiProcessPolicy;
+    script.aiProcessPolicy = pp;
+    }
+
+  ~ScopeCtx() {
+    script.aiProcessPolicy = prev;
+    }
+
+  GameScript&      script;
+  NpcProcessPolicy prev = NpcProcessPolicy::AiNormal;
   };
 
 
@@ -535,15 +548,8 @@ void GameScript::initCommon() {
       }
     }
 
-  Ikarus* ikarus = nullptr;
-  if(Ikarus::isRequired(vm) || LeGo::isRequired(vm)) {
-    auto ik = std::make_unique<Ikarus>(*this,vm);
-    ikarus = ik.get();
-    plugins.emplace_back(std::move(ik));
-    }
-  if(LeGo::isRequired(vm)) {
-    plugins.emplace_back(std::make_unique<LeGo>(*this,*ikarus,vm));
-    }
+  if(DirectMemory::isRequired(vm))
+    dma.reset(new DirectMemory(*this, vm));
   }
 
 void GameScript::initSettings() {
@@ -882,8 +888,8 @@ void GameScript::fixNpcPosition(Npc& npc, float angle0, float distBias) {
   auto  pos0 = npc.position();
 
   for(int r = 0; r<=800; r+=20) {
-    for(float ang = 0; ang<360; ang+=30.f) {
-      float a = float((ang+angle0)*M_PI/180.0);
+    for(int ang = 0; ang<360; ang+=30) {
+      float a = float((float(ang)+angle0)*M_PI/180.0);
       float d = float(r)+distBias;
       auto  p = pos0+Vec3(std::cos(a)*d, 0, std::sin(a)*d);
 
@@ -892,12 +898,23 @@ void GameScript::fixNpcPosition(Npc& npc, float angle0, float distBias) {
         continue;
       p.y = ray.v.y;
       npc.setPosition(p);
-      if(!npc.hasCollision())
+      if(!npc.hasCollision()) {
+        npc.updateTransform();
         return;
+        }
+      if(d==0) {
+        // no need to loop multiple angles, with R of zero
+        break;
+        }
       }
     }
 
-  npc.setPosition(pos0);
+  // npc.setPosition(pos0);
+  }
+
+void GameScript::eventPlayAni(Npc& npc, std::string_view ani) {
+  if(dma!=nullptr)
+    dma->eventPlayAni(ani);
   }
 
 const World &GameScript::world() const {
@@ -1190,6 +1207,7 @@ int GameScript::invokeState(Npc* npc, Npc* oth, Npc* vic, ScriptFn fn) {
       }
     }
 
+  ScopeCtx ctx   (*this, npc!=nullptr ? npc->processPolicy() : NpcProcessPolicy::AiNormal);
   ScopeVar self  (*vm.global_self(),   npc != nullptr ? npc->handlePtr() : nullptr);
   ScopeVar other (*vm.global_other(),  oth != nullptr ? oth->handlePtr() : nullptr);
   ScopeVar victim(*vm.global_victim(), vic != nullptr ? vic->handlePtr() : nullptr);
@@ -1494,11 +1512,9 @@ Attitude GameScript::personAttitude(const Npc &p0, const Npc &p1) const {
   }
 
 bool GameScript::isFriendlyFire(const Npc& src, const Npc& dst) const {
-  static const int AIV_PARTYMEMBER = (owner.version().game==2) ? 15 : 36;
+  const int AIV_PARTYMEMBER = (owner.version().game==2) ? 15 : 36;
   if(src.isPlayer())
     return false;
-  if(src.isFriend())
-    return true;
   if(personAttitude(src, dst)==ATT_FRIENDLY)
     return true;
   if(src.handlePtr()->aivar[AIV_PARTYMEMBER]!=0 && dst.isPlayer())
@@ -1553,7 +1569,7 @@ zenkit::DaedalusVm GameScript::createVm(Gothic& gothic) {
   auto lang   = gothic.settingsGetI("GAME", "language");
   auto script = gothic.loadScript(gothic.defaultGameDatFile(), ScriptLang(lang));
   auto exef   = zenkit::DaedalusVmExecutionFlag::ALLOW_NULL_INSTANCE_ACCESS;
-  if(Ikarus::isRequired(script)) {
+  if(DirectMemory::isRequired(script)) {
     exef |= zenkit::DaedalusVmExecutionFlag::IGNORE_CONST_SPECIFIER;
     }
   return zenkit::DaedalusVm(std::move(script), exef);
@@ -1568,8 +1584,8 @@ uint64_t GameScript::tickCount() const {
   }
 
 void GameScript::tick(uint64_t dt) {
-  for(auto& i:plugins)
-    i->tick(dt);
+  if(dma!=nullptr)
+    dma->tick(dt);
   }
 
 uint32_t GameScript::rand(uint32_t max) {
@@ -1720,6 +1736,12 @@ uint32_t GameScript::lockPickId() const {
   return ItKE_lockpick!=nullptr ? ItKE_lockpick->index() : 0;
   }
 
+std::string_view GameScript::menuMain() const {
+  if(dma!=nullptr)
+    return dma->menuMain();
+  return ::menuMain;
+  }
+
 bool GameScript::game_initgerman() {
   return true;
   }
@@ -1736,7 +1758,11 @@ int GameScript::wld_getday() {
   return int(owner.time().day());
   }
 
-void GameScript::wld_playeffect(std::string_view visual, std::shared_ptr<zenkit::DaedalusInstance> sourceId, std::shared_ptr<zenkit::DaedalusInstance> targetId, int effectLevel, int damage, int damageType, int isProjectile) {
+void GameScript::wld_playeffect(std::string_view visual, std::shared_ptr<zenkit::DaedalusInstance> sourceId, std::shared_ptr<zenkit::DaedalusInstance> targetId,
+                                int effectLevel, int damage, int damageType, int isProjectile) {
+  if(aiProcessPolicy>=NpcProcessPolicy::AiFar2)
+    return;
+
   if(isProjectile!=0 || damageType!=0 || damage!=0 || effectLevel!=0) {
     // TODO
     Log::i("effect not implemented [",visual.data(),"]");
@@ -1829,7 +1855,7 @@ bool GameScript::wld_isfpavailable(std::shared_ptr<zenkit::INpc> self, std::stri
     }
 
   auto wp = world().findFreePoint(*findNpc(self.get()),name);
-  return wp != nullptr;
+  return wp!=nullptr;
   }
 
 bool GameScript::wld_isnextfpavailable(std::shared_ptr<zenkit::INpc> self, std::string_view name) {
@@ -1841,11 +1867,12 @@ bool GameScript::wld_isnextfpavailable(std::shared_ptr<zenkit::INpc> self, std::
   }
 
 bool GameScript::wld_ismobavailable(std::shared_ptr<zenkit::INpc> self, std::string_view name) {
-  if(self==nullptr){
+  auto npc = findNpc(self);
+  if(npc==nullptr) {
     return false;
     }
 
-  auto wp = world().availableMob(*findNpc(self.get()),name);
+  auto wp = world().availableMob(*npc, name);
   return wp != nullptr;
   }
 
@@ -1955,7 +1982,7 @@ void GameScript::wld_spawnnpcrange(std::shared_ptr<zenkit::INpc> npcRef, int cls
   (void)lifeTime;
   for(int32_t i=0;i<count;++i) {
     auto* npc = world().addNpc(size_t(clsId),at->position());
-    fixNpcPosition(*npc,at->rotation()-90,100);
+    fixNpcPosition(*npc,at->rotation() + 360.f*float(i)/float(count),100);
     }
   }
 
@@ -2144,7 +2171,8 @@ bool GameScript::npc_wasinstate(std::shared_ptr<zenkit::INpc> npcRef, int stateF
 
 int GameScript::npc_getdisttowp(std::shared_ptr<zenkit::INpc> npcRef, std::string_view wpname) {
   auto  npc = findNpc(npcRef);
-  auto* wp  = world().findPoint(wpname, false);
+  //NOTE: in CoM, some way-point and free-points share same name - need to be precise
+  auto* wp  = world().findWayPoint(wpname);
 
   if(npc!=nullptr && wp!=nullptr){
     float ret = std::sqrt(npc->qDistTo(wp));
@@ -2406,7 +2434,7 @@ bool GameScript::npc_isonfp(std::shared_ptr<zenkit::INpc> npcRef, std::string_vi
     return false;
 
   auto w = npc->currentWayPoint();
-  if(w==nullptr || !MoveAlgo::isClose(npc->position(),*w) || !w->checkName(val))
+  if(w==nullptr || !MoveAlgo::isClose(*npc,*w,MAX_AI_USE_DISTANCE) || !w->checkName(val))
     return false;
   return w->isFreePoint();
   }
@@ -3150,8 +3178,10 @@ void GameScript::ai_gotowp(std::shared_ptr<zenkit::INpc> npcRef, std::string_vie
     return;
 
   auto to = world().findWayPoint(npc->position(), waypoint);
-  if(to!=nullptr)
+  if(to!=nullptr) {
     npc->aiPush(AiQueue::aiGoToPoint(*to));
+    return;
+    }
 
   // in vanilla 'ai_gotowp' sometimes is used incorrectly, so we need to check all other points
   to = world().findPoint(waypoint, false);
@@ -3365,10 +3395,8 @@ int GameScript::mob_hasitems(std::string_view tag, int item) {
 
 void GameScript::ta_min(std::shared_ptr<zenkit::INpc> npcRef, int start_h, int start_m, int stop_h, int stop_m, int action, std::string_view waypoint) {
   auto npc = findNpc(npcRef);
-  auto at  = world().findPoint(waypoint,false);
-
   if(npc!=nullptr)
-    npc->addRoutine(gtime(start_h,start_m),gtime(stop_h,stop_m),uint32_t(action),at);
+    npc->addRoutine(gtime(start_h,start_m),gtime(stop_h,stop_m),uint32_t(action),waypoint);
   }
 
 void GameScript::log_createtopic(std::string_view topicName, int section) {
@@ -3479,6 +3507,9 @@ bool GameScript::infomanager_hasfinished() {
   }
 
 void GameScript::snd_play(std::string_view fileS) {
+  if(aiProcessPolicy>=NpcProcessPolicy::AiFar2)
+    return;
+
   std::string file {fileS};
   for(auto& c:file)
     c = char(std::toupper(c));
@@ -3486,13 +3517,16 @@ void GameScript::snd_play(std::string_view fileS) {
   }
 
 void GameScript::snd_play3d(std::shared_ptr<zenkit::INpc> npcRef, std::string_view fileS) {
+  if(aiProcessPolicy>=NpcProcessPolicy::AiFar2)
+    return;
+
   std::string file {fileS};
   Npc*        npc  = findNpc(npcRef);
   if(npc==nullptr)
     return;
   for(auto& c:file)
     c = char(std::toupper(c));
-  auto sfx = ::Sound(*owner.world(),::Sound::T_3D,file,npc->position(),0.f,false);
+  auto sfx = ::Sound(*owner.world(),::Sound::T_3D,file,npc->centerPosition(),0.f,false);
   sfx.play();
   }
 

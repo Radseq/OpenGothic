@@ -16,6 +16,7 @@ Shaders* Shaders::instance = nullptr;
 
 Shaders::Shaders() {
   instance = this;
+  compileKeyShaders();
   deferredCompilation = std::async(std::launch::async, [this]() {
     Workers::setThreadName("Shader compilation");
     auto time = Application::tickCount();
@@ -40,18 +41,23 @@ Shaders& Shaders::inst() {
   return *instance;
   }
 
+void Shaders::compileKeyShaders() {
+  bink      = postEffect("bink");
+  downscale = postEffect("downscale");
+  }
+
 void Shaders::compileShaders() {
   auto& device = Resources::device();
 
   const bool meshlets = Gothic::options().doMeshShading;
 
-  copyBuf = computeShader("copy.comp.sprv");
-  copyImg = computeShader("copy_img.comp.sprv");
-  copy    = postEffect("copy");
+  copyBuf   = computeShader("copy.comp.sprv");
+  copyImg   = computeShader("copy_img.comp.sprv");
+  copy      = postEffect("copy");
 
-  patch   = computeShader("patch.comp.sprv");
+  patch     = computeShader("patch.comp.sprv");
 
-  stash   = postEffect("stash");
+  stash     = postEffect("stash");
 
   clusterInit         = computeShader("cluster_init.comp.sprv");
   clusterPatch        = computeShader("cluster_patch.comp.sprv");
@@ -173,6 +179,25 @@ void Shaders::compileShaders() {
   hiZMip = computeShader("hiz_mip.comp.sprv");
 
   if(Gothic::options().doRayQuery) {
+    rtDbg       = postEffect("triangle_uv", "rt_dbg", RenderState::ZTestMode::NoEqual);
+    }
+
+  if(Gothic::options().doRayQuery) {
+    RenderState state;
+    state.setZTestMode    (RenderState::ZTestMode::Always);
+    state.setZWriteEnabled(true);
+    state.setBlendSource  (RenderState::BlendMode::SrcAlpha);
+    state.setBlendDest    (RenderState::BlendMode::OneMinusSrcAlpha);
+
+    auto sh = GothicShader::get(string_frm("triangle_uv",".vert.sprv"));
+    auto vs = device.shader(sh.data,sh.len);
+
+    sh      = GothicShader::get(string_frm("pathtrace",".frag.sprv"));
+    auto fs = device.shader(sh.data,sh.len);
+    rtPathtrace = device.pipeline(Triangles,state,vs,fs);
+    }
+
+  if(Gothic::options().doRayQuery) {
     RenderState state;
     state.setCullFaceMode(RenderState::CullMode::NoCull);
     state.setZTestMode   (RenderState::ZTestMode::Less);
@@ -243,33 +268,31 @@ void Shaders::compileShaders() {
     }
 
   if(Shaders::isRtsmSupported()) {
+    rtsmDirectLight = postEffect("rtsm_direct_light", RenderState::ZTestMode::NoEqual);
+
     rtsmClear       = computeShader("rtsm_clear.comp.sprv");
     rtsmPages       = computeShader("rtsm_mark_pages.comp.sprv");
     rtsmFogPages    = computeShader("rtsm_mark_fog_pages.comp.sprv");
     rtsmHiZ         = computeShader("rtsm_hiz_pages.comp.sprv");
+
     rtsmCulling     = computeShader("rtsm_culling.comp.sprv");
     rtsmPosition    = computeShader("rtsm_position.comp.sprv");
-
-    rtsmMeshletCull    = computeShader("rtsm_meshlet_cull.comp.sprv");
-    rtsmMeshletComplex = computeShader("rtsm_meshlet_complex.comp.sprv");
-    rtsmSampleCull     = computeShader("rtsm_sample_cull.comp.sprv");
-    rtsmPrimCull       = computeShader("rtsm_primitive_cull.comp.sprv");
-
+    rtsmMeshletCull = computeShader("rtsm_meshlet_cull.comp.sprv");
+    rtsmPrimCull    = computeShader("rtsm_primitive_cull.comp.sprv");
     rtsmRaster      = computeShader("rtsm_raster.comp.sprv");
-    rtsmDirectLight = postEffect("rtsm_direct_light", RenderState::ZTestMode::NoEqual);
 
     rtsmClearOmni    = computeShader("rtsm_omni_clear.comp.sprv");
     rtsmCullLights   = computeShader("rtsm_cull_lights.comp.sprv");
+    rtsmCompactLights = computeShader("rtsm_compact_lights.comp.sprv");
     rtsmLightsOmni   = computeShader("rtsm_omni_lights.comp.sprv");
     rtsmBboxesOmni   = computeShader("rtsm_omni_bboxes.comp.sprv");
     rtsmCullingOmni  = computeShader("rtsm_omni_culling.comp.sprv");
     rtsmPositionOmni = computeShader("rtsm_omni_position.comp.sprv");
 
-    rtsmBvhBuild     = computeShader("rtsm_bvh_build.comp.sprv");
-
     rtsmMeshletOmni  = computeShader("rtsm_omni_meshlet.comp.sprv");
     rtsmBackfaceOmni = computeShader("rtsm_omni_backface.comp.sprv");
     rtsmCompactOmni  = computeShader("rtsm_omni_compact.comp.sprv");
+    rtsmTaskOmni     = computeShader("rtsm_omni_task.comp.sprv");
     rtsmPrimOmni     = computeShader("rtsm_omni_primitive.comp.sprv");
     rtsmRasterOmni   = computeShader("rtsm_omni_raster.comp.sprv");
 

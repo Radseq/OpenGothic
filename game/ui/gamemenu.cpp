@@ -50,11 +50,9 @@ struct GameMenu::ListContentDialog : Dialog {
       }
     if(e.key==Event::K_W || e.key==Event::K_Up) {
       onMove(-1);
-      update();
       }
     if(e.key==Event::K_S || e.key==Event::K_Down) {
       onMove(+1);
-      update();
       }
     }
 
@@ -141,11 +139,9 @@ struct GameMenu::ListViewDialog : Dialog {
       }
     if(e.key==Event::K_W || e.key==Event::K_Up) {
       onMove(-1);
-      update();
       }
     if(e.key==Event::K_S || e.key==Event::K_Down) {
       onMove(+1);
-      update();
       }
     }
 
@@ -163,6 +159,7 @@ struct GameMenu::ListViewDialog : Dialog {
       if(list.value+1<int(num))
         list.value++;
       }
+    update();
     }
 
   void paintEvent (PaintEvent&) override {}
@@ -627,18 +624,18 @@ void GameMenu::onKeyboard(KeyCodec::Action key) {
 void GameMenu::onTick() {
   update();
 
-  const float fx = 640.0f;
-  const float fy = 480.0f;
+  const float scale = Gothic::interfaceScale(this);
+  const float fx    = 640.0f * scale;
+  const float fy    = 480.0f * scale;
 
   const float wx = float(owner.w());
   const float wy = float(owner.h());
 
-  const float scale = Gothic::interfaceScale(this);
   Size size = {0, 0};
   if(menu->flags & zenkit::MenuFlag::DONT_SCALE_DIMENSION) {
-    size = {int(float(menu->dim_x)*fx*scale/scriptDiv),int(float(menu->dim_y)*fy*scale/scriptDiv)};
+    size = {int(float(menu->dim_x)*fx/scriptDiv),int(float(menu->dim_y)*fy/scriptDiv)};
     } else {
-    size = {int(float(menu->dim_x)*wx*scale/scriptDiv),int(float(menu->dim_y)*wy*scale/scriptDiv)};
+    size = {int(float(menu->dim_x)*wx/scriptDiv),int(float(menu->dim_y)*wy/scriptDiv)};
     }
   resize(size);
 
@@ -1015,6 +1012,8 @@ void GameMenu::updateSavTitle(GameMenu::Item& sel) {
       reader.read(sel.savPriview); // legacy
     else if(reader.setEntry("preview.png"))
       reader.read(sel.savPriview);
+    else if(reader.setEntry("preview.jpg"))
+      reader.read(sel.savPriview);
     }
   catch(std::bad_alloc&) {
     return;
@@ -1238,7 +1237,8 @@ void GameMenu::setPlayer(const Npc &pl) {
   set("MENU_ITEM_ATTRIBUTE_3", pl.attribute(ATR_MANA),      pl.attribute(ATR_MANAMAX));
   set("MENU_ITEM_ATTRIBUTE_4", pl.attribute(ATR_HITPOINTS), pl.attribute(ATR_HITPOINTSMAX));
 
-  set("MENU_ITEM_ARMOR_1",     pl.protection(PROT_EDGE));
+  set("MENU_ITEM_ARMOR_11",    pl.protection(PROT_EDGE));
+  set("MENU_ITEM_ARMOR_1",     pl.protection(PROT_BLUNT));
   set("MENU_ITEM_ARMOR_2",     pl.protection(PROT_POINT)); // not sure about it
   set("MENU_ITEM_ARMOR_3",     pl.protection(PROT_FIRE));
   set("MENU_ITEM_ARMOR_4",     pl.protection(PROT_MAGIC));

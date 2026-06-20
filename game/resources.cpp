@@ -123,7 +123,7 @@ Resources::Resources(Tempest::Device &device)
 
 void Resources::mountWork(const std::filesystem::path& path) {
   inst->gothicAssets.mkdir("/_work");
-  inst->gothicAssets.mount_host(path, "/_work", zenkit::VfsOverwriteBehavior::ALL);
+  inst->gothicAssets.mount_host(path, "/_work", zenkit::VfsOverwriteBehavior::NONE);
   }
 
 void Resources::loadVdfs(const std::vector<std::u16string>& modvdfs, bool modFilter) {
@@ -149,7 +149,7 @@ void Resources::loadVdfs(const std::vector<std::u16string>& modvdfs, bool modFil
   std::stable_sort(archives.begin(),archives.end(),[](const Archive& a,const Archive& b){
     int aIsMod = a.isMod ? 1 : -1;
     int bIsMod = b.isMod ? 1 : -1;
-    return std::make_tuple(aIsMod,a.time,int(a.ord)) >=
+    return std::make_tuple(aIsMod,a.time,int(a.ord)) >
            std::make_tuple(bIsMod,b.time,int(b.ord));
     });
 
@@ -939,6 +939,7 @@ void Resources::resetRecycled(uint8_t fId) {
   inst->recycledId = fId;
   inst->recycled[fId].ssbo.clear();
   inst->recycled[fId].img.clear();
+  inst->recycled[fId].att.clear();
   inst->recycled[fId].zb.clear();
   inst->recycled[fId].arr.clear();
   inst->recycled[fId].rtas.clear();
@@ -963,6 +964,13 @@ void Resources::recycle(Tempest::StorageImage&& img) {
     return;
   std::lock_guard<std::recursive_mutex> g(inst->sync);
   inst->recycled[inst->recycledId].img.emplace_back(std::move(img));
+  }
+
+void Resources::recycle(Tempest::Attachment&& img) {
+  if(img.isEmpty())
+    return;
+  std::lock_guard<std::recursive_mutex> g(inst->sync);
+  inst->recycled[inst->recycledId].att.emplace_back(std::move(img));
   }
 
 void Resources::recycle(Tempest::ZBuffer&& img) {

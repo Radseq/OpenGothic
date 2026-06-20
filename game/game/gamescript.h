@@ -20,7 +20,7 @@
 
 class GameSession;
 class World;
-class ScriptPlugin;
+class DirectMemory;
 class Npc;
 class Item;
 class VisualFx;
@@ -106,14 +106,16 @@ class GameScript final {
     const zenkit::IFocus&       focusMage()  const { return cFocusMage;  }
     const zenkit::IGuildValues& guildVal()   const { return *cGuildVal;  }
 
-    zenkit::DaedalusSymbol*      findSymbol(std::string_view s);
-    zenkit::DaedalusSymbol*      findSymbol(const size_t s);
-    size_t                       findSymbolIndex(std::string_view s);
-    size_t                       symbolsCount() const;
+    std::string_view            menuMain() const;
 
-    const AiState&               aiState  (ScriptFn id);
-    const zenkit::ISpell&        spellDesc(int32_t splId);
-    const VisualFx*              spellVfx (int32_t splId);
+    zenkit::DaedalusSymbol*     findSymbol(std::string_view s);
+    zenkit::DaedalusSymbol*     findSymbol(const size_t s);
+    size_t                      findSymbolIndex(std::string_view s);
+    size_t                      symbolsCount() const;
+
+    const AiState&              aiState  (ScriptFn id);
+    const zenkit::ISpell&       spellDesc(int32_t splId);
+    const VisualFx*             spellVfx (int32_t splId);
 
     auto dialogChoices(std::shared_ptr<zenkit::INpc> self, std::shared_ptr<zenkit::INpc> npc, const std::vector<uint32_t> &except, bool includeImp) -> std::vector<DlgChoice>;
     auto updateDialog (const GameScript::DlgChoice &dlg, Npc &player, Npc &npc) -> std::vector<GameScript::DlgChoice>;
@@ -168,6 +170,8 @@ class GameScript final {
 
     void      onWldItemRemoved(const Item& itm);
     void      fixNpcPosition(Npc& npc, float angle0, float distBias);
+
+    void      eventPlayAni(Npc& npc, std::string_view ani);
 
   private:
     template<typename T>
@@ -232,7 +236,7 @@ class GameScript final {
     bool hlp_isitem          (std::shared_ptr<zenkit::IItem> itemRef, int instanceSymbol);
     bool hlp_isvaliditem     (std::shared_ptr<zenkit::IItem> itemRef);
     int  hlp_getinstanceid   (std::shared_ptr<zenkit::DaedalusInstance> instance);
-    std::shared_ptr<zenkit::INpc> hlp_getnpc          (int instanceSymbol);
+    auto hlp_getnpc          (int instanceSymbol) -> std::shared_ptr<zenkit::INpc>;
 
     void wld_insertitem      (int itemInstance, std::string_view spawnpoint);
     void wld_insertnpc       (int npcInstance, std::string_view spawnpoint);
@@ -453,8 +457,9 @@ class GameScript final {
     zenkit::DaedalusVm                                          vm;
     int32_t                                                     vmLang = -1;
     std::mt19937                                                randGen;
+    NpcProcessPolicy                                            aiProcessPolicy = NpcProcessPolicy::AiNormal;
 
-    std::vector<std::unique_ptr<ScriptPlugin>>                  plugins;
+    std::unique_ptr<DirectMemory>                               dma;
 
     std::unique_ptr<SpellDefinitions>                           spells;
     std::unique_ptr<SvmDefinitions>                             svm;
@@ -492,4 +497,6 @@ class GameScript final {
 
     zenkit::IFocus                                              cFocusNorm,cFocusMelee,cFocusRange,cFocusMage;
     std::shared_ptr<zenkit::IGuildValues>                       cGuildVal;
+
+  friend struct ScopeCtx;
   };

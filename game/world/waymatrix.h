@@ -29,20 +29,29 @@ class WayMatrix final {
     const WayPoint& deadPoint() const;
     void            buildIndex();
 
+    const WayPoint* findWayPoint(std::string_view name) const;
     const WayPoint* findPoint(std::string_view name, bool inexact) const;
     void            marchPoints(DbgPainter& p) const;
 
     WayPath         wayTo(const WayPoint** begin, size_t beginSz, const Tempest::Vec3 exactBegin, const WayPoint& end) const;
 
   private:
+    struct WayEdge {
+      size_t a = 0;
+      size_t b = 0;
+      };
+
     World&                 world;
     // scripting doc says 20m, but number seems to be incorrect
-    // Vatras requires at least 8 meters
+    // Vatras requires at least 8.1 meters; Vatras is broken in vanilla
+    // Keroloth requires less than 8.18 meters
     // Abuyin requires less than 10 meters
+    // Harry(CoM) requires less(!) than 8 meters (~7.96)
     // Gothic 1 range is identical
-    float                  distanceThreshold = 900.f;
+    // Vanilla is buggy here as Vatras can't reach his praying spot from teaching location
+    float                  distanceThreshold = 800.f;
 
-    std::vector<zenkit::WayEdge> edges;
+    std::vector<WayEdge>   edges;
 
     std::vector<WayPoint>  wayPoints;
     std::vector<WayPoint>  freePoints, startPoints;
@@ -63,6 +72,6 @@ class WayMatrix final {
     void                   calculateLadderPoints();
 
     const FpIndex&         findFpIndex(std::string_view name) const;
-    const WayPoint*        findFreePoint(float x, float y, float z, const FpIndex &ind,
+    const WayPoint*        findFreePoint(const Tempest::Vec3& at, const FpIndex &ind,
                                          const std::function<bool(const WayPoint&)>& filter) const;
   };
