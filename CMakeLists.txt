@@ -13,6 +13,30 @@ set(CMAKE_SKIP_RPATH ON)
 
 add_executable(${PROJECT_NAME})
 
+set(OPENGOTHIC_LOCAL_SQLITE_INCLUDE "${CMAKE_SOURCE_DIR}/thirdparty/sqlite/include")
+set(OPENGOTHIC_LOCAL_SQLITE_LIB     "${CMAKE_SOURCE_DIR}/thirdparty/sqlite/lib/sqlite3.lib")
+set(OPENGOTHIC_LOCAL_SQLITE_DLL     "${CMAKE_SOURCE_DIR}/thirdparty/sqlite/bin/sqlite3.dll")
+
+find_package(SQLite3 QUIET)
+if(SQLite3_FOUND)
+  message(STATUS "SQLite3 found: enabling MMO runtime SQLite backend")
+  target_compile_definitions(${PROJECT_NAME} PRIVATE OPENGOTHIC_HAVE_SQLITE=1)
+  target_link_libraries(${PROJECT_NAME} SQLite::SQLite3)
+elseif(WIN32 AND EXISTS "${OPENGOTHIC_LOCAL_SQLITE_INCLUDE}/sqlite3.h" AND EXISTS "${OPENGOTHIC_LOCAL_SQLITE_LIB}")
+  message(STATUS "Local SQLite found: enabling MMO runtime SQLite backend")
+  target_compile_definitions(${PROJECT_NAME} PRIVATE OPENGOTHIC_HAVE_SQLITE=1)
+  target_include_directories(${PROJECT_NAME} PRIVATE "${OPENGOTHIC_LOCAL_SQLITE_INCLUDE}")
+  target_link_libraries(${PROJECT_NAME} "${OPENGOTHIC_LOCAL_SQLITE_LIB}")
+  if(EXISTS "${OPENGOTHIC_LOCAL_SQLITE_DLL}")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${OPENGOTHIC_LOCAL_SQLITE_DLL}"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/sqlite3.dll")
+  endif()
+else()
+  message(STATUS "SQLite3 not found: MMO runtime SQLite backend will be compiled as no-op")
+endif()
+
 if(MSVC)
   add_definitions(-D_USE_MATH_DEFINES)
   add_definitions(-D_CRT_SECURE_NO_WARNINGS)

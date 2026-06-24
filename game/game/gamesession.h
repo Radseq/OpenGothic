@@ -19,6 +19,7 @@ class VisualFx;
 class WorldStateStorage;
 class VersionInfo;
 class GthFont;
+class MmoRuntimeSqlite;
 
 class GameSession final {
   public:
@@ -64,6 +65,9 @@ class GameSession final {
 
     auto         updateDialog(const GameScript::DlgChoice &dlg, Npc &player, Npc &npc) -> std::vector<GameScript::DlgChoice>;
     void         dialogExec(const GameScript::DlgChoice &dlg, Npc &player, Npc &npc);
+    void         recordDialogChoices(Npc &player, Npc &npc,
+                                     const std::vector<GameScript::DlgChoice>& choices,
+                                     std::string_view phase, bool includeImportant);
 
     std::string_view         messageFromSvm(std::string_view id, int voice) const;
     std::string_view         messageByName (std::string_view id) const;
@@ -96,6 +100,7 @@ class GameSession final {
     std::unique_ptr<Camera>        cam;
     std::unique_ptr<GameScript>    vm;
     std::unique_ptr<World>         wrld;
+    std::unique_ptr<MmoRuntimeSqlite> mmoSqlite;
 
     uint64_t                       ticks = 0, wrldTimePart = 0;
     uint64_t                       timeMul = 1000, timeMulFract = 0;

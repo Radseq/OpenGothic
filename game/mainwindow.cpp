@@ -20,6 +20,7 @@
 #include "world/objects/npc.h"
 #include "game/serialize.h"
 #include "game/globaleffects.h"
+#include "game/worldstateexporter.h"
 #include "utils/gthfont.h"
 #include "utils/dbgpainter.h"
 
@@ -1041,6 +1042,8 @@ void MainWindow::startGame(std::string_view slot) {
   Gothic::inst().startLoad("LOADING.TGA",[slot=std::string(slot)](std::unique_ptr<GameSession>&& game){
     game = nullptr; // clear world-memory now
     std::unique_ptr<GameSession> w(new GameSession(slot));
+    if(!CommandLine::inst().dumpInitialWorld().empty())
+      WorldStateExporter::exportInitialState(*w, CommandLine::inst().dumpInitialWorld());
     return w;
     });
 
@@ -1107,6 +1110,8 @@ void MainWindow::saveGame(std::string_view slot, std::string_view name) {
     Tempest::WFile f(slot);
     Serialize      s(f);
     game->save(s,name,pm);
+    if(!CommandLine::inst().dumpSaveWorld().empty())
+      WorldStateExporter::exportSaveState(*game, CommandLine::inst().dumpSaveWorld());
 
     // no print yet, because threading
     // gothic.print("Game saved");

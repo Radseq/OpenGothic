@@ -178,6 +178,8 @@ WorldObjects::~WorldObjects() {
   }
 
 void WorldObjects::load(Serialize &fin) {
+  nextNpcPersistentId = 0;
+  nextItemPersistentId = 0;
   {
   uint16_t v = 0;
   fin.setEntry("worlds/",fin.worldName(),"/version");
@@ -208,6 +210,9 @@ void WorldObjects::load(Serialize &fin) {
   fin.read(sz);
   for(size_t i=0; i<sz; ++i) {
     auto it = std::make_unique<Item>(owner,fin,Item::T_World);
+    if(it->persistentId()==uint32_t(-1))
+      it->setPersistentId(allocItemPersistentId());
+    nextItemPersistentId = std::max(nextItemPersistentId, it->persistentId()+1);
     itemArr.emplace_back(std::move(it));
     items.add(itemArr.back().get());
     }
@@ -229,8 +234,12 @@ void WorldObjects::load(Serialize &fin) {
 
   for(auto& i:interactiveObj)
     i->postValidate();
-  for(auto& i:npcArr)
+  for(auto& i:npcArr) {
     i->postValidate();
+    nextNpcPersistentId = std::max(nextNpcPersistentId, i->persistentId()+1);
+    }
+  for(auto& i:npcInvalid)
+    nextNpcPersistentId = std::max(nextNpcPersistentId, i->persistentId()+1);
   }
 
 void WorldObjects::save(Serialize &fout) {
@@ -404,6 +413,7 @@ uint32_t WorldObjects::mobsiId(const void* ptr) const {
 
 Npc* WorldObjects::addNpc(size_t npcInstance, std::string_view at) {
   Npc* npc = new Npc(owner,npcInstance,at);
+  npc->setPersistentId(allocNpcPersistentId());
   if(auto pos = npc->currentTaPoint()) {
     if(pos->isLocked()) {
       auto p = owner.findNextPoint(*pos);
@@ -437,6 +447,7 @@ Npc* WorldObjects::addNpc(size_t npcInstance, const Vec3& pos) {
 
   auto pstr  = point==nullptr ? "" : point->name; // vanilla assign some point to all npc's
   Npc* npc   = new Npc(owner,npcInstance,pstr);
+  npc->setPersistentId(allocNpcPersistentId());
   npc->setPosition  (pos.x,pos.y,pos.z);
   npc->updateTransform();
   owner.script().invokeRefreshAtInsert(*npc);
@@ -462,6 +473,8 @@ Npc* WorldObjects::insertPlayer(std::unique_ptr<Npc> &&npc, std::string_view at)
   npc->setDirection (pos->direction());
   npc->attachToPoint(pos);
   npc->updateTransform();
+  if(npc->persistentId()==uint32_t(-1))
+    npc->setPersistentId(allocNpcPersistentId());
   npcArr.emplace_back(std::move(npc));
   return npcArr.back().get();
   }
@@ -784,6 +797,7 @@ Item* WorldObjects::addItem(size_t itemInstance, const Tempest::Vec3& pos, const
 
   std::unique_ptr<Item> ptr{new Item(owner,itemInstance,Item::T_World)};
   auto* it=ptr.get();
+  it->setPersistentId(allocItemPersistentId());
   itemArr.emplace_back(std::move(ptr));
   items.add(itemArr.back().get());
 
@@ -806,6 +820,7 @@ Item* WorldObjects::addItemDyn(size_t itemInstance, const Tempest::Matrix4x4& po
     ptr.reset(new Item(owner,itemInstance,Item::T_WorldDyn));
 
   auto* it=ptr.get();
+  it->setPersistentId(allocItemPersistentId());
   it->handle().owner = ownerNpc==size_t(-1) ? 0 : int32_t(ownerNpc);
   itemArr.emplace_back(std::move(ptr));
   items.add(itemArr.back().get());
@@ -833,6 +848,14 @@ void WorldObjects::addRoot(const std::shared_ptr<zenkit::VirtualObject>& vob, bo
 void WorldObjects::invalidateVobIndex() {
   items.invalidate();
   interactiveObj.invalidate();
+  }
+
+uint32_t WorldObjects::allocNpcPersistentId() {
+  return nextNpcPersistentId++;
+  }
+
+uint32_t WorldObjects::allocItemPersistentId() {
+  return nextItemPersistentId++;
   }
 
 Interactive* WorldObjects::validateInteractive(Interactive *def) {

@@ -77,6 +77,35 @@ CommandLine::CommandLine(int argc, const char** argv) {
       if(i<argc)
         wrldDef = argv[i];
       }
+    else if(arg=="-dump-initial-world") {
+      ++i;
+      if(i<argc)
+        dumpInitial = argv[i];
+      }
+    else if(arg=="-dump-save-world") {
+      ++i;
+      if(i<argc)
+        dumpSave = argv[i];
+      }
+    else if(arg=="-mmo-sqlite") {
+      ++i;
+      if(i<argc)
+        mmoSqliteDb = argv[i];
+      }
+    else if(arg=="-mmo-sqlite-interval-ms") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoSqliteInterval = std::max<uint64_t>(250, std::stoull(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-sqlite-interval-ms: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-sqlite-no-restore") {
+      mmoSqliteRestoreState = false;
+      }
     else if(arg=="-window") {
       isWindow = true;
       }

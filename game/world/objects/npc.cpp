@@ -6,6 +6,7 @@
 #include "graphics/mesh/skeleton.h"
 #include "graphics/visualfx.h"
 #include "game/damagecalculator.h"
+#include "game/gamesession.h"
 #include "game/serialize.h"
 #include "game/gamescript.h"
 #include "utils/string_frm.h"
@@ -208,6 +209,7 @@ Npc::~Npc(){
 void Npc::save(Serialize &fout, size_t id, std::string_view directory) {
   fout.setEntry("worlds/",fout.worldName(),directory,id,"/data");
   fout.write(*hnpc);
+  fout.write(npcPersistentId);
   fout.write(body,head,vHead,vTeeth,bdColor,vColor,bdFatness);
   fout.write(x,y,z,angle,sz);
   fout.write(wlkMode,trGuild,talentsSk,talentsVl,refuseTalkMilis);
@@ -369,6 +371,10 @@ void Npc::load(Serialize &fin, size_t id, std::string_view directory) {
   hnpc = std::make_shared<zenkit::INpc>();
   hnpc->user_ptr        = this;
   fin.readNpc(owner.script().getVm(), hnpc);
+  if(fin.version()>=56)
+    fin.read(npcPersistentId);
+  else
+    npcPersistentId = uint32_t(id);
   fin.read(body,head,vHead,vTeeth,bdColor,vColor,bdFatness);
 
   auto* sym = owner.script().findSymbol(hnpc->symbol_index());
@@ -4456,6 +4462,16 @@ bool Npc::wasInState(ScriptFn stateFn) const {
   return aiPrevState==stateFn;
   }
 
+size_t Npc::currentAiStateFunction() const {
+  return aiState.funcIni.ptr;
+  }
+
+std::string_view Npc::currentAiStateName() const {
+  if(aiState.hint!=nullptr && aiState.hint[0]!='\0')
+    return aiState.hint;
+  return "";
+  }
+
 uint64_t Npc::stateTime() const {
   return owner.tickCount()-aiState.sTime;
   }
@@ -4644,7 +4660,9 @@ void Npc::transformBack() {
   }
 
 std::vector<GameScript::DlgChoice> Npc::dialogChoices(Npc& player,const std::vector<uint32_t> &except,bool includeImp) {
-  return owner.script().dialogChoices(player.hnpc,this->hnpc,except,includeImp);
+  auto ret = owner.script().dialogChoices(player.hnpc,this->hnpc,except,includeImp);
+  owner.gameSession().recordDialogChoices(player, *this, ret, includeImp ? "prestart" : "choices", includeImp);
+  return ret;
   }
 
 bool Npc::isAiQueueEmpty() const {

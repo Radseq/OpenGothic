@@ -1,0 +1,19 @@
+{
+  "schema": 6,
+  "kind": "initial_world_export",
+  "target": "g2notr",
+  "world": "newworld.zen",
+  "game": 2,
+  "patch": 5,
+  "tick_count": 1,
+  "time_day_millis": 28800000,
+  "npc_count": 1053,
+  "npc_stats_rows": 1053,
+  "item_count": 2461,
+  "npc_inventory_rows": 2482,
+  "mobsi_count": 996,
+  "mobsi_inventory_rows": 438,
+  "quest_count": 0,
+  "known_dialog_count": 0,
+  "script_global_count": 2924
+}

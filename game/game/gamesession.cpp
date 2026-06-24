@@ -1,5 +1,6 @@
 #include "gamesession.h"
 #include "savegameheader.h"
+#include "mmoruntimesqlite.h"
 
 #include <Tempest/Log>
 #include <Tempest/MemReader>
@@ -14,6 +15,7 @@
 #include "serialize.h"
 #include "camera.h"
 #include "gothic.h"
+#include "commandline.h"
 
 using namespace Tempest;
 
@@ -113,6 +115,12 @@ GameSession::GameSession(std::string file) {
   cam->reset(wrld->player());
   Gothic::inst().setLoadingProgress(96);
   ticks = 1;
+  if(!CommandLine::inst().mmoSqlite().empty()) {
+    mmoSqlite.reset(new MmoRuntimeSqlite(std::string(CommandLine::inst().mmoSqlite()),
+                                         CommandLine::inst().mmoSqliteIntervalMs(),
+                                         CommandLine::inst().mmoSqliteRestore()));
+    mmoSqlite->open(*this);
+    }
   // wrld->setDayTime(8,0);
   }
 
@@ -168,9 +176,17 @@ GameSession::GameSession(Serialize &fin) {
   fin.setEntry("game/camera");
   cam->load(fin,wrld->player());
   Gothic::inst().setLoadingProgress(96);
+  if(!CommandLine::inst().mmoSqlite().empty()) {
+    mmoSqlite.reset(new MmoRuntimeSqlite(std::string(CommandLine::inst().mmoSqlite()),
+                                         CommandLine::inst().mmoSqliteIntervalMs(),
+                                         CommandLine::inst().mmoSqliteRestore()));
+    mmoSqlite->open(*this);
+    }
   }
 
 GameSession::~GameSession() {
+  if(mmoSqlite!=nullptr)
+    mmoSqlite->flush(*this);
   }
 
 void GameSession::save(Serialize &fout, std::string_view name, const Pixmap& screen) {
@@ -318,6 +334,8 @@ void GameSession::tick(uint64_t dt) {
 
   vm->tick(dt);
   wrld->tick(dt);
+  if(mmoSqlite!=nullptr)
+    mmoSqlite->tick(*this, dt);
   // std::this_thread::sleep_for(std::chrono::milliseconds(60));
 
   if(exitSessionFlg) {
@@ -432,11 +450,25 @@ void GameSession::updateAnimation(uint64_t dt) {
   }
 
 std::vector<GameScript::DlgChoice> GameSession::updateDialog(const GameScript::DlgChoice &dlg, Npc& player, Npc& npc) {
-  return vm->updateDialog(dlg,player,npc);
+  auto ret = vm->updateDialog(dlg,player,npc);
+  if(mmoSqlite!=nullptr) {
+    mmoSqlite->recordDialogSelection(*this, player, npc, dlg, "update");
+    mmoSqlite->recordDialogChoices(*this, player, npc, ret, "subchoices", false);
+    }
+  return ret;
   }
 
 void GameSession::dialogExec(const GameScript::DlgChoice &dlg, Npc& player, Npc& npc) {
+  if(mmoSqlite!=nullptr)
+    mmoSqlite->recordDialogSelection(*this, player, npc, dlg, "exec");
   return vm->exec(dlg,player,npc);
+  }
+
+void GameSession::recordDialogChoices(Npc& player, Npc& npc,
+                                      const std::vector<GameScript::DlgChoice>& choices,
+                                      std::string_view phase, bool includeImportant) {
+  if(mmoSqlite!=nullptr)
+    mmoSqlite->recordDialogChoices(*this, player, npc, choices, phase, includeImportant);
   }
 
 std::string_view GameSession::messageFromSvm(std::string_view id, int voice) const {

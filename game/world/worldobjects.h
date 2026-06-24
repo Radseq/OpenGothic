@@ -176,6 +176,8 @@ class WorldObjects final {
     std::vector<std::unique_ptr<Npc>>  npcInvalid; // dead or invalid TA
     std::vector<std::unique_ptr<Npc>>  npcRemoved; // removed, but may have a dangling references in game
     std::vector<Npc*>                  npcNear;
+    uint32_t                           nextNpcPersistentId = 0;
+    uint32_t                           nextItemPersistentId = 0;
 
     std::vector<AbstractTrigger*>      triggers;
     std::vector<AbstractTrigger*>      triggersTk;
@@ -197,5 +199,7 @@ class WorldObjects final {
 
     void             tickNear(uint64_t dt);
     void             tickTriggers(uint64_t dt);
+    uint32_t         allocNpcPersistentId();
+    uint32_t         allocItemPersistentId();
     static bool      isTargetedBy(Npc& npc,Npc& by);
   };

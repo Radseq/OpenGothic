@@ -311,6 +311,8 @@ class Npc final {
     bool      isInState  (ScriptFn stateFn) const;
     bool      isInRoutine(ScriptFn stateFn) const;
     bool      wasInState (ScriptFn stateFn) const;
+    size_t    currentAiStateFunction() const;
+    std::string_view currentAiStateName() const;
     uint64_t  stateTime() const;
     void      setStateTime(int64_t time);
 
@@ -335,6 +337,8 @@ class Npc final {
 
     zenkit::INpc&                        handle() { return *hnpc; }
     const std::shared_ptr<zenkit::INpc>& handlePtr() const { return hnpc; }
+    uint32_t                             persistentId() const { return npcPersistentId; }
+    void                                 setPersistentId(uint32_t id) { npcPersistentId = id; }
 
     auto      inventory() const -> const Inventory& { return invent; }
     size_t    itemCount  (size_t id) const;
@@ -538,6 +542,7 @@ class Npc final {
     Tempest::Matrix4x4 mkPositionMatrix() const;
 
     World&                         owner;
+    uint32_t                       npcPersistentId = uint32_t(-1);
     // main props
     std::shared_ptr<zenkit::INpc>  hnpc={};
     float                          x=0.f;

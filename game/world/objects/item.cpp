@@ -37,6 +37,10 @@ Item::Item(World &owner, Serialize &fin, Type type)
 
   uint32_t instanceSymbol=0;
   fin.read(instanceSymbol);
+  if(fin.version()>=57)
+    fin.read(itemPersistentId);
+  else
+    itemPersistentId = uint32_t(-1);
 
   auto& vm = owner.script().getVm();
   auto* sym = vm.find_symbol_by_index(instanceSymbol);
@@ -74,7 +78,8 @@ Item::Item(World &owner, Serialize &fin, Type type)
 
 Item::Item(Item &&it)
   : Vob(it.world), hitem(it.hitem),
-    pos(it.pos),equipped(it.equipped),itSlot(it.itSlot),visual(std::move(it.visual)) {
+    pos(it.pos),amount(it.amount),equipped(it.equipped),itSlot(it.itSlot),
+    itemPersistentId(it.itemPersistentId),visual(std::move(it.visual)) {
   setLocalTransform(it.localTransform());
   physic = std::move(it.physic);
   }
@@ -117,6 +122,7 @@ void Item::drawVobRay(DbgPainter& p, const Npc& npc) const {
 void Item::save(Serialize &fout) const {
   auto& h = *hitem;
   fout.write(uint32_t(h.symbol_index()));
+  fout.write(itemPersistentId);
   fout.write(h.id,h.name,h.name_id,h.hp,h.hp_max,h.main_flag);
   fout.write(reinterpret_cast<int&>(h.flags),h.weight,h.value,h.damage_type,h.damage_total,h.damage);
   fout.write(h.wear,h.protection,h.nutrition,h.cond_atr,h.cond_value,h.change_atr,h.change_value,h.magic);

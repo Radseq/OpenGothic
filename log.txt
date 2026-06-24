@@ -1,0 +1,67 @@
+OpenGothic v1.0 dev
+Switching music provider to 'OpenGothic'
+GPU = Intel(R) Iris(R) Xe Graphics
+Depth format = Depth32F Shadow format = Depth16
+[zenkit] Parsing object [MeshAndBsp % 0 0]
+[zenkit] Parsing chunk c000
+[zenkit] Parsing chunk c010
+[zenkit] Parsing chunk c040
+[zenkit] Parsing chunk c045
+[zenkit] Parsing chunk c050
+[zenkit] Parsing chunk c0ff
+[zenkit] 1 bytes remaining in section b020
+[zenkit] Parsing object [VobTree % 0 0]
+[zenkit] Parsing object [WayNet % 0 0]
+[zenkit] Parsing object [EndMarker % 0 0]
+invalid particle system: "INVISIBLE_VOBBOX.3DS"
+unable to load sound fx: ENV_NIGHT_TONSOFINSECTS
+unable to load sound fx: OW_BIRD11
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+addNpc: 11069 (MIL_302_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
+addNpc: 11071 (MIL_303_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] Unexpected value for MdsEventType: "		"
+[zenkit] 4 bytes remaining in section f5a3
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+mmo sqlite runtime opened: runtime\g2notr.sqlite
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+not implemented call [mdl_applyrandomani]
+not implemented call [mdl_applyrandomanifreq]
+[zspy,24]: ### Ja(0) ### -> PrintGlobals
+[zspy,24]: ### Ja(0) ### -> ...self:   Ja
+[zspy,24]: ### Ja(0) ### -> ...other:  Ja
+[zspy,24]: ### Ja(0) ### -> ...hero:   Ja
+[zspy,24]: ### Ja(0) ### -> ...item:   Kawa³ek papieru
+unexpected aiOutput call: SVM_15_MISSINGITEM
+unexpected aiOutput call: SVM_15_MISSINGITEM
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+TODO: CollisionZone capsule collision
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+Exiting, by item action (`LEAVE_GAME`)

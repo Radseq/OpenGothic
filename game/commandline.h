@@ -47,7 +47,12 @@ class CommandLine {
     bool                doForceG2()        const { return forceG2;      }
     bool                doForceG2NR()      const { return forceG2NR;    }
     bool                aaPreset()         const { return aaPresetId;   }
-    std::string_view    defaultSave()      const { return saveDef;    }
+    std::string_view    defaultSave()      const { return saveDef;      }
+    std::string_view    dumpInitialWorld() const { return dumpInitial;  }
+    std::string_view    dumpSaveWorld()    const { return dumpSave;     }
+    std::string_view    mmoSqlite()        const { return mmoSqliteDb;   }
+    uint64_t            mmoSqliteIntervalMs() const { return mmoSqliteInterval; }
+    bool                mmoSqliteRestore() const { return mmoSqliteRestoreState; }
 
     std::string         wrldDef;
 
@@ -59,6 +64,11 @@ class CommandLine {
     std::u16string      gscript;
     std::u16string      gcutscene;
     std::string         saveDef;
+    std::string         dumpInitial;
+    std::string         dumpSave;
+    std::string         mmoSqliteDb;
+    uint64_t            mmoSqliteInterval = 5000;
+    bool                mmoSqliteRestoreState = true;
     bool                devmode      = false;
     bool                noMenu       = false;
     Benchmark           isBenchmark  = Benchmark::None;

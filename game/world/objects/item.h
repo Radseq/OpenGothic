@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <zenkit/addon/daedalus.hh>
 
 #include "graphics/objvisual.h"
@@ -89,6 +91,8 @@ class Item : public Vob {
     zenkit::IItem&                         handle() { return *hitem; }
     const std::shared_ptr<zenkit::IItem>&  handlePtr()    { return hitem; }
     size_t                                 clsId() const;
+    uint32_t                               persistentId() const { return itemPersistentId; }
+    void                                   setPersistentId(uint32_t id) { itemPersistentId = id; }
 
   protected:
     void                moveEvent() override;
@@ -104,6 +108,7 @@ class Item : public Vob {
     uint32_t                       amount   = 0;
     uint8_t                        equipped = 0;
     uint8_t                        itSlot   = NSLOT;
+    uint32_t                       itemPersistentId = uint32_t(-1);
 
     MeshObjects::Mesh              visual;
     DynamicWorld::Item             physic;

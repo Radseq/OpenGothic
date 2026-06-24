@@ -77,6 +77,8 @@ class GameScript final {
 
     inline auto& getVm() { return vm; }
     auto         questLog() const -> const QuestLog&;
+    auto         knownDialogInfos() const -> const std::set<std::pair<size_t,size_t>>& { return dlgKnownInfos; }
+    auto         dialogInfos() const -> const std::vector<std::shared_ptr<zenkit::IInfo>>& { return dialogsInfo; }
 
     const World& world() const;
     World&       world();
