@@ -40,6 +40,62 @@ world_staging.sqlite -> mmo_replay_* -> gothic_mmo.sqlite
 
 Czyli finalny local DB nie kopiuje raw snapshotu. Uzywa canonical replay z baseline + eventow.
 
+Runtime SQLite uruchamiane bezposrednio z gry (`-mmo-sqlite`) ma od schema `12` server-facing projection:
+
+```sql
+SELECT * FROM v_mmo_persistence_contract ORDER BY state_domain, view_name;
+SELECT * FROM v_mmo_restore_readiness ORDER BY restore_area;
+SELECT * FROM v_mmo_character_current;
+SELECT * FROM v_mmo_character_stat_sheet;
+SELECT * FROM v_mmo_creature_templates ORDER BY spawn_count DESC LIMIT 50;
+SELECT * FROM v_mmo_event_journal ORDER BY event_id DESC LIMIT 50;
+```
+
+Od schema `18` runtime SQLite ma fizyczne canonical current-state oraz oddzielony immutable world baseline dla calego aktualnie obserwowanego save/load zakresu. Schema `19` dodaje runtimeowy marker delta-capture, aby gra nie przepisywala kompletu EAV statystyk NPC przy kazdym flushu:
+
+```sql
+SELECT * FROM mmo_unit_stat_sheet_current WHERE unit_type='character';
+SELECT * FROM mmo_unit_stat_current WHERE unit_type='character' ORDER BY display_order;
+SELECT * FROM mmo_creature_templates_current ORDER BY spawn_count DESC LIMIT 50;
+SELECT * FROM mmo_creature_spawns_current ORDER BY display_name LIMIT 50;
+SELECT * FROM mmo_characters_current;
+SELECT * FROM mmo_character_inventory_current WHERE character_key='PC_HERO';
+SELECT * FROM mmo_character_quests_current WHERE character_key='PC_HERO';
+SELECT * FROM mmo_world_items_current WHERE exists_in_world=0;
+SELECT * FROM mmo_script_global_values_current ORDER BY global_key, value_index;
+SELECT * FROM mmo_world_clock_current;
+SELECT * FROM mmo_creature_inventory_snapshots_current WHERE item_row_count=0;
+SELECT * FROM mmo_creature_relations_current;
+SELECT * FROM v_mmo_world_baseline_status;
+SELECT entity_type, entity_ref, short_id, display_name, world_display_name
+  FROM v_mmo_world_entity_directory
+ ORDER BY entity_type, display_name;
+SELECT * FROM v_mmo_world_creature_deltas WHERE delta_kind!='unchanged';
+SELECT * FROM v_mmo_world_item_deltas WHERE delta_kind!='unchanged';
+```
+
+Ta projekcja jest pomostem miedzy obecnym save/load reverse engineeringiem a docelowym backendem MMO:
+
+- `runtime_*` zostaje warstwa zbierania i diagnostyki OpenGothic.
+- `v_mmo_*` jest publicznym kontraktem czytania i audytu dla przyszlego serwera.
+- `mmo_*_current` jest materializowanym current-state, ktory ma byc blizszy docelowemu zapisowi serwera niz widoki SQLite.
+- Od schema `13` `runtime_npc_stats` jest traktowane jako raw EAV. Poza atrybutami obejmuje progression (kolejny prog XP i LP), stale/tymczasowe nastawienie oraz kompletne `MISSION[]`/`AIVAR[]`, odtwarzane przy restore. Od schema `15` warstwa canonical obejmuje tez `mmo_characters_current`, `mmo_character_inventory_current`, `mmo_character_quests_current`, `mmo_character_known_dialogs_current`, `mmo_world_items_current`, `mmo_world_interactives_current`, `mmo_world_container_inventory_current`, `mmo_script_globals_current`, `mmo_script_global_values_current` i `mmo_guild_attitudes_current`. Schema `16` dodaje `mmo_world_clock_current`, `mmo_creature_inventory_current` oraz marker `mmo_creature_inventory_snapshots_current` dla wszystkich NPC, rowniez pustych inventory. Schema `17` dodaje `mmo_creature_relations_current` dla bezpiecznych checkpointow follow/escort. Schema `18` dodaje `mmo_world_templates`, `mmo_world_instances`, immutable `mmo_world_baseline_*` i widoki delta.
+- Schema `19` rozdziela bootstrap od runtime delta write: `runtime_npc_stat_capture_state` przechowuje dokladny podpis komponentu statow NPC. Petla gry skanuje stan silnika, ale odczytuje i zapisuje `runtime_npc_stats` tylko dla NPC, ktorych podpis sie zmienil. Waypoint graph, routine catalog i dialog catalog sa contentem bootstrapowanym na pelnym flushu; snapshoty world/inventory/AI/nawigacji oraz globale stosuja UPSERT lub delete tylko dla rzeczywistych zmian.
+- `v_mmo_runtime_npc_navigation` i podobne transient views nie sa docelowa prawda serwera; sluza do crash recovery, testow escort/follow i analizy AI/pathfindingu.
+- Restore z DB korzysta z fizycznych tabel `mmo_*_current`: HERO, inventory/equipment, questy, znane dialogi, typed Daedalus globals, nastawienia gildii, dokladny zegar swiata, NPC checkpoint wraz z inventory, follow/escort relation, itemy swiata, mobsi i kontenery. Aktywna kolejka AI/pathfinding pozostaje transient i nie jest wstrzykiwana jako save state.
+- Baseline powstaje tylko z `-mmo-sqlite-capture-baseline` w pierwszej sesji swiezo utworzonej DB i musi byc uruchomiony od `New Game`. `content_revision_key` jest obecnie logicznym identyfikatorem runtime; kryptograficzny fingerprint plikow contentu pozostaje kolejnym krokiem przed wieloma realmami.
+- Pierwsze uruchomienie po migracji schema `14 -> 15` musi wykonac jeden flush, aby utworzyc normalizowane wartosci globali i macierz nastawien gildii. Wczesniejsze pola sa bootstrapowane z istniejacych `runtime_*`.
+
+Widoki sa nadal potrzebne:
+
+- ukrywaja techniczne raw tables i daja stabilne SQL API dla narzedzi;
+- pozwalaja porownac `mmo_*_current` z tym, co wynika z raw capture;
+- sa dobrym miejscem na kompatybilnosc podczas migracji do PostgreSQL.
+
+Widoki nie powinny byc docelowym zrodlem prawdy gameplay. Produkcyjna baza MMO powinna miec normalne tabele content/template, spawn/current-state, character state, inventory, quest state i event journal. Widoki moga je laczyc dla odczytu, ale serwer i restore powinny zapisywac/odtwarzac z tabel.
+
+`v_mmo_world_entity_directory` jest przeznaczony dla narzedzi i administratora. Pokazuje czytelne `entity_ref`, np. `g2notr/new-world/npc/1020/11441/297`, krotkie `NPC-1020` oraz `New World`. Surowe `engine_key`, np. `npc:newworld.zen:1020:11441:297`, pozostaje wewnetrznym kluczem restore. Nie wolno opierac relacji lub restore tylko o `display_name`, bo nazwy NPC i itemow nie sa unikalne.
+
 ## Table Groups In gothic_mmo.sqlite
 
 Account:

@@ -85,6 +85,8 @@ class Inventory final {
     void   unequipArmor(GameScript &vm, Npc &owner);
     void   clear(GameScript &vm, Npc &owner, bool includeMissionItm = false);
     void   clear(GameScript &vm, Interactive &owner, bool includeMissionItm = false);
+    void   resetForPersistence(Npc& owner);
+    void   resetForPersistence(Interactive& owner);
     bool   hasSpell(int32_t spl) const;
     bool   hasMissionItems() const;
     bool   hasRangedWeaponWithAmmo() const;

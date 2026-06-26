@@ -477,7 +477,7 @@ def create_schema(db: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_world_event_journal_type
           ON world_event_journal(world_instance_id, event_class, event_type);
 
-        CREATE VIEW IF NOT EXISTS v_character_sheet AS
+        CREATE TEMP VIEW IF NOT EXISTS v_character_sheet AS
           SELECT c.id AS character_id, c.name, c.character_kind,
                  s.level, s.experience, s.learning_points,
                  s.hp, s.hp_max, s.mana, s.mana_max,
@@ -491,13 +491,13 @@ def create_schema(db: sqlite3.Connection) -> None:
           LEFT JOIN character_known_dialogs d ON d.character_id = c.id
           GROUP BY c.id;
 
-        CREATE VIEW IF NOT EXISTS v_character_inventory AS
+        CREATE TEMP VIEW IF NOT EXISTS v_character_inventory AS
           SELECT c.name AS character_name, i.item_display_name, i.item_name,
                  i.amount, i.iterator_count, i.equipped, i.slot, i.item_stable_key
           FROM character_inventory i
           JOIN characters c ON c.id = i.character_id;
 
-        CREATE VIEW IF NOT EXISTS v_item_instances AS
+        CREATE TEMP VIEW IF NOT EXISTS v_item_instances AS
           SELECT ii.id AS item_instance_id, ii.owner_type, c.name AS character_name,
                  ii.container_scope, ii.container_display_name,
                  cls.item_class, cls.stack_policy,
@@ -507,13 +507,13 @@ def create_schema(db: sqlite3.Connection) -> None:
           LEFT JOIN content_item_classification cls ON cls.item_template_id = ii.item_template_id
           LEFT JOIN characters c ON c.id = ii.character_id;
 
-        CREATE VIEW IF NOT EXISTS v_character_equipment AS
+        CREATE TEMP VIEW IF NOT EXISTS v_character_equipment AS
           SELECT c.name AS character_name, e.slot, e.item_display_name,
                  e.source_stable_key, e.item_instance_id
           FROM character_equipment e
           JOIN characters c ON c.id = e.character_id;
 
-        CREATE VIEW IF NOT EXISTS v_character_item_totals AS
+        CREATE TEMP VIEW IF NOT EXISTS v_character_item_totals AS
           SELECT c.id AS character_id, c.name AS character_name,
                  i.item_symbol_index, i.item_name, i.item_display_name,
                  COUNT(*) AS row_count,
@@ -526,7 +526,7 @@ def create_schema(db: sqlite3.Connection) -> None:
           JOIN characters c ON c.id = i.character_id
           GROUP BY c.id, i.item_symbol_index, i.item_name, i.item_display_name;
 
-        CREATE VIEW IF NOT EXISTS v_character_item_stacks AS
+        CREATE TEMP VIEW IF NOT EXISTS v_character_item_stacks AS
           SELECT c.id AS character_id, c.name AS character_name,
                  ii.item_template_id, cls.item_class, cls.stack_policy, cls.max_stack,
                  ii.item_symbol_index, ii.item_name, ii.item_display_name,
@@ -543,7 +543,7 @@ def create_schema(db: sqlite3.Connection) -> None:
           GROUP BY c.id, ii.item_template_id, cls.item_class, cls.stack_policy, cls.max_stack,
                    ii.item_symbol_index, ii.item_name, ii.item_display_name;
 
-        CREATE VIEW IF NOT EXISTS v_world_item_stacks AS
+        CREATE TEMP VIEW IF NOT EXISTS v_world_item_stacks AS
           SELECT ii.world_instance_id, ii.container_scope, ii.container_stable_key,
                  ii.container_display_name, ii.item_template_id,
                  cls.item_class, cls.stack_policy, cls.max_stack, ii.item_symbol_index,
@@ -560,12 +560,12 @@ def create_schema(db: sqlite3.Connection) -> None:
                    cls.item_class, cls.stack_policy, cls.max_stack, ii.item_symbol_index,
                    ii.item_name, ii.item_display_name;
 
-        CREATE VIEW IF NOT EXISTS v_item_class_counts AS
+        CREATE TEMP VIEW IF NOT EXISTS v_item_class_counts AS
           SELECT item_class, stack_policy, COUNT(*) AS template_count
           FROM content_item_classification
           GROUP BY item_class, stack_policy;
 
-        CREATE VIEW IF NOT EXISTS v_character_stack_policy_issues AS
+        CREATE TEMP VIEW IF NOT EXISTS v_character_stack_policy_issues AS
           SELECT character_name, item_display_name, item_class, stack_policy,
                  instance_rows, quantity_total, iterator_total, equipped_instances,
                  CASE
@@ -581,7 +581,7 @@ def create_schema(db: sqlite3.Connection) -> None:
              OR (max_stack IS NOT NULL AND quantity_total > max_stack)
              OR (stack_policy = 'stack' AND equipped_instances > 0);
 
-        CREATE VIEW IF NOT EXISTS v_character_inventory_anomalies AS
+        CREATE TEMP VIEW IF NOT EXISTS v_character_inventory_anomalies AS
           SELECT *,
                  CASE
                    WHEN row_count > 1 AND equipped_rows > 0 THEN 'equipped_and_bag_split'
@@ -593,22 +593,22 @@ def create_schema(db: sqlite3.Connection) -> None:
           WHERE row_count > 1
              OR (amount_total > iterator_total AND iterator_total > 0);
 
-        CREATE VIEW IF NOT EXISTS v_world_dead_npcs AS
+        CREATE TEMP VIEW IF NOT EXISTS v_world_dead_npcs AS
           SELECT w.shard_key, e.stable_key, e.display_name, e.persistent_id, e.hp
           FROM world_entity_state e
           JOIN realm_world_instances w ON w.id = e.world_instance_id
           WHERE e.entity_type = 'npc' AND e.dead = 1;
 
-        CREATE VIEW IF NOT EXISTS v_world_event_counts AS
+        CREATE TEMP VIEW IF NOT EXISTS v_world_event_counts AS
           SELECT world_instance_id, event_class, event_type, COUNT(*) AS event_count
           FROM world_event_journal
           GROUP BY world_instance_id, event_class, event_type;
 
-        CREATE VIEW IF NOT EXISTS v_world_replay_validation AS
+        CREATE TEMP VIEW IF NOT EXISTS v_world_replay_validation AS
           SELECT world_instance_id, metric, snapshot_count, replay_count, status
           FROM world_replay_validation;
 
-        CREATE VIEW IF NOT EXISTS v_runtime_noise_inventory AS
+        CREATE TEMP VIEW IF NOT EXISTS v_runtime_noise_inventory AS
           SELECT world_instance_id, owner_scope, owner_display_name,
                  item_display_name, item_stable_key, reason
           FROM world_runtime_noise_candidates;

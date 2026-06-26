@@ -32,12 +32,12 @@
 #include <memory>
 
 namespace fs = std::filesystem;
-using id_t = std::size_t;
+using DebugDumpId = std::size_t;
 
 struct FileState {
     std::mutex              m;        // per-file mutex
     std::once_flag          loaded;   // load-once guard
-    std::unordered_set<id_t> seen;    // known IDs
+    std::unordered_set<DebugDumpId> seen; // known IDs
     fs::path                path;     // full path (normalized)
 };
 
@@ -75,7 +75,7 @@ inline std::string pos_to_string(float x, float y, float z) {
 // Returns true if written, false if skipped or on error.
 inline bool append_unique(std::string_view relativePath,
     std::string_view npcName,
-    id_t instanceId,
+    DebugDumpId instanceId,
     float x, float y, float z)
 {
     fs::path full = fs::current_path() / fs::path(relativePath);

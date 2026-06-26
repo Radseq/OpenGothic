@@ -579,6 +579,70 @@ void Inventory::clear(GameScript& vm, Interactive& owner, bool includeMissionItm
   items = std::move(used); // Gothic don't clear items, which are in use
   }
 
+void Inventory::resetForPersistence(Npc& owner) {
+  auto clearEquipment = [&](Item*& slot) {
+    if(slot==nullptr)
+      return;
+    applyArmor(*slot, owner, -1);
+    if(&slot==active)
+      applyWeaponStats(owner, *slot, -1);
+    slot->setAsEquipped(false);
+    slot = nullptr;
+    };
+
+  clearEquipment(armor);
+  clearEquipment(belt);
+  clearEquipment(amulet);
+  clearEquipment(ringL);
+  clearEquipment(ringR);
+  clearEquipment(melee);
+  clearEquipment(range);
+  clearEquipment(shield);
+  for(auto& slot : numslot)
+    clearEquipment(slot);
+  active = nullptr;
+
+  for(const auto& slot : mdlSlots)
+    owner.clearSlotItem(slot.slot);
+  mdlSlots.clear();
+  if(!ammotSlot.slot.empty())
+    owner.setAmmoItem(MeshObjects::Mesh(), ammotSlot.slot);
+  if(!stateSlot.slot.empty())
+    owner.setStateItem(MeshObjects::Mesh(), stateSlot.slot);
+  ammotSlot = {};
+  stateSlot = {};
+  curItem = 0;
+  stateItem = 0;
+  items.clear();
+  sorted = false;
+
+  owner.setSword(MeshObjects::Mesh());
+  owner.setRangedWeapon(MeshObjects::Mesh());
+  owner.setShield(MeshObjects::Mesh());
+  owner.updateArmor();
+  }
+
+void Inventory::resetForPersistence(Interactive&) {
+  items.clear();
+  sorted = false;
+  armor = nullptr;
+  belt = nullptr;
+  amulet = nullptr;
+  ringL = nullptr;
+  ringR = nullptr;
+  active = nullptr;
+  melee = nullptr;
+  range = nullptr;
+  shield = nullptr;
+  for(auto& slot : numslot)
+    slot = nullptr;
+  mdlSlots.clear();
+  ammotSlot = {};
+  stateSlot = {};
+  curItem = 0;
+  stateItem = 0;
+  }
+
 bool Inventory::hasSpell(int32_t splId) const {
   for(auto& i:items)
     if(i->spellId()==splId)
@@ -1107,5 +1171,4 @@ Item *Inventory::readPtr(Serialize &fin) {
     return items[v].get();
   return nullptr;
   }
-
 

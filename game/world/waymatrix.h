@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <functional>
+#include <string_view>
 
 #include "waypath.h"
 #include "waypoint.h"
@@ -32,6 +33,8 @@ class WayMatrix final {
     const WayPoint* findWayPoint(std::string_view name) const;
     const WayPoint* findPoint(std::string_view name, bool inexact) const;
     void            marchPoints(DbgPainter& p) const;
+    void            forEachPoint(const std::function<void(const WayPoint&, size_t, std::string_view)>& f) const;
+    void            forEachEdge (const std::function<void(const WayPoint&, size_t, const WayPoint&, size_t, int32_t)>& f) const;
 
     WayPath         wayTo(const WayPoint** begin, size_t beginSz, const Tempest::Vec3 exactBegin, const WayPoint& end) const;
 

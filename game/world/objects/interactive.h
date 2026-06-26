@@ -57,6 +57,7 @@ class Interactive : public Vob {
     int32_t             stateId() const { return state; }
     int32_t             stateCount() const { return stateNum; }
     bool                setMobState(std::string_view scheme,int32_t st) override;
+    void                restorePersistentState(int32_t state, bool locked, bool cracked);
     void                emitTriggerEvent(TriggerEvent::Type type) const;
     void                emitSoundEffect(std::string_view sound, float range, bool freeSlot);
     std::string_view    schemeName() const;

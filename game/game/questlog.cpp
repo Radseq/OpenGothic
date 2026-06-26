@@ -27,6 +27,10 @@ void QuestLog::addEntry(std::string_view name, std::string_view entry) {
     m->entry.emplace_back(entry);
   }
 
+void QuestLog::replace(std::vector<Quest> next) {
+  quests = std::move(next);
+  }
+
 QuestLog::Quest *QuestLog::find(std::string_view name) {
   for(auto& i:quests)
     if(i.name==name)

@@ -1061,7 +1061,7 @@ void MainWindow::loadGame(std::string_view slot) {
     game = nullptr; // clear world-memory now
     Tempest::RFile file(slot);
     Serialize      s(file);
-    std::unique_ptr<GameSession> w(new GameSession(s));
+    std::unique_ptr<GameSession> w(new GameSession(s, slot));
     return w;
     });
 
@@ -1110,6 +1110,7 @@ void MainWindow::saveGame(std::string_view slot, std::string_view name) {
     Tempest::WFile f(slot);
     Serialize      s(f);
     game->save(s,name,pm);
+    game->recordMmoSaveSlot(slot, name);
     if(!CommandLine::inst().dumpSaveWorld().empty())
       WorldStateExporter::exportSaveState(*game, CommandLine::inst().dumpSaveWorld());
 

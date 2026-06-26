@@ -1,5 +1,7 @@
 #include "npc.h"
 
+#include <algorithm>
+
 #include <Tempest/Matrix4x4>
 #include <Tempest/Log>
 
@@ -206,6 +208,55 @@ Npc::~Npc(){
     currentInteract->detach(*this,true);
   }
 
+void Npc::restorePersistentState(const PersistentState& state) {
+  hnpc->guild = state.guild;
+  setTrueGuild(state.trueGuild);
+  hnpc->level = std::max(0, state.level);
+  hnpc->exp   = std::max(0, state.experience);
+  hnpc->exp_next = std::max(0, state.experienceNext);
+  hnpc->lp       = std::max(0, state.learningPoints);
+  if(state.permanentAttitude>=ATT_NULL && state.permanentAttitude<=ATT_FRIENDLY)
+    setAttitude(Attitude(state.permanentAttitude));
+  if(state.temporaryAttitude>=ATT_NULL && state.temporaryAttitude<=ATT_FRIENDLY)
+    setTempAttitude(Attitude(state.temporaryAttitude));
+
+  for(size_t i=0; i<state.attributes.size(); ++i)
+    hnpc->attribute[i] = std::max(0, state.attributes[i]);
+  for(size_t i=0; i<state.protections.size(); ++i)
+    hnpc->protection[i] = state.protections[i];
+  for(size_t i=0; i<state.talentSkills.size(); ++i) {
+    setTalentSkill(Talent(i), state.talentSkills[i]);
+    setTalentValue(Talent(i), state.talentValues[i]);
+    if(i<=zenkit::INpc::hitchance_count)
+      hnpc->hitchance[i] = state.hitChances[i];
+    }
+  for(size_t i=0; i<state.missions.size(); ++i)
+    hnpc->mission[i] = state.missions[i];
+  for(size_t i=0; i<state.aiVariables.size(); ++i)
+    hnpc->aivar[i] = state.aiVariables[i];
+
+  if(state.dead) {
+    hnpc->attribute[ATR_HITPOINTS] = 0;
+    if(!isDead())
+      onNoHealth(true, HS_NoSound);
+    }
+  }
+
+void Npc::restorePersistentInventory(const std::vector<PersistentInventoryItem>& next) {
+  invent.resetForPersistence(*this);
+  for(const auto& item : next) {
+    if(item.instanceSymbol==size_t(-1) || item.count==0)
+      continue;
+    invent.addItem(item.instanceSymbol, item.count, owner);
+    }
+  for(const auto& item : next) {
+    if(!item.equipped || item.instanceSymbol==size_t(-1))
+      continue;
+    invent.equip(item.instanceSymbol, *this, true);
+    }
+  invent.updateView(*this);
+  }
+
 void Npc::save(Serialize &fout, size_t id, std::string_view directory) {
   fout.setEntry("worlds/",fout.worldName(),directory,id,"/data");
   fout.write(*hnpc);
@@ -265,12 +316,12 @@ void Npc::save(Serialize &fout, size_t id, std::string_view directory) {
 #include <memory>
 
 namespace fs = std::filesystem;
-using id_t = std::size_t;
+using DebugDumpId = std::size_t;
 
 struct FileState {
     std::mutex              m;        // per-file mutex
     std::once_flag          loaded;   // load-once guard
-    std::unordered_set<id_t> seen;    // known IDs
+    std::unordered_set<DebugDumpId> seen; // known IDs
     fs::path                path;     // full path (normalized)
 };
 
@@ -308,7 +359,7 @@ inline std::string pos_to_string(float x, float y, float z) {
 // Returns true if written, false if skipped or on error.
 inline bool append_unique(std::string_view relativePath,
     std::string_view npcName,
-    id_t instanceId,
+    DebugDumpId instanceId,
     float x, float y, float z)
 {
     fs::path full = fs::current_path() / fs::path(relativePath);
@@ -393,16 +444,6 @@ void Npc::load(Serialize &fin, size_t id, std::string_view directory) {
     fin.read(i.func);
 
   //if(owner.id)
-
-  if (hnpc->name[0] == std::string("Xardas")|| 
-      hnpc->name[1] == std::string("Xardas")|| 
-      hnpc->name[2] == std::string("Xardas")|| 
-      hnpc->name[3] == std::string("Xardas")|| 
-      hnpc->name[4] == std::string("Xardas")||
-      hnpc->name[5] == std::string("Xardas")) {
-      auto a = 10;
-
-  }
 
   // extra state
   fin.read(lastHitType,lastHitSpell);
@@ -3406,6 +3447,23 @@ const WayPoint* Npc::currentTaPoint() const {
   if(routines.empty())
     return owner.findPoint(hnpc->wp,false);
   return currentRoutine(true).point;
+  }
+
+auto Npc::routineSnapshot() const -> std::vector<RoutineSnapshot> {
+  std::vector<RoutineSnapshot> ret;
+  ret.reserve(routines.size());
+  const Routine* active = &currentRoutine(true);
+  for(auto& r:routines) {
+    RoutineSnapshot row;
+    row.start    = r.start;
+    row.end      = r.end;
+    row.callback = r.callback;
+    row.point    = r.point;
+    row.waypoint = r.wayPointName();
+    row.active   = active==&r;
+    ret.push_back(row);
+    }
+  return ret;
   }
 
 gtime Npc::endTime(const Npc::Routine &r) const {

@@ -2,8 +2,8 @@
 
 ## Start Here
 
-1. Przeczytaj `llm/task-brief.md`.
-2. Przeczytaj `llm/code-map.md`.
+1. Przeczytaj `docs/llm/legacy/task-brief.md`.
+2. Przeczytaj `docs/llm/legacy/code-map.md`.
 3. Sprawdz aktualny `git status`.
 4. Nie usuwaj lokalnych zmian uzytkownika.
 5. Zanim edytujesz save/load, znajdz dokladne miejsca przez `rg`.
@@ -214,6 +214,7 @@ CLI:
 -mmo-sqlite <path>
 -mmo-sqlite-interval-ms <ms>
 -mmo-sqlite-no-restore
+-mmo-sqlite-capture-baseline
 ```
 
 Przyklad Windows CMD:
@@ -221,6 +222,8 @@ Przyklad Windows CMD:
 ```cmd
 build\opengothic\Debug\Gothic2Notr.exe -g "C:\Program Files (x86)\Steam\steamapps\common\Gothic II" -g2 -nomenu -mmo-sqlite runtime\g2notr.sqlite -mmo-sqlite-interval-ms 5000
 ```
+
+`-mmo-sqlite-capture-baseline` nalezy podac tylko przy pierwszym uruchomieniu nowej bazy i nowej gry. Runtime odrzuca capture, jesli baza ma wiecej niz jedna sesje, aby stary save nie stal sie przypadkowym world template.
 
 Aktualne tabele:
 

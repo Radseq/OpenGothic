@@ -3,6 +3,7 @@
 #include <Tempest/Sound>
 #include <Tempest/SoundDevice>
 #include <memory>
+#include <string>
 
 #include "game/gamescript.h"
 #include "camera.h"
@@ -26,10 +27,11 @@ class GameSession final {
     GameSession()=delete;
     GameSession(const GameSession&)=delete;
     GameSession(std::string file);
-    GameSession(Serialize&  fin);
+    GameSession(Serialize&  fin, std::string sourceSlot = {});
     ~GameSession();
 
     void         save(Serialize& fout, std::string_view name, const Tempest::Pixmap &screen);
+    void         recordMmoSaveSlot(std::string_view slotPath, std::string_view displayName);
     void         setupSettings();
 
     void         setWorld(std::unique_ptr<World> &&w);

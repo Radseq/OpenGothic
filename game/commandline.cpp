@@ -88,11 +88,15 @@ CommandLine::CommandLine(int argc, const char** argv) {
         dumpSave = argv[i];
       }
     else if(arg=="-mmo-sqlite") {
+      // Enables local MMO persistence. The path identifies the SQLite database
+      // opened after the world loads; it is used for capture and DB restore.
       ++i;
       if(i<argc)
         mmoSqliteDb = argv[i];
       }
     else if(arg=="-mmo-sqlite-interval-ms") {
+      // Sets the minimum interval for incremental delta flushes. This does not
+      // rebuild the canonical MMO projection; 250 ms prevents accidental I/O abuse.
       ++i;
       if(i<argc) {
         try {
@@ -104,7 +108,14 @@ CommandLine::CommandLine(int argc, const char** argv) {
         }
       }
     else if(arg=="-mmo-sqlite-no-restore") {
+      // Capture-only mode: writes the current session to SQLite but leaves the
+      // world loaded from the regular save/New Game untouched by DB restore.
       mmoSqliteRestoreState = false;
+      }
+    else if(arg=="-mmo-sqlite-capture-baseline") {
+      // Creates the immutable MMO world baseline from a deterministic New Game.
+      // It is valid only for the first session of a fresh database, never a save.
+      mmoSqliteCaptureBaselineState = true;
       }
     else if(arg=="-window") {
       isWindow = true;

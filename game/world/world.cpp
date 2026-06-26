@@ -34,12 +34,12 @@
 #include <memory>
 
 namespace fs = std::filesystem;
-using id_t = std::size_t;
+using DebugDumpId = std::size_t;
 
 struct FileState {
     std::mutex              m;        // per-file mutex
     std::once_flag          loaded;   // load-once guard
-    std::unordered_set<id_t> seen;    // known IDs
+    std::unordered_set<DebugDumpId> seen; // known IDs
     fs::path                path;     // full path (normalized)
 };
 
@@ -1102,6 +1102,16 @@ const WayPoint& World::startPoint() const {
 
 const WayPoint& World::deadPoint() const {
   return wmatrix->deadPoint();
+  }
+
+void World::forEachWayPoint(const std::function<void(const WayPoint&, size_t, std::string_view)>& f) const {
+  if(wmatrix!=nullptr)
+    wmatrix->forEachPoint(f);
+  }
+
+void World::forEachWayEdge(const std::function<void(const WayPoint&, size_t, const WayPoint&, size_t, int32_t)>& f) const {
+  if(wmatrix!=nullptr)
+    wmatrix->forEachEdge(f);
   }
 
 void World::detectNpcNear(std::function<void (Npc &)> f) {

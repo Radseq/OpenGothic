@@ -191,6 +191,25 @@ void WayMatrix::marchPoints(DbgPainter &p) const {
     }
   }
 
+void WayMatrix::forEachPoint(const std::function<void(const WayPoint&, size_t, std::string_view)>& f) const {
+  for(size_t i=0; i<wayPoints.size(); ++i)
+    f(wayPoints[i], i, "waypoint");
+  for(size_t i=0; i<freePoints.size(); ++i)
+    f(freePoints[i], i, "freepoint");
+  for(size_t i=0; i<startPoints.size(); ++i)
+    f(startPoints[i], i, "startpoint");
+  }
+
+void WayMatrix::forEachEdge(const std::function<void(const WayPoint&, size_t, const WayPoint&, size_t, int32_t)>& f) const {
+  for(auto& e:edges) {
+    if(e.a>=wayPoints.size() || e.b>=wayPoints.size() || e.a==e.b)
+      continue;
+    auto& a = wayPoints[e.a];
+    auto& b = wayPoints[e.b];
+    f(a, e.a, b, e.b, int32_t(std::sqrt(a.qDistTo(b.pos))));
+    }
+  }
+
 void WayMatrix::adjustWaypoints(std::vector<WayPoint> &wp) {
   for(auto& w:wp) {
     auto ray = world.physic()->landRay(w.position());

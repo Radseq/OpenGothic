@@ -53,6 +53,7 @@ class CommandLine {
     std::string_view    mmoSqlite()        const { return mmoSqliteDb;   }
     uint64_t            mmoSqliteIntervalMs() const { return mmoSqliteInterval; }
     bool                mmoSqliteRestore() const { return mmoSqliteRestoreState; }
+    bool                mmoSqliteCaptureBaseline() const { return mmoSqliteCaptureBaselineState; }
 
     std::string         wrldDef;
 
@@ -69,6 +70,7 @@ class CommandLine {
     std::string         mmoSqliteDb;
     uint64_t            mmoSqliteInterval = 5000;
     bool                mmoSqliteRestoreState = true;
+    bool                mmoSqliteCaptureBaselineState = false;
     bool                devmode      = false;
     bool                noMenu       = false;
     Benchmark           isBenchmark  = Benchmark::None;
@@ -90,4 +92,3 @@ class CommandLine {
     bool                forceG2NR    = false;
     uint32_t            aaPresetId = 0;
   };
-

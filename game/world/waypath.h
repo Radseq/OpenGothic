@@ -19,6 +19,7 @@ class WayPath final {
     const WayPoint* pop();
     const WayPoint* first() const;
     const WayPoint* last()  const;
+    size_t          size()  const { return dat.size(); }
 
   private:
     std::vector<const WayPoint*> dat;

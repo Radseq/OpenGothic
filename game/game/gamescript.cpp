@@ -1,5 +1,7 @@
 #include "gamescript.h"
 
+#include <utility>
+
 #include <Tempest/Log>
 #include <Tempest/SoundEffect>
 
@@ -65,12 +67,12 @@ struct ScopeCtx final {
 #include <memory>
 
 namespace fs = std::filesystem;
-using id_t = std::size_t;
+using DebugDumpId = std::size_t;
 
 struct FileState {
     std::mutex              m;        // per-file mutex
     std::once_flag          loaded;   // load-once guard
-    std::unordered_set<id_t> seen;    // known IDs
+    std::unordered_set<DebugDumpId> seen; // known IDs
     fs::path                path;     // full path (normalized)
 };
 
@@ -108,7 +110,7 @@ inline std::string pos_to_string(float x, float y, float z) {
 // Returns true if written, false if skipped or on error.
 inline bool append_unique(std::string_view relativePath,
     std::string_view npcName,
-    id_t instanceId,
+    DebugDumpId instanceId,
     float x, float y, float z, bool withInstanceIdCheck = false)
 {
     fs::path full = fs::current_path() / fs::path(relativePath);
@@ -136,7 +138,7 @@ inline bool append_unique(std::string_view relativePath,
                     if (p2 == std::string::npos) continue;
 
                     std::string_view id_sv{ line.data() + p1 + 1, p2 - (p1 + 1) };
-                    id_t parsed{};
+                    DebugDumpId parsed{};
                     if (std::from_chars(id_sv.data(), id_sv.data() + id_sv.size(), parsed).ec == std::errc{}) {
                         st.seen.insert(parsed);
                     }
@@ -809,6 +811,58 @@ void GameScript::resetVarPointers() {
 
 const QuestLog& GameScript::questLog() const {
   return quests;
+  }
+
+void GameScript::restoreQuestLogForPersistence(std::vector<QuestLog::Quest> next) {
+  quests.replace(std::move(next));
+  }
+
+void GameScript::restoreKnownDialogsForPersistence(std::set<std::pair<size_t,size_t>> dialogs) {
+  dlgKnownInfos = std::move(dialogs);
+  }
+
+bool GameScript::restoreGlobalIntForPersistence(size_t symbolIndex, uint16_t valueIndex, int32_t value) {
+  auto* symbol = findSymbol(symbolIndex);
+  if(symbol==nullptr || symbol->is_member() || symbol->is_const() ||
+     symbol->type()!=zenkit::DaedalusDataType::INT || valueIndex>=symbol->count())
+    return false;
+  symbol->set_int(value, valueIndex);
+  return true;
+  }
+
+bool GameScript::restoreGlobalFloatForPersistence(size_t symbolIndex, uint16_t valueIndex, float value) {
+  auto* symbol = findSymbol(symbolIndex);
+  if(symbol==nullptr || symbol->is_member() || symbol->is_const() ||
+     symbol->type()!=zenkit::DaedalusDataType::FLOAT || valueIndex>=symbol->count())
+    return false;
+  symbol->set_float(value, valueIndex);
+  return true;
+  }
+
+bool GameScript::restoreGlobalStringForPersistence(size_t symbolIndex, uint16_t valueIndex, std::string_view value) {
+  auto* symbol = findSymbol(symbolIndex);
+  if(symbol==nullptr || symbol->is_member() || symbol->is_const() ||
+     symbol->type()!=zenkit::DaedalusDataType::STRING || valueIndex>=symbol->count())
+    return false;
+  symbol->set_string(value, valueIndex);
+  return true;
+  }
+
+size_t GameScript::guildCountForPersistence() const {
+  return gilCount;
+  }
+
+int32_t GameScript::guildAttitudeForPersistence(size_t fromGuild, size_t toGuild) const {
+  if(fromGuild>=gilCount || toGuild>=gilCount)
+    return ATT_HOSTILE;
+  return gilAttitudes[fromGuild*gilCount + toGuild];
+  }
+
+bool GameScript::restoreGuildAttitudeForPersistence(size_t fromGuild, size_t toGuild, int32_t value) {
+  if(fromGuild>=gilCount || toGuild>=gilCount)
+    return false;
+  gilAttitudes[fromGuild*gilCount + toGuild] = value;
+  return true;
   }
 
 void GameScript::saveSym(Serialize &fout, zenkit::DaedalusSymbol& i) {

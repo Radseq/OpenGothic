@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <utility>
 
 class Serialize;
 
@@ -33,6 +34,7 @@ class QuestLog final {
     Quest& add      (std::string_view name, Section s);
     void   setStatus(std::string_view name, Status  s);
     void   addEntry (std::string_view name, std::string_view entry);
+    void   replace  (std::vector<Quest> quests);
 
     void   save(Serialize &fout);
     void   load(Serialize &fin);

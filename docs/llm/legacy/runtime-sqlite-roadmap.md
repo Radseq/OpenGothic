@@ -27,6 +27,7 @@ CLI:
 -mmo-sqlite <path>
 -mmo-sqlite-interval-ms <ms>
 -mmo-sqlite-no-restore
+-mmo-sqlite-capture-baseline
 ```
 
 Zakres:
@@ -99,7 +100,7 @@ Po wykryciu tych plikow CMake linkuje `sqlite3.lib` i kopiuje `sqlite3.dll` obok
 
 ## Phase R1: Runtime Inventory
 
-Status: pierwszy runtime snapshot inventory zaimplementowany.
+Status: current-state i restore inventory/equipment zaimplementowane.
 
 Zapisuje do SQLite:
 
@@ -113,13 +114,9 @@ Zapisuje do SQLite:
 Jeszcze do zrobienia:
 
 - runtime eventy itemow: pick/drop/use/buy/sell/equip/unequip
-- restore inventory przy starcie sesji
-- rozdzielenie durable item instance vs stack policy
+- rozdzielenie durable item instance vs stack policy dla przyszlego serwera sieciowego
 
-Odczytywac z SQLite:
-
-- inventory postaci przy starcie sesji
-- equipped items
+Odczyt z SQLite przy starcie sesji odtwarza caly snapshot inventory i equipment przez API `Npc`/`Inventory`, a potem naklada canonical stat sheet, zeby bonusy przedmiotow nie dublowaly atrybutow.
 
 Wazne: nie przepisywac jeszcze calego inventory Gothica na sile. Najpierw current-state snapshot + historia + walidacja roznic.
 
@@ -163,8 +160,16 @@ SQLite runtime utrzymuje teraz:
 
 - current-state wszystkich NPC/mobow w `runtime_world_npcs`
 - changed-history NPC/mobow w `runtime_world_npc_history`
-- atrybuty/protekcje/talenty NPC i gracza w `runtime_npc_stats`
+- atrybuty/protekcje/talenty, progression (XP threshold/LP), nastawienie oraz kompletne `MISSION[]`/`AIVAR[]` NPC/gracza w `runtime_npc_stats`
 - historia zmian atrybutow/protekcji/talentow w `runtime_npc_stat_history`
+- produkcyjny katalog statow w `mmo_stat_definitions`
+- produkcyjny stat model w `v_mmo_unit_stats`, `v_mmo_unit_stat_sheet`, `v_mmo_character_stat_sheet`, `v_mmo_creature_templates`, `v_mmo_creature_spawns`
+- materializowany produkcyjny current-state w `mmo_unit_stat_current`, `mmo_unit_stat_sheet_current`, `mmo_creature_templates_current`, `mmo_creature_spawns_current` od schema `14`
+- od schema `15` physical canonical tables dla postaci, inventory, questow, dialogow, itemow swiata, mobsi, inventory kontenerow, globali skryptowych i nastawien gildii
+- od schema `16` dokladny clock swiata oraz inventory wszystkich NPC, z osobnym snapshot markerem dla pustych inventory
+- od schema `17` canonical checkpoint relacji follow/escort z targetem, `other`/`victim`, stanem Daedalusa i elapsed state time
+- od schema `18` immutable `mmo_world_baseline_*`, `mmo_world_templates` i `mmo_world_instances`, z widokami delta dla NPC, itemow, interaktywnych obiektow i globali
+- od schema `19` `runtime_npc_stat_capture_state`: dokladny podpis calego komponentu statow per NPC, ktory ogranicza odczyt/zapis 200k EAV rows do NPC faktycznie zmienionych od ostatniego flushu
 - aktualne AI state/target/follow relations w `runtime_npc_ai_state`
 - historia zmian AI state/target/follow relations w `runtime_npc_ai_history`
 - widoki `v_runtime_npc_character_sheet`, `v_runtime_player_stats`, `v_runtime_npc_follow_relations`
@@ -173,10 +178,13 @@ SQLite runtime utrzymuje teraz:
 - current-state mobsi/interactives w `runtime_world_mobsi`
 - changed-history mobsi/interactives w `runtime_world_mobsi_history`
 - inventory kontenerow/mobsi w `runtime_world_mobsi_inventory`
-- current-state globali Daedalusa w `runtime_script_globals`
+- current-state globali Daedalusa w `runtime_script_globals` oraz typowane wartosci tablic w `runtime_script_global_values`
 - changed-history globali Daedalusa w `runtime_script_global_history`
+- macierz nastawien gildii w `runtime_guild_attitudes`
 - lokalny realm/account binding w `runtime_realms`, `runtime_accounts`, `runtime_character_bindings`
 - widoki do czytania bazy jak backend MMO, bez recznego skladania raw tabel
+- `v_mmo_world_entity_directory` z czytelnym, stabilnym `entity_ref`, krotszym `short_id` i nazwa swiata dla narzedzi; `engine_key` pozostaje kluczem wewnetrznym restore
+- kontrakt produkcyjny w widokach `v_mmo_*` od schema `12`
 - quest log w `runtime_quests` i `runtime_quest_history`
 - znane/wybrane dialogi w `runtime_known_dialogs`
 - katalog dialogow ze skryptow w `runtime_dialog_catalog`
@@ -209,19 +217,41 @@ Semantyka escort/follow/target:
 - `runtime_npc_ai_state.target_key` zapisuje aktualny target NPC.
 - `relation_kind='following_target'` oznacza state z nazwa zawierajaca `follow`.
 - `relation_kind='escort_or_guide'` oznacza state z nazwa zawierajaca `escort` albo `guide`.
+- State typu `ZS_GUIDE_PLAYER` sa traktowane jako relacja z graczem nawet wtedy, kiedy silnik nie trzyma jawnego `target_key`.
 - `relation_kind='talking_to_target'` i `attacking_target` sa rozpoznawane po nazwie AI state.
 - Dla questow eskortowych trzeba korelowac `v_runtime_npc_follow_relations` z `runtime_quests`, `runtime_quest_history` i `runtime_script_globals` kategorii `quest`.
-- Jesli HERO ma target NPC, albo NPC ma target HERO, to baza ma juz material do odtworzenia relacji, ale docelowo trzeba dodac dedykowane server-side party/escort objective state.
+- Schema `17` zapisuje tylko bezpieczne relacje `following_target` i `escort_or_guide` w `mmo_creature_relations_current`; przy restore odtwarza referencje i uruchamia zweryfikowany Daedalus state bez kolejki AI/pathfindingu.
+- Docelowy serwer nadal potrzebuje wlasnego party/escort objective state, niezaleznego od lokalnego Daedalusa.
+
+Semantyka kontraktu `v_mmo_*`:
+
+- `v_mmo_character_current`, `v_mmo_character_stats`, `v_mmo_character_inventory`, `v_mmo_character_quests`, `v_mmo_character_known_dialogs` to character-scoped state.
+- `v_mmo_character_stats` to nadal znormalizowane stat rows, ale z metadanymi z `mmo_stat_definitions`; do normalnego czytania postaci uzywac `v_mmo_character_stat_sheet`.
+- `v_mmo_unit_stat_sheet` to szeroki profil unit/creature/character: health/mana, primary attributes, resistances, weapon skills, hit chances i kluczowe talents; normalizowane rows obejmuja tez progression (XP threshold/LP), stale/tymczasowe nastawienie oraz `MISSION[]`/`AIVAR[]` potrzebne przez logike Daedalusa.
+- `v_mmo_creature_templates` oddziela content/template NPC od konkretnych spawnów w `v_mmo_creature_spawns`, podobnie do baz MMO.
+- Widoki `v_mmo_*` sa publiczna projekcja i narzedzie audytu. Docelowy current-state serwera powinien czytac fizyczne tabele `mmo_*_current`, bo sa stabilne, indeksowane i nie wymagaja przeliczania JOIN/agregacji przy kazdym zapytaniu.
+- Tabele `mmo_unit_stat_current` i `mmo_unit_stat_sheet_current` sa materializowane z raw `runtime_npc_stats`/`runtime_world_npcs`; `runtime_npc_stats` pozostaje techniczny import EAV z silnika, nie docelowy model gameplay.
+- `v_mmo_world_entities`, `v_mmo_world_items`, `v_mmo_world_interactives`, `v_mmo_world_container_inventory`, `v_mmo_world_script_state` to world/current checkpoint lub persistent delta.
+- `v_mmo_waypoint_graph` i `v_mmo_npc_routines` to content/navigation/schedule projection przydatna dla serwera.
+- `v_mmo_npc_relations` i `v_mmo_runtime_npc_navigation` to runtime checkpoint/transient diagnostics; fizyczne `mmo_creature_relations_current` obejmuje wylacznie bezpieczny follow/escort restore, a zadna z tych projekcji nie jest docelowa prawda MMO tick po ticku.
+- `v_mmo_event_journal` to server-facing event ledger nad `runtime_events`.
+- `mmo_world_templates` i `mmo_world_baseline_*` sa niemutowalnym punktem odniesienia contentu; `mmo_world_instances` identyfikuje lokalny shard, a `v_mmo_world_*_deltas` pokazuje durable roznice wzgledem baseline.
+- `v_mmo_restore_readiness` pokazuje, ktore obszary sa tylko zbierane, a ktore sa juz wstrzykiwane do silnika przy starcie.
+- Restore z DB dla tego samego swiata jest zaimplementowany dla HERO (transform, progression, full stat sheet, inventory/equipment), questow, znanych dialogow, typed globali Daedalusa, nastawien gildii, dokladnego clocka swiata, NPC checkpointow wraz z inventory, relacji follow/escort, itemow swiata wraz z tombstonami, mobsi oraz inventory kontenerow.
+- Nie odtwarzamy aktywnych kolejek AI, polsciezki ruchu ani animacji w trakcie ticka. Sa transient runtime state i po starcie AI/routines przejmuja sterowanie w bezpiecznym punkcie.
+- Inventory zwyklych NPC jest zapisywane od schema `16`; pierwszy start po migracji tylko je zbiera, a restore zaczyna korzystac z niego przy kolejnym uruchomieniu. To chroni domyslne inventory przed zinterpretowaniem pustej tabeli migracyjnej jako prawdziwego stanu.
+- Follow/escort checkpoint jest zapisywany od schema `17`; pierwszy start tylko go zbiera, a restore zaczyna z niego korzystac przy kolejnym uruchomieniu.
+- Baseline schema `18` jest tworzony tylko po podaniu `-mmo-sqlite-capture-baseline` w pierwszej sesji nowej DB. Flaga nie capture'uje starego save'a, bo capture jest blokowany, gdy runtime ma juz wiecej niz jedna sesje.
+- Schema `19` nie traktuje widokow jako optymalizacji. Jest to zmiana write path: runtime flush nie kasuje i nie buduje od nowa wysokokardynalnych tabel. Stale content jest zapisywany na pelnym bootstrapie, a runtime przeprowadza update/delete tylko dla zmienionych NPC, itemow, interaktywnych obiektow, inventory, globali, AI i nawigacji.
+- Przy migracji z schema `14` wartosci globali i nastawienia gildii zaczynaja sie od pierwszego flush schema `15`; pozostale canonical tabele bootstrapuja sie z istniejacego `runtime_*`.
 
 Jeszcze do zrobienia:
 
-- killed unique NPCs
-- restore removed/spawned world items
-- restore container inventory
-- restore mobsi/interactable state
+- trwała semantyka despawnu/spawnu NPC poza checkpointem aktualnych spawnów
+- dynamiczne durable item instances oraz rozroznienie spawn/despawn NPC poza checkpointem
 - bezpieczny evaluator widocznosci dialogow po condition functions bez skutkow ubocznych
 - klasyfikacja, ktore globale sa server-authoritative, a ktore tylko local/runtime noise
-- world script state subset
+- serwerowy ownership/locking i konfliktowanie zmian wielu graczy
 
 Przy starcie gry trzeba wstrzyknac te zmiany do swiata po zaladowaniu baseline/save.
 

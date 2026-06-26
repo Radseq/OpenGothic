@@ -1,5 +1,7 @@
 #include "interactive.h"
 
+#include <algorithm>
+
 #include <Tempest/Painter>
 #include <Tempest/Log>
 
@@ -501,6 +503,19 @@ bool Interactive::setMobState(std::string_view scheme, int32_t st) {
     return ret;
     }
   return false;
+  }
+
+void Interactive::restorePersistentState(int32_t nextState, bool nextLocked, bool nextCracked) {
+  locked = nextLocked;
+  isLockCracked = nextCracked;
+  if(nextState<0) {
+    setState(nextState);
+    reverseState = false;
+    loopState = false;
+    return;
+    }
+  nextState = std::clamp(nextState, 0, stateNum);
+  resetPositionToTA(nextState);
   }
 
 void Interactive::invokeStateFunc(Npc& npc) {

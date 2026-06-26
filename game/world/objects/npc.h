@@ -14,8 +14,11 @@
 #include "world/fplock.h"
 #include "world/waypath.h"
 
+#include <array>
 #include <cstdint>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <zenkit/addon/daedalus.hh>
 
@@ -74,9 +77,37 @@ class Npc final {
 
     using Anim = AnimationSolver::Anim;
 
+    struct PersistentState final {
+      std::array<int32_t, ATR_MAX>       attributes = {};
+      std::array<int32_t, PROT_MAX>      protections = {};
+      std::array<int32_t, TALENT_MAX_G2> talentSkills = {};
+      std::array<int32_t, TALENT_MAX_G2> talentValues = {};
+      std::array<int32_t, TALENT_MAX_G2> hitChances = {};
+      std::array<int32_t, zenkit::INpc::mission_count> missions = {};
+      std::array<int32_t, zenkit::INpc::aivar_count> aiVariables = {};
+      int32_t                            guild = 0;
+      int32_t                            trueGuild = 0;
+      int32_t                            level = 0;
+      int32_t                            experience = 0;
+      int32_t                            experienceNext = 0;
+      int32_t                            learningPoints = 0;
+      int32_t                            permanentAttitude = ATT_NULL;
+      int32_t                            temporaryAttitude = ATT_NULL;
+      bool                               dead = false;
+      };
+
+    struct PersistentInventoryItem final {
+      size_t instanceSymbol = size_t(-1);
+      size_t count = 0;
+      bool   equipped = false;
+      };
+
     Npc(World &owner, size_t instance, std::string_view waypoint, NpcProcessPolicy aiPolicy = NpcProcessPolicy::AiNormal);
     Npc(const Npc&)=delete;
     ~Npc();
+
+    void       restorePersistentState(const PersistentState& state);
+    void       restorePersistentInventory(const std::vector<PersistentInventoryItem>& items);
 
     void       save(Serialize& fout, size_t id, std::string_view directory);
     void       load(Serialize& fout, size_t id, std::string_view directory);
@@ -382,6 +413,19 @@ class Npc final {
 
     auto      currentWayPoint() const -> const WayPoint* { return currentFp; }
     auto      currentTaPoint() const -> const WayPoint*;
+    struct RoutineSnapshot final {
+      gtime            start;
+      gtime            end;
+      ScriptFn         callback;
+      const WayPoint*  point = nullptr;
+      std::string_view waypoint;
+      bool             active = false;
+      };
+    auto      routineSnapshot() const -> std::vector<RoutineSnapshot>;
+    auto      moveTargetWayPoint() const -> const WayPoint* { return go2.wp; }
+    auto      nextPathWayPoint() const -> const WayPoint* { return wayPath.first(); }
+    auto      finalPathWayPoint() const -> const WayPoint* { return wayPath.last(); }
+    size_t    remainingPathPointCount() const { return wayPath.size(); }
     void      attachToPoint(const WayPoint* p);
     GoToHint  moveHint() const { return go2.flag; }
     void      clearGoTo();
@@ -403,6 +447,8 @@ class Npc final {
     void      clearNearestEnemy();
     int32_t   lastHitSpellId() const { return lastHitSpell; }
 
+    Npc*      stateOther() const { return currentOther; }
+    Npc*      stateVictim() const { return currentVictim; }
     void      setOther(Npc* ot);
     void      setVictim(Npc* ot);
 

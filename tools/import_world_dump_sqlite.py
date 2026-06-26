@@ -571,38 +571,38 @@ def create_mmo_schema(db: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_mmo_replay_inventory_owner
           ON mmo_replay_inventory(import_run_id, world_instance_id, owner_scope, owner_stable_key);
 
-        CREATE VIEW IF NOT EXISTS v_mmo_event_counts AS
+        CREATE TEMP VIEW IF NOT EXISTS v_mmo_event_counts AS
           SELECT import_run_id, world_instance_id, event_class, event_type, COUNT(*) AS event_count
           FROM mmo_event_ledger
           GROUP BY import_run_id, world_instance_id, event_class, event_type;
 
-        CREATE VIEW IF NOT EXISTS v_mmo_player_inventory AS
+        CREATE TEMP VIEW IF NOT EXISTS v_mmo_player_inventory AS
           SELECT import_run_id, world_instance_id, owner_display_name, item_display_name,
                  item_name, amount, iterator_count, equipped, slot, item_stable_key
           FROM mmo_inventory
           WHERE owner_scope = 'character';
 
-        CREATE VIEW IF NOT EXISTS v_mmo_dead_npcs AS
+        CREATE TEMP VIEW IF NOT EXISTS v_mmo_dead_npcs AS
           SELECT import_run_id, world_instance_id, stable_key, display_name, persistent_id, hp
           FROM mmo_world_entities
           WHERE entity_type = 'npc' AND dead = 1;
 
-        CREATE VIEW IF NOT EXISTS v_mmo_delta_killed_npcs AS
+        CREATE TEMP VIEW IF NOT EXISTS v_mmo_delta_killed_npcs AS
           SELECT import_run_id, world_instance_id, event_index, stable_key, name, payload_json
           FROM mmo_event_ledger
           WHERE event_type = 'npc_killed';
 
-        CREATE VIEW IF NOT EXISTS v_mmo_replay_player_inventory AS
+        CREATE TEMP VIEW IF NOT EXISTS v_mmo_replay_player_inventory AS
           SELECT import_run_id, world_instance_id, owner_display_name, item_display_name,
                  item_name, amount, iterator_count, equipped, slot, item_stable_key
           FROM mmo_replay_inventory
           WHERE owner_scope = 'character';
 
-        CREATE VIEW IF NOT EXISTS v_mmo_replay_delta AS
+        CREATE TEMP VIEW IF NOT EXISTS v_mmo_replay_delta AS
           SELECT import_run_id, world_instance_id, metric, snapshot_count, replay_count, status
           FROM mmo_replay_validation;
 
-        CREATE VIEW IF NOT EXISTS v_mmo_replay_inventory_missing AS
+        CREATE TEMP VIEW IF NOT EXISTS v_mmo_replay_inventory_missing AS
           SELECT s.import_run_id, s.world_instance_id, s.owner_scope, s.owner_display_name,
                  s.item_display_name, s.item_name, s.amount, s.item_stable_key, s.source_file
           FROM mmo_inventory s
@@ -612,7 +612,7 @@ def create_mmo_schema(db: sqlite3.Connection) -> None:
            AND r.item_stable_key = s.item_stable_key
           WHERE r.id IS NULL;
 
-        CREATE VIEW IF NOT EXISTS v_mmo_replay_inventory_extra AS
+        CREATE TEMP VIEW IF NOT EXISTS v_mmo_replay_inventory_extra AS
           SELECT r.import_run_id, r.world_instance_id, r.owner_scope, r.owner_display_name,
                  r.item_display_name, r.item_name, r.amount, r.item_stable_key, r.source_file
           FROM mmo_replay_inventory r
@@ -622,7 +622,7 @@ def create_mmo_schema(db: sqlite3.Connection) -> None:
            AND s.item_stable_key = r.item_stable_key
           WHERE s.id IS NULL;
 
-        CREATE VIEW IF NOT EXISTS v_mmo_character_progress AS
+        CREATE TEMP VIEW IF NOT EXISTS v_mmo_character_progress AS
           SELECT c.import_run_id, c.world_instance_id, c.name, c.level, c.experience,
                  c.learning_points, c.hp, c.hp_max, c.mana, c.mana_max,
                  COUNT(DISTINCT q.stable_key) AS quest_count,

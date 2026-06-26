@@ -69,6 +69,8 @@ class World final {
 
     const WayPoint&      startPoint() const;
     const WayPoint&      deadPoint() const;
+    void                 forEachWayPoint(const std::function<void(const WayPoint&, size_t, std::string_view)>& f) const;
+    void                 forEachWayEdge (const std::function<void(const WayPoint&, size_t, const WayPoint&, size_t, int32_t)>& f) const;
 
     void                 detectNpcNear(std::function<void(Npc&)> f);
     void                 detectNpc (const Tempest::Vec3& p, const float r, const std::function<void(Npc&)>& f);

@@ -118,13 +118,15 @@ GameSession::GameSession(std::string file) {
   if(!CommandLine::inst().mmoSqlite().empty()) {
     mmoSqlite.reset(new MmoRuntimeSqlite(std::string(CommandLine::inst().mmoSqlite()),
                                          CommandLine::inst().mmoSqliteIntervalMs(),
-                                         CommandLine::inst().mmoSqliteRestore()));
+                                         CommandLine::inst().mmoSqliteRestore(),
+                                         CommandLine::inst().mmoSqliteCaptureBaseline(),
+                                         {}));
     mmoSqlite->open(*this);
     }
   // wrld->setDayTime(8,0);
   }
 
-GameSession::GameSession(Serialize &fin) {
+GameSession::GameSession(Serialize &fin, std::string sourceSlot) {
   Gothic::inst().setLoadingProgress(0);
   setupSettings();
 
@@ -179,7 +181,9 @@ GameSession::GameSession(Serialize &fin) {
   if(!CommandLine::inst().mmoSqlite().empty()) {
     mmoSqlite.reset(new MmoRuntimeSqlite(std::string(CommandLine::inst().mmoSqlite()),
                                          CommandLine::inst().mmoSqliteIntervalMs(),
-                                         CommandLine::inst().mmoSqliteRestore()));
+                                         CommandLine::inst().mmoSqliteRestore(),
+                                         CommandLine::inst().mmoSqliteCaptureBaseline(),
+                                         std::move(sourceSlot)));
     mmoSqlite->open(*this);
     }
   }
@@ -240,6 +244,11 @@ void GameSession::save(Serialize &fout, std::string_view name, const Pixmap& scr
   fout.setEntry("game/daedalus");
   vm->saveVar(fout);
   Gothic::inst().setLoadingProgress(80);
+  }
+
+void GameSession::recordMmoSaveSlot(std::string_view slotPath, std::string_view displayName) {
+  if(mmoSqlite!=nullptr)
+    mmoSqlite->recordSaveSlot(*this, slotPath, displayName);
   }
 
 void GameSession::setupSettings() {

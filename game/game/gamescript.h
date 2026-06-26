@@ -80,6 +80,17 @@ class GameScript final {
     auto         knownDialogInfos() const -> const std::set<std::pair<size_t,size_t>>& { return dlgKnownInfos; }
     auto         dialogInfos() const -> const std::vector<std::shared_ptr<zenkit::IInfo>>& { return dialogsInfo; }
 
+    // Database restore is intentionally routed through GameScript so persistence
+    // never mutates Daedalus or quest internals directly.
+    void         restoreQuestLogForPersistence(std::vector<QuestLog::Quest> quests);
+    void         restoreKnownDialogsForPersistence(std::set<std::pair<size_t,size_t>> dialogs);
+    bool         restoreGlobalIntForPersistence(size_t symbolIndex, uint16_t valueIndex, int32_t value);
+    bool         restoreGlobalFloatForPersistence(size_t symbolIndex, uint16_t valueIndex, float value);
+    bool         restoreGlobalStringForPersistence(size_t symbolIndex, uint16_t valueIndex, std::string_view value);
+    size_t       guildCountForPersistence() const;
+    int32_t      guildAttitudeForPersistence(size_t fromGuild, size_t toGuild) const;
+    bool         restoreGuildAttitudeForPersistence(size_t fromGuild, size_t toGuild, int32_t value);
+
     const World& world() const;
     World&       world();
     uint64_t     tickCount() const;
