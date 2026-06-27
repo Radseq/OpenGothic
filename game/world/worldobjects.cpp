@@ -781,9 +781,6 @@ Item *WorldObjects::addItem(size_t itemInstance, std::string_view at) {
 
   item = addItem(itemInstance, pos, dir);
 
-  auto v = item->position();
-  auto x = item->displayName();
-  append_unique("logs/itms.txt", x, itemInstance, v.x, v.y, v.z);
   return item;
   }
 

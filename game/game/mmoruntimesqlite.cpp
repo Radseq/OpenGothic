@@ -3477,6 +3477,10 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              n.true_guild,
              n.level,
              n.experience,
+             MAX(CASE WHEN s.stat_group='progression' AND s.stat_key='experience_next' THEN s.value END) AS experience_next,
+             MAX(CASE WHEN s.stat_group='progression' AND s.stat_key='learning_points' THEN s.value END) AS learning_points,
+             MAX(CASE WHEN s.stat_group='attitude' AND s.stat_key='permanent' THEN s.value END) AS permanent_attitude,
+             MAX(CASE WHEN s.stat_group='attitude' AND s.stat_key='temporary' THEN s.value END) AS temporary_attitude,
              n.dead,
              n.pos_x,
              n.pos_y,
@@ -8189,3 +8193,5 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
   exec(impl->db, "COMMIT");
 #endif
   }
+
+
