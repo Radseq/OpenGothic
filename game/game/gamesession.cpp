@@ -480,6 +480,12 @@ void GameSession::recordDialogChoices(Npc& player, Npc& npc,
     mmoSqlite->recordDialogChoices(*this, player, npc, choices, phase, includeImportant);
   }
 
+void GameSession::recordMmoChapterIntro(std::string_view title, std::string_view subtitle,
+                                        std::string_view image, std::string_view sound, int time) {
+  if(mmoSqlite!=nullptr)
+    mmoSqlite->recordChapterIntro(*this, title, subtitle, image, sound, time);
+  }
+
 std::string_view GameSession::messageFromSvm(std::string_view id, int voice) const {
   if(!wrld)
     return "";

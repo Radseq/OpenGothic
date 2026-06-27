@@ -25,6 +25,16 @@ def table_exists(conn: sqlite3.Connection, name: str) -> bool:
     return row is not None
 
 
+def quote_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def table_columns(conn: sqlite3.Connection, name: str) -> set[str]:
+    if not table_exists(conn, name):
+        return set()
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({quote_identifier(name)})")}
+
+
 def scalar(conn: sqlite3.Connection, sql: str, default=0):
     row = conn.execute(sql).fetchone()
     if row is None:
@@ -255,6 +265,57 @@ def main() -> int:
         return 1
     if schema_version_int < 22 and missing_schema22:
         print("mmo_save_slots: missing; run the new build once to migrate to schema_version 22")
+    schema23_columns = {
+        "runtime_npc_ai_state": {"state_other_key", "state_victim_key"},
+        "runtime_npc_ai_history": {"state_other_key", "state_victim_key"},
+    }
+    missing_schema23 = []
+    for table, expected_columns in schema23_columns.items():
+        existing_columns = table_columns(conn, table)
+        for column in sorted(expected_columns - existing_columns):
+            missing_schema23.append(f"{table}.{column}")
+    if schema_version_int >= 23 and missing_schema23:
+        print("ERROR: schema_version >= 23 but missing AI relation columns: " + ", ".join(missing_schema23))
+        return 1
+    if schema_version_int < 23 and missing_schema23:
+        print("ai_relation_context: missing; run the new build once to migrate to schema_version 23")
+    schema24_tables = [
+        "runtime_story_progress_current",
+        "runtime_story_progress_history",
+        "runtime_chapter_intro_events",
+        "mmo_character_story_progress_current",
+        "mmo_save_slot_character_story_progress",
+    ]
+    missing_schema24 = [name for name in schema24_tables if not table_exists(conn, name)]
+    if schema_version_int >= 24 and missing_schema24:
+        print("ERROR: schema_version >= 24 but missing story/chapter tables: " + ", ".join(missing_schema24))
+        return 1
+    if schema_version_int < 24 and missing_schema24:
+        print("story_chapters: missing; run the new build once to migrate to schema_version 24")
+    schema25_columns = {
+        "mmo_unit_stat_sheet_current": {
+            "experience_next",
+            "learning_points",
+            "permanent_attitude",
+            "temporary_attitude",
+        },
+        "mmo_save_slot_unit_stat_sheet": {
+            "experience_next",
+            "learning_points",
+            "permanent_attitude",
+            "temporary_attitude",
+        },
+    }
+    missing_schema25 = []
+    for table, expected_columns in schema25_columns.items():
+        existing_columns = table_columns(conn, table)
+        for column in sorted(expected_columns - existing_columns):
+            missing_schema25.append(f"{table}.{column}")
+    if schema_version_int >= 25 and missing_schema25:
+        print("ERROR: schema_version >= 25 but missing stat sheet columns: " + ", ".join(missing_schema25))
+        return 1
+    if schema_version_int < 25 and missing_schema25:
+        print("stat_sheet_progression: missing; run the new build once to migrate to schema_version 25")
     print(f"realms: {scalar(conn, 'SELECT COUNT(*) FROM runtime_realms')}")
     print(f"accounts: {scalar(conn, 'SELECT COUNT(*) FROM runtime_accounts')}")
     print(f"character_bindings: {scalar(conn, 'SELECT COUNT(*) FROM runtime_character_bindings')}")
@@ -300,6 +361,7 @@ def main() -> int:
         "mmo_character_inventory_current",
         "mmo_character_quests_current",
         "mmo_character_known_dialogs_current",
+        "mmo_character_story_progress_current",
         "mmo_world_items_current",
         "mmo_world_interactives_current",
         "mmo_world_container_inventory_current",
@@ -327,6 +389,9 @@ def main() -> int:
         ("npc_routine_rows", "runtime_npc_routines"),
         ("npc_navigation_rows", "runtime_npc_navigation_state"),
         ("npc_navigation_history_rows", "runtime_npc_navigation_history"),
+        ("story_progress_rows", "runtime_story_progress_current"),
+        ("story_progress_history_rows", "runtime_story_progress_history"),
+        ("chapter_intro_event_rows", "runtime_chapter_intro_events"),
     ]
     for label, table in optional_counts:
         if table_exists(conn, table):
@@ -372,6 +437,7 @@ def main() -> int:
         UNION ALL SELECT 'mobsi_inventory', COUNT(*) FROM runtime_world_mobsi_inventory
         UNION ALL SELECT 'quests', COUNT(*) FROM runtime_quests
         UNION ALL SELECT 'known_dialogs', COUNT(*) FROM runtime_known_dialogs
+        UNION ALL SELECT 'story_progress', COUNT(*) FROM runtime_story_progress_current
         UNION ALL SELECT 'script_globals', COUNT(*) FROM runtime_script_globals
         UNION ALL SELECT 'events', COUNT(*) FROM runtime_events
          ORDER BY area
@@ -399,6 +465,7 @@ def main() -> int:
         UNION ALL SELECT 'character', 'mmo_character_wallet_current', 'character_wallet_current', COUNT(*) FROM mmo_character_wallet_current
         UNION ALL SELECT 'character', 'mmo_character_quests_current', 'character_quest_current', COUNT(*) FROM mmo_character_quests_current
         UNION ALL SELECT 'character', 'mmo_character_known_dialogs_current', 'character_dialog_current', COUNT(*) FROM mmo_character_known_dialogs_current
+        UNION ALL SELECT 'character', 'mmo_character_story_progress_current', 'character_story_progress_current', COUNT(*) FROM mmo_character_story_progress_current
         UNION ALL SELECT 'world', 'mmo_world_items_current', 'world_item_current', COUNT(*) FROM mmo_world_items_current
         UNION ALL SELECT 'world', 'mmo_world_interactives_current', 'world_interactive_current', COUNT(*) FROM mmo_world_interactives_current
         UNION ALL SELECT 'world', 'mmo_world_container_inventory_current', 'world_container_current', COUNT(*) FROM mmo_world_container_inventory_current
@@ -440,6 +507,47 @@ def main() -> int:
         )
 
     print()
+    print("Story progress")
+    print_rows(
+        conn,
+        f"""
+        SELECT character_key, world_name, chapter_number, chapter_key,
+               source_symbol_name, updated_at
+          FROM mmo_character_story_progress_current
+         ORDER BY character_key
+         LIMIT {max(1, args.limit)}
+        """,
+        "  (none)",
+    )
+
+    print()
+    print("Story progress history")
+    print_rows(
+        conn,
+        f"""
+        SELECT tick_count, chapter_before, chapter_after, chapter_key,
+               source_symbol_name, created_at
+          FROM runtime_story_progress_history
+         ORDER BY id DESC
+         LIMIT {max(1, args.limit)}
+        """,
+        "  (none)",
+    )
+
+    print()
+    print("Chapter intro events")
+    print_rows(
+        conn,
+        f"""
+        SELECT tick_count, title, subtitle, image, sound, duration
+          FROM runtime_chapter_intro_events
+         ORDER BY id DESC
+         LIMIT {max(1, args.limit)}
+        """,
+        "  (none)",
+    )
+
+    print()
     print("MMO restore readiness")
     print_rows(
         conn,
@@ -451,6 +559,7 @@ def main() -> int:
         UNION ALL SELECT 'character_wallet', 'implemented', COUNT(*) FROM mmo_character_wallet_current
         UNION ALL SELECT 'character_quests', 'implemented', COUNT(*) FROM mmo_character_quests_current
         UNION ALL SELECT 'character_known_dialogs', 'implemented', COUNT(*) FROM mmo_character_known_dialogs_current
+        UNION ALL SELECT 'character_story_progress', 'implemented', COUNT(*) FROM mmo_character_story_progress_current
         UNION ALL SELECT 'world_entities', 'implemented_checkpoint', COUNT(*) FROM mmo_unit_stat_sheet_current
         UNION ALL SELECT 'world_clock', 'implemented', COUNT(*) FROM mmo_world_clock_current
         UNION ALL SELECT 'world_npc_inventory', 'implemented', COUNT(*) FROM mmo_creature_inventory_snapshots_current
@@ -484,7 +593,8 @@ def main() -> int:
     print_rows(
         conn,
         """
-        SELECT character_key, display_name, level, experience,
+        SELECT character_key, display_name, level, experience, experience_next,
+               learning_points, permanent_attitude, temporary_attitude,
                health_current, health_max, mana_current, mana_max,
                strength, dexterity,
                one_handed_skill, one_handed_hit_chance,
@@ -718,6 +828,10 @@ def main() -> int:
         "  (none)",
     )
 
+    ai_columns = table_columns(conn, "runtime_npc_ai_state")
+    state_other_expr = "state_other_key" if "state_other_key" in ai_columns else "'' AS state_other_key"
+    state_victim_expr = "state_victim_key" if "state_victim_key" in ai_columns else "'' AS state_victim_key"
+
     print()
     print("NPC follow/target relations")
     print_rows(
@@ -733,6 +847,9 @@ def main() -> int:
                    THEN 'PC_HERO'
                  ELSE target_display_name
                END AS target_display_name,
+               target_key,
+               {state_other_expr},
+               {state_victim_expr},
                CASE
                  WHEN instr(lower(ai_state_name), 'follow') > 0 THEN 'following_target'
                  WHEN instr(lower(ai_state_name), 'escort') > 0

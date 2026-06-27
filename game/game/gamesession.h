@@ -70,6 +70,8 @@ class GameSession final {
     void         recordDialogChoices(Npc &player, Npc &npc,
                                      const std::vector<GameScript::DlgChoice>& choices,
                                      std::string_view phase, bool includeImportant);
+    void         recordMmoChapterIntro(std::string_view title, std::string_view subtitle,
+                                       std::string_view image, std::string_view sound, int time);
 
     std::string_view         messageFromSvm(std::string_view id, int voice) const;
     std::string_view         messageByName (std::string_view id) const;

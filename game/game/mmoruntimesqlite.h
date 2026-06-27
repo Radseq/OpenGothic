@@ -30,6 +30,8 @@ class MmoRuntimeSqlite final {
     void recordDialogSelection(GameSession& game, Npc& player, Npc& npc,
                                const GameScript::DlgChoice& choice,
                                std::string_view phase);
+    void recordChapterIntro(GameSession& game, std::string_view title, std::string_view subtitle,
+                            std::string_view image, std::string_view sound, int time);
 
   private:
     void flush(GameSession& game, bool materializeCurrent);

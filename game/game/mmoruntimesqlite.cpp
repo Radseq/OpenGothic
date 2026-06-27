@@ -4,11 +4,14 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <filesystem>
 #include <map>
 #include <set>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -56,12 +59,134 @@ bool exec(sqlite3* db, const char* sql) {
   return false;
   }
 
+void appendUtf8(std::string& out, uint32_t codepoint) {
+  if(codepoint<=0x7F) {
+    out.push_back(char(codepoint));
+    return;
+    }
+  if(codepoint<=0x7FF) {
+    out.push_back(char(0xC0 | (codepoint >> 6)));
+    out.push_back(char(0x80 | (codepoint & 0x3F)));
+    return;
+    }
+  if(codepoint<=0xFFFF) {
+    out.push_back(char(0xE0 | (codepoint >> 12)));
+    out.push_back(char(0x80 | ((codepoint >> 6) & 0x3F)));
+    out.push_back(char(0x80 | (codepoint & 0x3F)));
+    return;
+    }
+  out.push_back(char(0xF0 | (codepoint >> 18)));
+  out.push_back(char(0x80 | ((codepoint >> 12) & 0x3F)));
+  out.push_back(char(0x80 | ((codepoint >> 6) & 0x3F)));
+  out.push_back(char(0x80 | (codepoint & 0x3F)));
+  }
+
+bool isValidUtf8(std::string_view text) {
+  const auto* data = reinterpret_cast<const uint8_t*>(text.data());
+  const size_t size = text.size();
+  for(size_t i=0; i<size;) {
+    const uint8_t c = data[i];
+    if(c<0x80) {
+      ++i;
+      continue;
+      }
+
+    uint32_t codepoint = 0;
+    size_t continuation = 0;
+    if((c & 0xE0)==0xC0) {
+      codepoint = uint32_t(c & 0x1F);
+      continuation = 1;
+      if(codepoint==0)
+        return false;
+      }
+    else if((c & 0xF0)==0xE0) {
+      codepoint = uint32_t(c & 0x0F);
+      continuation = 2;
+      }
+    else if((c & 0xF8)==0xF0) {
+      codepoint = uint32_t(c & 0x07);
+      continuation = 3;
+      }
+    else {
+      return false;
+      }
+
+    if(i+continuation>=size)
+      return false;
+    for(size_t j=1; j<=continuation; ++j) {
+      const uint8_t cc = data[i+j];
+      if((cc & 0xC0)!=0x80)
+        return false;
+      codepoint = (codepoint << 6) | uint32_t(cc & 0x3F);
+      }
+    if((continuation==1 && codepoint<0x80) ||
+       (continuation==2 && codepoint<0x800) ||
+       (continuation==3 && codepoint<0x10000) ||
+       codepoint>0x10FFFF ||
+       (codepoint>=0xD800 && codepoint<=0xDFFF))
+      return false;
+    i += continuation + 1;
+    }
+  return true;
+  }
+
+uint32_t windows1250Codepoint(uint8_t byte) {
+  static constexpr uint16_t map[128] = {
+    0x20AC, 0xFFFD, 0x201A, 0xFFFD, 0x201E, 0x2026, 0x2020, 0x2021,
+    0xFFFD, 0x2030, 0x0160, 0x2039, 0x015A, 0x0164, 0x017D, 0x0179,
+    0xFFFD, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+    0xFFFD, 0x2122, 0x0161, 0x203A, 0x015B, 0x0165, 0x017E, 0x017A,
+    0x00A0, 0x02C7, 0x02D8, 0x0141, 0x00A4, 0x0104, 0x00A6, 0x00A7,
+    0x00A8, 0x00A9, 0x015E, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x017B,
+    0x00B0, 0x00B1, 0x02DB, 0x0142, 0x00B4, 0x00B5, 0x00B6, 0x00B7,
+    0x00B8, 0x0105, 0x015F, 0x00BB, 0x013D, 0x02DD, 0x013E, 0x017C,
+    0x0154, 0x00C1, 0x00C2, 0x0102, 0x00C4, 0x0139, 0x0106, 0x00C7,
+    0x010C, 0x00C9, 0x0118, 0x00CB, 0x011A, 0x00CD, 0x00CE, 0x010E,
+    0x0110, 0x0143, 0x0147, 0x00D3, 0x00D4, 0x0150, 0x00D6, 0x00D7,
+    0x0158, 0x016E, 0x00DA, 0x0170, 0x00DC, 0x00DD, 0x0162, 0x00DF,
+    0x0155, 0x00E1, 0x00E2, 0x0103, 0x00E4, 0x013A, 0x0107, 0x00E7,
+    0x010D, 0x00E9, 0x0119, 0x00EB, 0x011B, 0x00ED, 0x00EE, 0x010F,
+    0x0111, 0x0144, 0x0148, 0x00F3, 0x00F4, 0x0151, 0x00F6, 0x00F7,
+    0x0159, 0x016F, 0x00FA, 0x0171, 0x00FC, 0x00FD, 0x0163, 0x02D9,
+    };
+  if(byte<0x80)
+    return byte;
+  return map[byte-0x80];
+  }
+
+std::string windows1250ToUtf8(std::string_view text) {
+  std::string out;
+  out.reserve(text.size());
+  for(const uint8_t byte : std::string_view(text))
+    appendUtf8(out, windows1250Codepoint(byte));
+  return out;
+  }
+
+std::string sqliteText(std::string_view value) {
+  if(value.empty() || isValidUtf8(value))
+    return std::string(value);
+  return windows1250ToUtf8(value);
+  }
+
+std::string columnRawText(sqlite3_stmt* stmt, int column) {
+  const auto* raw = sqlite3_column_text(stmt, column);
+  const int bytes = sqlite3_column_bytes(stmt, column);
+  if(raw==nullptr || bytes<=0)
+    return {};
+  return std::string(reinterpret_cast<const char*>(raw), size_t(bytes));
+  }
+
+bool bindText(sqlite3_stmt* stmt, int index, std::string_view value) {
+  const std::string text = sqliteText(value);
+  return sqlite3_bind_text(stmt, index, text.c_str(), int(text.size()), SQLITE_TRANSIENT)==SQLITE_OK;
+  }
+
 bool bindText(sqlite3_stmt* stmt, int index, const std::string& value) {
-  return sqlite3_bind_text(stmt, index, value.c_str(), int(value.size()), SQLITE_TRANSIENT)==SQLITE_OK;
+  return bindText(stmt, index, std::string_view(value));
   }
 
 bool bindText(sqlite3_stmt* stmt, int index, const char* value) {
-  return sqlite3_bind_text(stmt, index, value, -1, SQLITE_STATIC)==SQLITE_OK;
+  return bindText(stmt, index, value!=nullptr ? std::string_view(value) : std::string_view());
   }
 
 bool bindInt(sqlite3_stmt* stmt, int index, int64_t value) {
@@ -70,6 +195,274 @@ bool bindInt(sqlite3_stmt* stmt, int index, int64_t value) {
 
 bool bindReal(sqlite3_stmt* stmt, int index, double value) {
   return sqlite3_bind_double(stmt, index, value)==SQLITE_OK;
+  }
+
+std::string sqliteIdentifier(std::string_view value) {
+  std::string out = "\"";
+  for(char c : value) {
+    if(c=='"')
+      out += "\"\""; else
+      out.push_back(c);
+    }
+  out.push_back('"');
+  return out;
+  }
+
+bool sqliteTextAffinity(std::string_view typeName) {
+  std::string upper;
+  upper.reserve(typeName.size());
+  for(char c : typeName) {
+    if(c>='a' && c<='z')
+      upper.push_back(char(c-'a'+'A')); else
+      upper.push_back(c);
+    }
+  return upper.find("TEXT")!=std::string::npos ||
+         upper.find("CHAR")!=std::string::npos ||
+         upper.find("CLOB")!=std::string::npos;
+  }
+
+bool tableColumnExists(sqlite3* db, std::string_view table, std::string_view column) {
+  const std::string pragma = "PRAGMA table_info(" + sqliteIdentifier(table) + ")";
+  sqlite3_stmt* stmt = nullptr;
+  if(sqlite3_prepare_v2(db, pragma.c_str(), -1, &stmt, nullptr)!=SQLITE_OK)
+    return false;
+
+  const std::string expected(column);
+  bool found = false;
+  while(sqlite3_step(stmt)==SQLITE_ROW) {
+    if(columnRawText(stmt, 1)==expected) {
+      found = true;
+      break;
+      }
+    }
+  sqlite3_finalize(stmt);
+  return found;
+  }
+
+bool ensureColumn(sqlite3* db, std::string_view table, std::string_view column, std::string_view definition) {
+  if(tableColumnExists(db, table, column))
+    return true;
+  const std::string sql = "ALTER TABLE " + sqliteIdentifier(table) +
+                          " ADD COLUMN " + sqliteIdentifier(column) +
+                          " " + std::string(definition);
+  return exec(db, sql.c_str());
+  }
+
+std::string runtimeMetaValue(sqlite3* db, std::string_view key) {
+  sqlite3_stmt* stmt = nullptr;
+  std::string value;
+  if(sqlite3_prepare_v2(db,
+      "SELECT value FROM runtime_schema_meta WHERE key=?1",
+      -1, &stmt, nullptr)==SQLITE_OK) {
+    bindText(stmt, 1, key);
+    if(sqlite3_step(stmt)==SQLITE_ROW)
+      value = columnRawText(stmt, 0);
+    sqlite3_finalize(stmt);
+    }
+  return value;
+  }
+
+bool setRuntimeMetaValue(sqlite3* db, std::string_view key, std::string_view value) {
+  sqlite3_stmt* stmt = nullptr;
+  if(sqlite3_prepare_v2(db,
+      "INSERT INTO runtime_schema_meta(key, value) VALUES(?1, ?2) "
+      "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+      -1, &stmt, nullptr)!=SQLITE_OK)
+    return false;
+  bindText(stmt, 1, key);
+  bindText(stmt, 2, value);
+  const bool ok = sqlite3_step(stmt)==SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
+  }
+
+bool normalizeSqliteTextStorage(sqlite3* db) {
+  constexpr const char* versionKey = "text_encoding_version";
+  constexpr const char* versionValue = "utf8-v1";
+  if(runtimeMetaValue(db, versionKey)==versionValue)
+    return true;
+
+  struct TextColumn final {
+    std::string table;
+    std::string column;
+    };
+  std::vector<TextColumn> columns;
+
+  sqlite3_stmt* tableStmt = nullptr;
+  if(sqlite3_prepare_v2(db,
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+      -1, &tableStmt, nullptr)!=SQLITE_OK)
+    return false;
+  while(sqlite3_step(tableStmt)==SQLITE_ROW) {
+    const std::string table = columnRawText(tableStmt, 0);
+    const std::string pragma = "PRAGMA table_info(" + sqliteIdentifier(table) + ")";
+    sqlite3_stmt* columnStmt = nullptr;
+    if(sqlite3_prepare_v2(db, pragma.c_str(), -1, &columnStmt, nullptr)!=SQLITE_OK)
+      continue;
+    while(sqlite3_step(columnStmt)==SQLITE_ROW) {
+      const std::string column = columnRawText(columnStmt, 1);
+      const std::string type = columnRawText(columnStmt, 2);
+      if(sqliteTextAffinity(type))
+        columns.push_back({table, column});
+      }
+    sqlite3_finalize(columnStmt);
+    }
+  sqlite3_finalize(tableStmt);
+
+  if(!exec(db, "BEGIN IMMEDIATE TRANSACTION"))
+    return false;
+
+  int64_t changed = 0;
+  bool ok = true;
+  for(const TextColumn& column : columns) {
+    const std::string tableSql = sqliteIdentifier(column.table);
+    const std::string columnSql = sqliteIdentifier(column.column);
+    const std::string selectSql = "SELECT rowid, " + columnSql + " FROM " + tableSql +
+                                  " WHERE typeof(" + columnSql + ")='text'";
+    sqlite3_stmt* selectStmt = nullptr;
+    if(sqlite3_prepare_v2(db, selectSql.c_str(), -1, &selectStmt, nullptr)!=SQLITE_OK)
+      continue;
+
+    std::vector<std::pair<int64_t, std::string>> updates;
+    while(sqlite3_step(selectStmt)==SQLITE_ROW) {
+      const int64_t rowid = sqlite3_column_int64(selectStmt, 0);
+      const std::string raw = columnRawText(selectStmt, 1);
+      const std::string normalized = sqliteText(raw);
+      if(normalized!=raw)
+        updates.push_back({rowid, normalized});
+      }
+    sqlite3_finalize(selectStmt);
+    if(updates.empty())
+      continue;
+
+    const std::string updateSql = "UPDATE " + tableSql + " SET " + columnSql + "=?1 WHERE rowid=?2";
+    sqlite3_stmt* updateStmt = nullptr;
+    if(sqlite3_prepare_v2(db, updateSql.c_str(), -1, &updateStmt, nullptr)!=SQLITE_OK) {
+      ok = false;
+      break;
+      }
+    for(const auto& update : updates) {
+      sqlite3_reset(updateStmt);
+      sqlite3_clear_bindings(updateStmt);
+      bindText(updateStmt, 1, update.second);
+      bindInt(updateStmt, 2, update.first);
+      if(sqlite3_step(updateStmt)!=SQLITE_DONE) {
+        ok = false;
+        break;
+        }
+      ++changed;
+      }
+    sqlite3_finalize(updateStmt);
+    if(!ok)
+      break;
+    }
+
+  if(ok)
+    ok = setRuntimeMetaValue(db, versionKey, versionValue);
+  if(ok)
+    ok = exec(db, "COMMIT");
+  if(!ok) {
+    exec(db, "ROLLBACK");
+    return false;
+    }
+
+  if(changed>0)
+    Tempest::Log::i("mmo sqlite normalized legacy text rows to UTF-8: ", changed);
+  return true;
+  }
+
+std::string dialogSelectionEventType(std::string_view phase) {
+  if(phase=="exec")
+    return "dialog_choice_executed";
+  if(phase=="update")
+    return "dialog_choice_updated";
+  return "dialog_choice_selected";
+  }
+
+bool normalizeDialogEventTypes(sqlite3* db) {
+  constexpr const char* versionKey = "dialog_event_type_version";
+  constexpr const char* versionValue = "phase-v1";
+  if(runtimeMetaValue(db, versionKey)==versionValue)
+    return true;
+
+  if(!exec(db, "BEGIN IMMEDIATE TRANSACTION"))
+    return false;
+
+  sqlite3_stmt* selectStmt = nullptr;
+  sqlite3_stmt* eventStmt = nullptr;
+  sqlite3_stmt* updateStmt = nullptr;
+  bool ok = true;
+  int64_t changed = 0;
+
+  if(sqlite3_prepare_v2(db,
+      "SELECT session_id,npc_key,info_symbol_name,tick_count,title,phase "
+      "FROM runtime_dialog_selections ORDER BY id",
+      -1, &selectStmt, nullptr)!=SQLITE_OK) {
+    ok = false;
+    }
+  if(ok && sqlite3_prepare_v2(db,
+      "SELECT id FROM runtime_events "
+      "WHERE event_type='dialog_selected' AND session_id=?1 AND entity_key=?2 AND subject_key=?3 "
+      "AND tick_count=?4 AND data_text=?5 ORDER BY id LIMIT 1",
+      -1, &eventStmt, nullptr)!=SQLITE_OK) {
+    ok = false;
+    }
+  if(ok && sqlite3_prepare_v2(db,
+      "UPDATE runtime_events SET event_type=?1 WHERE id=?2",
+      -1, &updateStmt, nullptr)!=SQLITE_OK) {
+    ok = false;
+    }
+
+  while(ok && sqlite3_step(selectStmt)==SQLITE_ROW) {
+    const int64_t sessionId = sqlite3_column_int64(selectStmt, 0);
+    const std::string npcKey = columnRawText(selectStmt, 1);
+    const std::string infoName = columnRawText(selectStmt, 2);
+    const int64_t tick = sqlite3_column_int64(selectStmt, 3);
+    const std::string title = columnRawText(selectStmt, 4);
+    const std::string phase = columnRawText(selectStmt, 5);
+    const std::string eventType = dialogSelectionEventType(phase);
+
+    sqlite3_reset(eventStmt);
+    sqlite3_clear_bindings(eventStmt);
+    bindInt (eventStmt, 1, sessionId);
+    bindText(eventStmt, 2, npcKey);
+    bindText(eventStmt, 3, infoName);
+    bindInt (eventStmt, 4, tick);
+    bindText(eventStmt, 5, title);
+    if(sqlite3_step(eventStmt)!=SQLITE_ROW)
+      continue;
+    const int64_t eventId = sqlite3_column_int64(eventStmt, 0);
+
+    sqlite3_reset(updateStmt);
+    sqlite3_clear_bindings(updateStmt);
+    bindText(updateStmt, 1, eventType);
+    bindInt (updateStmt, 2, eventId);
+    if(sqlite3_step(updateStmt)!=SQLITE_DONE) {
+      ok = false;
+      break;
+      }
+    ++changed;
+    }
+
+  if(selectStmt!=nullptr)
+    sqlite3_finalize(selectStmt);
+  if(eventStmt!=nullptr)
+    sqlite3_finalize(eventStmt);
+  if(updateStmt!=nullptr)
+    sqlite3_finalize(updateStmt);
+
+  if(ok)
+    ok = setRuntimeMetaValue(db, versionKey, versionValue);
+  if(ok)
+    ok = exec(db, "COMMIT");
+  if(!ok) {
+    exec(db, "ROLLBACK");
+    return false;
+    }
+
+  if(changed>0)
+    Tempest::Log::i("mmo sqlite normalized dialog event types: ", changed);
+  return true;
   }
 
 int64_t saveSlotSnapshotId(sqlite3* db, std::string_view slotPath) {
@@ -108,6 +501,7 @@ bool restoreSaveSlotSnapshot(sqlite3* db, std::string_view slotPath) {
     DELETE FROM mmo_character_wallet_current;
     DELETE FROM mmo_character_quests_current;
     DELETE FROM mmo_character_known_dialogs_current;
+    DELETE FROM mmo_character_story_progress_current;
     DELETE FROM mmo_world_clock_current;
     DELETE FROM mmo_creature_spawns_current;
     DELETE FROM mmo_creature_inventory_current;
@@ -121,12 +515,13 @@ bool restoreSaveSlotSnapshot(sqlite3* db, std::string_view slotPath) {
     DELETE FROM mmo_guild_attitudes_current;
   )SQL";
   sql += "INSERT OR REPLACE INTO mmo_unit_stat_current SELECT unit_key, unit_type, character_key, world_name, tick_count, template_symbol_index, script_id, display_name, player, stat_domain, stat_family, stat_group, stat_id, stat_key, value_kind, persistence_hint, display_order, value, updated_at, persistence_class FROM mmo_save_slot_unit_stat WHERE snapshot_id=" + id + ";\n";
-  sql += "INSERT OR REPLACE INTO mmo_unit_stat_sheet_current SELECT unit_key, unit_type, character_key, world_name, tick_count, template_symbol_index, script_id, display_name, player, guild, true_guild, level, experience, dead, pos_x, pos_y, pos_z, rotation, waypoint, health_current, health_max, mana_current, mana_max, strength, dexterity, regenerate_hp, regenerate_mana, resist_barrier, resist_blunt, resist_edge, resist_fire, resist_fly, resist_magic, resist_point, resist_fall, one_handed_skill, two_handed_skill, bow_skill, crossbow_skill, one_handed_hit_chance, two_handed_hit_chance, bow_hit_chance, crossbow_hit_chance, picklock_skill, sneak_skill, pickpocket_skill, smith_skill, alchemy_skill, take_animal_trophy_skill, foreign_language_skill, acrobat_skill, mage_skill, runes_skill, firemaster_skill, regenerate_skill, wisp_detector_skill, updated_at, persistence_class FROM mmo_save_slot_unit_stat_sheet WHERE snapshot_id=" + id + ";\n";
+  sql += "INSERT OR REPLACE INTO mmo_unit_stat_sheet_current SELECT unit_key, unit_type, character_key, world_name, tick_count, template_symbol_index, script_id, display_name, player, guild, true_guild, level, experience, experience_next, learning_points, permanent_attitude, temporary_attitude, dead, pos_x, pos_y, pos_z, rotation, waypoint, health_current, health_max, mana_current, mana_max, strength, dexterity, regenerate_hp, regenerate_mana, resist_barrier, resist_blunt, resist_edge, resist_fire, resist_fly, resist_magic, resist_point, resist_fall, one_handed_skill, two_handed_skill, bow_skill, crossbow_skill, one_handed_hit_chance, two_handed_hit_chance, bow_hit_chance, crossbow_hit_chance, picklock_skill, sneak_skill, pickpocket_skill, smith_skill, alchemy_skill, take_animal_trophy_skill, foreign_language_skill, acrobat_skill, mage_skill, runes_skill, firemaster_skill, regenerate_skill, wisp_detector_skill, updated_at, persistence_class FROM mmo_save_slot_unit_stat_sheet WHERE snapshot_id=" + id + ";\n";
   sql += "INSERT OR REPLACE INTO mmo_characters_current SELECT character_key, account_key, realm_key, world_name, tick_count, display_name, pos_x, pos_y, pos_z, rotation, health_current, health_max, mana_current, mana_max, level, experience, updated_at, persistence_class FROM mmo_save_slot_characters WHERE snapshot_id=" + id + ";\n";
   sql += "INSERT OR REPLACE INTO mmo_character_inventory_current SELECT character_key, item_instance_key, item_template_symbol, item_display_name, amount, iterator_count, equipped, equip_count, slot, main_flag, item_flags, value, spell_id, updated_at, persistence_class FROM mmo_save_slot_character_inventory WHERE snapshot_id=" + id + ";\n";
   sql += "INSERT OR REPLACE INTO mmo_character_wallet_current SELECT character_key, currency_key, currency_display_name, item_template_symbol, amount, updated_at, persistence_class FROM mmo_save_slot_character_wallet WHERE snapshot_id=" + id + ";\n";
   sql += "INSERT OR REPLACE INTO mmo_character_quests_current SELECT character_key, quest_key, quest_name, section, status, entry_count, entries_text, updated_at, persistence_class FROM mmo_save_slot_character_quests WHERE snapshot_id=" + id + ";\n";
   sql += "INSERT OR REPLACE INTO mmo_character_known_dialogs_current SELECT character_key, npc_symbol_index, info_symbol_index, npc_symbol_name, info_symbol_name, description, permanent, first_seen_tick, updated_at, persistence_class FROM mmo_save_slot_character_known_dialogs WHERE snapshot_id=" + id + ";\n";
+  sql += "INSERT OR REPLACE INTO mmo_character_story_progress_current SELECT character_key, world_name, tick_count, chapter_number, chapter_key, source_global_key, source_symbol_index, source_symbol_name, updated_at, persistence_class FROM mmo_save_slot_character_story_progress WHERE snapshot_id=" + id + ";\n";
   sql += "INSERT OR REPLACE INTO mmo_world_clock_current SELECT world_name, tick_count, world_time_millis, world_day, world_hour, world_minute, updated_at, persistence_class FROM mmo_save_slot_world_clock WHERE snapshot_id=" + id + ";\n";
   sql += "INSERT OR REPLACE INTO mmo_creature_spawns_current SELECT creature_spawn_key, creature_template_id, world_name, tick_count, display_name, pos_x, pos_y, pos_z, rotation, waypoint, dead, level, experience, health_current, health_max, mana_current, mana_max, strength, dexterity, current_waypoint_name, routine_waypoint_name, move_hint, move_target_waypoint_name, updated_at, persistence_class FROM mmo_save_slot_creature_spawns WHERE snapshot_id=" + id + ";\n";
   sql += "INSERT OR REPLACE INTO mmo_creature_inventory_current SELECT creature_spawn_key, item_instance_key, world_name, item_template_symbol, item_display_name, amount, iterator_count, equipped, equip_count, slot, main_flag, item_flags, value, spell_id, updated_at, persistence_class FROM mmo_save_slot_creature_inventory WHERE snapshot_id=" + id + ";\n";
@@ -197,6 +592,8 @@ struct NpcStatPrevious final {
 struct NpcAiPrevious final {
   std::string stateName;
   std::string targetKey;
+  std::string stateOtherKey;
+  std::string stateVictimKey;
   std::string relationKind;
   };
 
@@ -391,6 +788,11 @@ struct ScriptGlobalRow final {
   std::vector<ScriptGlobalValueRow> values;
   };
 
+struct StoryProgressPrevious final {
+  bool    valid = false;
+  int64_t chapterNumber = 0;
+  };
+
 std::string attributeKey(int64_t id) {
   switch(id) {
     case ATR_HITPOINTS:      return "hitpoints";
@@ -452,6 +854,16 @@ std::string lowerAscii(std::string_view text) {
     if('A'<=c && c<='Z')
       c = char(c - 'A' + 'a');
   return ret;
+  }
+
+int64_t parseInt64(std::string_view text, int64_t fallback = 0) {
+  int64_t value = fallback;
+  const auto* begin = text.data();
+  const auto* end = text.data() + text.size();
+  const auto result = std::from_chars(begin, end, value);
+  if(result.ec!=std::errc())
+    return fallback;
+  return value;
   }
 
 std::string npcRelationKind(const NpcRow& row) {
@@ -617,6 +1029,7 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
     Tempest::Log::e("mmo sqlite open failed: ", sqlite3_errmsg(impl->db));
     return false;
     }
+  const int64_t previousSchemaVersion = parseInt64(runtimeMetaValue(impl->db, "schema_version"), 0);
 
   const char* schema = R"SQL(
     PRAGMA journal_mode=WAL;
@@ -627,7 +1040,7 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
     );
     INSERT OR REPLACE INTO runtime_schema_meta(key, value) VALUES
       ('schema_name', 'opengothic_runtime_mmo'),
-      ('schema_version', '22');
+      ('schema_version', '25');
     CREATE TABLE IF NOT EXISTS runtime_realms (
       realm_key TEXT PRIMARY KEY,
       display_name TEXT NOT NULL DEFAULT '',
@@ -754,6 +1167,46 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       ON runtime_events(event_type, tick_count);
     CREATE INDEX IF NOT EXISTS idx_runtime_events_subject
       ON runtime_events(subject_key);
+    CREATE TABLE IF NOT EXISTS runtime_story_progress_current (
+      character_key TEXT PRIMARY KEY,
+      world_name TEXT NOT NULL DEFAULT '',
+      tick_count INTEGER NOT NULL,
+      chapter_number INTEGER NOT NULL,
+      chapter_key TEXT NOT NULL DEFAULT '',
+      source_global_key TEXT NOT NULL DEFAULT '',
+      source_symbol_index INTEGER NOT NULL,
+      source_symbol_name TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS runtime_story_progress_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      character_key TEXT NOT NULL,
+      world_name TEXT NOT NULL DEFAULT '',
+      tick_count INTEGER NOT NULL,
+      chapter_before INTEGER,
+      chapter_after INTEGER NOT NULL,
+      chapter_key TEXT NOT NULL DEFAULT '',
+      source_global_key TEXT NOT NULL DEFAULT '',
+      source_symbol_index INTEGER NOT NULL,
+      source_symbol_name TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_runtime_story_progress_history_character
+      ON runtime_story_progress_history(character_key, tick_count);
+    CREATE TABLE IF NOT EXISTS runtime_chapter_intro_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER,
+      world_name TEXT NOT NULL DEFAULT '',
+      tick_count INTEGER NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      subtitle TEXT NOT NULL DEFAULT '',
+      image TEXT NOT NULL DEFAULT '',
+      sound TEXT NOT NULL DEFAULT '',
+      duration INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_runtime_chapter_intro_events_tick
+      ON runtime_chapter_intro_events(session_id, tick_count);
   )SQL";
   if(!exec(impl->db, schema))
     return false;
@@ -1306,6 +1759,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       target_key TEXT NOT NULL DEFAULT '',
       target_symbol_index INTEGER NOT NULL,
       target_display_name TEXT NOT NULL DEFAULT '',
+      state_other_key TEXT NOT NULL DEFAULT '',
+      state_victim_key TEXT NOT NULL DEFAULT '',
       relation_kind TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -1323,6 +1778,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       target_key TEXT NOT NULL DEFAULT '',
       target_symbol_index INTEGER NOT NULL,
       target_display_name TEXT NOT NULL DEFAULT '',
+      state_other_key TEXT NOT NULL DEFAULT '',
+      state_victim_key TEXT NOT NULL DEFAULT '',
       relation_kind TEXT NOT NULL DEFAULT '',
       changed_fields TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1462,6 +1919,18 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
   )SQL";
   if(!exec(impl->db, schemaNpcState))
     return false;
+  if(!ensureColumn(impl->db, "runtime_npc_ai_state", "state_other_key", "TEXT NOT NULL DEFAULT ''"))
+    return false;
+  if(!ensureColumn(impl->db, "runtime_npc_ai_state", "state_victim_key", "TEXT NOT NULL DEFAULT ''"))
+    return false;
+  if(!ensureColumn(impl->db, "runtime_npc_ai_history", "state_other_key", "TEXT NOT NULL DEFAULT ''"))
+    return false;
+  if(!ensureColumn(impl->db, "runtime_npc_ai_history", "state_victim_key", "TEXT NOT NULL DEFAULT ''"))
+    return false;
+  if(!exec(impl->db,
+      "CREATE INDEX IF NOT EXISTS idx_runtime_npc_ai_state_other "
+      "ON runtime_npc_ai_state(world_name, state_other_key)"))
+    return false;
 
   const char* schemaMmoCurrent = R"SQL(
     CREATE TABLE IF NOT EXISTS mmo_unit_stat_current (
@@ -1507,6 +1976,10 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       true_guild INTEGER,
       level INTEGER,
       experience INTEGER,
+      experience_next INTEGER,
+      learning_points INTEGER,
+      permanent_attitude INTEGER,
+      temporary_attitude INTEGER,
       dead INTEGER NOT NULL DEFAULT 0,
       pos_x REAL,
       pos_y REAL,
@@ -1753,6 +2226,20 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
     );
     CREATE INDEX IF NOT EXISTS idx_mmo_character_known_dialogs_current_info
       ON mmo_character_known_dialogs_current(character_key, info_symbol_index);
+    CREATE TABLE IF NOT EXISTS mmo_character_story_progress_current (
+      character_key TEXT PRIMARY KEY,
+      world_name TEXT NOT NULL DEFAULT '',
+      tick_count INTEGER NOT NULL,
+      chapter_number INTEGER NOT NULL,
+      chapter_key TEXT NOT NULL DEFAULT '',
+      source_global_key TEXT NOT NULL DEFAULT '',
+      source_symbol_index INTEGER NOT NULL,
+      source_symbol_name TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      persistence_class TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_mmo_character_story_progress_current_chapter
+      ON mmo_character_story_progress_current(chapter_number, world_name);
     CREATE TABLE IF NOT EXISTS mmo_world_items_current (
       item_spawn_key TEXT PRIMARY KEY,
       world_name TEXT NOT NULL,
@@ -2043,7 +2530,7 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       world_name TEXT NOT NULL DEFAULT '',
       tick_count INTEGER NOT NULL DEFAULT 0,
       world_time_millis INTEGER NOT NULL DEFAULT 0,
-      schema_version INTEGER NOT NULL DEFAULT 22,
+      schema_version INTEGER NOT NULL DEFAULT 25,
       legacy_save_file INTEGER NOT NULL DEFAULT 1,
       current_snapshot_id INTEGER,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2065,7 +2552,7 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       world_name TEXT NOT NULL DEFAULT '',
       tick_count INTEGER NOT NULL DEFAULT 0,
       world_time_millis INTEGER NOT NULL DEFAULT 0,
-      schema_version INTEGER NOT NULL DEFAULT 22,
+      schema_version INTEGER NOT NULL DEFAULT 25,
       session_id INTEGER,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -2132,6 +2619,10 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       true_guild INTEGER,
       level INTEGER,
       experience INTEGER,
+      experience_next INTEGER,
+      learning_points INTEGER,
+      permanent_attitude INTEGER,
+      temporary_attitude INTEGER,
       dead INTEGER NOT NULL DEFAULT 0,
       pos_x REAL,
       pos_y REAL,
@@ -2235,6 +2726,20 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       persistence_class TEXT NOT NULL DEFAULT '',
       PRIMARY KEY(snapshot_id, character_key, npc_symbol_index, info_symbol_index)
+    );
+    CREATE TABLE IF NOT EXISTS mmo_save_slot_character_story_progress (
+      snapshot_id INTEGER NOT NULL,
+      character_key TEXT NOT NULL,
+      world_name TEXT NOT NULL DEFAULT '',
+      tick_count INTEGER NOT NULL,
+      chapter_number INTEGER NOT NULL,
+      chapter_key TEXT NOT NULL DEFAULT '',
+      source_global_key TEXT NOT NULL DEFAULT '',
+      source_symbol_index INTEGER NOT NULL,
+      source_symbol_name TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      persistence_class TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY(snapshot_id, character_key)
     );
     CREATE TABLE IF NOT EXISTS mmo_save_slot_world_clock (
       snapshot_id INTEGER NOT NULL,
@@ -2422,6 +2927,65 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
   )SQL";
   if(!exec(impl->db, schemaMmoCurrent))
     return false;
+  for(const char* table : {"mmo_unit_stat_sheet_current", "mmo_save_slot_unit_stat_sheet"}) {
+    if(!ensureColumn(impl->db, table, "experience_next", "INTEGER"))
+      return false;
+    if(!ensureColumn(impl->db, table, "learning_points", "INTEGER"))
+      return false;
+    if(!ensureColumn(impl->db, table, "permanent_attitude", "INTEGER"))
+      return false;
+    if(!ensureColumn(impl->db, table, "temporary_attitude", "INTEGER"))
+      return false;
+    }
+  if(previousSchemaVersion<25 && !exec(impl->db, R"SQL(
+      UPDATE mmo_unit_stat_sheet_current
+         SET experience_next = (
+               SELECT value FROM mmo_unit_stat_current s
+                WHERE s.unit_key=mmo_unit_stat_sheet_current.unit_key
+                  AND s.stat_group='progression' AND s.stat_key='experience_next'
+             ),
+             learning_points = (
+               SELECT value FROM mmo_unit_stat_current s
+                WHERE s.unit_key=mmo_unit_stat_sheet_current.unit_key
+                  AND s.stat_group='progression' AND s.stat_key='learning_points'
+             ),
+             permanent_attitude = (
+               SELECT value FROM mmo_unit_stat_current s
+                WHERE s.unit_key=mmo_unit_stat_sheet_current.unit_key
+                  AND s.stat_group='attitude' AND s.stat_key='permanent'
+             ),
+             temporary_attitude = (
+               SELECT value FROM mmo_unit_stat_current s
+                WHERE s.unit_key=mmo_unit_stat_sheet_current.unit_key
+                  AND s.stat_group='attitude' AND s.stat_key='temporary'
+             );
+      UPDATE mmo_save_slot_unit_stat_sheet
+         SET experience_next = (
+               SELECT value FROM mmo_save_slot_unit_stat s
+                WHERE s.snapshot_id=mmo_save_slot_unit_stat_sheet.snapshot_id
+                  AND s.unit_key=mmo_save_slot_unit_stat_sheet.unit_key
+                  AND s.stat_group='progression' AND s.stat_key='experience_next'
+             ),
+             learning_points = (
+               SELECT value FROM mmo_save_slot_unit_stat s
+                WHERE s.snapshot_id=mmo_save_slot_unit_stat_sheet.snapshot_id
+                  AND s.unit_key=mmo_save_slot_unit_stat_sheet.unit_key
+                  AND s.stat_group='progression' AND s.stat_key='learning_points'
+             ),
+             permanent_attitude = (
+               SELECT value FROM mmo_save_slot_unit_stat s
+                WHERE s.snapshot_id=mmo_save_slot_unit_stat_sheet.snapshot_id
+                  AND s.unit_key=mmo_save_slot_unit_stat_sheet.unit_key
+                  AND s.stat_group='attitude' AND s.stat_key='permanent'
+             ),
+             temporary_attitude = (
+               SELECT value FROM mmo_save_slot_unit_stat s
+                WHERE s.snapshot_id=mmo_save_slot_unit_stat_sheet.snapshot_id
+                  AND s.unit_key=mmo_save_slot_unit_stat_sheet.unit_key
+                  AND s.stat_group='attitude' AND s.stat_key='temporary'
+             );
+    )SQL"))
+    return false;
 
   const char* schemaViews = R"SQL(
     DROP VIEW IF EXISTS v_mmo_persistence_contract;
@@ -2520,6 +3084,10 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              n.true_guild,
              n.level,
              n.experience,
+             MAX(CASE WHEN s.stat_group='progression' AND s.stat_key='experience_next' THEN s.value END) AS experience_next,
+             MAX(CASE WHEN s.stat_group='progression' AND s.stat_key='learning_points' THEN s.value END) AS learning_points,
+             MAX(CASE WHEN s.stat_group='attitude' AND s.stat_key='permanent' THEN s.value END) AS permanent_attitude,
+             MAX(CASE WHEN s.stat_group='attitude' AND s.stat_key='temporary' THEN s.value END) AS temporary_attitude,
              n.dead,
              n.hp,
              n.hp_max,
@@ -2561,6 +3129,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
                  THEN COALESCE(c.display_name, 'PC_HERO')
                ELSE ai.target_display_name
              END AS target_display_name,
+             ai.state_other_key,
+             ai.state_victim_key,
              CASE
                WHEN instr(lower(ai.ai_state_name), 'follow') > 0 THEN 'following_target'
                WHEN instr(lower(ai.ai_state_name), 'escort') > 0
@@ -3096,6 +3666,18 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              'character_canonical' AS persistence_class
         FROM runtime_known_dialogs k
         LEFT JOIN runtime_dialog_catalog c ON c.info_symbol_index = k.info_symbol_index;
+    CREATE TEMP VIEW IF NOT EXISTS v_mmo_character_story_progress AS
+      SELECT character_key,
+             world_name,
+             tick_count,
+             chapter_number,
+             chapter_key,
+             source_global_key,
+             source_symbol_index,
+             source_symbol_name,
+             updated_at,
+             'character_story_progress_current' AS persistence_class
+        FROM runtime_story_progress_current;
     CREATE TEMP VIEW IF NOT EXISTS v_mmo_world_entities AS
       SELECT entity_key,
              world_name,
@@ -3295,6 +3877,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              ai_state_name,
              target_key,
              target_display_name,
+             state_other_key,
+             state_victim_key,
              CASE
                WHEN target_key = 'PC_HERO' THEN 'character'
                WHEN target_key LIKE 'npc:%' THEN 'npc'
@@ -3506,6 +4090,10 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              'known dialog set replaces its snapshot through GameScript ownership API'
         FROM mmo_character_known_dialogs_current
       UNION ALL
+      SELECT 'character_story_progress', 'implemented', COUNT(*),
+             'story chapter restores through Daedalus global KAPITEL and the canonical story-progress projection'
+        FROM mmo_character_story_progress_current
+      UNION ALL
       SELECT 'world_entities', 'implemented_checkpoint', COUNT(*),
              'NPC position, stats, death and progression restore; active AI queues remain runtime-only'
         FROM mmo_unit_stat_sheet_current
@@ -3587,6 +4175,7 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       UNION ALL SELECT 'character', 'mmo_character_wallet_current', 'character_wallet_current', COUNT(*) FROM mmo_character_wallet_current
       UNION ALL SELECT 'character', 'mmo_character_quests_current', 'character_quest_current', COUNT(*) FROM mmo_character_quests_current
       UNION ALL SELECT 'character', 'mmo_character_known_dialogs_current', 'character_dialog_current', COUNT(*) FROM mmo_character_known_dialogs_current
+      UNION ALL SELECT 'character', 'mmo_character_story_progress_current', 'character_story_progress_current', COUNT(*) FROM mmo_character_story_progress_current
       UNION ALL SELECT 'world', 'mmo_world_items_current', 'world_item_current', COUNT(*) FROM mmo_world_items_current
       UNION ALL SELECT 'world', 'mmo_world_interactives_current', 'world_interactive_current', COUNT(*) FROM mmo_world_interactives_current
       UNION ALL SELECT 'world', 'mmo_world_container_inventory_current', 'world_container_current', COUNT(*) FROM mmo_world_container_inventory_current
@@ -3603,6 +4192,7 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       UNION ALL SELECT 'character', 'v_mmo_character_equipment', 'character_canonical', COUNT(*) FROM v_mmo_character_equipment
       UNION ALL SELECT 'character', 'v_mmo_character_quests', 'character_canonical', COUNT(*) FROM v_mmo_character_quests
       UNION ALL SELECT 'character', 'v_mmo_character_known_dialogs', 'character_canonical', COUNT(*) FROM v_mmo_character_known_dialogs
+      UNION ALL SELECT 'character', 'v_mmo_character_story_progress', 'character_canonical', COUNT(*) FROM v_mmo_character_story_progress
       UNION ALL SELECT 'content', 'v_mmo_creature_templates', 'content_creature_template', COUNT(*) FROM v_mmo_creature_templates
       UNION ALL SELECT 'world', 'v_mmo_creature_spawns', 'world_creature_spawn', COUNT(*) FROM v_mmo_creature_spawns
       UNION ALL SELECT 'world', 'v_mmo_creature_stat_sheet', 'world_checkpoint', COUNT(*) FROM v_mmo_creature_stat_sheet
@@ -3634,7 +4224,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       FROM v_mmo_unit_stats;
     INSERT OR IGNORE INTO mmo_unit_stat_sheet_current(
       unit_key, unit_type, character_key, world_name, tick_count, template_symbol_index, script_id,
-      display_name, player, guild, true_guild, level, experience, dead,
+      display_name, player, guild, true_guild, level, experience,
+      experience_next, learning_points, permanent_attitude, temporary_attitude, dead,
       pos_x, pos_y, pos_z, rotation, waypoint,
       health_current, health_max, mana_current, mana_max, strength, dexterity,
       regenerate_hp, regenerate_mana,
@@ -3646,7 +4237,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       wisp_detector_skill, updated_at, persistence_class
     )
     SELECT unit_key, unit_type, character_key, world_name, tick_count, template_symbol_index, script_id,
-           display_name, player, guild, true_guild, level, experience, dead,
+           display_name, player, guild, true_guild, level, experience,
+           experience_next, learning_points, permanent_attitude, temporary_attitude, dead,
            pos_x, pos_y, pos_z, rotation, waypoint,
            health_current, health_max, mana_current, mana_max, strength, dexterity,
            regenerate_hp, regenerate_mana,
@@ -3699,6 +4291,13 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
     SELECT character_key, npc_symbol_index, info_symbol_index, npc_symbol_name, info_symbol_name,
            COALESCE(description, ''), permanent, first_seen_tick, updated_at, persistence_class
       FROM v_mmo_character_known_dialogs;
+    INSERT OR IGNORE INTO mmo_character_story_progress_current(
+      character_key, world_name, tick_count, chapter_number, chapter_key,
+      source_global_key, source_symbol_index, source_symbol_name, updated_at, persistence_class
+    )
+    SELECT character_key, world_name, tick_count, chapter_number, chapter_key,
+           source_global_key, source_symbol_index, source_symbol_name, updated_at, persistence_class
+      FROM v_mmo_character_story_progress;
     INSERT OR IGNORE INTO mmo_world_items_current(
       item_spawn_key, world_name, tick_count, slot_id, persistent_id, item_template_symbol, script_id,
       item_display_name, visual, amount, main_flag, item_flags, value, pos_x, pos_y, pos_z,
@@ -3742,6 +4341,10 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       FROM runtime_guild_attitudes;
   )SQL";
   if(!exec(impl->db, bootstrapMmoCurrent))
+    return false;
+  if(!normalizeSqliteTextStorage(impl->db))
+    return false;
+  if(!normalizeDialogEventTypes(impl->db))
     return false;
 
   sqlite3_stmt* stmt = nullptr;
@@ -3829,23 +4432,29 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       float posX = 0.f, posY = 0.f, posZ = 0.f, rotation = 0.f;
       sqlite3_stmt* query = nullptr;
       const char* unitSql = R"SQL(
-        SELECT world_name, guild, true_guild, level, experience, dead, pos_x, pos_y, pos_z, rotation
+        SELECT world_name, guild, true_guild, level, experience,
+               experience_next, learning_points, permanent_attitude, temporary_attitude,
+               dead, pos_x, pos_y, pos_z, rotation
           FROM mmo_unit_stat_sheet_current
          WHERE unit_key=?1
       )SQL";
       if(sqlite3_prepare_v2(impl->db, unitSql, -1, &query, nullptr)==SQLITE_OK) {
         bindText(query, 1, unitKey);
         if(sqlite3_step(query)==SQLITE_ROW && columnText(query, 0)==currentWorld) {
-          state.guild      = sqlite3_column_int(query, 1);
-          state.trueGuild  = sqlite3_column_int(query, 2);
-          state.level      = sqlite3_column_int(query, 3);
-          state.experience = sqlite3_column_int(query, 4);
-          state.dead       = sqlite3_column_int(query, 5)!=0;
-          posX             = float(sqlite3_column_double(query, 6));
-          posY             = float(sqlite3_column_double(query, 7));
-          posZ             = float(sqlite3_column_double(query, 8));
-          rotation         = float(sqlite3_column_double(query, 9));
-          valid            = true;
+          state.guild             = sqlite3_column_int(query, 1);
+          state.trueGuild         = sqlite3_column_int(query, 2);
+          state.level             = sqlite3_column_int(query, 3);
+          state.experience        = sqlite3_column_int(query, 4);
+          state.experienceNext    = sqlite3_column_int(query, 5);
+          state.learningPoints    = sqlite3_column_int(query, 6);
+          state.permanentAttitude = sqlite3_column_int(query, 7);
+          state.temporaryAttitude = sqlite3_column_int(query, 8);
+          state.dead              = sqlite3_column_int(query, 9)!=0;
+          posX                    = float(sqlite3_column_double(query, 10));
+          posY                    = float(sqlite3_column_double(query, 11));
+          posZ                    = float(sqlite3_column_double(query, 12));
+          rotation                = float(sqlite3_column_double(query, 13));
+          valid                   = true;
           }
         sqlite3_finalize(query);
         }
@@ -4392,15 +5001,17 @@ void MmoRuntimeSqlite::recordDialogSelection(GameSession& game, Npc& player, Npc
     Tempest::Log::e("mmo sqlite dialog selection insert failed: ", sqlite3_errmsg(impl->db));
   sqlite3_finalize(stmt);
 
+  const std::string eventType = dialogSelectionEventType(phaseText);
   if(sqlite3_prepare_v2(impl->db,
       "INSERT INTO runtime_events(session_id, event_type, entity_key, subject_key, tick_count, value_before, value_after, delta, data_text) "
-      "VALUES(?1, 'dialog_selected', ?2, ?3, ?4, 0, 1, 1, ?5)",
+      "VALUES(?1, ?2, ?3, ?4, ?5, 0, 1, 1, ?6)",
       -1, &stmt, nullptr)==SQLITE_OK) {
     bindInt (stmt, 1, impl->sessionId);
-    bindText(stmt, 2, npcKey);
-    bindText(stmt, 3, infoName);
-    bindInt (stmt, 4, int64_t(game.tickCount()));
-    bindText(stmt, 5, title);
+    bindText(stmt, 2, eventType);
+    bindText(stmt, 3, npcKey);
+    bindText(stmt, 4, infoName);
+    bindInt (stmt, 5, int64_t(game.tickCount()));
+    bindText(stmt, 6, title);
     if(sqlite3_step(stmt)!=SQLITE_DONE)
       Tempest::Log::e("mmo sqlite dialog selection event insert failed: ", sqlite3_errmsg(impl->db));
     sqlite3_finalize(stmt);
@@ -4411,6 +5022,63 @@ void MmoRuntimeSqlite::recordDialogSelection(GameSession& game, Npc& player, Npc
   (void)npc;
   (void)choice;
   (void)phase;
+#endif
+  }
+
+void MmoRuntimeSqlite::recordChapterIntro(GameSession& game, std::string_view title, std::string_view subtitle,
+                                          std::string_view image, std::string_view sound, int time) {
+#if defined(OPENGOTHIC_HAVE_SQLITE)
+  if(impl->path.empty())
+    return;
+  if(!impl->opened && !open(game))
+    return;
+  if(impl->db==nullptr)
+    return;
+
+  const std::string world = worldName(game);
+  sqlite3_stmt* stmt = nullptr;
+  if(sqlite3_prepare_v2(impl->db,
+      "INSERT INTO runtime_chapter_intro_events("
+      "session_id, world_name, tick_count, title, subtitle, image, sound, duration"
+      ") VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+      -1, &stmt, nullptr)==SQLITE_OK) {
+    bindInt (stmt, 1, impl->sessionId);
+    bindText(stmt, 2, world);
+    bindInt (stmt, 3, int64_t(game.tickCount()));
+    bindText(stmt, 4, title);
+    bindText(stmt, 5, subtitle);
+    bindText(stmt, 6, image);
+    bindText(stmt, 7, sound);
+    bindInt (stmt, 8, int64_t(time));
+    if(sqlite3_step(stmt)!=SQLITE_DONE)
+      Tempest::Log::e("mmo sqlite chapter intro insert failed: ", sqlite3_errmsg(impl->db));
+    sqlite3_finalize(stmt);
+    }
+  else {
+    Tempest::Log::e("mmo sqlite chapter intro prepare failed: ", sqlite3_errmsg(impl->db));
+    }
+
+  if(sqlite3_prepare_v2(impl->db,
+      "INSERT INTO runtime_events(session_id, event_type, entity_key, subject_key, world_name, tick_count, value_before, value_after, delta, data_text) "
+      "VALUES(?1, 'story_chapter_introduced', ?2, ?3, ?4, ?5, 0, 1, 1, ?6)",
+      -1, &stmt, nullptr)==SQLITE_OK) {
+    bindInt (stmt, 1, impl->sessionId);
+    bindText(stmt, 2, HeroKey);
+    bindText(stmt, 3, title);
+    bindText(stmt, 4, world);
+    bindInt (stmt, 5, int64_t(game.tickCount()));
+    bindText(stmt, 6, subtitle);
+    if(sqlite3_step(stmt)!=SQLITE_DONE)
+      Tempest::Log::e("mmo sqlite chapter intro event insert failed: ", sqlite3_errmsg(impl->db));
+    sqlite3_finalize(stmt);
+    }
+#else
+  (void)game;
+  (void)title;
+  (void)subtitle;
+  (void)image;
+  (void)sound;
+  (void)time;
 #endif
   }
 
@@ -4464,7 +5132,7 @@ void MmoRuntimeSqlite::recordSaveSlot(GameSession& game, std::string_view slotPa
       current_snapshot_id, updated_at, last_saved_at
     )
     VALUES(?1, 'local-account', 'local-g2notr', 'PC_HERO', ?2, ?3,
-           ?4, ?5, ?6, 22, 1, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ?4, ?5, ?6, 24, 1, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     ON CONFLICT(slot_key) DO UPDATE SET
       source_slot_path=excluded.source_slot_path,
       display_name=excluded.display_name,
@@ -4500,7 +5168,7 @@ void MmoRuntimeSqlite::recordSaveSlot(GameSession& game, std::string_view slotPa
       slot_key, account_key, realm_key, character_key, source_slot_path, display_name,
       world_name, tick_count, world_time_millis, schema_version, session_id
     )
-    VALUES(?1, 'local-account', 'local-g2notr', 'PC_HERO', ?2, ?3, ?4, ?5, ?6, 22, ?7)
+    VALUES(?1, 'local-account', 'local-g2notr', 'PC_HERO', ?2, ?3, ?4, ?5, ?6, 25, ?7)
   )SQL";
   if(sqlite3_prepare_v2(impl->db, insertSnapshot, -1, &stmt, nullptr)!=SQLITE_OK) {
     Tempest::Log::e("mmo sqlite save-slot snapshot prepare failed: ", sqlite3_errmsg(impl->db));
@@ -4526,12 +5194,13 @@ void MmoRuntimeSqlite::recordSaveSlot(GameSession& game, std::string_view slotPa
   const std::string id = std::to_string(snapshotId);
   std::string sql;
   sql += "INSERT INTO mmo_save_slot_unit_stat SELECT " + id + ", unit_key, unit_type, character_key, world_name, tick_count, template_symbol_index, script_id, display_name, player, stat_domain, stat_family, stat_group, stat_id, stat_key, value_kind, persistence_hint, display_order, value, updated_at, persistence_class FROM mmo_unit_stat_current;\n";
-  sql += "INSERT INTO mmo_save_slot_unit_stat_sheet SELECT " + id + ", unit_key, unit_type, character_key, world_name, tick_count, template_symbol_index, script_id, display_name, player, guild, true_guild, level, experience, dead, pos_x, pos_y, pos_z, rotation, waypoint, health_current, health_max, mana_current, mana_max, strength, dexterity, regenerate_hp, regenerate_mana, resist_barrier, resist_blunt, resist_edge, resist_fire, resist_fly, resist_magic, resist_point, resist_fall, one_handed_skill, two_handed_skill, bow_skill, crossbow_skill, one_handed_hit_chance, two_handed_hit_chance, bow_hit_chance, crossbow_hit_chance, picklock_skill, sneak_skill, pickpocket_skill, smith_skill, alchemy_skill, take_animal_trophy_skill, foreign_language_skill, acrobat_skill, mage_skill, runes_skill, firemaster_skill, regenerate_skill, wisp_detector_skill, updated_at, persistence_class FROM mmo_unit_stat_sheet_current;\n";
+  sql += "INSERT INTO mmo_save_slot_unit_stat_sheet SELECT " + id + ", unit_key, unit_type, character_key, world_name, tick_count, template_symbol_index, script_id, display_name, player, guild, true_guild, level, experience, experience_next, learning_points, permanent_attitude, temporary_attitude, dead, pos_x, pos_y, pos_z, rotation, waypoint, health_current, health_max, mana_current, mana_max, strength, dexterity, regenerate_hp, regenerate_mana, resist_barrier, resist_blunt, resist_edge, resist_fire, resist_fly, resist_magic, resist_point, resist_fall, one_handed_skill, two_handed_skill, bow_skill, crossbow_skill, one_handed_hit_chance, two_handed_hit_chance, bow_hit_chance, crossbow_hit_chance, picklock_skill, sneak_skill, pickpocket_skill, smith_skill, alchemy_skill, take_animal_trophy_skill, foreign_language_skill, acrobat_skill, mage_skill, runes_skill, firemaster_skill, regenerate_skill, wisp_detector_skill, updated_at, persistence_class FROM mmo_unit_stat_sheet_current;\n";
   sql += "INSERT INTO mmo_save_slot_characters SELECT " + id + ", character_key, account_key, realm_key, world_name, tick_count, display_name, pos_x, pos_y, pos_z, rotation, health_current, health_max, mana_current, mana_max, level, experience, updated_at, persistence_class FROM mmo_characters_current;\n";
   sql += "INSERT INTO mmo_save_slot_character_inventory SELECT " + id + ", character_key, item_instance_key, item_template_symbol, item_display_name, amount, iterator_count, equipped, equip_count, slot, main_flag, item_flags, value, spell_id, updated_at, persistence_class FROM mmo_character_inventory_current;\n";
   sql += "INSERT INTO mmo_save_slot_character_wallet SELECT " + id + ", character_key, currency_key, currency_display_name, item_template_symbol, amount, updated_at, persistence_class FROM mmo_character_wallet_current;\n";
   sql += "INSERT INTO mmo_save_slot_character_quests SELECT " + id + ", character_key, quest_key, quest_name, section, status, entry_count, entries_text, updated_at, persistence_class FROM mmo_character_quests_current;\n";
   sql += "INSERT INTO mmo_save_slot_character_known_dialogs SELECT " + id + ", character_key, npc_symbol_index, info_symbol_index, npc_symbol_name, info_symbol_name, description, permanent, first_seen_tick, updated_at, persistence_class FROM mmo_character_known_dialogs_current;\n";
+  sql += "INSERT INTO mmo_save_slot_character_story_progress SELECT " + id + ", character_key, world_name, tick_count, chapter_number, chapter_key, source_global_key, source_symbol_index, source_symbol_name, updated_at, persistence_class FROM mmo_character_story_progress_current;\n";
   sql += "INSERT INTO mmo_save_slot_world_clock SELECT " + id + ", world_name, tick_count, world_time_millis, world_day, world_hour, world_minute, updated_at, persistence_class FROM mmo_world_clock_current;\n";
   sql += "INSERT INTO mmo_save_slot_creature_spawns SELECT " + id + ", creature_spawn_key, creature_template_id, world_name, tick_count, display_name, pos_x, pos_y, pos_z, rotation, waypoint, dead, level, experience, health_current, health_max, mana_current, mana_max, strength, dexterity, current_waypoint_name, routine_waypoint_name, move_hint, move_target_waypoint_name, updated_at, persistence_class FROM mmo_creature_spawns_current;\n";
   sql += "INSERT INTO mmo_save_slot_creature_inventory SELECT " + id + ", creature_spawn_key, item_instance_key, world_name, item_template_symbol, item_display_name, amount, iterator_count, equipped, equip_count, slot, main_flag, item_flags, value, spell_id, updated_at, persistence_class FROM mmo_creature_inventory_current;\n";
@@ -4896,7 +5565,7 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
 
   std::map<std::string, NpcAiPrevious> previousNpcAi;
   if(sqlite3_prepare_v2(impl->db,
-                        "SELECT entity_key,ai_state_name,target_key,relation_kind FROM runtime_npc_ai_state WHERE world_name=?1",
+                        "SELECT entity_key,ai_state_name,target_key,state_other_key,state_victim_key,relation_kind FROM runtime_npc_ai_state WHERE world_name=?1",
                         -1, &stmt, nullptr)==SQLITE_OK) {
     bindText(stmt, 1, world);
     while(sqlite3_step(stmt)==SQLITE_ROW) {
@@ -4905,11 +5574,15 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
         continue;
       const auto* rawState = sqlite3_column_text(stmt, 1);
       const auto* rawTarget = sqlite3_column_text(stmt, 2);
-      const auto* rawRelation = sqlite3_column_text(stmt, 3);
+      const auto* rawOther = sqlite3_column_text(stmt, 3);
+      const auto* rawVictim = sqlite3_column_text(stmt, 4);
+      const auto* rawRelation = sqlite3_column_text(stmt, 5);
       NpcAiPrevious prev;
-      prev.stateName    = rawState!=nullptr ? reinterpret_cast<const char*>(rawState) : "";
-      prev.targetKey    = rawTarget!=nullptr ? reinterpret_cast<const char*>(rawTarget) : "";
-      prev.relationKind = rawRelation!=nullptr ? reinterpret_cast<const char*>(rawRelation) : "";
+      prev.stateName      = rawState!=nullptr ? reinterpret_cast<const char*>(rawState) : "";
+      prev.targetKey      = rawTarget!=nullptr ? reinterpret_cast<const char*>(rawTarget) : "";
+      prev.stateOtherKey  = rawOther!=nullptr ? reinterpret_cast<const char*>(rawOther) : "";
+      prev.stateVictimKey = rawVictim!=nullptr ? reinterpret_cast<const char*>(rawVictim) : "";
+      prev.relationKind   = rawRelation!=nullptr ? reinterpret_cast<const char*>(rawRelation) : "";
       previousNpcAi[reinterpret_cast<const char*>(rawKey)] = std::move(prev);
       }
     sqlite3_finalize(stmt);
@@ -5125,6 +5798,18 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
     sqlite3_finalize(stmt);
     }
   const bool hadPreviousMobsi = !previousMobsi.empty();
+
+  StoryProgressPrevious previousStoryProgress;
+  if(sqlite3_prepare_v2(impl->db,
+                        "SELECT chapter_number FROM runtime_story_progress_current WHERE character_key=?1",
+                        -1, &stmt, nullptr)==SQLITE_OK) {
+    bindText(stmt, 1, HeroKey);
+    if(sqlite3_step(stmt)==SQLITE_ROW) {
+      previousStoryProgress.valid = true;
+      previousStoryProgress.chapterNumber = sqlite3_column_int64(stmt, 0);
+      }
+    sqlite3_finalize(stmt);
+    }
 
   std::map<std::string, ScriptGlobalPrevious> previousGlobals;
   if(sqlite3_prepare_v2(impl->db,
@@ -6034,17 +6719,17 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
     INSERT OR REPLACE INTO runtime_npc_ai_state(
       entity_key, world_name, tick_count, display_name, player,
       ai_state_function, ai_state_name, target_key, target_symbol_index, target_display_name,
-      relation_kind, updated_at
+      state_other_key, state_victim_key, relation_kind, updated_at
     )
-    VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, CURRENT_TIMESTAMP)
+    VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, CURRENT_TIMESTAMP)
   )SQL";
   const char* npcAiHistory = R"SQL(
     INSERT INTO runtime_npc_ai_history(
       entity_key, world_name, tick_count, display_name, player,
       ai_state_function, ai_state_name, target_key, target_symbol_index, target_display_name,
-      relation_kind, changed_fields
+      state_other_key, state_victim_key, relation_kind, changed_fields
     )
-    VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+    VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
   )SQL";
   sqlite3_stmt* npcAiStmt = nullptr;
   sqlite3_stmt* npcAiHistStmt = nullptr;
@@ -6062,6 +6747,8 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
     const bool stateChanged = prev==previousNpcAi.end() ||
                               prev->second.stateName!=row.aiStateName ||
                               prev->second.targetKey!=row.targetKey ||
+                              prev->second.stateOtherKey!=row.stateOtherKey ||
+                              prev->second.stateVictimKey!=row.stateVictimKey ||
                               prev->second.relationKind!=row.relationKind;
     if(stateChanged && npcAiStmt!=nullptr) {
       sqlite3_reset(npcAiStmt);
@@ -6076,7 +6763,9 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
       bindText(npcAiStmt, 8, row.targetKey);
       bindInt (npcAiStmt, 9, row.targetSymbolIndex);
       bindText(npcAiStmt,10, row.targetName);
-      bindText(npcAiStmt,11, row.relationKind);
+      bindText(npcAiStmt,11, row.stateOtherKey);
+      bindText(npcAiStmt,12, row.stateVictimKey);
+      bindText(npcAiStmt,13, row.relationKind);
       if(sqlite3_step(npcAiStmt)!=SQLITE_DONE)
         Tempest::Log::e("mmo sqlite npc ai insert failed: ", sqlite3_errmsg(impl->db));
       }
@@ -6090,6 +6779,10 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
         changed += "ai_state,";
       if(prev->second.targetKey!=row.targetKey)
         changed += "target,";
+      if(prev->second.stateOtherKey!=row.stateOtherKey)
+        changed += "state_other,";
+      if(prev->second.stateVictimKey!=row.stateVictimKey)
+        changed += "state_victim,";
       if(prev->second.relationKind!=row.relationKind)
         changed += "relation_kind,";
       if(!changed.empty() && changed.back()==',')
@@ -6108,8 +6801,10 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
       bindText(npcAiHistStmt, 8, row.targetKey);
       bindInt (npcAiHistStmt, 9, row.targetSymbolIndex);
       bindText(npcAiHistStmt,10, row.targetName);
-      bindText(npcAiHistStmt,11, row.relationKind);
-      bindText(npcAiHistStmt,12, changed);
+      bindText(npcAiHistStmt,11, row.stateOtherKey);
+      bindText(npcAiHistStmt,12, row.stateVictimKey);
+      bindText(npcAiHistStmt,13, row.relationKind);
+      bindText(npcAiHistStmt,14, changed);
       if(sqlite3_step(npcAiHistStmt)!=SQLITE_DONE)
         Tempest::Log::e("mmo sqlite npc ai history insert failed: ", sqlite3_errmsg(impl->db));
       }
@@ -6776,6 +7471,81 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
   if(globalValueDeleteStmt!=nullptr)
     sqlite3_finalize(globalValueDeleteStmt);
 
+  const ScriptGlobalRow* chapterGlobal = nullptr;
+  for(const ScriptGlobalRow& row : currentGlobals) {
+    if(row.symbolName=="KAPITEL" && row.valueType=="int") {
+      chapterGlobal = &row;
+      break;
+      }
+    }
+  if(chapterGlobal!=nullptr) {
+    const int64_t chapterNumber = parseInt64(chapterGlobal->valueText, 0);
+    const std::string chapterKey = "chapter:" + std::to_string(chapterNumber);
+
+    sqlite3_stmt* storyStmt = nullptr;
+    const char* storyUpsert = R"SQL(
+      INSERT INTO runtime_story_progress_current(
+        character_key, world_name, tick_count, chapter_number, chapter_key,
+        source_global_key, source_symbol_index, source_symbol_name, updated_at
+      )
+      VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)
+      ON CONFLICT(character_key) DO UPDATE SET
+        world_name=excluded.world_name,
+        tick_count=excluded.tick_count,
+        chapter_number=excluded.chapter_number,
+        chapter_key=excluded.chapter_key,
+        source_global_key=excluded.source_global_key,
+        source_symbol_index=excluded.source_symbol_index,
+        source_symbol_name=excluded.source_symbol_name,
+        updated_at=CURRENT_TIMESTAMP
+    )SQL";
+    if(sqlite3_prepare_v2(impl->db, storyUpsert, -1, &storyStmt, nullptr)==SQLITE_OK) {
+      bindText(storyStmt, 1, HeroKey);
+      bindText(storyStmt, 2, world);
+      bindInt (storyStmt, 3, int64_t(game.tickCount()));
+      bindInt (storyStmt, 4, chapterNumber);
+      bindText(storyStmt, 5, chapterKey);
+      bindText(storyStmt, 6, chapterGlobal->globalKey);
+      bindInt (storyStmt, 7, chapterGlobal->symbolIndex);
+      bindText(storyStmt, 8, chapterGlobal->symbolName);
+      if(sqlite3_step(storyStmt)!=SQLITE_DONE)
+        Tempest::Log::e("mmo sqlite story progress upsert failed: ", sqlite3_errmsg(impl->db));
+      sqlite3_finalize(storyStmt);
+      }
+    else {
+      Tempest::Log::e("mmo sqlite story progress prepare failed: ", sqlite3_errmsg(impl->db));
+      }
+
+    if(previousStoryProgress.valid && previousStoryProgress.chapterNumber!=chapterNumber) {
+      const char* storyHistory = R"SQL(
+        INSERT INTO runtime_story_progress_history(
+          character_key, world_name, tick_count, chapter_before, chapter_after, chapter_key,
+          source_global_key, source_symbol_index, source_symbol_name
+        )
+        VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+      )SQL";
+      if(sqlite3_prepare_v2(impl->db, storyHistory, -1, &storyStmt, nullptr)==SQLITE_OK) {
+        bindText(storyStmt, 1, HeroKey);
+        bindText(storyStmt, 2, world);
+        bindInt (storyStmt, 3, int64_t(game.tickCount()));
+        bindInt (storyStmt, 4, previousStoryProgress.chapterNumber);
+        bindInt (storyStmt, 5, chapterNumber);
+        bindText(storyStmt, 6, chapterKey);
+        bindText(storyStmt, 7, chapterGlobal->globalKey);
+        bindInt (storyStmt, 8, chapterGlobal->symbolIndex);
+        bindText(storyStmt, 9, chapterGlobal->symbolName);
+        if(sqlite3_step(storyStmt)!=SQLITE_DONE)
+          Tempest::Log::e("mmo sqlite story progress history insert failed: ", sqlite3_errmsg(impl->db));
+        sqlite3_finalize(storyStmt);
+        }
+      else {
+        Tempest::Log::e("mmo sqlite story progress history prepare failed: ", sqlite3_errmsg(impl->db));
+        }
+      insertEvent("story_chapter_changed", HeroKey, chapterGlobal->globalKey,
+                  double(previousStoryProgress.chapterNumber), double(chapterNumber), chapterKey);
+      }
+    }
+
   const char* guildAttitudeInsert = R"SQL(
     INSERT INTO runtime_guild_attitudes(from_guild, to_guild, attitude, updated_at)
     VALUES(?1, ?2, ?3, CURRENT_TIMESTAMP)
@@ -7053,6 +7823,7 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
   exec(impl->db, "DELETE FROM mmo_character_wallet_current WHERE character_key='PC_HERO'");
   exec(impl->db, "DELETE FROM mmo_character_quests_current WHERE character_key='PC_HERO'");
   exec(impl->db, "DELETE FROM mmo_character_known_dialogs_current WHERE character_key='PC_HERO'");
+  exec(impl->db, "DELETE FROM mmo_character_story_progress_current WHERE character_key='PC_HERO'");
   exec(impl->db, "DELETE FROM mmo_script_global_values_current");
   exec(impl->db, "DELETE FROM mmo_script_globals_current");
   exec(impl->db, "DELETE FROM mmo_guild_attitudes_current WHERE realm_key='local-g2notr'");
@@ -7070,7 +7841,8 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
      WHERE world_name = (SELECT world_name FROM runtime_sessions WHERE id=(SELECT MAX(id) FROM runtime_sessions));
     INSERT OR REPLACE INTO mmo_unit_stat_sheet_current(
       unit_key, unit_type, character_key, world_name, tick_count, template_symbol_index, script_id,
-      display_name, player, guild, true_guild, level, experience, dead,
+      display_name, player, guild, true_guild, level, experience,
+      experience_next, learning_points, permanent_attitude, temporary_attitude, dead,
       pos_x, pos_y, pos_z, rotation, waypoint,
       health_current, health_max, mana_current, mana_max, strength, dexterity,
       regenerate_hp, regenerate_mana,
@@ -7082,7 +7854,8 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
       wisp_detector_skill, updated_at, persistence_class
     )
     SELECT unit_key, unit_type, character_key, world_name, tick_count, template_symbol_index, script_id,
-           display_name, player, guild, true_guild, level, experience, dead,
+           display_name, player, guild, true_guild, level, experience,
+           experience_next, learning_points, permanent_attitude, temporary_attitude, dead,
            pos_x, pos_y, pos_z, rotation, waypoint,
            health_current, health_max, mana_current, mana_max, strength, dexterity,
            regenerate_hp, regenerate_mana,
@@ -7189,6 +7962,13 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
     SELECT character_key, npc_symbol_index, info_symbol_index, npc_symbol_name, info_symbol_name,
            COALESCE(description, ''), permanent, first_seen_tick, updated_at, persistence_class
       FROM v_mmo_character_known_dialogs;
+    INSERT OR REPLACE INTO mmo_character_story_progress_current(
+      character_key, world_name, tick_count, chapter_number, chapter_key,
+      source_global_key, source_symbol_index, source_symbol_name, updated_at, persistence_class
+    )
+    SELECT character_key, world_name, tick_count, chapter_number, chapter_key,
+           source_global_key, source_symbol_index, source_symbol_name, updated_at, persistence_class
+      FROM v_mmo_character_story_progress;
     INSERT INTO mmo_world_items_current(
       item_spawn_key, world_name, tick_count, slot_id, persistent_id, item_template_symbol, script_id,
       item_display_name, visual, amount, main_flag, item_flags, value, pos_x, pos_y, pos_z,

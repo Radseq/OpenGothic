@@ -1048,6 +1048,8 @@ void Gothic::introducechapter(std::string_view title, std::string_view subtitle,
   s.img      = img;
   s.subtitle = subtitle;
   s.title    = title;
+  if(auto* session = gameSession())
+    session->recordMmoChapterIntro(title, subtitle, img, sound, time);
   }
 
 bool Gothic::playvideo(std::string_view name) {

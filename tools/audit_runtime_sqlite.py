@@ -24,6 +24,12 @@ def table_exists(conn: sqlite3.Connection, name: str) -> bool:
     ).fetchone() is not None
 
 
+def table_columns(conn: sqlite3.Connection, name: str) -> set[str]:
+    if not table_exists(conn, name):
+        return set()
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({quote_identifier(name)})")}
+
+
 def scalar(conn: sqlite3.Connection, sql: str, params=(), default=0):
     row = conn.execute(sql, params).fetchone()
     return default if row is None else row[0]
@@ -35,6 +41,52 @@ def rows(conn: sqlite3.Connection, sql: str, params=()):
 
 def report(level: str, message: str) -> None:
     print(f"{level}: {message}")
+
+
+def quote_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def text_storage_columns(conn: sqlite3.Connection):
+    table_rows = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    ).fetchall()
+    for table_row in table_rows:
+        table = table_row["name"]
+        pragma = f"PRAGMA table_info({quote_identifier(table)})"
+        for column_row in conn.execute(pragma):
+            declared_type = str(column_row["type"] or "").upper()
+            if "TEXT" in declared_type or "CHAR" in declared_type or "CLOB" in declared_type:
+                yield table, column_row["name"]
+
+
+def audit_utf8_text_storage(conn: sqlite3.Connection, limit: int) -> int:
+    issues = 0
+    samples = []
+    for table, column in text_storage_columns(conn):
+        sql = (
+            f"SELECT rowid AS row_id, CAST({quote_identifier(column)} AS BLOB) AS raw_value "
+            f"FROM {quote_identifier(table)} WHERE typeof({quote_identifier(column)})='text'"
+        )
+        for row in conn.execute(sql):
+            raw = row["raw_value"]
+            if raw is None:
+                continue
+            try:
+                bytes(raw).decode("utf-8")
+            except UnicodeDecodeError:
+                issues += 1
+                if len(samples) < limit:
+                    samples.append((table, column, row["row_id"], bytes(raw).hex()))
+    print()
+    print("Text storage encoding")
+    if issues == 0:
+        report("OK", "all SQLite TEXT payloads are valid UTF-8")
+    else:
+        report("ERROR", f"SQLite TEXT payloads with invalid UTF-8={issues}")
+        for table, column, row_id, hex_value in samples:
+            print(f"  {table}.{column} rowid={row_id} hex={hex_value}")
+    return issues
 
 
 def audit_text_columns(conn: sqlite3.Connection, limit: int) -> int:
@@ -130,6 +182,16 @@ def audit_text_columns(conn: sqlite3.Connection, limit: int) -> int:
         ("runtime_script_global_history", "symbol_name"),
         ("runtime_script_global_history", "value_before"),
         ("runtime_script_global_history", "value_after"),
+        ("runtime_story_progress_current", "character_key"),
+        ("runtime_story_progress_current", "world_name"),
+        ("runtime_story_progress_current", "chapter_key"),
+        ("runtime_story_progress_current", "source_global_key"),
+        ("runtime_story_progress_current", "source_symbol_name"),
+        ("runtime_story_progress_history", "character_key"),
+        ("runtime_story_progress_history", "world_name"),
+        ("runtime_story_progress_history", "chapter_key"),
+        ("runtime_story_progress_history", "source_global_key"),
+        ("runtime_story_progress_history", "source_symbol_name"),
     ]
     issues = 0
     print()
@@ -384,6 +446,60 @@ def main() -> int:
     if schema_version_int < 22 and missing_schema22:
         report("INFO", "save-slot snapshot tables not present yet; run the new build once to migrate to schema_version 22")
 
+    schema23_columns = {
+        "runtime_npc_ai_state": {"state_other_key", "state_victim_key"},
+        "runtime_npc_ai_history": {"state_other_key", "state_victim_key"},
+    }
+    missing_schema23 = []
+    for table, expected_columns in schema23_columns.items():
+        existing_columns = table_columns(conn, table)
+        for column in sorted(expected_columns - existing_columns):
+            missing_schema23.append(f"{table}.{column}")
+    if schema_version_int >= 23 and missing_schema23:
+        report("ERROR", "schema_version >= 23 but missing AI relation columns: " + ", ".join(missing_schema23))
+        return 1
+    if schema_version_int < 23 and missing_schema23:
+        report("INFO", "AI relation context columns not present yet; run the new build once to migrate to schema_version 23")
+
+    schema24_tables = [
+        "runtime_story_progress_current",
+        "runtime_story_progress_history",
+        "runtime_chapter_intro_events",
+        "mmo_character_story_progress_current",
+        "mmo_save_slot_character_story_progress",
+    ]
+    missing_schema24 = [name for name in schema24_tables if not table_exists(conn, name)]
+    if schema_version_int >= 24 and missing_schema24:
+        report("ERROR", "schema_version >= 24 but missing story/chapter tables: " + ", ".join(missing_schema24))
+        return 1
+    if schema_version_int < 24 and missing_schema24:
+        report("INFO", "story/chapter tables not present yet; run the new build once to migrate to schema_version 24")
+
+    schema25_columns = {
+        "mmo_unit_stat_sheet_current": {
+            "experience_next",
+            "learning_points",
+            "permanent_attitude",
+            "temporary_attitude",
+        },
+        "mmo_save_slot_unit_stat_sheet": {
+            "experience_next",
+            "learning_points",
+            "permanent_attitude",
+            "temporary_attitude",
+        },
+    }
+    missing_schema25 = []
+    for table, expected_columns in schema25_columns.items():
+        existing_columns = table_columns(conn, table)
+        for column in sorted(expected_columns - existing_columns):
+            missing_schema25.append(f"{table}.{column}")
+    if schema_version_int >= 25 and missing_schema25:
+        report("ERROR", "schema_version >= 25 but missing stat sheet columns: " + ", ".join(missing_schema25))
+        return 1
+    if schema_version_int < 25 and missing_schema25:
+        report("INFO", "stat sheet progression columns not present yet; run the new build once to migrate to schema_version 25")
+
     sessions = scalar(conn, "SELECT COUNT(*) FROM runtime_sessions")
     realms = scalar(conn, "SELECT COUNT(*) FROM runtime_realms")
     accounts = scalar(conn, "SELECT COUNT(*) FROM runtime_accounts")
@@ -419,6 +535,9 @@ def main() -> int:
     world_mobsi_inventory = scalar(conn, "SELECT COUNT(*) FROM runtime_world_mobsi_inventory")
     script_globals = scalar(conn, "SELECT COUNT(*) FROM runtime_script_globals")
     script_global_history = scalar(conn, "SELECT COUNT(*) FROM runtime_script_global_history")
+    story_progress = scalar(conn, "SELECT COUNT(*) FROM runtime_story_progress_current") if table_exists(conn, "runtime_story_progress_current") else 0
+    story_history = scalar(conn, "SELECT COUNT(*) FROM runtime_story_progress_history") if table_exists(conn, "runtime_story_progress_history") else 0
+    chapter_intro_events = scalar(conn, "SELECT COUNT(*) FROM runtime_chapter_intro_events") if table_exists(conn, "runtime_chapter_intro_events") else 0
 
     report("OK" if realms > 0 else "WARN", f"realms={realms}")
     report("OK" if accounts > 0 else "WARN", f"accounts={accounts}")
@@ -497,6 +616,10 @@ def main() -> int:
     report("OK" if world_mobsi_inventory >= 0 else "WARN", f"runtime world mobsi inventory rows={world_mobsi_inventory}")
     report("OK" if script_globals > 0 else "WARN", f"runtime script global rows={script_globals}")
     report("OK" if script_global_history >= 0 else "WARN", f"runtime script global history rows={script_global_history}")
+    if table_exists(conn, "runtime_story_progress_current"):
+        report("OK" if story_progress == 1 else "WARN", f"runtime story progress rows={story_progress}")
+        report("OK" if story_history >= 0 else "WARN", f"runtime story progress history rows={story_history}")
+        report("OK" if chapter_intro_events >= 0 else "WARN", f"runtime chapter intro events={chapter_intro_events}")
 
     null_inventory_names = scalar(
         conn,
@@ -541,6 +664,8 @@ def main() -> int:
         report("OK", "world tables display_name has no NULL values")
 
     text_issues = audit_text_columns(conn, args.limit)
+    utf8_text_issues = audit_utf8_text_storage(conn, args.limit)
+    fatal_issues = utf8_text_issues
 
     duplicate_events = rows(
         conn,
@@ -595,15 +720,42 @@ def main() -> int:
     for row in event_counts:
         print(f"  {row['event_type']}: {row['c']}")
 
+    legacy_dialog_selected = scalar(conn, "SELECT COUNT(*) FROM runtime_events WHERE event_type='dialog_selected'")
+    if legacy_dialog_selected:
+        report("ERROR", f"legacy dialog_selected events={legacy_dialog_selected}; use phase-specific dialog event types")
+        fatal_issues += 1
+    else:
+        report("OK", "dialog event types are phase-specific")
+
     missing_expected = [
         name
-        for name in ("item_added", "item_quantity_changed", "character_moved")
+        for name in ("item_added", "character_moved")
         if scalar(conn, "SELECT COUNT(*) FROM runtime_events WHERE event_type=?", (name,)) == 0
     ]
+    inventory_quantity_changes = scalar(
+        conn,
+        """
+        SELECT COUNT(*)
+          FROM (
+            SELECT character_key, symbol_index
+              FROM (
+                SELECT character_key, symbol_index, tick_count, SUM(iterator_count) AS total_count
+                  FROM runtime_character_inventory_history
+                 GROUP BY character_key, symbol_index, tick_count
+              )
+             GROUP BY character_key, symbol_index
+            HAVING COUNT(DISTINCT total_count) > 1
+          )
+        """,
+    )
+    if inventory_quantity_changes and scalar(conn, "SELECT COUNT(*) FROM runtime_events WHERE event_type='item_quantity_changed'") == 0:
+        missing_expected.append("item_quantity_changed")
     if missing_expected:
         report("WARN", "missing expected event classes: " + ", ".join(missing_expected))
     else:
         report("OK", "basic event classes are present")
+    if inventory_quantity_changes == 0:
+        report("INFO", "no inventory stack quantity changes in history; test buy/pickup same template/consume stack next")
 
     removed = scalar(conn, "SELECT COUNT(*) FROM runtime_events WHERE event_type='item_removed'")
     if removed == 0:
@@ -623,6 +775,7 @@ def main() -> int:
         "mmo_character_wallet_current",
         "mmo_character_quests_current",
         "mmo_character_known_dialogs_current",
+        "mmo_character_story_progress_current",
         "mmo_world_items_current",
         "mmo_world_interactives_current",
         "mmo_world_container_inventory_current",
@@ -676,6 +829,14 @@ def main() -> int:
         report(
             "OK" if current_wallet == character_wallet else "ERROR",
             f"mmo_character_wallet_current rows={current_wallet}/{character_wallet} from runtime_character_wallet",
+        )
+
+    if table_exists(conn, "mmo_character_story_progress_current"):
+        current_story = scalar(conn, "SELECT COUNT(*) FROM mmo_character_story_progress_current")
+        runtime_story = scalar(conn, "SELECT COUNT(*) FROM runtime_story_progress_current") if table_exists(conn, "runtime_story_progress_current") else 0
+        report(
+            "OK" if current_story == runtime_story else "ERROR",
+            f"mmo_character_story_progress_current rows={current_story}/{runtime_story} from runtime_story_progress_current",
         )
 
     if table_exists(conn, "mmo_world_items_current"):
@@ -753,6 +914,9 @@ def main() -> int:
     print("  SELECT character_key, display_name, world_name, level, experience FROM mmo_characters_current;")
     print("  SELECT slot_key, display_name, source_slot_path, world_name, tick_count, current_snapshot_id, last_saved_at FROM mmo_save_slots ORDER BY updated_at DESC;")
     print("  SELECT snapshot_id, slot_key, display_name, world_name, tick_count, created_at FROM mmo_save_slot_snapshots ORDER BY snapshot_id DESC LIMIT 20;")
+    print("  SELECT character_key, world_name, chapter_number, chapter_key, source_symbol_name, updated_at FROM mmo_character_story_progress_current;")
+    print("  SELECT tick_count, chapter_before, chapter_after, chapter_key, source_symbol_name FROM runtime_story_progress_history ORDER BY id DESC LIMIT 20;")
+    print("  SELECT tick_count, title, subtitle, image, sound, duration FROM runtime_chapter_intro_events ORDER BY id DESC LIMIT 20;")
     print("  SELECT character_key, currency_key, currency_display_name, amount FROM runtime_character_wallet;")
     print("  SELECT character_key, currency_key, currency_display_name, amount FROM mmo_character_wallet_current;")
     print("  SELECT * FROM mmo_unit_stat_sheet_current WHERE unit_type='character';")
@@ -765,7 +929,7 @@ def main() -> int:
     print("  SELECT tick_count, COUNT(*), SUM(iterator_count) FROM runtime_character_inventory_history GROUP BY tick_count ORDER BY tick_count DESC LIMIT 30;")
     print("  SELECT display_name, symbol_index, hp, hp_max, dead, pos_x, pos_y, pos_z FROM runtime_world_npcs ORDER BY dead DESC, display_name LIMIT 50;")
     print("  SELECT display_name, stat_group, stat_key, value FROM runtime_npc_stats WHERE player!=0 ORDER BY stat_group, stat_key;")
-    print("  SELECT display_name, ai_state_name, target_display_name, relation_kind FROM runtime_npc_ai_state ORDER BY updated_at DESC LIMIT 50;")
+    print("  SELECT display_name, ai_state_name, target_display_name, target_key, state_other_key, state_victim_key, relation_kind FROM runtime_npc_ai_state ORDER BY updated_at DESC LIMIT 50;")
     print("  SELECT world_name, kind, COUNT(*) AS points FROM runtime_waypoints GROUP BY world_name, kind;")
     print("  SELECT display_name, current_waypoint_name, routine_waypoint_name, move_hint, move_target_waypoint_name, path_next_waypoint_name FROM runtime_npc_navigation_state ORDER BY display_name LIMIT 50;")
     print("  SELECT display_name, routine_index, start_minute, end_minute, callback_symbol_name, waypoint_name, active FROM runtime_npc_routines ORDER BY display_name, start_minute LIMIT 50;")
@@ -780,7 +944,7 @@ def main() -> int:
     print("  SELECT category, COUNT(*) FROM runtime_script_globals GROUP BY category ORDER BY COUNT(*) DESC;")
     print("  SELECT category, symbol_name, value_before, value_after FROM runtime_script_global_history ORDER BY id DESC LIMIT 50;")
 
-    return 0
+    return 1 if fatal_issues else 0
 
 
 if __name__ == "__main__":

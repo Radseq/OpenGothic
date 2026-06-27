@@ -3,4 +3,407 @@ Switching music provider to 'OpenGothic'
 GPU = NVIDIA GeForce RTX 5070 Ti
 Depth format = Depth32F Shadow format = Depth16
 swapchain is outdated - reset renderer
-Exiting, by item action (`LEAVE_GAME`)
+[zenkit] Parsing object [MeshAndBsp % 0 0]
+[zenkit] Parsing chunk c000
+[zenkit] Parsing chunk c010
+[zenkit] Parsing chunk c040
+[zenkit] Parsing chunk c045
+[zenkit] Parsing chunk c050
+[zenkit] Parsing chunk c0ff
+[zenkit] 1 bytes remaining in section b020
+[zenkit] Parsing object [VobTree % 0 0]
+[zenkit] Parsing object [WayNet % 0 0]
+[zenkit] Parsing object [EndMarker % 0 0]
+invalid particle system: "INVISIBLE_VOBBOX.3DS"
+unable to load sound fx: ENV_NIGHT_TONSOFINSECTS
+unable to load sound fx: OW_BIRD11
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+addNpc: 11069 (MIL_302_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
+addNpc: 11071 (MIL_303_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] Unexpected value for MdsEventType: "		"
+[zenkit] 4 bytes remaining in section f5a3
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+mmo sqlite exec failed: no such column: experience_next
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+mmo sqlite exec failed: no such column: experience_next
+not implemented call [mdl_applyrandomani]
+not implemented call [mdl_applyrandomanifreq]
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
+mmo sqlite exec failed: no such column: experience_next
