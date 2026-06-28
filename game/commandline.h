@@ -54,6 +54,18 @@ class CommandLine {
     uint64_t            mmoSqliteIntervalMs() const { return mmoSqliteInterval; }
     bool                mmoSqliteRestore() const { return mmoSqliteRestoreState; }
     bool                mmoSqliteCaptureBaseline() const { return mmoSqliteCaptureBaselineState; }
+    std::string_view    mmoActionJsonl() const { return mmoActionJsonlPath; }
+    std::string_view    mmoActionUdpEndpoint() const { return mmoActionUdp; }
+    std::string_view    mmoActionSessionKey() const { return mmoActionSession; }
+    uint64_t            mmoActionQueueCapacity() const { return mmoActionQueueCap; }
+    bool                mmoActionStrictOverflow() const { return mmoActionStrictOverflowState; }
+    uint64_t            mmoActionCheckpointIntervalMs() const { return mmoActionCheckpointInterval; }
+    float               mmoActionCheckpointMinDistance() const { return mmoActionCheckpointMinDistanceWorld; }
+    float               mmoActionCheckpointMinYawDeg() const { return mmoActionCheckpointMinYaw; }
+    uint64_t            mmoActionCheckpointForceIntervalMs() const { return mmoActionCheckpointForceInterval; }
+    uint64_t            mmoActionMovementProposalIntervalMs() const { return mmoActionMovementProposalInterval; }
+    float               mmoActionMovementProposalMinDistance() const { return mmoActionMovementProposalMinDistanceWorld; }
+    float               mmoActionMovementProposalMinYawDeg() const { return mmoActionMovementProposalMinYaw; }
 
     std::string         wrldDef;
 
@@ -71,6 +83,18 @@ class CommandLine {
     uint64_t            mmoSqliteInterval = 5000;
     bool                mmoSqliteRestoreState = true;
     bool                mmoSqliteCaptureBaselineState = false;
+    std::string         mmoActionJsonlPath;
+    std::string         mmoActionUdp;
+    std::string         mmoActionSession = "local-dev";
+    uint64_t            mmoActionQueueCap = 4096;
+    bool                mmoActionStrictOverflowState = false;
+    uint64_t            mmoActionCheckpointInterval = 0;
+    float               mmoActionCheckpointMinDistanceWorld = 0.f;
+    float               mmoActionCheckpointMinYaw = 0.f;
+    uint64_t            mmoActionCheckpointForceInterval = 0;
+    uint64_t            mmoActionMovementProposalInterval = 0;
+    float               mmoActionMovementProposalMinDistanceWorld = 0.f;
+    float               mmoActionMovementProposalMinYaw = 0.f;
     bool                devmode      = false;
     bool                noMenu       = false;
     Benchmark           isBenchmark  = Benchmark::None;
@@ -92,3 +116,9 @@ class CommandLine {
     bool                forceG2NR    = false;
     uint32_t            aaPresetId = 0;
   };
+
+
+
+
+
+

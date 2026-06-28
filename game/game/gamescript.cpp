@@ -1,6 +1,10 @@
 #include "gamescript.h"
 
+#include <cstdint>
+#include <set>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include <Tempest/Log>
 #include <Tempest/SoundEffect>
@@ -19,6 +23,7 @@
 #include "utils/fileutil.h"
 #include "commandline.h"
 #include "gothic.h"
+#include "mmosemantichooks.h"
 
 using namespace Tempest;
 
@@ -50,6 +55,212 @@ struct ScopeCtx final {
   GameScript&      script;
   NpcProcessPolicy prev = NpcProcessPolicy::AiNormal;
   };
+
+namespace {
+
+struct MmoScriptIntValue final {
+  size_t   symbolIndex = 0;
+  uint16_t valueIndex  = 0;
+  int32_t  value       = 0;
+};
+
+struct MmoProgressionValue final {
+  int32_t level          = 0;
+  int32_t experience     = 0;
+  int32_t experienceNext = 0;
+  int32_t learningPoints = 0;
+};
+
+struct MmoQuestValue final {
+  std::string      name;
+  QuestLog::Status status = QuestLog::Status::Running;
+  size_t           entryCount = 0;
+};
+
+struct MmoScriptSnapshot final {
+  bool                                      enabled = false;
+  Npc*                                      actor = nullptr;
+  uint32_t                                  scriptFunctionSymbol = 0;
+  std::string                               scriptFunctionName;
+  std::vector<MmoScriptIntValue>            intValues;
+  MmoProgressionValue                       progression;
+  std::set<std::pair<size_t, size_t>>       knownDialogs;
+  std::vector<MmoQuestValue>                quests;
+};
+
+std::string_view questStatusName(QuestLog::Status status) noexcept {
+  switch(status) {
+    case QuestLog::Status::Running:  return "running";
+    case QuestLog::Status::Success:  return "success";
+    case QuestLog::Status::Failed:   return "failed";
+    case QuestLog::Status::Obsolete: return "obsolete";
+    }
+  return "running";
+}
+
+MmoProgressionValue captureProgression(const Npc& actor) noexcept {
+  MmoProgressionValue out;
+  out.level          = actor.level();
+  out.experience     = actor.experience();
+  out.experienceNext = actor.experienceNext();
+  out.learningPoints = actor.learningPoints();
+  return out;
+}
+
+void captureScriptInts(GameScript& script, std::vector<MmoScriptIntValue>& out) {
+  out.clear();
+  out.reserve(512);
+  const size_t count = script.symbolsCount();
+  for(size_t i = 0; i < count; ++i) {
+    auto* sym = script.findSymbol(i);
+    if(sym == nullptr || sym->is_member() || sym->is_const() ||
+       sym->type() != zenkit::DaedalusDataType::INT || sym->count() == 0)
+      continue;
+    const auto valueCount = sym->count();
+    const auto boundedValueCount = valueCount > 65535 ? 65535 : valueCount;
+    for(size_t j = 0; j < boundedValueCount; ++j) {
+      const auto valueIndex = uint16_t(j);
+      MmoScriptIntValue v;
+      v.symbolIndex = i;
+      v.valueIndex  = valueIndex;
+      v.value       = sym->get_int(valueIndex);
+      out.push_back(v);
+      }
+    }
+}
+
+std::vector<MmoQuestValue> captureQuests(const QuestLog& log) {
+  std::vector<MmoQuestValue> out;
+  out.reserve(log.questCount());
+  for(size_t i = 0; i < log.questCount(); ++i) {
+    const auto& q = log.quest(i);
+    MmoQuestValue v;
+    v.name       = q.name;
+    v.status     = q.status;
+    v.entryCount = q.entry.size();
+    out.push_back(std::move(v));
+    }
+  return out;
+}
+
+const MmoScriptIntValue* findScriptIntValue(const std::vector<MmoScriptIntValue>& values,
+                                            size_t symbolIndex,
+                                            uint16_t valueIndex) noexcept {
+  for(const auto& v : values) {
+    if(v.symbolIndex == symbolIndex && v.valueIndex == valueIndex)
+      return &v;
+    }
+  return nullptr;
+}
+
+const MmoQuestValue* findQuestValue(const std::vector<MmoQuestValue>& values,
+                                    std::string_view name) noexcept {
+  for(const auto& q : values) {
+    if(q.name == name)
+      return &q;
+    }
+  return nullptr;
+}
+
+MmoScriptSnapshot captureMmoScriptSnapshot(GameScript& script,
+                                           Npc* actor,
+                                           zenkit::DaedalusSymbol* scriptFunction) noexcept {
+  MmoScriptSnapshot out;
+  if(!Mmo::Hooks::shouldCaptureScriptAction(actor) || scriptFunction == nullptr)
+    return out;
+  try {
+    out.enabled = true;
+    out.actor = actor;
+    out.scriptFunctionSymbol = uint32_t(scriptFunction->index());
+    out.scriptFunctionName = scriptFunction->name();
+    captureScriptInts(script, out.intValues);
+    out.progression = captureProgression(*actor);
+    out.knownDialogs = script.knownDialogInfos();
+    out.quests = captureQuests(script.questLog());
+    }
+  catch(...) {
+    out = {};
+    }
+  return out;
+}
+
+void emitMmoScriptDiff(GameScript& script, MmoScriptSnapshot& before, const char* sourceLocation) noexcept {
+  if(!before.enabled || before.actor == nullptr)
+    return;
+
+  try {
+    std::vector<MmoScriptIntValue> afterInts;
+    captureScriptInts(script, afterInts);
+  for(const auto& after : afterInts) {
+    const auto* prior = findScriptIntValue(before.intValues, after.symbolIndex, after.valueIndex);
+    if(prior == nullptr || prior->value == after.value)
+      continue;
+    auto* sym = script.findSymbol(after.symbolIndex);
+    if(sym == nullptr)
+      continue;
+    Mmo::Hooks::onScriptIntChanged(*before.actor,
+                                   before.scriptFunctionSymbol,
+                                   before.scriptFunctionName,
+                                   after.symbolIndex,
+                                   after.valueIndex,
+                                   sym->name(),
+                                   prior->value,
+                                   after.value,
+                                   sourceLocation);
+    }
+
+  const auto afterProgression = captureProgression(*before.actor);
+  Mmo::Hooks::onCharacterProgressionChanged(*before.actor,
+                                            before.scriptFunctionSymbol,
+                                            before.scriptFunctionName,
+                                            before.progression.level,
+                                            afterProgression.level,
+                                            before.progression.experience,
+                                            afterProgression.experience,
+                                            before.progression.experienceNext,
+                                            afterProgression.experienceNext,
+                                            before.progression.learningPoints,
+                                            afterProgression.learningPoints,
+                                            sourceLocation);
+
+  const auto& afterKnownDialogs = script.knownDialogInfos();
+  for(const auto& known : afterKnownDialogs) {
+    if(before.knownDialogs.find(known) != before.knownDialogs.end())
+      continue;
+    const auto* npcSym = script.findSymbol(known.first);
+    const auto* infoSym = script.findSymbol(known.second);
+    const std::string npcName = npcSym != nullptr ? npcSym->name() : std::string{};
+    const std::string infoName = infoSym != nullptr ? infoSym->name() : std::string{};
+    Mmo::Hooks::onKnownDialogChanged(*before.actor,
+                                     before.scriptFunctionSymbol,
+                                     before.scriptFunctionName,
+                                     known.first,
+                                     npcName,
+                                     known.second,
+                                     infoName,
+                                     true,
+                                     sourceLocation);
+    }
+
+  const auto afterQuests = captureQuests(script.questLog());
+  for(const auto& quest : afterQuests) {
+    const auto* prior = findQuestValue(before.quests, quest.name);
+    if(prior != nullptr && prior->status == quest.status && prior->entryCount == quest.entryCount)
+      continue;
+    Mmo::Hooks::onQuestChanged(*before.actor,
+                               before.scriptFunctionSymbol,
+                               before.scriptFunctionName,
+                               quest.name,
+                               questStatusName(quest.status),
+                               quest.entryCount,
+                               sourceLocation);
+    }
+    }
+  catch(...) {
+    }
+}
+
+} // namespace
 
 bool GameScript::GlobalOutput::output(Npc& npc, std::string_view text) {
   return owner.aiOutput(npc,text,false);
@@ -1008,6 +1219,9 @@ void GameScript::exec(const GameScript::DlgChoice &dlg, Npc& player, Npc& npc) {
     player.stopAnim("");
   auto& pl = player.handle();
 
+  auto* scriptSymbol = vm.find_symbol_by_index(dlg.scriptFn);
+  auto  mmoBefore = captureMmoScriptSnapshot(*this, &player, scriptSymbol);
+
   if(info.information==int(dlg.scriptFn)) {
     setNpcInfoKnown(pl,info);
     } else {
@@ -1017,7 +1231,8 @@ void GameScript::exec(const GameScript::DlgChoice &dlg, Npc& player, Npc& npc) {
         ++i;
       }
     }
-  vm.call_function(vm.find_symbol_by_index(dlg.scriptFn));
+  vm.call_function(scriptSymbol);
+  emitMmoScriptDiff(*this, mmoBefore, "GameScript::exec");
   }
 
 void GameScript::printCannotUseError(Npc& npc, int32_t atr, int32_t nValue) {
@@ -1172,7 +1387,9 @@ void GameScript::invokeItem(Npc *npc, ScriptFn fn) {
     return;
 
   ScopeVar self(*vm.global_self(), npc->handlePtr());
+  auto mmoBefore = captureMmoScriptSnapshot(*this, npc, functionSymbol);
   vm.call_function<void>(functionSymbol);
+  emitMmoScriptDiff(*this, mmoBefore, "GameScript::invokeItem");
   }
 
 int GameScript::invokeMana(Npc &npc, Npc* target, int mana) {
@@ -1413,9 +1630,12 @@ void GameScript::useInteractive(const std::shared_ptr<zenkit::INpc>& hnpc, std::
   if(fn == nullptr)
     return;
 
+  auto* actor = findNpc(hnpc);
   ScopeVar self(*vm.global_self(),hnpc);
+  auto mmoBefore = captureMmoScriptSnapshot(*this, actor, fn);
   try {
     vm.call_function<void>(fn);
+    emitMmoScriptDiff(*this, mmoBefore, "GameScript::useInteractive");
     }
   catch (...) {
     Log::i("unable to use interactive [",func,"]");
@@ -3476,3 +3696,5 @@ bool GameScript::doesNpcKnowInfo(const zenkit::INpc& npc, size_t infoInstance) c
   auto id = std::make_pair(vm.find_symbol_by_instance(npc)->index(),infoInstance);
   return dlgKnownInfos.find(id)!=dlgKnownInfos.end();
   }
+
+

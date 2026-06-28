@@ -3,10 +3,10 @@ set -euo pipefail
 
 # Usage:
 #   ./connect_opengothic_split.sh
-#   ./connect_opengothic_split.sh wynik_code.txt wynik_llm.txt
+#   ./connect_opengothic_split.sh wynik_code.txt wynik_llm.txt wynik_tools.txt
 #
 # Goal:
-#   Produce two LLM-friendly snapshots:
+#   Produce three LLM-friendly snapshots:
 #
 #   1) wynik_code.txt
 #      - combines C/C++ source/header files from OpenGothic/game
@@ -16,19 +16,27 @@ set -euo pipefail
 #      - combines documentation from OpenGothic/docs/llm
 #      - default extensions: .md .txt .rst
 #
+#   3) wynik_tools.txt
+#      - combines utility/tooling files from OpenGothic/tools
+#      - default extensions: .py .sh .bash .md .txt .rst .json .jsonl .yml .yaml .toml .ini .cfg .sql
+#
 # Run from:
 #   - OpenGothic/
 #   - OpenGothic/game/
 #   - OpenGothic/docs/
+#   - OpenGothic/tools/
 #
 # Optional env:
 #   MAX_BYTES=5000000 ./connect_opengothic_split.sh
 #   INCLUDE_PRIVATE_DOCS=0 ./connect_opengothic_split.sh
+#   INCLUDE_PRIVATE_TOOLS=0 ./connect_opengothic_split.sh
 
 CODE_OUTPUT="${1:-wynik_code.txt}"
 LLM_OUTPUT="${2:-wynik_llm.txt}"
+TOOLS_OUTPUT="${3:-wynik_tools.txt}"
 MAX_BYTES="${MAX_BYTES:-1500000}"
 INCLUDE_PRIVATE_DOCS="${INCLUDE_PRIVATE_DOCS:-1}"
+INCLUDE_PRIVATE_TOOLS="${INCLUDE_PRIVATE_TOOLS:-1}"
 
 export LC_ALL=C
 
@@ -36,10 +44,10 @@ realpath_m() {
     if command -v realpath >/dev/null 2>&1; then
         realpath -m "$1"
     else
-        python3 - "$1" <<'PY'
+        python3 - "$1" <<'PY_REALPATH'
 import os, sys
 print(os.path.abspath(sys.argv[1]))
-PY
+PY_REALPATH
     fi
 }
 
@@ -63,19 +71,26 @@ detect_project_root() {
             return 0
         fi
 
+        if [ "$(basename "$dir")" = "tools" ] && [ -d "$dir/../game" ] && [ -d "$dir/../docs/llm" ]; then
+            realpath_m "$dir/.."
+            return 0
+        fi
+
         dir="$(dirname "$dir")"
     done
 
-    printf 'ERROR: Cannot detect OpenGothic project root. Run from OpenGothic/, OpenGothic/game/ or OpenGothic/docs/.\n' >&2
+    printf 'ERROR: Cannot detect OpenGothic project root. Run from OpenGothic/, OpenGothic/game/, OpenGothic/docs/ or OpenGothic/tools/.\n' >&2
     return 1
 }
 
 PROJECT_ROOT="$(detect_project_root)"
 GAME_ROOT="$PROJECT_ROOT/game"
 LLM_ROOT="$PROJECT_ROOT/docs/llm"
+TOOLS_ROOT="$PROJECT_ROOT/tools"
 
 CODE_OUTPUT_ABS="$(realpath_m "$CODE_OUTPUT")"
 LLM_OUTPUT_ABS="$(realpath_m "$LLM_OUTPUT")"
+TOOLS_OUTPUT_ABS="$(realpath_m "$TOOLS_OUTPUT")"
 
 file_size_bytes() {
     local file="$1"
@@ -103,14 +118,14 @@ should_skip_common_path() {
     local base="${file##*/}"
 
     case "$base" in
-        "$(basename "$CODE_OUTPUT_ABS")"|"$(basename "$LLM_OUTPUT_ABS")"| \
+        "$(basename "$CODE_OUTPUT_ABS")"|"$(basename "$LLM_OUTPUT_ABS")"|"$(basename "$TOOLS_OUTPUT_ABS")"| \
         wynik.txt|wynik_*.txt|Gomol.log|rvk_trace.json|compile_commands.json)
             return 0
             ;;
     esac
 
     case "$file" in
-        "$CODE_OUTPUT_ABS"|"$LLM_OUTPUT_ABS")
+        "$CODE_OUTPUT_ABS"|"$LLM_OUTPUT_ABS"|"$TOOLS_OUTPUT_ABS")
             return 0
             ;;
     esac
@@ -150,6 +165,26 @@ is_llm_doc_file() {
     local file="$1"
     case "$file" in
         *.md|*.txt|*.rst)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+is_tools_file() {
+    local file="$1"
+    case "$file" in
+        *.py|*.sh|*.bash|*.md|*.txt|*.rst|*.json|*.jsonl|*.yml|*.yaml|*.toml|*.ini|*.cfg|*.sql)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+is_private_path() {
+    local file="$1"
+    case "$file" in
+        */private/*|*/secret/*|*/secrets/*|*/.env|*/.env.*)
             return 0
             ;;
     esac
@@ -222,20 +257,45 @@ combine_llm_docs() {
             continue
         fi
 
-        if [ "$INCLUDE_PRIVATE_DOCS" = "0" ]; then
-            case "$file" in
-                */private/*|*/secret/*|*/secrets/*)
-                    continue
-                    ;;
-            esac
+        if [ "$INCLUDE_PRIVATE_DOCS" = "0" ] && is_private_path "$file"; then
+            continue
         fi
 
         append_file "$LLM_OUTPUT_ABS" "$PROJECT_ROOT" "$file"
     done
 }
 
+combine_tools() {
+    write_header "$TOOLS_OUTPUT_ABS" "OpenGothic tools snapshot"
+
+    if [ ! -d "$TOOLS_ROOT" ]; then
+        printf 'ERROR: Missing tools directory: %s\n' "$TOOLS_ROOT" >&2
+        return 1
+    fi
+
+    find "$TOOLS_ROOT" -type f -print0 |
+    sort -z |
+    while IFS= read -r -d '' file; do
+        if should_skip_common_path "$file"; then
+            continue
+        fi
+
+        if ! is_tools_file "$file"; then
+            continue
+        fi
+
+        if [ "$INCLUDE_PRIVATE_TOOLS" = "0" ] && is_private_path "$file"; then
+            continue
+        fi
+
+        append_file "$TOOLS_OUTPUT_ABS" "$PROJECT_ROOT" "$file"
+    done
+}
+
 combine_cpp_sources
 combine_llm_docs
+combine_tools
 
-printf 'Generated code snapshot: %s\n' "$CODE_OUTPUT_ABS"
-printf 'Generated llm snapshot:  %s\n' "$LLM_OUTPUT_ABS"
+printf 'Generated code snapshot:  %s\n' "$CODE_OUTPUT_ABS"
+printf 'Generated llm snapshot:   %s\n' "$LLM_OUTPUT_ABS"
+printf 'Generated tools snapshot: %s\n' "$TOOLS_OUTPUT_ABS"

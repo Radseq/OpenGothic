@@ -1,5 +1,5 @@
 # OpenGothic C/C++ source snapshot
-# Generated: 2026-06-27T11:09:31+02:00
+# Generated: 2026-06-28T13:57:31+02:00
 # Project root: /home/radseq/Desktop/OpenGothic
 # MAX_BYTES per file: 1500000
 
@@ -3889,6 +3889,127 @@ CommandLine::CommandLine(int argc, const char** argv) {
       // It is valid only for the first session of a fresh database, never a save.
       mmoSqliteCaptureBaselineState = true;
       }
+    else if(arg=="-mmo-action-jsonl") {
+      // Dev-only semantic action capture. The game thread only enqueues immutable
+      // JSONL lines; final MMO architecture is still client -> server -> DB.
+      ++i;
+      if(i<argc)
+        mmoActionJsonlPath = argv[i];
+      }
+    else if(arg=="-mmo-action-udp") {
+      // Dev-only local server boundary. The game thread still only enqueues;
+      // an async worker sends immutable JSONL envelopes to host:port over UDP.
+      ++i;
+      if(i<argc)
+        mmoActionUdp = argv[i];
+      }
+    else if(arg=="-mmo-action-session-key") {
+      ++i;
+      if(i<argc)
+        mmoActionSession = argv[i];
+      }
+    else if(arg=="-mmo-action-queue-capacity") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoActionQueueCap = std::max<uint64_t>(1, std::stoull(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-queue-capacity: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-strict-overflow") {
+      mmoActionStrictOverflowState = true;
+      }
+    else if(arg=="-mmo-action-checkpoint-interval-ms") {
+      // Step39 dev-only movement/checkpoint capture cadence. Zero disables
+      // periodic checkpoint envelopes even when the semantic action sink is on.
+      ++i;
+      if(i<argc) {
+        try {
+          auto value = std::stoull(std::string(argv[i]));
+          mmoActionCheckpointInterval = value == 0 ? 0 : std::max<uint64_t>(250, value);
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-checkpoint-interval-ms: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-checkpoint-min-distance") {
+      // Step39 v2: coalesce stationary checkpoints on the game side. The unit is
+      // Gothic world units; zero keeps pure interval capture semantics.
+      ++i;
+      if(i<argc) {
+        try {
+          mmoActionCheckpointMinDistanceWorld = std::max(0.f, std::stof(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-checkpoint-min-distance: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-checkpoint-min-yaw-deg") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoActionCheckpointMinYaw = std::max(0.f, std::stof(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-checkpoint-min-yaw-deg: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-checkpoint-force-interval-ms") {
+      // Optional keepalive interval. It emits even when position/yaw/stats are
+      // unchanged, but never more often than -mmo-action-checkpoint-interval-ms.
+      ++i;
+      if(i<argc) {
+        try {
+          auto value = std::stoull(std::string(argv[i]));
+          mmoActionCheckpointForceInterval = value == 0 ? 0 : std::max<uint64_t>(250, value);
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-checkpoint-force-interval-ms: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-movement-proposal-interval-ms") {
+      // Step41 dev-only movement proposal capture. This is not a DB write; it
+      // produces client intent/proposal envelopes for a server-side validator.
+      ++i;
+      if(i<argc) {
+        try {
+          auto value = std::stoull(std::string(argv[i]));
+          mmoActionMovementProposalInterval = value == 0 ? 0 : std::max<uint64_t>(50, value);
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-movement-proposal-interval-ms: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-movement-proposal-min-distance") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoActionMovementProposalMinDistanceWorld = std::max(0.f, std::stof(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-movement-proposal-min-distance: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-movement-proposal-min-yaw-deg") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoActionMovementProposalMinYaw = std::max(0.f, std::stof(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-movement-proposal-min-yaw-deg: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
     else if(arg=="-window") {
       isWindow = true;
       }
@@ -4049,6 +4170,12 @@ bool CommandLine::validateGothicPath() const {
   }
 
 
+
+
+
+
+
+
 ===== game/commandline.h =====
 #pragma once
 
@@ -4106,6 +4233,18 @@ class CommandLine {
     uint64_t            mmoSqliteIntervalMs() const { return mmoSqliteInterval; }
     bool                mmoSqliteRestore() const { return mmoSqliteRestoreState; }
     bool                mmoSqliteCaptureBaseline() const { return mmoSqliteCaptureBaselineState; }
+    std::string_view    mmoActionJsonl() const { return mmoActionJsonlPath; }
+    std::string_view    mmoActionUdpEndpoint() const { return mmoActionUdp; }
+    std::string_view    mmoActionSessionKey() const { return mmoActionSession; }
+    uint64_t            mmoActionQueueCapacity() const { return mmoActionQueueCap; }
+    bool                mmoActionStrictOverflow() const { return mmoActionStrictOverflowState; }
+    uint64_t            mmoActionCheckpointIntervalMs() const { return mmoActionCheckpointInterval; }
+    float               mmoActionCheckpointMinDistance() const { return mmoActionCheckpointMinDistanceWorld; }
+    float               mmoActionCheckpointMinYawDeg() const { return mmoActionCheckpointMinYaw; }
+    uint64_t            mmoActionCheckpointForceIntervalMs() const { return mmoActionCheckpointForceInterval; }
+    uint64_t            mmoActionMovementProposalIntervalMs() const { return mmoActionMovementProposalInterval; }
+    float               mmoActionMovementProposalMinDistance() const { return mmoActionMovementProposalMinDistanceWorld; }
+    float               mmoActionMovementProposalMinYawDeg() const { return mmoActionMovementProposalMinYaw; }
 
     std::string         wrldDef;
 
@@ -4123,6 +4262,18 @@ class CommandLine {
     uint64_t            mmoSqliteInterval = 5000;
     bool                mmoSqliteRestoreState = true;
     bool                mmoSqliteCaptureBaselineState = false;
+    std::string         mmoActionJsonlPath;
+    std::string         mmoActionUdp;
+    std::string         mmoActionSession = "local-dev";
+    uint64_t            mmoActionQueueCap = 4096;
+    bool                mmoActionStrictOverflowState = false;
+    uint64_t            mmoActionCheckpointInterval = 0;
+    float               mmoActionCheckpointMinDistanceWorld = 0.f;
+    float               mmoActionCheckpointMinYaw = 0.f;
+    uint64_t            mmoActionCheckpointForceInterval = 0;
+    uint64_t            mmoActionMovementProposalInterval = 0;
+    float               mmoActionMovementProposalMinDistanceWorld = 0.f;
+    float               mmoActionMovementProposalMinYaw = 0.f;
     bool                devmode      = false;
     bool                noMenu       = false;
     Benchmark           isBenchmark  = Benchmark::None;
@@ -4144,6 +4295,12 @@ class CommandLine {
     bool                forceG2NR    = false;
     uint32_t            aaPresetId = 0;
   };
+
+
+
+
+
+
 
 
 ===== game/dmusic/band.cpp =====
@@ -13554,7 +13711,11 @@ class FightAlgo final {
 ===== game/game/gamescript.cpp =====
 #include "gamescript.h"
 
+#include <cstdint>
+#include <set>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include <Tempest/Log>
 #include <Tempest/SoundEffect>
@@ -13573,6 +13734,7 @@ class FightAlgo final {
 #include "utils/fileutil.h"
 #include "commandline.h"
 #include "gothic.h"
+#include "mmosemantichooks.h"
 
 using namespace Tempest;
 
@@ -13605,128 +13767,211 @@ struct ScopeCtx final {
   NpcProcessPolicy prev = NpcProcessPolicy::AiNormal;
   };
 
+namespace {
 
-
-
-
-#include <filesystem>
-#include <fstream>
-#include <unordered_map>
-#include <unordered_set>
-#include <string>
-#include <string_view>
-#include <mutex>
-#include <charconv>
-#include <locale>
-#include <memory>
-
-namespace fs = std::filesystem;
-using DebugDumpId = std::size_t;
-
-struct FileState {
-    std::mutex              m;        // per-file mutex
-    std::once_flag          loaded;   // load-once guard
-    std::unordered_set<DebugDumpId> seen; // known IDs
-    fs::path                path;     // full path (normalized)
+struct MmoScriptIntValue final {
+  size_t   symbolIndex = 0;
+  uint16_t valueIndex  = 0;
+  int32_t  value       = 0;
 };
 
-// Global registry of per-file states
-inline FileState& get_state(const fs::path& fullPath) {
-    static std::mutex map_m;
-    static std::unordered_map<fs::path, std::unique_ptr<FileState>> map;
+struct MmoProgressionValue final {
+  int32_t level          = 0;
+  int32_t experience     = 0;
+  int32_t experienceNext = 0;
+  int32_t learningPoints = 0;
+};
 
-    const fs::path norm = fullPath.lexically_normal();
-    std::scoped_lock g(map_m);
-    auto it = map.find(norm);
-    if (it == map.end()) {
-        auto st = std::make_unique<FileState>();
-        st->path = norm;
-        it = map.emplace(norm, std::move(st)).first;
+struct MmoQuestValue final {
+  std::string      name;
+  QuestLog::Status status = QuestLog::Status::Running;
+  size_t           entryCount = 0;
+};
+
+struct MmoScriptSnapshot final {
+  bool                                      enabled = false;
+  Npc*                                      actor = nullptr;
+  uint32_t                                  scriptFunctionSymbol = 0;
+  std::string                               scriptFunctionName;
+  std::vector<MmoScriptIntValue>            intValues;
+  MmoProgressionValue                       progression;
+  std::set<std::pair<size_t, size_t>>       knownDialogs;
+  std::vector<MmoQuestValue>                quests;
+};
+
+std::string_view questStatusName(QuestLog::Status status) noexcept {
+  switch(status) {
+    case QuestLog::Status::Running:  return "running";
+    case QuestLog::Status::Success:  return "success";
+    case QuestLog::Status::Failed:   return "failed";
+    case QuestLog::Status::Obsolete: return "obsolete";
     }
-    return *it->second;
+  return "running";
 }
 
-inline std::string fit25(std::string s) {
-    if (s.size() < 25) s.append(25 - s.size(), ' ');
-    else if (s.size() > 25) s.resize(25);
-    return s;
+MmoProgressionValue captureProgression(const Npc& actor) noexcept {
+  MmoProgressionValue out;
+  out.level          = actor.level();
+  out.experience     = actor.experience();
+  out.experienceNext = actor.experienceNext();
+  out.learningPoints = actor.learningPoints();
+  return out;
 }
 
-
-inline std::string pos_to_string(float x, float y, float z) {
-    std::ostringstream oss;
-    oss.imbue(std::locale::classic());
-    oss << std::fixed << std::setprecision(3) << x << "," << y << "," << z; // keep compact
-    return oss.str();
+void captureScriptInts(GameScript& script, std::vector<MmoScriptIntValue>& out) {
+  out.clear();
+  out.reserve(512);
+  const size_t count = script.symbolsCount();
+  for(size_t i = 0; i < count; ++i) {
+    auto* sym = script.findSymbol(i);
+    if(sym == nullptr || sym->is_member() || sym->is_const() ||
+       sym->type() != zenkit::DaedalusDataType::INT || sym->count() == 0)
+      continue;
+    const auto valueCount = sym->count();
+    const auto boundedValueCount = valueCount > 65535 ? 65535 : valueCount;
+    for(size_t j = 0; j < boundedValueCount; ++j) {
+      const auto valueIndex = uint16_t(j);
+      MmoScriptIntValue v;
+      v.symbolIndex = i;
+      v.valueIndex  = valueIndex;
+      v.value       = sym->get_int(valueIndex);
+      out.push_back(v);
+      }
+    }
 }
 
-// Append "npcName|instanceId|x,y,z" to `relativePath` (relative to CWD) iff `instanceId` is new.
-// Returns true if written, false if skipped or on error.
-inline bool append_unique(std::string_view relativePath,
-    std::string_view npcName,
-    DebugDumpId instanceId,
-    float x, float y, float z, bool withInstanceIdCheck = false)
-{
-    fs::path full = fs::current_path() / fs::path(relativePath);
-    if (full.has_parent_path()) {
-        std::error_code ec;
-        fs::create_directories(full.parent_path(), ec); // ignore errors here
+std::vector<MmoQuestValue> captureQuests(const QuestLog& log) {
+  std::vector<MmoQuestValue> out;
+  out.reserve(log.questCount());
+  for(size_t i = 0; i < log.questCount(); ++i) {
+    const auto& q = log.quest(i);
+    MmoQuestValue v;
+    v.name       = q.name;
+    v.status     = q.status;
+    v.entryCount = q.entry.size();
+    out.push_back(std::move(v));
+    }
+  return out;
+}
+
+const MmoScriptIntValue* findScriptIntValue(const std::vector<MmoScriptIntValue>& values,
+                                            size_t symbolIndex,
+                                            uint16_t valueIndex) noexcept {
+  for(const auto& v : values) {
+    if(v.symbolIndex == symbolIndex && v.valueIndex == valueIndex)
+      return &v;
+    }
+  return nullptr;
+}
+
+const MmoQuestValue* findQuestValue(const std::vector<MmoQuestValue>& values,
+                                    std::string_view name) noexcept {
+  for(const auto& q : values) {
+    if(q.name == name)
+      return &q;
+    }
+  return nullptr;
+}
+
+MmoScriptSnapshot captureMmoScriptSnapshot(GameScript& script,
+                                           Npc* actor,
+                                           zenkit::DaedalusSymbol* scriptFunction) noexcept {
+  MmoScriptSnapshot out;
+  if(!Mmo::Hooks::shouldCaptureScriptAction(actor) || scriptFunction == nullptr)
+    return out;
+  try {
+    out.enabled = true;
+    out.actor = actor;
+    out.scriptFunctionSymbol = uint32_t(scriptFunction->index());
+    out.scriptFunctionName = scriptFunction->name();
+    captureScriptInts(script, out.intValues);
+    out.progression = captureProgression(*actor);
+    out.knownDialogs = script.knownDialogInfos();
+    out.quests = captureQuests(script.questLog());
+    }
+  catch(...) {
+    out = {};
+    }
+  return out;
+}
+
+void emitMmoScriptDiff(GameScript& script, MmoScriptSnapshot& before, const char* sourceLocation) noexcept {
+  if(!before.enabled || before.actor == nullptr)
+    return;
+
+  try {
+    std::vector<MmoScriptIntValue> afterInts;
+    captureScriptInts(script, afterInts);
+  for(const auto& after : afterInts) {
+    const auto* prior = findScriptIntValue(before.intValues, after.symbolIndex, after.valueIndex);
+    if(prior == nullptr || prior->value == after.value)
+      continue;
+    auto* sym = script.findSymbol(after.symbolIndex);
+    if(sym == nullptr)
+      continue;
+    Mmo::Hooks::onScriptIntChanged(*before.actor,
+                                   before.scriptFunctionSymbol,
+                                   before.scriptFunctionName,
+                                   after.symbolIndex,
+                                   after.valueIndex,
+                                   sym->name(),
+                                   prior->value,
+                                   after.value,
+                                   sourceLocation);
     }
 
-    FileState& st = get_state(full);
+  const auto afterProgression = captureProgression(*before.actor);
+  Mmo::Hooks::onCharacterProgressionChanged(*before.actor,
+                                            before.scriptFunctionSymbol,
+                                            before.scriptFunctionName,
+                                            before.progression.level,
+                                            afterProgression.level,
+                                            before.progression.experience,
+                                            afterProgression.experience,
+                                            before.progression.experienceNext,
+                                            afterProgression.experienceNext,
+                                            before.progression.learningPoints,
+                                            afterProgression.learningPoints,
+                                            sourceLocation);
 
-    // Lock per-file before touching st.seen or loading from disk.
-    std::unique_lock lk(st.m);
-
-    if (withInstanceIdCheck) {
-        // Load existing IDs once, under the lock (so no concurrent readers touch `seen` while it fills)
-        std::call_once(st.loaded, [&] {
-            if (fs::exists(full)) {
-                std::ifstream in(full, std::ios::binary);
-                std::string line;
-                while (std::getline(in, line)) {
-                    // Expected: name|id|x,y,z
-                    const auto p1 = line.find('|');
-                    if (p1 == std::string::npos) continue;
-                    const auto p2 = line.find('|', p1 + 1);
-                    if (p2 == std::string::npos) continue;
-
-                    std::string_view id_sv{ line.data() + p1 + 1, p2 - (p1 + 1) };
-                    DebugDumpId parsed{};
-                    if (std::from_chars(id_sv.data(), id_sv.data() + id_sv.size(), parsed).ec == std::errc{}) {
-                        st.seen.insert(parsed);
-                    }
-                }
-            }
-            });
-
-        //Fast path: already seen -> skip
-        if (st.seen.contains(instanceId)) {
-            return false;
-        }
+  const auto& afterKnownDialogs = script.knownDialogInfos();
+  for(const auto& known : afterKnownDialogs) {
+    if(before.knownDialogs.find(known) != before.knownDialogs.end())
+      continue;
+    const auto* npcSym = script.findSymbol(known.first);
+    const auto* infoSym = script.findSymbol(known.second);
+    const std::string npcName = npcSym != nullptr ? npcSym->name() : std::string{};
+    const std::string infoName = infoSym != nullptr ? infoSym->name() : std::string{};
+    Mmo::Hooks::onKnownDialogChanged(*before.actor,
+                                     before.scriptFunctionSymbol,
+                                     before.scriptFunctionName,
+                                     known.first,
+                                     npcName,
+                                     known.second,
+                                     infoName,
+                                     true,
+                                     sourceLocation);
     }
 
-    std::ofstream out(full, std::ios::binary | std::ios::app);
-    if (!out) return false;
-
-    out.imbue(std::locale::classic()); // ensure '.' as decimal separator
-    const std::string colId = fit25(std::to_string(instanceId));
-    const std::string colPos = fit25(pos_to_string(x, y, z));
-    const std::string colName = fit25(std::string(npcName));
-
-    out << colId << '|' << colPos << '|' << colName << '\n';
-
-    out.flush();
-    if (!out) return false;
-
-    st.seen.insert(instanceId);
-    return true;
+  const auto afterQuests = captureQuests(script.questLog());
+  for(const auto& quest : afterQuests) {
+    const auto* prior = findQuestValue(before.quests, quest.name);
+    if(prior != nullptr && prior->status == quest.status && prior->entryCount == quest.entryCount)
+      continue;
+    Mmo::Hooks::onQuestChanged(*before.actor,
+                               before.scriptFunctionSymbol,
+                               before.scriptFunctionName,
+                               quest.name,
+                               questStatusName(quest.status),
+                               quest.entryCount,
+                               sourceLocation);
+    }
+    }
+  catch(...) {
+    }
 }
 
-
-
-
-
+} // namespace
 
 bool GameScript::GlobalOutput::output(Npc& npc, std::string_view text) {
   return owner.aiOutput(npc,text,false);
@@ -14685,6 +14930,9 @@ void GameScript::exec(const GameScript::DlgChoice &dlg, Npc& player, Npc& npc) {
     player.stopAnim("");
   auto& pl = player.handle();
 
+  auto* scriptSymbol = vm.find_symbol_by_index(dlg.scriptFn);
+  auto  mmoBefore = captureMmoScriptSnapshot(*this, &player, scriptSymbol);
+
   if(info.information==int(dlg.scriptFn)) {
     setNpcInfoKnown(pl,info);
     } else {
@@ -14694,7 +14942,8 @@ void GameScript::exec(const GameScript::DlgChoice &dlg, Npc& player, Npc& npc) {
         ++i;
       }
     }
-  vm.call_function(vm.find_symbol_by_index(dlg.scriptFn));
+  vm.call_function(scriptSymbol);
+  emitMmoScriptDiff(*this, mmoBefore, "GameScript::exec");
   }
 
 void GameScript::printCannotUseError(Npc& npc, int32_t atr, int32_t nValue) {
@@ -14849,7 +15098,9 @@ void GameScript::invokeItem(Npc *npc, ScriptFn fn) {
     return;
 
   ScopeVar self(*vm.global_self(), npc->handlePtr());
+  auto mmoBefore = captureMmoScriptSnapshot(*this, npc, functionSymbol);
   vm.call_function<void>(functionSymbol);
+  emitMmoScriptDiff(*this, mmoBefore, "GameScript::invokeItem");
   }
 
 int GameScript::invokeMana(Npc &npc, Npc* target, int mana) {
@@ -15090,9 +15341,12 @@ void GameScript::useInteractive(const std::shared_ptr<zenkit::INpc>& hnpc, std::
   if(fn == nullptr)
     return;
 
+  auto* actor = findNpc(hnpc);
   ScopeVar self(*vm.global_self(),hnpc);
+  auto mmoBefore = captureMmoScriptSnapshot(*this, actor, fn);
   try {
     vm.call_function<void>(fn);
+    emitMmoScriptDiff(*this, mmoBefore, "GameScript::useInteractive");
     }
   catch (...) {
     Log::i("unable to use interactive [",func,"]");
@@ -15727,10 +15981,6 @@ void GameScript::wld_insertnpc(int npcInstance, std::string_view spawnpoint) {
   auto npc = world().addNpc(size_t(npcInstance),spawnpoint);
   if(npc!=nullptr)
     fixNpcPosition(*npc,0,0);
-
-  auto v = npc->position();
-  auto x = npc->displayName();
-  append_unique("logs/npcs.txt", x, npcInstance, v.x, v.y, v.z);
   }
 
 void GameScript::wld_removenpc(int npcInstance) {
@@ -17159,6 +17409,8 @@ bool GameScript::doesNpcKnowInfo(const zenkit::INpc& npc, size_t infoInstance) c
   }
 
 
+
+
 ===== game/game/gamescript.h =====
 #pragma once
 
@@ -17681,11 +17933,13 @@ class GameScript final {
 #include "gamesession.h"
 #include "savegameheader.h"
 #include "mmoruntimesqlite.h"
+#include "mmosemantichooks.h"
 
 #include <Tempest/Log>
 #include <Tempest/MemReader>
 #include <Tempest/MemWriter>
 #include <cctype>
+#include <cmath>
 
 #include "utils/string_frm.h"
 #include "worldstatestorage.h"
@@ -17702,6 +17956,167 @@ using namespace Tempest;
 // rate 14.5 to 1
 const uint64_t GameSession::multTime=14500;
 const uint64_t GameSession::divTime =1000;
+
+namespace {
+
+float checkpointYawDelta(float a, float b) noexcept {
+  float d = std::fabs(a - b);
+  if(d > 360.f)
+    d = std::fmod(d, 360.f);
+  if(d > 180.f)
+    d = 360.f - d;
+  return d;
+}
+
+} // namespace
+
+const char* GameSession::mmoActionCheckpointReason(const Npc& npc, uint64_t now) const noexcept {
+  const auto& cmd = CommandLine::inst();
+  const uint64_t interval = cmd.mmoActionCheckpointIntervalMs();
+  if(interval == 0)
+    return nullptr;
+
+  const auto& prev = lastMmoActionCheckpoint;
+  if(!prev.initialized)
+    return "initial_checkpoint";
+
+  if(now < prev.lastEmitTick + interval)
+    return nullptr;
+
+  const uint64_t forceInterval = cmd.mmoActionCheckpointForceIntervalMs();
+  if(forceInterval != 0 && now >= prev.lastEmitTick + forceInterval)
+    return "forced_checkpoint_keepalive";
+
+  const bool statsChanged =
+    prev.level              != npc.level() ||
+    prev.experience         != npc.experience() ||
+    prev.experienceNext     != npc.experienceNext() ||
+    prev.learningPoints     != npc.learningPoints() ||
+    prev.healthCurrent      != npc.attribute(ATR_HITPOINTS) ||
+    prev.healthMax          != npc.attribute(ATR_HITPOINTSMAX) ||
+    prev.manaCurrent        != npc.attribute(ATR_MANA) ||
+    prev.manaMax            != npc.attribute(ATR_MANAMAX) ||
+    prev.strength           != npc.attribute(ATR_STRENGTH) ||
+    prev.dexterity          != npc.attribute(ATR_DEXTERITY) ||
+    prev.guild              != npc.guild() ||
+    prev.trueGuild          != npc.trueGuild() ||
+    prev.permanentAttitude  != static_cast<int32_t>(npc.attitude()) ||
+    prev.temporaryAttitude  != static_cast<int32_t>(npc.tempAttitude());
+  if(statsChanged)
+    return "stat_delta_checkpoint";
+
+  const auto pos = npc.position();
+  const float dx = pos.x - prev.posX;
+  const float dy = pos.y - prev.posY;
+  const float dz = pos.z - prev.posZ;
+  const float minDistance = cmd.mmoActionCheckpointMinDistance();
+  if(minDistance <= 0.f || dx*dx + dy*dy + dz*dz >= minDistance*minDistance)
+    return minDistance <= 0.f ? "periodic_checkpoint" : "distance_delta_checkpoint";
+
+  const float minYaw = cmd.mmoActionCheckpointMinYawDeg();
+  if(minYaw > 0.f && checkpointYawDelta(npc.rotationY(), prev.yaw) >= minYaw)
+    return "yaw_delta_checkpoint";
+
+  return nullptr;
+}
+
+void GameSession::recordMmoActionCheckpointState(const Npc& npc, uint64_t now) noexcept {
+  auto& out = lastMmoActionCheckpoint;
+  const auto pos = npc.position();
+  out.initialized = true;
+  out.lastEmitTick = now;
+  out.posX = pos.x;
+  out.posY = pos.y;
+  out.posZ = pos.z;
+  out.yaw = npc.rotationY();
+  out.level = npc.level();
+  out.experience = npc.experience();
+  out.experienceNext = npc.experienceNext();
+  out.learningPoints = npc.learningPoints();
+  out.healthCurrent = npc.attribute(ATR_HITPOINTS);
+  out.healthMax = npc.attribute(ATR_HITPOINTSMAX);
+  out.manaCurrent = npc.attribute(ATR_MANA);
+  out.manaMax = npc.attribute(ATR_MANAMAX);
+  out.strength = npc.attribute(ATR_STRENGTH);
+  out.dexterity = npc.attribute(ATR_DEXTERITY);
+  out.guild = npc.guild();
+  out.trueGuild = npc.trueGuild();
+  out.permanentAttitude = static_cast<int32_t>(npc.attitude());
+  out.temporaryAttitude = static_cast<int32_t>(npc.tempAttitude());
+}
+
+const char* GameSession::mmoActionMovementProposalReason(const Npc& npc, uint64_t now) const noexcept {
+  const auto& cmd = CommandLine::inst();
+  const uint64_t interval = cmd.mmoActionMovementProposalIntervalMs();
+  if(interval == 0)
+    return nullptr;
+
+  const auto& prev = lastMmoActionMovementProposal;
+  if(!prev.initialized)
+    return nullptr;
+
+  if(now < prev.lastEmitTick + interval)
+    return nullptr;
+
+  const auto pos = npc.position();
+  const float dx = pos.x - prev.posX;
+  const float dy = pos.y - prev.posY;
+  const float dz = pos.z - prev.posZ;
+  const float minDistance = cmd.mmoActionMovementProposalMinDistance();
+  if(minDistance <= 0.f || dx*dx + dy*dy + dz*dz >= minDistance*minDistance)
+    return minDistance <= 0.f ? "periodic_movement_proposal" : "distance_delta_movement_proposal";
+
+  const float minYaw = cmd.mmoActionMovementProposalMinYawDeg();
+  if(minYaw > 0.f && checkpointYawDelta(npc.rotationY(), prev.yaw) >= minYaw)
+    return "yaw_delta_movement_proposal";
+
+  return nullptr;
+}
+
+void GameSession::recordMmoActionMovementProposalState(const Npc& npc, uint64_t now) noexcept {
+  auto& out = lastMmoActionMovementProposal;
+  const auto pos = npc.position();
+  out.initialized = true;
+  out.lastEmitTick = now;
+  out.posX = pos.x;
+  out.posY = pos.y;
+  out.posZ = pos.z;
+  out.yaw = npc.rotationY();
+  out.healthCurrent = npc.attribute(ATR_HITPOINTS);
+  out.healthMax = npc.attribute(ATR_HITPOINTSMAX);
+  out.manaCurrent = npc.attribute(ATR_MANA);
+  out.manaMax = npc.attribute(ATR_MANAMAX);
+  out.inAir = npc.isInAir();
+  out.falling = npc.isFalling();
+  out.fallingDeep = npc.isFallingDeep();
+  out.slide = npc.isSlide();
+  out.jump = npc.isJump();
+  out.jumpUp = npc.isJumpUp();
+  out.swim = npc.isSwim();
+  out.dive = npc.isDive();
+  out.inWater = npc.isInWater();
+}
+
+void GameSession::tickMmoMovementProposal(Npc& npc, uint64_t now) noexcept {
+  const auto& cmd = CommandLine::inst();
+  if(cmd.mmoActionMovementProposalIntervalMs() == 0)
+    return;
+
+  if(!lastMmoActionMovementProposal.initialized) {
+    recordMmoActionMovementProposalState(npc, now);
+    return;
+    }
+
+  if(const char* reason = mmoActionMovementProposalReason(npc, now)) {
+    const auto& prev = lastMmoActionMovementProposal;
+    Mmo::Hooks::onCharacterMovementProposal(npc, prev.lastEmitTick, prev.posX, prev.posY, prev.posZ, prev.yaw,
+                                            prev.healthCurrent, prev.healthMax, prev.manaCurrent, prev.manaMax,
+                                            prev.inAir, prev.falling, prev.fallingDeep, prev.slide,
+                                            prev.jump, prev.jumpUp, prev.swim, prev.dive, prev.inWater,
+                                            "GameSession::tick", reason);
+    recordMmoActionMovementProposalState(npc, now);
+    }
+}
 
 void GameSession::HeroStorage::save(Npc& npc) {
   storage.clear();
@@ -17942,6 +18357,8 @@ void GameSession::setWorld(std::unique_ptr<World> &&w) {
       visitedWorlds.emplace_back(*wrld);
     }
   wrld = std::move(w);
+  lastMmoActionCheckpoint = {};
+  lastMmoActionMovementProposal = {};
   }
 
 std::unique_ptr<World> GameSession::clearWorld() {
@@ -17950,6 +18367,8 @@ std::unique_ptr<World> GameSession::clearWorld() {
       visitedWorlds.emplace_back(*wrld);
       }
     }
+  lastMmoActionCheckpoint = {};
+  lastMmoActionMovementProposal = {};
   return std::move(wrld);
   }
 
@@ -18023,6 +18442,15 @@ void GameSession::tick(uint64_t dt) {
 
   vm->tick(dt);
   wrld->tick(dt);
+
+  if(auto* pl = wrld->player()) {
+    tickMmoMovementProposal(*pl, ticks);
+    if(const char* reason = mmoActionCheckpointReason(*pl, ticks)) {
+      Mmo::Hooks::onCharacterCheckpoint(*pl, "GameSession::tick", reason);
+      recordMmoActionCheckpointState(*pl, ticks);
+      }
+    }
+
   if(mmoSqlite!=nullptr)
     mmoSqlite->tick(*this, dt);
   // std::this_thread::sleep_for(std::chrono::milliseconds(60));
@@ -18236,12 +18664,16 @@ void GameSession::initScripts(bool firstTime) {
   }
 
 
+
+
+
 ===== game/game/gamesession.h =====
 #pragma once
 
 #include <Tempest/Sound>
 #include <Tempest/SoundDevice>
 #include <memory>
+#include <cstdint>
 #include <string>
 
 #include "game/gamescript.h"
@@ -18345,7 +18777,57 @@ class GameSession final {
     std::unique_ptr<World>         wrld;
     std::unique_ptr<MmoRuntimeSqlite> mmoSqlite;
 
+    struct MmoActionCheckpointState final {
+      bool     initialized = false;
+      uint64_t lastEmitTick = 0;
+      float    posX = 0.f, posY = 0.f, posZ = 0.f;
+      float    yaw = 0.f;
+      int32_t  level = 0;
+      int32_t  experience = 0;
+      int32_t  experienceNext = 0;
+      int32_t  learningPoints = 0;
+      int32_t  healthCurrent = 0;
+      int32_t  healthMax = 0;
+      int32_t  manaCurrent = 0;
+      int32_t  manaMax = 0;
+      int32_t  strength = 0;
+      int32_t  dexterity = 0;
+      uint32_t guild = 0;
+      int32_t  trueGuild = 0;
+      int32_t  permanentAttitude = 0;
+      int32_t  temporaryAttitude = 0;
+      };
+
+    const char* mmoActionCheckpointReason(const Npc& npc, uint64_t now) const noexcept;
+    void        recordMmoActionCheckpointState(const Npc& npc, uint64_t now) noexcept;
+
+    struct MmoActionMovementProposalState final {
+      bool     initialized = false;
+      uint64_t lastEmitTick = 0;
+      float    posX = 0.f, posY = 0.f, posZ = 0.f;
+      float    yaw = 0.f;
+      int32_t  healthCurrent = 0;
+      int32_t  healthMax = 0;
+      int32_t  manaCurrent = 0;
+      int32_t  manaMax = 0;
+      bool     inAir = false;
+      bool     falling = false;
+      bool     fallingDeep = false;
+      bool     slide = false;
+      bool     jump = false;
+      bool     jumpUp = false;
+      bool     swim = false;
+      bool     dive = false;
+      bool     inWater = false;
+      };
+
+    const char* mmoActionMovementProposalReason(const Npc& npc, uint64_t now) const noexcept;
+    void        recordMmoActionMovementProposalState(const Npc& npc, uint64_t now) noexcept;
+    void        tickMmoMovementProposal(Npc& npc, uint64_t now) noexcept;
+
     uint64_t                       ticks = 0, wrldTimePart = 0;
+    MmoActionCheckpointState       lastMmoActionCheckpoint;
+    MmoActionMovementProposalState lastMmoActionMovementProposal;
     uint64_t                       timeMul = 1000, timeMulFract = 0;
     gtime                          wrldTime;
 
@@ -18357,6 +18839,9 @@ class GameSession final {
     static const uint64_t          multTime;
     static const uint64_t          divTime;
   };
+
+
+
 
 
 ===== game/game/gametime.h =====
@@ -18817,6 +19302,7 @@ class GlobalEffects {
 #include "game/gamescript.h"
 #include "serialize.h"
 #include "gothic.h"
+#include "mmosemantichooks.h"
 
 using namespace Tempest;
 
@@ -19129,6 +19615,10 @@ void Inventory::transfer(Inventory &to, Inventory &from, Npc* fromNpc, size_t it
     if(count>it.count())
       count=it.count();
 
+    const auto movedCount = count;
+    const auto movedWholeInstance = (it.count()==count);
+    const auto sourceItemPersistentId = it.persistentId();
+
     if(it.count()==count) {
       if(it.isEquipped()) {
         if(fromNpc==nullptr){
@@ -19143,6 +19633,10 @@ void Inventory::transfer(Inventory &to, Inventory &from, Npc* fromNpc, size_t it
       it.setCount(it.count()-count);
       to.addItem(itemSymbol,count,wrld);
       }
+
+    Mmo::Hooks::onInventoryTransfer(wrld, fromNpc, itemSymbol, sourceItemPersistentId,
+                                    movedCount, movedWholeInstance,
+                                    "game/game/inventory.cpp:Inventory::transfer");
     }
   }
 
@@ -19219,6 +19713,8 @@ bool Inventory::setSlot(Item *&slot, Item* next, Npc& owner, bool force) {
     }
 
   if(slot!=nullptr) {
+    Item* removedItem = slot;
+    const uint8_t removedSlot = removedItem->slot();
     auto& itData   = slot->handle();
     auto  mainFlag = ItmFlags(itData.main_flag);
     auto  flag     = ItmFlags(itData.flags);
@@ -19243,6 +19739,8 @@ bool Inventory::setSlot(Item *&slot, Item* next, Npc& owner, bool force) {
       owner.setRangedWeapon(MeshObjects::Mesh());
       }
     vm.invokeItem(&owner,uint32_t(itData.on_unequip));
+    Mmo::Hooks::onItemUnequipped(owner, *removedItem, removedSlot,
+                                 "game/game/inventory.cpp:Inventory::setSlot");
     }
 
   if(next==nullptr)
@@ -19263,6 +19761,8 @@ bool Inventory::setSlot(Item *&slot, Item* next, Npc& owner, bool force) {
     applyWeaponStats(owner,*slot,1);
     }
   vm.invokeItem(&owner,uint32_t(itData.on_equip));
+  Mmo::Hooks::onItemEquipped(owner, *slot, slot->slot(),
+                             "game/game/inventory.cpp:Inventory::setSlot");
   return true;
   }
 
@@ -19979,6 +20479,8 @@ Item *Inventory::readPtr(Serialize &fin) {
     return items[v].get();
   return nullptr;
   }
+
+
 
 
 
@@ -23644,6 +24146,10 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              n.true_guild,
              n.level,
              n.experience,
+             MAX(CASE WHEN s.stat_group='progression' AND s.stat_key='experience_next' THEN s.value END) AS experience_next,
+             MAX(CASE WHEN s.stat_group='progression' AND s.stat_key='learning_points' THEN s.value END) AS learning_points,
+             MAX(CASE WHEN s.stat_group='attitude' AND s.stat_key='permanent' THEN s.value END) AS permanent_attitude,
+             MAX(CASE WHEN s.stat_group='attitude' AND s.stat_key='temporary' THEN s.value END) AS temporary_attitude,
              n.dead,
              n.pos_x,
              n.pos_y,
@@ -28358,6 +28864,8 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
   }
 
 
+
+
 ===== game/game/mmoruntimesqlite.h =====
 #pragma once
 
@@ -28400,6 +28908,1722 @@ class MmoRuntimeSqlite final {
     struct Impl;
     std::unique_ptr<Impl> impl;
   };
+
+
+===== game/game/mmosemanticactionsink.cpp =====
+#include "mmosemanticactionsink.h"
+
+#include <Tempest/Log>
+
+#include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <condition_variable>
+#include <cstdint>
+#include <cstring>
+#include <fstream>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <utility>
+#include <vector>
+
+#if defined(__unix__) || defined(__APPLE__)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
+#include "commandline.h"
+
+namespace Mmo {
+namespace {
+
+#if defined(__unix__) || defined(__APPLE__)
+struct UdpEndpoint final {
+  sockaddr_in addr {};
+};
+
+std::optional<std::uint16_t> parseUdpPort(std::string_view text) noexcept {
+  if(text.empty())
+    return std::nullopt;
+
+  std::uint64_t value = 0;
+  for(char ch : text) {
+    if(ch < '0' || ch > '9')
+      return std::nullopt;
+    value = value * 10u + static_cast<std::uint64_t>(ch - '0');
+    if(value > 65535u)
+      return std::nullopt;
+    }
+
+  if(value == 0u)
+    return std::nullopt;
+  return static_cast<std::uint16_t>(value);
+}
+
+std::optional<UdpEndpoint> parseUdpEndpoint(std::string_view endpoint) noexcept {
+  const auto colon = endpoint.rfind(':');
+  if(colon == std::string_view::npos || colon == 0 || colon + 1 >= endpoint.size())
+    return std::nullopt;
+
+  const auto host = endpoint.substr(0, colon);
+  const auto port = parseUdpPort(endpoint.substr(colon + 1));
+  if(!port)
+    return std::nullopt;
+
+  std::string hostText(host);
+  if(hostText == "localhost")
+    hostText = "127.0.0.1";
+
+  UdpEndpoint result;
+  result.addr.sin_family = AF_INET;
+  result.addr.sin_port = htons(*port);
+  if(::inet_pton(AF_INET, hostText.c_str(), &result.addr.sin_addr) != 1)
+    return std::nullopt;
+
+  return result;
+}
+#endif
+
+class QueuedSemanticActionSink final : public SemanticActionSink {
+  public:
+    explicit QueuedSemanticActionSink(SemanticActionSinkConfig cfg)
+      : strictOverflow(cfg.strictOverflow), queue(std::max<std::size_t>(cfg.queueCapacity, 1)) {
+      worker = std::thread([this, cfg = std::move(cfg)]() mutable {
+        run(std::move(cfg.jsonlPath), std::move(cfg.udpEndpoint));
+      });
+    }
+
+    ~QueuedSemanticActionSink() override {
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        stopping = true;
+      }
+      cv.notify_one();
+      if(worker.joinable())
+        worker.join();
+    }
+
+    SemanticSubmitResult submit(const SemanticActionEnvelope& envelope) noexcept override {
+      if(!isValidEnvelope(envelope))
+        return {SemanticSubmitStatus::InvalidEnvelope, dropped.load(std::memory_order_relaxed)};
+
+      std::string line;
+      try {
+        line = toJsonLine(envelope);
+      }
+      catch(...) {
+        return {SemanticSubmitStatus::SinkError, dropped.load(std::memory_order_relaxed)};
+      }
+
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        if(count == queue.size()) {
+          const auto nowDropped = dropped.fetch_add(1, std::memory_order_relaxed) + 1;
+          if(strictOverflow)
+            return {SemanticSubmitStatus::QueueFull, nowDropped};
+          // Non-strict dev mode: keep newest actions, drop oldest diagnostic line.
+          queue[tail].clear();
+          tail = (tail + 1u) % queue.size();
+          --count;
+          }
+        queue[head] = std::move(line);
+        head = (head + 1u) % queue.size();
+        ++count;
+      }
+      cv.notify_one();
+      return {SemanticSubmitStatus::Accepted, dropped.load(std::memory_order_relaxed)};
+    }
+
+    void flush() noexcept override {
+      for(;;) {
+        std::unique_lock<std::mutex> lock(mutex);
+        if(count == 0)
+          break;
+        lock.unlock();
+        std::this_thread::yield();
+      }
+    }
+
+  private:
+    void run(std::string jsonlPath, std::string udpEndpoint) noexcept {
+      std::ofstream out;
+      if(!jsonlPath.empty()) {
+        out.open(jsonlPath, std::ios::out | std::ios::app | std::ios::binary);
+        if(!out.is_open())
+          Tempest::Log::e("MMO semantic action JSONL sink: unable to open ", jsonlPath);
+      }
+
+#if defined(__unix__) || defined(__APPLE__)
+      int udpSocket = -1;
+      std::optional<UdpEndpoint> udp;
+      if(!udpEndpoint.empty()) {
+        udp = parseUdpEndpoint(udpEndpoint);
+        if(!udp) {
+          Tempest::Log::e("MMO semantic action UDP sink: invalid endpoint ", udpEndpoint, " expected ipv4:port");
+        } else {
+          udpSocket = ::socket(AF_INET, SOCK_DGRAM, 0);
+          if(udpSocket < 0) {
+            Tempest::Log::e("MMO semantic action UDP sink: socket failed errno=", errno);
+            udp.reset();
+          }
+        }
+      }
+#else
+      if(!udpEndpoint.empty())
+        Tempest::Log::e("MMO semantic action UDP sink is unavailable on this platform: ", udpEndpoint);
+#endif
+
+      for(;;) {
+        std::string line;
+        {
+          std::unique_lock<std::mutex> lock(mutex);
+          cv.wait(lock, [this] { return stopping || count != 0; });
+          if(count == 0 && stopping)
+            break;
+          line = std::move(queue[tail]);
+          queue[tail].clear();
+          tail = (tail + 1u) % queue.size();
+          --count;
+        }
+        if(line.empty())
+          continue;
+
+        if(out.is_open()) {
+          out.write(line.data(), static_cast<std::streamsize>(line.size()));
+          out.put('\n');
+        }
+
+#if defined(__unix__) || defined(__APPLE__)
+        if(udpSocket >= 0 && udp) {
+          const auto rc = ::sendto(udpSocket,
+                                   line.data(),
+                                   line.size(),
+                                   0,
+                                   reinterpret_cast<const sockaddr*>(&udp->addr),
+                                   static_cast<socklen_t>(sizeof(udp->addr)));
+          if(rc < 0)
+            (void)dropped.fetch_add(1, std::memory_order_relaxed);
+        }
+#endif
+      }
+
+      if(out.is_open())
+        out.flush();
+
+#if defined(__unix__) || defined(__APPLE__)
+      if(udpSocket >= 0)
+        (void)::close(udpSocket);
+#endif
+    }
+
+    bool                     strictOverflow = false;
+    std::vector<std::string> queue;
+    std::size_t              head = 0;
+    std::size_t              tail = 0;
+    std::size_t              count = 0;
+    bool                     stopping = false;
+    std::mutex               mutex;
+    std::condition_variable  cv;
+    std::thread              worker;
+    std::atomic_uint64_t     dropped {0};
+};
+
+NoopSemanticActionSink noopSink;
+std::unique_ptr<SemanticActionSink> ownedSink;
+std::atomic<SemanticActionSink*> activeSink {&noopSink};
+std::atomic_bool captureEnabled {false};
+std::atomic_uint64_t sequence {0};
+std::string sessionKey = "local-dev";
+std::mutex sinkMutex;
+
+} // namespace
+
+bool isSemanticActionCaptureEnabled() noexcept {
+  return captureEnabled.load(std::memory_order_relaxed);
+}
+
+std::uint64_t nextSemanticActionSequence() noexcept {
+  return sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+}
+
+std::string_view semanticActionSessionKey() noexcept {
+  return sessionKey;
+}
+
+SemanticSubmitResult submitSemanticAction(SemanticActionEnvelope&& envelope) noexcept {
+  return submitSemanticAction(static_cast<const SemanticActionEnvelope&>(envelope));
+}
+
+SemanticSubmitResult submitSemanticAction(const SemanticActionEnvelope& envelope) noexcept {
+  auto* sink = activeSink.load(std::memory_order_acquire);
+  if(sink == nullptr)
+    return {SemanticSubmitStatus::Disabled, 0};
+  return sink->submit(envelope);
+}
+
+void setSemanticActionSink(std::unique_ptr<SemanticActionSink> sink) noexcept {
+  std::lock_guard<std::mutex> lock(sinkMutex);
+  if(activeSink.load(std::memory_order_acquire) != &noopSink)
+    activeSink.load(std::memory_order_acquire)->flush();
+  ownedSink = std::move(sink);
+  if(ownedSink) {
+    activeSink.store(ownedSink.get(), std::memory_order_release);
+    captureEnabled.store(true, std::memory_order_relaxed);
+    }
+  else {
+    activeSink.store(&noopSink, std::memory_order_release);
+    captureEnabled.store(false, std::memory_order_relaxed);
+    }
+}
+
+void configureSemanticActionSink(const SemanticActionSinkConfig& cfg) {
+  sessionKey = cfg.sessionKey.empty() ? std::string("local-dev") : cfg.sessionKey;
+  if(cfg.jsonlPath.empty() && cfg.udpEndpoint.empty()) {
+    setSemanticActionSink(nullptr);
+    return;
+    }
+  if(!cfg.jsonlPath.empty())
+    Tempest::Log::i("MMO semantic action JSONL capture enabled: ", cfg.jsonlPath);
+  if(!cfg.udpEndpoint.empty())
+    Tempest::Log::i("MMO semantic action UDP transport enabled: ", cfg.udpEndpoint);
+  setSemanticActionSink(std::make_unique<QueuedSemanticActionSink>(cfg));
+}
+
+void configureSemanticActionSink(const CommandLine& cmd) {
+  SemanticActionSinkConfig cfg;
+  cfg.jsonlPath = std::string(cmd.mmoActionJsonl());
+  cfg.udpEndpoint = std::string(cmd.mmoActionUdpEndpoint());
+  cfg.sessionKey = std::string(cmd.mmoActionSessionKey());
+  cfg.queueCapacity = cmd.mmoActionQueueCapacity();
+  cfg.strictOverflow = cmd.mmoActionStrictOverflow();
+  configureSemanticActionSink(cfg);
+}
+
+void shutdownSemanticActionSink() noexcept {
+  setSemanticActionSink(nullptr);
+}
+
+} // namespace Mmo
+
+
+===== game/game/mmosemanticactionsink.h =====
+#pragma once
+
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <string_view>
+
+#include "mmosemanticevents.h"
+
+class CommandLine;
+
+namespace Mmo {
+
+enum class SemanticSubmitStatus : std::uint8_t {
+  Disabled,
+  Accepted,
+  InvalidEnvelope,
+  QueueFull,
+  SinkError,
+};
+
+struct SemanticSubmitResult final {
+  SemanticSubmitStatus status = SemanticSubmitStatus::Disabled;
+  std::uint64_t        droppedCount = 0;
+
+  [[nodiscard]] constexpr bool accepted() const noexcept {
+    return status == SemanticSubmitStatus::Accepted || status == SemanticSubmitStatus::Disabled;
+  }
+};
+
+class SemanticActionSink {
+  public:
+    virtual ~SemanticActionSink() = default;
+    virtual SemanticSubmitResult submit(const SemanticActionEnvelope& envelope) noexcept = 0;
+    virtual void flush() noexcept {}
+};
+
+class NoopSemanticActionSink final : public SemanticActionSink {
+  public:
+    SemanticSubmitResult submit(const SemanticActionEnvelope&) noexcept override {
+      return {SemanticSubmitStatus::Disabled, 0};
+    }
+};
+
+struct SemanticActionSinkConfig final {
+  std::string  jsonlPath;
+  std::string  udpEndpoint;
+  std::string  sessionKey = "local-dev";
+  std::size_t  queueCapacity = 4096;
+  bool         strictOverflow = false;
+};
+
+[[nodiscard]] bool isSemanticActionCaptureEnabled() noexcept;
+[[nodiscard]] std::uint64_t nextSemanticActionSequence() noexcept;
+[[nodiscard]] std::string_view semanticActionSessionKey() noexcept;
+
+SemanticSubmitResult submitSemanticAction(SemanticActionEnvelope&& envelope) noexcept;
+SemanticSubmitResult submitSemanticAction(const SemanticActionEnvelope& envelope) noexcept;
+
+void setSemanticActionSink(std::unique_ptr<SemanticActionSink> sink) noexcept;
+void configureSemanticActionSink(const SemanticActionSinkConfig& cfg);
+void configureSemanticActionSink(const CommandLine& cmd);
+void shutdownSemanticActionSink() noexcept;
+
+} // namespace Mmo
+
+
+
+===== game/game/mmosemanticevents.cpp =====
+#include "mmosemanticevents.h"
+
+#include <charconv>
+#include <system_error>
+
+namespace Mmo {
+
+std::string makeIdempotencyKey(std::string_view sessionKey,
+                               std::uint64_t localSequence,
+                               SemanticActionKind kind,
+                               std::string_view targetKey) {
+  std::string out;
+  out.reserve(sessionKey.size() + targetKey.size() + 64);
+  out.append(sessionKey);
+  out.push_back(':');
+  out.append(actionKindName(kind));
+  out.push_back(':');
+  out.append(targetKey);
+  out.push_back(':');
+
+  char buf[32] = {};
+  auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), localSequence);
+  if(ec == std::errc{})
+    out.append(buf, ptr);
+  else
+    out.append("0");
+
+  return out;
+}
+
+bool isValidEnvelope(const SemanticActionEnvelope& envelope) noexcept {
+  const auto* def = findSemanticAction(envelope.kind);
+  if(def == nullptr)
+    return false;
+  if(def->requiresSession && envelope.idempotencyKey.empty())
+    return false;
+  if(envelope.payloadJson.empty())
+    return false;
+  if(envelope.payloadJson.front() != '{')
+    return false;
+  return true;
+}
+
+std::string jsonEscape(std::string_view text) {
+  std::string out;
+  out.reserve(text.size() + 8);
+  out.push_back('"');
+  for(char ch : text) {
+    switch(ch) {
+      case '\\': out.append("\\\\"); break;
+      case '"':  out.append("\\\""); break;
+      case '\n': out.append("\\n");  break;
+      case '\r': out.append("\\r");  break;
+      case '\t': out.append("\\t");  break;
+      default:
+        if(static_cast<unsigned char>(ch) < 0x20)
+          out.push_back(' ');
+        else
+          out.push_back(ch);
+        break;
+      }
+    }
+  out.push_back('"');
+  return out;
+}
+
+static void appendUInt(std::string& out, std::uint64_t v) {
+  char buf[32] = {};
+  auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), v);
+  if(ec == std::errc{})
+    out.append(buf, ptr);
+  else
+    out.push_back('0');
+}
+
+std::string toJsonLine(const SemanticActionEnvelope& envelope) {
+  std::string out;
+  out.reserve(envelope.payloadJson.size() + envelope.targetKey.size() + envelope.idempotencyKey.size() + 256);
+  out.append("{\"version\":1");
+  out.append(",\"action_kind\":");
+  out.append(jsonEscape(actionKindName(envelope.kind)));
+  out.append(",\"event_type\":");
+  out.append(jsonEscape(eventTypeName(envelope.kind)));
+  out.append(",\"event_class\":");
+  out.append(jsonEscape(eventClassName(envelope.kind)));
+  out.append(",\"procedure\":");
+  out.append(jsonEscape(procedureName(envelope.kind)));
+  out.append(",\"local_sequence\":");
+  appendUInt(out, envelope.localSequence);
+  out.append(",\"client_tick\":");
+  appendUInt(out, envelope.clientTick);
+  out.append(",\"target_key\":");
+  out.append(jsonEscape(envelope.targetKey));
+  out.append(",\"idempotency_key\":");
+  out.append(jsonEscape(envelope.idempotencyKey));
+  out.append(",\"payload\":");
+  out.append(envelope.payloadJson.empty() ? "{}" : envelope.payloadJson);
+  out.push_back('}');
+  return out;
+}
+
+} // namespace Mmo
+
+
+
+
+===== game/game/mmosemanticevents.h =====
+#pragma once
+
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+
+namespace Mmo {
+
+enum class SemanticActionKind : std::uint8_t {
+  MovementProposal,
+  CharacterCheckpoint,
+  WalletDelta,
+  GrantGold,
+  SpendGold,
+  PickupWorldItem,
+  RemoveWorldItem,
+  TransferCharacterItem,
+  EquipCharacterItem,
+  UnequipCharacterItem,
+  TakeContainerItem,
+  PutContainerItem,
+  UpdateInteractiveState,
+  SetScriptInt,
+  UpdateQuest,
+  SetKnownDialog,
+  AdjustProgression,
+  ApplyExperienceReward,
+  MarkNpcDead,
+  RespawnNpc,
+  TradeBuyFromNpc,
+  TradeSellToNpc,
+  ApplyCharacterDamage,
+  ApplyWorldEntityDamage,
+  ConsumeMana,
+  ConsumeItem,
+  SplitItemStack,
+  MergeItemStack,
+};
+
+struct SemanticActionDef final {
+  SemanticActionKind kind;
+  std::string_view   actionKind;
+  std::string_view   eventType;
+  std::string_view   eventClass;
+  std::string_view   procedureName;
+  bool               requiresSession = true;
+  bool               serverAuthoritative = true;
+};
+
+inline constexpr std::array<SemanticActionDef, 28> SemanticActionDefs {{
+  {SemanticActionKind::MovementProposal,      "movement_proposal",       "movement_proposal_submitted",     "movement",     "server_validate_movement_proposal",     true, true},
+  {SemanticActionKind::CharacterCheckpoint,   "character_checkpoint",      "character_position_checkpoint",    "character",    "mmo_checkpoint_character_state",        true, true},
+  {SemanticActionKind::WalletDelta,           "wallet_delta",              "character_wallet_delta",           "inventory",    "mmo_adjust_character_wallet",           true, true},
+  {SemanticActionKind::GrantGold,             "grant_gold",                "character_wallet_delta",           "inventory",    "mmo_grant_character_gold",              true, true},
+  {SemanticActionKind::SpendGold,             "spend_gold",                "character_wallet_delta",           "inventory",    "mmo_spend_character_gold",              true, true},
+  {SemanticActionKind::PickupWorldItem,       "pickup_world_item",         "world_item_picked_up",             "inventory",    "mmo_pickup_world_item",                 true, true},
+  {SemanticActionKind::RemoveWorldItem,       "remove_world_item",         "world_item_removed",               "world_entity", "mmo_remove_world_item",                 true, true},
+  {SemanticActionKind::TransferCharacterItem, "transfer_character_item",   "character_inventory_transferred",  "inventory",    "mmo_transfer_character_item",           true, true},
+  {SemanticActionKind::EquipCharacterItem,    "equip_character_item",      "character_item_equipped",          "equipment",    "mmo_equip_character_item",              true, true},
+  {SemanticActionKind::UnequipCharacterItem,  "unequip_character_item",    "character_item_unequipped",        "equipment",    "mmo_unequip_character_item",            true, true},
+  {SemanticActionKind::TakeContainerItem,     "take_container_item",       "container_item_taken",             "inventory",    "mmo_take_container_item",               true, true},
+  {SemanticActionKind::PutContainerItem,      "put_container_item",        "container_item_put",               "inventory",    "mmo_put_container_item",                true, true},
+  {SemanticActionKind::UpdateInteractiveState,"update_interactive_state",  "interactive_state_changed",        "world_entity", "mmo_update_interactive_state",          true, true},
+  {SemanticActionKind::SetScriptInt,          "set_script_int",            "character_script_int_set",         "script",       "mmo_set_character_script_int",          true, true},
+  {SemanticActionKind::UpdateQuest,           "update_quest",              "character_quest_updated",          "quest",        "mmo_update_character_quest",            true, true},
+  {SemanticActionKind::SetKnownDialog,        "set_known_dialog",          "character_dialog_known_set",       "dialog",       "mmo_set_character_known_dialog",        true, true},
+  {SemanticActionKind::AdjustProgression,     "adjust_progression",        "character_progression_adjusted",   "character",    "mmo_adjust_character_progression",      true, true},
+  {SemanticActionKind::ApplyExperienceReward, "apply_experience_reward",   "character_progression_adjusted",   "character",    "mmo_apply_character_experience_reward", true, true},
+  {SemanticActionKind::MarkNpcDead,           "mark_npc_dead",             "npc_marked_dead",                  "combat",       "mmo_mark_npc_dead",                     true, true},
+  {SemanticActionKind::RespawnNpc,            "respawn_npc",               "npc_respawned",                    "combat",       "mmo_respawn_npc",                       true, true},
+  {SemanticActionKind::TradeBuyFromNpc,       "trade_buy_from_npc",        "trade_buy_from_npc",               "trade",        "mmo_trade_buy_from_npc",                true, true},
+  {SemanticActionKind::TradeSellToNpc,        "trade_sell_to_npc",         "trade_sell_to_npc",                "trade",        "mmo_trade_sell_to_npc",                 true, true},
+  {SemanticActionKind::ApplyCharacterDamage,  "apply_character_damage",    "character_damage_applied",         "combat",       "mmo_apply_character_damage",            true, true},
+  {SemanticActionKind::ApplyWorldEntityDamage,"apply_world_entity_damage", "world_entity_damage_applied",      "combat",       "mmo_apply_world_entity_damage",         true, true},
+  {SemanticActionKind::ConsumeMana,           "consume_mana",              "character_mana_consumed",          "spell",        "mmo_consume_character_mana",            true, true},
+  {SemanticActionKind::ConsumeItem,           "consume_item",              "character_item_consumed",          "inventory",    "mmo_consume_character_item",            true, true},
+  {SemanticActionKind::SplitItemStack,        "split_item_stack",          "item_stack_split",                 "inventory",    "mmo_split_character_item_stack",        true, true},
+  {SemanticActionKind::MergeItemStack,        "merge_item_stack",          "item_stack_merged",                "inventory",    "mmo_merge_character_item_stack",        true, true},
+}};
+
+[[nodiscard]] constexpr const SemanticActionDef* findSemanticAction(SemanticActionKind kind) noexcept {
+  for(const auto& def : SemanticActionDefs) {
+    if(def.kind == kind)
+      return &def;
+  }
+  return nullptr;
+}
+
+[[nodiscard]] constexpr const SemanticActionDef* findSemanticAction(std::string_view actionKind) noexcept {
+  for(const auto& def : SemanticActionDefs) {
+    if(def.actionKind == actionKind)
+      return &def;
+  }
+  return nullptr;
+}
+
+[[nodiscard]] constexpr std::string_view actionKindName(SemanticActionKind kind) noexcept {
+  if(const auto* def = findSemanticAction(kind))
+    return def->actionKind;
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view eventTypeName(SemanticActionKind kind) noexcept {
+  if(const auto* def = findSemanticAction(kind))
+    return def->eventType;
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view eventClassName(SemanticActionKind kind) noexcept {
+  if(const auto* def = findSemanticAction(kind))
+    return def->eventClass;
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view procedureName(SemanticActionKind kind) noexcept {
+  if(const auto* def = findSemanticAction(kind))
+    return def->procedureName;
+  return "unknown";
+}
+
+struct SemanticActionEnvelope final {
+  SemanticActionKind kind = SemanticActionKind::CharacterCheckpoint;
+  std::string        targetKey;
+  std::string        idempotencyKey;
+  std::string        payloadJson;
+  std::uint64_t      localSequence = 0;
+  std::uint64_t      clientTick = 0;
+};
+
+[[nodiscard]] std::string makeIdempotencyKey(std::string_view sessionKey,
+                                             std::uint64_t localSequence,
+                                             SemanticActionKind kind,
+                                             std::string_view targetKey);
+
+[[nodiscard]] bool isValidEnvelope(const SemanticActionEnvelope& envelope) noexcept;
+[[nodiscard]] std::string jsonEscape(std::string_view text);
+[[nodiscard]] std::string toJsonLine(const SemanticActionEnvelope& envelope);
+
+} // namespace Mmo
+
+
+
+
+
+
+===== game/game/mmosemantichooks.cpp =====
+#include "mmosemantichooks.h"
+
+#include <charconv>
+#include <cstdint>
+#include <string>
+#include <system_error>
+#include <utility>
+#include <string_view>
+
+#include "mmosemanticactionsink.h"
+#include "world/world.h"
+#include "world/objects/item.h"
+#include "world/objects/npc.h"
+#include "world/waypoint.h"
+#include "commandline.h"
+
+namespace Mmo::Hooks {
+namespace {
+
+void appendUInt(std::string& out, std::uint64_t v) {
+  char buf[32] = {};
+  auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), v);
+  if(ec == std::errc{})
+    out.append(buf, ptr);
+  else
+    out.push_back('0');
+}
+
+void appendInt(std::string& out, std::int64_t v) {
+  char buf[32] = {};
+  auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), v);
+  if(ec == std::errc{})
+    out.append(buf, ptr);
+  else
+    out.push_back('0');
+}
+
+void appendFloat(std::string& out, float v) {
+  char buf[48] = {};
+  auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), v);
+  if(ec == std::errc{})
+    out.append(buf, ptr);
+  else
+    out.push_back('0');
+}
+
+void appendBool(std::string& out, bool v) {
+  out.append(v ? "true" : "false");
+}
+
+void appendEscaped(std::string& out, std::string_view v) {
+  out.push_back('"');
+  for(char ch : v) {
+    switch(ch) {
+      case '\\': out.append("\\\\"); break;
+      case '"':  out.append("\\\""); break;
+      case '\n': out.append("\\n");  break;
+      case '\r': out.append("\\r");  break;
+      case '\t': out.append("\\t");  break;
+      default:
+        if(static_cast<unsigned char>(ch) < 0x20)
+          out.push_back(' ');
+        else
+          out.push_back(ch);
+        break;
+      }
+    }
+  out.push_back('"');
+}
+
+std::string actorKey(const Npc& npc) {
+  std::string out = npc.isPlayer() ? "character:PC_HERO" : "npc:";
+  if(!npc.isPlayer())
+    appendUInt(out, npc.persistentId());
+  out.append(":sym:");
+  appendUInt(out, npc.instanceSymbol());
+  return out;
+}
+
+std::string worldItemKey(std::string_view worldName, std::uint32_t persistentId, std::size_t symbol) {
+  std::string out = "world-item:";
+  out.append(worldName);
+  out.append(":pid:");
+  appendUInt(out, persistentId);
+  out.append(":sym:");
+  appendUInt(out, symbol);
+  return out;
+}
+
+std::string itemTemplateKey(std::size_t symbol) {
+  std::string out = "item-template:";
+  appendUInt(out, symbol);
+  return out;
+}
+
+std::string scriptKey(std::size_t symbolIndex, std::uint16_t valueIndex) {
+  std::string out = "script-int:";
+  appendUInt(out, symbolIndex);
+  out.push_back(':');
+  appendUInt(out, valueIndex);
+  return out;
+}
+
+std::string symbolKey(const char* prefix, std::size_t symbolIndex) {
+  std::string out = prefix;
+  out.push_back(':');
+  appendUInt(out, symbolIndex);
+  return out;
+}
+
+void appendScriptContext(std::string& out, std::uint32_t scriptFunctionSymbol, std::string_view scriptFunctionName) {
+  out.append(",\"script_function_symbol\":");
+  appendUInt(out, scriptFunctionSymbol);
+  out.append(",\"script_function_name\":");
+  appendEscaped(out, scriptFunctionName);
+}
+
+void appendWorld(std::string& out, const World& world) {
+  out.append(",\"world\":");
+  appendEscaped(out, world.name());
+  out.append(",\"client_tick\":");
+  appendUInt(out, world.tickCount());
+}
+
+void appendVec3(std::string& out, const char* key, const Tempest::Vec3& v) {
+  out.append(",\"");
+  out.append(key);
+  out.append("\":{");
+  out.append("\"x\":"); appendFloat(out, v.x);
+  out.append(",\"y\":"); appendFloat(out, v.y);
+  out.append(",\"z\":"); appendFloat(out, v.z);
+  out.push_back('}');
+}
+
+SemanticActionEnvelope makeEnvelope(SemanticActionKind kind,
+                                    std::string targetKey,
+                                    std::string payload,
+                                    std::uint64_t tick) {
+  SemanticActionEnvelope e;
+  e.kind = kind;
+  e.localSequence = nextSemanticActionSequence();
+  e.clientTick = tick;
+  e.targetKey = std::move(targetKey);
+  e.idempotencyKey = makeIdempotencyKey(semanticActionSessionKey(), e.localSequence, kind, e.targetKey);
+  e.payloadJson = std::move(payload);
+  return e;
+}
+
+bool isLiveWorldTick(const World& world) noexcept {
+  // tickCount()==0 is used heavily while loading/restoring bootstrap state.
+  // Those mutations are state materialization, not accepted gameplay intents.
+  return world.tickCount() != 0;
+}
+
+bool shouldCapturePlayerAction(Npc& actor) noexcept {
+  if(!actor.isPlayer())
+    return false;
+  return isLiveWorldTick(actor.world());
+}
+
+bool shouldCapturePlayerAction(Npc* actor) noexcept {
+  if(actor == nullptr || !actor->isPlayer())
+    return false;
+  return isLiveWorldTick(actor->world());
+}
+
+bool shouldCaptureTransfer(const World& world, const Npc* sourceNpc) noexcept {
+  if(!isLiveWorldTick(world))
+    return false;
+  // Source NPC context is all the current generic Inventory::transfer hook can see.
+  // Non-player NPC transfers during routines/trade/bootstrap are not client intents.
+  // Null source is kept for chest/world-container transfers until a richer owner
+  // envelope is added at the Npc/Interactive boundary.
+  return sourceNpc == nullptr || sourceNpc->isPlayer();
+}
+
+
+std::string npcEntityKey(std::string_view worldName, std::uint32_t persistentId, std::size_t symbol) {
+  std::string out = "npc:";
+  out.append(worldName);
+  out.append(":pid:");
+  appendUInt(out, persistentId);
+  out.append(":sym:");
+  appendUInt(out, symbol);
+  return out;
+}
+
+std::string attributeName(Attribute a) {
+  switch(a) {
+    case ATR_HITPOINTS: return "hitpoints";
+    case ATR_HITPOINTSMAX: return "hitpoints_max";
+    case ATR_MANA: return "mana";
+    case ATR_MANAMAX: return "mana_max";
+    case ATR_STRENGTH: return "strength";
+    case ATR_DEXTERITY: return "dexterity";
+    default: break;
+  }
+  std::string out = "attribute:";
+  appendUInt(out, static_cast<std::uint8_t>(a));
+  return out;
+}
+
+bool shouldCapturePlayerRelated(Npc& actor, Npc* other = nullptr) noexcept {
+  if(!isLiveWorldTick(actor.world()))
+    return false;
+  if(actor.isPlayer())
+    return true;
+  return other != nullptr && other->isPlayer();
+}
+
+void appendNpcIdentity(std::string& out, const char* prefix, Npc& npc) {
+  out.append(",\"");
+  out.append(prefix);
+  out.append("_key\":");
+  appendEscaped(out, actorKey(npc));
+  out.append(",\"");
+  out.append(prefix);
+  out.append("_entity_key\":");
+  appendEscaped(out, npcEntityKey(npc.world().name(), npc.persistentId(), npc.instanceSymbol()));
+  out.append(",\"");
+  out.append(prefix);
+  out.append("_symbol\":");
+  appendUInt(out, npc.instanceSymbol());
+  out.append(",\"");
+  out.append(prefix);
+  out.append("_persistent_id\":");
+  appendUInt(out, npc.persistentId());
+  out.append(",\"");
+  out.append(prefix);
+  out.append("_display_name\":");
+  appendEscaped(out, npc.displayName());
+}
+
+void submit(SemanticActionKind kind, std::string targetKey, std::string payload, std::uint64_t tick) noexcept {
+  if(!isSemanticActionCaptureEnabled())
+    return;
+  (void)submitSemanticAction(makeEnvelope(kind, std::move(targetKey), std::move(payload), tick));
+}
+
+} // namespace
+
+bool shouldCaptureScriptAction(Npc* actor) noexcept {
+  return isSemanticActionCaptureEnabled() && shouldCapturePlayerAction(actor);
+}
+
+
+void onCharacterMovementProposal(Npc& actor,
+                                 std::uint64_t fromTick,
+                                 float fromX,
+                                 float fromY,
+                                 float fromZ,
+                                 float fromYaw,
+                                 std::int32_t fromHealthCurrent,
+                                 std::int32_t fromHealthMax,
+                                 std::int32_t fromManaCurrent,
+                                 std::int32_t fromManaMax,
+                                 bool fromInAir,
+                                 bool fromFalling,
+                                 bool fromFallingDeep,
+                                 bool fromSlide,
+                                 bool fromJump,
+                                 bool fromJumpUp,
+                                 bool fromSwim,
+                                 bool fromDive,
+                                 bool fromInWater,
+                                 const char* sourceLocation,
+                                 const char* reason) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+    return;
+
+  auto& world = actor.world();
+  auto target = std::string("character:PC_HERO:movement-proposal");
+  const auto pos = actor.position();
+  const auto* wp = actor.currentWayPoint();
+  const auto& cmd = CommandLine::inst();
+  const std::uint64_t toTick = world.tickCount();
+  const std::uint64_t deltaTick = toTick >= fromTick ? toTick - fromTick : 0;
+
+  std::string payload;
+  payload.reserve(1536);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
+  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"target_key\":"); appendEscaped(payload, target);
+  payload.append(",\"proposal_version\":1");
+  payload.append(",\"input_model\":\"checkpoint_delta_v1\"");
+  payload.append(",\"movement_intent\":\"delta_transform\"");
+  payload.append(",\"from_tick\":"); appendUInt(payload, fromTick);
+  payload.append(",\"to_tick\":"); appendUInt(payload, toTick);
+  payload.append(",\"delta_ms\":"); appendUInt(payload, deltaTick);
+  payload.append(",\"from_pos_x\":"); appendFloat(payload, fromX);
+  payload.append(",\"from_pos_y\":"); appendFloat(payload, fromY);
+  payload.append(",\"from_pos_z\":"); appendFloat(payload, fromZ);
+  payload.append(",\"to_pos_x\":"); appendFloat(payload, pos.x);
+  payload.append(",\"to_pos_y\":"); appendFloat(payload, pos.y);
+  payload.append(",\"to_pos_z\":"); appendFloat(payload, pos.z);
+  payload.append(",\"from_rotation_yaw\":"); appendFloat(payload, fromYaw);
+  payload.append(",\"to_rotation_yaw\":"); appendFloat(payload, actor.rotationY());
+  payload.append(",\"vertical_axis\":\"y\"");
+  payload.append(",\"from_health_current\":"); appendInt(payload, fromHealthCurrent);
+  payload.append(",\"from_health_max\":"); appendInt(payload, fromHealthMax);
+  payload.append(",\"from_mana_current\":"); appendInt(payload, fromManaCurrent);
+  payload.append(",\"from_mana_max\":"); appendInt(payload, fromManaMax);
+  payload.append(",\"from_is_in_air\":"); appendBool(payload, fromInAir);
+  payload.append(",\"from_is_falling\":"); appendBool(payload, fromFalling);
+  payload.append(",\"from_is_falling_deep\":"); appendBool(payload, fromFallingDeep);
+  payload.append(",\"from_is_slide\":"); appendBool(payload, fromSlide);
+  payload.append(",\"from_is_jump\":"); appendBool(payload, fromJump);
+  payload.append(",\"from_is_jump_up\":"); appendBool(payload, fromJumpUp);
+  payload.append(",\"from_is_swim\":"); appendBool(payload, fromSwim);
+  payload.append(",\"from_is_dive\":"); appendBool(payload, fromDive);
+  payload.append(",\"from_is_in_water\":"); appendBool(payload, fromInWater);
+  payload.append(",\"to_is_in_air\":"); appendBool(payload, actor.isInAir());
+  payload.append(",\"to_is_falling\":"); appendBool(payload, actor.isFalling());
+  payload.append(",\"to_is_falling_deep\":"); appendBool(payload, actor.isFallingDeep());
+  payload.append(",\"to_is_slide\":"); appendBool(payload, actor.isSlide());
+  payload.append(",\"to_is_jump\":"); appendBool(payload, actor.isJump());
+  payload.append(",\"to_is_jump_up\":"); appendBool(payload, actor.isJumpUp());
+  payload.append(",\"to_is_swim\":"); appendBool(payload, actor.isSwim());
+  payload.append(",\"to_is_dive\":"); appendBool(payload, actor.isDive());
+  payload.append(",\"to_is_in_water\":"); appendBool(payload, actor.isInWater());
+  payload.append(",\"current_waypoint_key\":"); appendEscaped(payload, wp != nullptr ? std::string_view(wp->name) : std::string_view{});
+  payload.append(",\"level\":"); appendInt(payload, actor.level());
+  payload.append(",\"experience\":"); appendInt(payload, actor.experience());
+  payload.append(",\"experience_next\":"); appendInt(payload, actor.experienceNext());
+  payload.append(",\"learning_points\":"); appendInt(payload, actor.learningPoints());
+  payload.append(",\"health_current\":"); appendInt(payload, actor.attribute(ATR_HITPOINTS));
+  payload.append(",\"health_max\":"); appendInt(payload, actor.attribute(ATR_HITPOINTSMAX));
+  payload.append(",\"mana_current\":"); appendInt(payload, actor.attribute(ATR_MANA));
+  payload.append(",\"mana_max\":"); appendInt(payload, actor.attribute(ATR_MANAMAX));
+  payload.append(",\"strength\":"); appendInt(payload, actor.attribute(ATR_STRENGTH));
+  payload.append(",\"dexterity\":"); appendInt(payload, actor.attribute(ATR_DEXTERITY));
+  payload.append(",\"guild\":"); appendInt(payload, actor.guild());
+  payload.append(",\"true_guild\":"); appendInt(payload, actor.trueGuild());
+  payload.append(",\"permanent_attitude\":"); appendInt(payload, static_cast<std::int32_t>(actor.attitude()));
+  payload.append(",\"temporary_attitude\":"); appendInt(payload, static_cast<std::int32_t>(actor.tempAttitude()));
+  payload.append(",\"reason\":"); appendEscaped(payload, reason != nullptr ? std::string_view(reason) : std::string_view("movement_delta_proposal"));
+  payload.append(",\"proposal_interval_ms\":"); appendUInt(payload, cmd.mmoActionMovementProposalIntervalMs());
+  payload.append(",\"proposal_min_distance\":"); appendFloat(payload, cmd.mmoActionMovementProposalMinDistance());
+  payload.append(",\"proposal_min_yaw_deg\":"); appendFloat(payload, cmd.mmoActionMovementProposalMinYawDeg());
+  appendWorld(payload, world);
+  appendVec3(payload, "actor_position", pos);
+  payload.push_back('}');
+
+  submit(SemanticActionKind::MovementProposal, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onCharacterCheckpoint(Npc& actor,
+                           const char* sourceLocation,
+                           const char* reason) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+    return;
+
+  auto& world = actor.world();
+  auto target = std::string("character:PC_HERO:checkpoint");
+  const auto pos = actor.position();
+  const auto* wp = actor.currentWayPoint();
+
+  std::string payload;
+  payload.reserve(1152);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
+  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"target_key\":"); appendEscaped(payload, target);
+  payload.append(",\"pos_x\":"); appendFloat(payload, pos.x);
+  payload.append(",\"pos_y\":"); appendFloat(payload, pos.y);
+  payload.append(",\"pos_z\":"); appendFloat(payload, pos.z);
+  payload.append(",\"rotation_yaw\":"); appendFloat(payload, actor.rotationY());
+  payload.append(",\"current_waypoint_key\":"); appendEscaped(payload, wp != nullptr ? std::string_view(wp->name) : std::string_view{});
+  payload.append(",\"level\":"); appendInt(payload, actor.level());
+  payload.append(",\"experience\":"); appendInt(payload, actor.experience());
+  payload.append(",\"experience_next\":"); appendInt(payload, actor.experienceNext());
+  payload.append(",\"learning_points\":"); appendInt(payload, actor.learningPoints());
+  payload.append(",\"health_current\":"); appendInt(payload, actor.attribute(ATR_HITPOINTS));
+  payload.append(",\"health_max\":"); appendInt(payload, actor.attribute(ATR_HITPOINTSMAX));
+  payload.append(",\"mana_current\":"); appendInt(payload, actor.attribute(ATR_MANA));
+  payload.append(",\"mana_max\":"); appendInt(payload, actor.attribute(ATR_MANAMAX));
+  payload.append(",\"strength\":"); appendInt(payload, actor.attribute(ATR_STRENGTH));
+  payload.append(",\"dexterity\":"); appendInt(payload, actor.attribute(ATR_DEXTERITY));
+  payload.append(",\"guild\":"); appendInt(payload, actor.guild());
+  payload.append(",\"true_guild\":"); appendInt(payload, actor.trueGuild());
+  payload.append(",\"permanent_attitude\":"); appendInt(payload, static_cast<std::int32_t>(actor.attitude()));
+  payload.append(",\"temporary_attitude\":"); appendInt(payload, static_cast<std::int32_t>(actor.tempAttitude()));
+  payload.append(",\"reason\":"); appendEscaped(payload, reason != nullptr ? std::string_view(reason) : std::string_view("step39_periodic_movement_checkpoint"));
+  const auto& cmd = CommandLine::inst();
+  payload.append(",\"checkpoint_interval_ms\":"); appendUInt(payload, cmd.mmoActionCheckpointIntervalMs());
+  payload.append(",\"checkpoint_min_distance\":"); appendFloat(payload, cmd.mmoActionCheckpointMinDistance());
+  payload.append(",\"checkpoint_min_yaw_deg\":"); appendFloat(payload, cmd.mmoActionCheckpointMinYawDeg());
+  payload.append(",\"checkpoint_force_interval_ms\":"); appendUInt(payload, cmd.mmoActionCheckpointForceIntervalMs());
+  appendWorld(payload, world);
+  appendVec3(payload, "actor_position", pos);
+  payload.push_back('}');
+
+  submit(SemanticActionKind::CharacterCheckpoint, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onWorldItemPickedUp(Npc& actor,
+                         const Item& inventoryItem,
+                         std::uint32_t sourceWorldItemPersistentId,
+                         std::size_t sourceItemSymbol,
+                         std::size_t sourceAmount,
+                         const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+    return;
+  auto& world = actor.world();
+  auto target = worldItemKey(world.name(), sourceWorldItemPersistentId, sourceItemSymbol);
+
+  std::string payload;
+  payload.reserve(512);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
+  payload.append(",\"target_key\":"); appendEscaped(payload, target);
+  payload.append(",\"item_template_key\":"); appendEscaped(payload, itemTemplateKey(sourceItemSymbol));
+  payload.append(",\"source_world_item_persistent_id\":"); appendUInt(payload, sourceWorldItemPersistentId);
+  payload.append(",\"item_symbol\":"); appendUInt(payload, sourceItemSymbol);
+  payload.append(",\"inventory_item_symbol\":"); appendUInt(payload, inventoryItem.clsId());
+  payload.append(",\"amount\":"); appendUInt(payload, sourceAmount);
+  appendWorld(payload, world);
+  appendVec3(payload, "actor_position", actor.position());
+  payload.push_back('}');
+
+  submit(SemanticActionKind::PickupWorldItem, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onWorldItemRemoved(World& world,
+                        const Item& worldItem,
+                        const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !isLiveWorldTick(world))
+    return;
+  auto target = worldItemKey(world.name(), worldItem.persistentId(), worldItem.clsId());
+
+  std::string payload;
+  payload.reserve(384);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"target_key\":"); appendEscaped(payload, target);
+  payload.append(",\"item_template_key\":"); appendEscaped(payload, itemTemplateKey(worldItem.clsId()));
+  payload.append(",\"source_world_item_persistent_id\":"); appendUInt(payload, worldItem.persistentId());
+  payload.append(",\"item_symbol\":"); appendUInt(payload, worldItem.clsId());
+  payload.append(",\"amount\":"); appendUInt(payload, worldItem.count());
+  appendWorld(payload, world);
+  appendVec3(payload, "item_position", worldItem.position());
+  payload.push_back('}');
+
+  submit(SemanticActionKind::RemoveWorldItem, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onInventoryTransfer(World& world,
+                         const Npc* sourceNpc,
+                         std::size_t itemSymbol,
+                         std::uint32_t sourceItemPersistentId,
+                         std::size_t amount,
+                         bool movedWholeInstance,
+                         const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || amount == 0 || !shouldCaptureTransfer(world, sourceNpc))
+    return;
+  std::string target = itemTemplateKey(itemSymbol);
+  target.append(":transfer:");
+  appendUInt(target, sourceItemPersistentId);
+
+  std::string payload;
+  payload.reserve(448);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  if(sourceNpc != nullptr) {
+    payload.append(",\"source_actor_key\":"); appendEscaped(payload, actorKey(*sourceNpc));
+    payload.append(",\"source_actor_symbol\":"); appendUInt(payload, sourceNpc->instanceSymbol());
+    payload.append(",\"source_actor_persistent_id\":"); appendUInt(payload, sourceNpc->persistentId());
+    }
+  payload.append(",\"item_template_key\":"); appendEscaped(payload, itemTemplateKey(itemSymbol));
+  payload.append(",\"item_symbol\":"); appendUInt(payload, itemSymbol);
+  payload.append(",\"source_item_persistent_id\":"); appendUInt(payload, sourceItemPersistentId);
+  payload.append(",\"amount\":"); appendUInt(payload, amount);
+  payload.append(",\"moved_whole_instance\":"); payload.append(movedWholeInstance ? "true" : "false");
+  appendWorld(payload, world);
+  payload.push_back('}');
+
+  submit(SemanticActionKind::TransferCharacterItem, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onItemEquipped(Npc& actor,
+                    const Item& item,
+                    std::uint8_t slot,
+                    const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+    return;
+  auto& world = actor.world();
+  auto target = itemTemplateKey(item.clsId());
+  target.append(":equip:");
+  appendUInt(target, actor.persistentId());
+  target.push_back(':');
+  appendUInt(target, slot);
+
+  std::string payload;
+  payload.reserve(448);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
+  payload.append(",\"item_template_key\":"); appendEscaped(payload, itemTemplateKey(item.clsId()));
+  payload.append(",\"item_symbol\":"); appendUInt(payload, item.clsId());
+  payload.append(",\"item_persistent_id\":"); appendUInt(payload, item.persistentId());
+  payload.append(",\"slot\":"); appendUInt(payload, slot);
+  payload.append(",\"amount\":"); appendUInt(payload, item.count());
+  appendWorld(payload, world);
+  appendVec3(payload, "actor_position", actor.position());
+  payload.push_back('}');
+
+  submit(SemanticActionKind::EquipCharacterItem, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onItemUnequipped(Npc& actor,
+                      const Item& item,
+                      std::uint8_t slot,
+                      const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+    return;
+  auto& world = actor.world();
+  auto target = itemTemplateKey(item.clsId());
+  target.append(":unequip:");
+  appendUInt(target, actor.persistentId());
+  target.push_back(':');
+  appendUInt(target, slot);
+
+  std::string payload;
+  payload.reserve(448);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
+  payload.append(",\"item_template_key\":"); appendEscaped(payload, itemTemplateKey(item.clsId()));
+  payload.append(",\"item_symbol\":"); appendUInt(payload, item.clsId());
+  payload.append(",\"item_persistent_id\":"); appendUInt(payload, item.persistentId());
+  payload.append(",\"slot\":"); appendUInt(payload, slot);
+  payload.append(",\"amount\":"); appendUInt(payload, item.count());
+  appendWorld(payload, world);
+  appendVec3(payload, "actor_position", actor.position());
+  payload.push_back('}');
+
+  submit(SemanticActionKind::UnequipCharacterItem, std::move(target), std::move(payload), world.tickCount());
+}
+
+
+void onTradeBuyFromNpc(Npc& buyer,
+                       Npc& vendor,
+                       std::size_t itemSymbol,
+                       std::uint32_t vendorItemPersistentId,
+                       std::size_t amount,
+                       std::int32_t unitPrice,
+                       std::size_t goldBefore,
+                       std::size_t goldAfter,
+                       const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || amount == 0 || !shouldCapturePlayerAction(buyer))
+    return;
+  auto& world = buyer.world();
+  auto target = itemTemplateKey(itemSymbol);
+  target.append(":buy-from:");
+  appendUInt(target, vendor.persistentId());
+  target.push_back(':');
+  appendUInt(target, vendorItemPersistentId);
+
+  const auto totalPrice = static_cast<std::int64_t>(unitPrice) * static_cast<std::int64_t>(amount);
+  std::string payload;
+  payload.reserve(768);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  appendNpcIdentity(payload, "buyer", buyer);
+  appendNpcIdentity(payload, "npc", vendor);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(buyer));
+  payload.append(",\"item_template_key\":"); appendEscaped(payload, itemTemplateKey(itemSymbol));
+  payload.append(",\"item_symbol\":"); appendUInt(payload, itemSymbol);
+  payload.append(",\"vendor_item_persistent_id\":"); appendUInt(payload, vendorItemPersistentId);
+  payload.append(",\"amount\":"); appendUInt(payload, amount);
+  payload.append(",\"unit_price\":"); appendInt(payload, unitPrice);
+  payload.append(",\"price_total\":"); appendInt(payload, totalPrice);
+  payload.append(",\"currency_key\":\"g2notr:gold\"");
+  payload.append(",\"wallet_before\":"); appendUInt(payload, goldBefore);
+  payload.append(",\"wallet_after\":"); appendUInt(payload, goldAfter);
+  payload.append(",\"reason\":\"trade_buy_from_npc\"");
+  appendWorld(payload, world);
+  appendVec3(payload, "buyer_position", buyer.position());
+  payload.push_back('}');
+
+  submit(SemanticActionKind::TradeBuyFromNpc, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onTradeSellToNpc(Npc& seller,
+                      Npc& buyer,
+                      std::size_t itemSymbol,
+                      std::uint32_t sellerItemPersistentId,
+                      std::size_t amount,
+                      std::int32_t unitPrice,
+                      std::size_t goldBefore,
+                      std::size_t goldAfter,
+                      const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || amount == 0 || !shouldCapturePlayerAction(seller))
+    return;
+  auto& world = seller.world();
+  auto target = itemTemplateKey(itemSymbol);
+  target.append(":sell-to:");
+  appendUInt(target, buyer.persistentId());
+  target.push_back(':');
+  appendUInt(target, sellerItemPersistentId);
+
+  const auto totalPrice = static_cast<std::int64_t>(unitPrice) * static_cast<std::int64_t>(amount);
+  std::string payload;
+  payload.reserve(768);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  appendNpcIdentity(payload, "seller", seller);
+  appendNpcIdentity(payload, "npc", buyer);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(seller));
+  payload.append(",\"item_template_key\":"); appendEscaped(payload, itemTemplateKey(itemSymbol));
+  payload.append(",\"item_symbol\":"); appendUInt(payload, itemSymbol);
+  payload.append(",\"seller_item_persistent_id\":"); appendUInt(payload, sellerItemPersistentId);
+  payload.append(",\"item_persistent_id\":"); appendUInt(payload, sellerItemPersistentId);
+  payload.append(",\"amount\":"); appendUInt(payload, amount);
+  payload.append(",\"unit_price\":"); appendInt(payload, unitPrice);
+  payload.append(",\"price_total\":"); appendInt(payload, totalPrice);
+  payload.append(",\"currency_key\":\"g2notr:gold\"");
+  payload.append(",\"wallet_before\":"); appendUInt(payload, goldBefore);
+  payload.append(",\"wallet_after\":"); appendUInt(payload, goldAfter);
+  payload.append(",\"reason\":\"trade_sell_to_npc\"");
+  appendWorld(payload, world);
+  appendVec3(payload, "seller_position", seller.position());
+  payload.push_back('}');
+
+  submit(SemanticActionKind::TradeSellToNpc, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onCharacterItemConsumed(Npc& actor,
+                             std::size_t itemSymbol,
+                             std::uint32_t itemPersistentId,
+                             std::size_t amount,
+                             std::string_view reason,
+                             const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || amount == 0 || !shouldCapturePlayerAction(actor))
+    return;
+  auto& world = actor.world();
+  auto target = itemTemplateKey(itemSymbol);
+  target.append(":consume:");
+  appendUInt(target, itemPersistentId);
+
+  std::string payload;
+  payload.reserve(512);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
+  payload.append(",\"item_template_key\":"); appendEscaped(payload, itemTemplateKey(itemSymbol));
+  payload.append(",\"item_symbol\":"); appendUInt(payload, itemSymbol);
+  payload.append(",\"item_persistent_id\":"); appendUInt(payload, itemPersistentId);
+  payload.append(",\"amount\":"); appendUInt(payload, amount);
+  payload.append(",\"reason\":"); appendEscaped(payload, reason);
+  appendWorld(payload, world);
+  appendVec3(payload, "actor_position", actor.position());
+  payload.push_back('}');
+
+  submit(SemanticActionKind::ConsumeItem, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onCharacterAttributeChanged(Npc& actor,
+                                 Attribute attribute,
+                                 std::int32_t valueBefore,
+                                 std::int32_t valueAfter,
+                                 std::int32_t requestedDelta,
+                                 Npc* sourceActor,
+                                 const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || valueBefore == valueAfter || !shouldCapturePlayerRelated(actor, sourceActor))
+    return;
+
+  const auto delta = valueAfter - valueBefore;
+  if(delta >= 0)
+    return;
+
+  auto& world = actor.world();
+  const auto amount = -delta;
+  const auto attrName = attributeName(attribute);
+
+  if(actor.isPlayer() && attribute == ATR_MANA) {
+    std::string target = "character:PC_HERO:mana";
+    std::string payload;
+    payload.reserve(512);
+    payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+    payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
+    payload.append(",\"character_key\":\"PC_HERO\"");
+    payload.append(",\"resource_key\":\"mana\"");
+    payload.append(",\"mana_amount\":"); appendInt(payload, amount);
+    payload.append(",\"value_before\":"); appendInt(payload, valueBefore);
+    payload.append(",\"value_after\":"); appendInt(payload, valueAfter);
+    payload.append(",\"requested_delta\":"); appendInt(payload, requestedDelta);
+    payload.append(",\"reason\":\"resource_delta\"");
+    appendWorld(payload, world);
+    appendVec3(payload, "actor_position", actor.position());
+    payload.push_back('}');
+    submit(SemanticActionKind::ConsumeMana, std::move(target), std::move(payload), world.tickCount());
+    return;
+  }
+
+  if(attribute != ATR_HITPOINTS)
+    return;
+
+  if(actor.isPlayer()) {
+    std::string target = "character:PC_HERO:hitpoints";
+    std::string payload;
+    payload.reserve(640);
+    payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+    payload.append(",\"target_character_key\":\"PC_HERO\"");
+    payload.append(",\"target_key\":\"character:PC_HERO\"");
+    if(sourceActor != nullptr)
+      appendNpcIdentity(payload, "source_actor", *sourceActor);
+    payload.append(",\"damage_amount\":"); appendInt(payload, amount);
+    payload.append(",\"attribute_key\":"); appendEscaped(payload, attrName);
+    payload.append(",\"value_before\":"); appendInt(payload, valueBefore);
+    payload.append(",\"value_after\":"); appendInt(payload, valueAfter);
+    payload.append(",\"requested_delta\":"); appendInt(payload, requestedDelta);
+    payload.append(",\"reason\":\"character_damage\"");
+    appendWorld(payload, world);
+    appendVec3(payload, "target_position", actor.position());
+    payload.push_back('}');
+    submit(SemanticActionKind::ApplyCharacterDamage, std::move(target), std::move(payload), world.tickCount());
+    return;
+  }
+
+  if(sourceActor == nullptr || !sourceActor->isPlayer())
+    return;
+
+  auto target = npcEntityKey(world.name(), actor.persistentId(), actor.instanceSymbol());
+  std::string payload;
+  payload.reserve(704);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  appendNpcIdentity(payload, "source_actor", *sourceActor);
+  appendNpcIdentity(payload, "target_npc", actor);
+  payload.append(",\"target_key\":"); appendEscaped(payload, target);
+  payload.append(",\"damage_amount\":"); appendInt(payload, amount);
+  payload.append(",\"fatal\":"); payload.append(valueAfter <= 0 ? "true" : "false");
+  payload.append(",\"attribute_key\":"); appendEscaped(payload, attrName);
+  payload.append(",\"value_before\":"); appendInt(payload, valueBefore);
+  payload.append(",\"value_after\":"); appendInt(payload, valueAfter);
+  payload.append(",\"requested_delta\":"); appendInt(payload, requestedDelta);
+  payload.append(",\"reason\":\"world_entity_damage\"");
+  appendWorld(payload, world);
+  appendVec3(payload, "target_position", actor.position());
+  payload.push_back('}');
+  submit(SemanticActionKind::ApplyWorldEntityDamage, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onNpcLifecycleChanged(Npc& actor,
+                           Npc* sourceActor,
+                           bool dead,
+                           bool unconscious,
+                           const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || actor.isPlayer() || !dead || !shouldCapturePlayerRelated(actor, sourceActor))
+    return;
+  auto& world = actor.world();
+  auto target = npcEntityKey(world.name(), actor.persistentId(), actor.instanceSymbol());
+
+  std::string payload;
+  payload.reserve(640);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  if(sourceActor != nullptr)
+    appendNpcIdentity(payload, "source_actor", *sourceActor);
+  appendNpcIdentity(payload, "target_npc", actor);
+  payload.append(",\"target_key\":"); appendEscaped(payload, target);
+  payload.append(",\"dead\":"); payload.append(dead ? "true" : "false");
+  payload.append(",\"unconscious\":"); payload.append(unconscious ? "true" : "false");
+  payload.append(",\"reason\":\"npc_no_health\"");
+  appendWorld(payload, world);
+  appendVec3(payload, "target_position", actor.position());
+  payload.push_back('}');
+
+  submit(SemanticActionKind::MarkNpcDead, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onScriptIntChanged(Npc& actor,
+                        std::uint32_t scriptFunctionSymbol,
+                        std::string_view scriptFunctionName,
+                        std::size_t symbolIndex,
+                        std::uint16_t valueIndex,
+                        std::string_view symbolName,
+                        std::int32_t valueBefore,
+                        std::int32_t valueAfter,
+                        const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor) || valueBefore == valueAfter)
+    return;
+  auto& world = actor.world();
+  auto target = scriptKey(symbolIndex, valueIndex);
+
+  std::string payload;
+  payload.reserve(640);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
+  appendScriptContext(payload, scriptFunctionSymbol, scriptFunctionName);
+  payload.append(",\"script_key\":"); appendEscaped(payload, target);
+  payload.append(",\"global_key\":"); appendEscaped(payload, target);
+  payload.append(",\"symbol_name\":"); appendEscaped(payload, symbolName);
+  payload.append(",\"symbol_index\":"); appendUInt(payload, symbolIndex);
+  payload.append(",\"value_index\":"); appendUInt(payload, valueIndex);
+  payload.append(",\"value_before\":"); appendInt(payload, static_cast<std::int64_t>(valueBefore));
+  payload.append(",\"value_after\":"); appendInt(payload, static_cast<std::int64_t>(valueAfter));
+  payload.append(",\"reason\":\"script_int_changed\"");
+  appendWorld(payload, world);
+  appendVec3(payload, "actor_position", actor.position());
+  payload.push_back('}');
+
+  submit(SemanticActionKind::SetScriptInt, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onCharacterProgressionChanged(Npc& actor,
+                                   std::uint32_t scriptFunctionSymbol,
+                                   std::string_view scriptFunctionName,
+                                   std::int32_t levelBefore,
+                                   std::int32_t levelAfter,
+                                   std::int32_t experienceBefore,
+                                   std::int32_t experienceAfter,
+                                   std::int32_t experienceNextBefore,
+                                   std::int32_t experienceNextAfter,
+                                   std::int32_t learningPointsBefore,
+                                   std::int32_t learningPointsAfter,
+                                   const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+    return;
+  const auto experienceDelta = experienceAfter - experienceBefore;
+  const auto learningPointsDelta = learningPointsAfter - learningPointsBefore;
+  const auto levelDelta = levelAfter - levelBefore;
+  if(experienceDelta == 0 && learningPointsDelta == 0 && levelDelta == 0 && experienceNextAfter == experienceNextBefore)
+    return;
+
+  auto& world = actor.world();
+  std::string target = "character:PC_HERO:progression";
+
+  std::string payload;
+  payload.reserve(768);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
+  payload.append(",\"character_key\":\"PC_HERO\"");
+  appendScriptContext(payload, scriptFunctionSymbol, scriptFunctionName);
+  payload.append(",\"level_before\":"); appendInt(payload, static_cast<std::int64_t>(levelBefore));
+  payload.append(",\"level_after\":"); appendInt(payload, static_cast<std::int64_t>(levelAfter));
+  payload.append(",\"level_delta\":"); appendInt(payload, static_cast<std::int64_t>(levelDelta));
+  payload.append(",\"experience_before\":"); appendInt(payload, static_cast<std::int64_t>(experienceBefore));
+  payload.append(",\"experience_after\":"); appendInt(payload, static_cast<std::int64_t>(experienceAfter));
+  payload.append(",\"experience_delta\":"); appendInt(payload, static_cast<std::int64_t>(experienceDelta));
+  payload.append(",\"experience_next_before\":"); appendInt(payload, static_cast<std::int64_t>(experienceNextBefore));
+  payload.append(",\"experience_next_after\":"); appendInt(payload, static_cast<std::int64_t>(experienceNextAfter));
+  payload.append(",\"learning_points_before\":"); appendInt(payload, static_cast<std::int64_t>(learningPointsBefore));
+  payload.append(",\"learning_points_after\":"); appendInt(payload, static_cast<std::int64_t>(learningPointsAfter));
+  payload.append(",\"learning_points_delta\":"); appendInt(payload, static_cast<std::int64_t>(learningPointsDelta));
+  payload.append(",\"reason\":\"script_progression\"");
+  appendWorld(payload, world);
+  appendVec3(payload, "actor_position", actor.position());
+  payload.push_back('}');
+
+  submit(SemanticActionKind::AdjustProgression, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onKnownDialogChanged(Npc& actor,
+                          std::uint32_t scriptFunctionSymbol,
+                          std::string_view scriptFunctionName,
+                          std::size_t npcSymbol,
+                          std::string_view npcSymbolName,
+                          std::size_t infoSymbol,
+                          std::string_view infoSymbolName,
+                          bool known,
+                          const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+    return;
+  auto& world = actor.world();
+  auto target = symbolKey("dialog-info", infoSymbol);
+  auto npcKey = symbolKey("npc-symbol", npcSymbol);
+
+  std::string payload;
+  payload.reserve(640);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
+  appendScriptContext(payload, scriptFunctionSymbol, scriptFunctionName);
+  payload.append(",\"npc_key\":"); appendEscaped(payload, npcKey);
+  payload.append(",\"npc_symbol_name\":"); appendEscaped(payload, npcSymbolName);
+  payload.append(",\"npc_symbol\":"); appendUInt(payload, npcSymbol);
+  payload.append(",\"info_key\":"); appendEscaped(payload, target);
+  payload.append(",\"info_symbol_name\":"); appendEscaped(payload, infoSymbolName);
+  payload.append(",\"info_symbol\":"); appendUInt(payload, infoSymbol);
+  payload.append(",\"known\":"); payload.append(known ? "true" : "false");
+  payload.append(",\"removed\":false");
+  payload.append(",\"reason\":\"script_dialog_known\"");
+  appendWorld(payload, world);
+  payload.push_back('}');
+
+  submit(SemanticActionKind::SetKnownDialog, std::move(target), std::move(payload), world.tickCount());
+}
+
+void onQuestChanged(Npc& actor,
+                    std::uint32_t scriptFunctionSymbol,
+                    std::string_view scriptFunctionName,
+                    std::string_view questKey,
+                    std::string_view status,
+                    std::size_t entryCount,
+                    const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor) || questKey.empty())
+    return;
+  auto& world = actor.world();
+  std::string target = "quest:";
+  target.append(questKey);
+
+  std::string payload;
+  payload.reserve(640);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
+  appendScriptContext(payload, scriptFunctionSymbol, scriptFunctionName);
+  payload.append(",\"quest_key\":"); appendEscaped(payload, questKey);
+  payload.append(",\"quest_name\":"); appendEscaped(payload, questKey);
+  payload.append(",\"status\":"); appendEscaped(payload, status);
+  payload.append(",\"entry_count\":"); appendUInt(payload, entryCount);
+  payload.append(",\"entries\":[]");
+  payload.append(",\"reason\":\"script_quest_changed\"");
+  appendWorld(payload, world);
+  payload.push_back('}');
+
+  submit(SemanticActionKind::UpdateQuest, std::move(target), std::move(payload), world.tickCount());
+}
+
+} // namespace Mmo::Hooks
+
+
+
+
+
+
+
+
+
+
+
+===== game/game/mmosemantichooks.h =====
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
+
+#include "game/constants.h"
+
+class Item;
+class Npc;
+class World;
+
+namespace Mmo::Hooks {
+
+[[nodiscard]] bool shouldCaptureScriptAction(Npc* actor) noexcept;
+
+void onCharacterMovementProposal(Npc& actor,
+                                 std::uint64_t fromTick,
+                                 float fromX,
+                                 float fromY,
+                                 float fromZ,
+                                 float fromYaw,
+                                 std::int32_t fromHealthCurrent,
+                                 std::int32_t fromHealthMax,
+                                 std::int32_t fromManaCurrent,
+                                 std::int32_t fromManaMax,
+                                 bool fromInAir,
+                                 bool fromFalling,
+                                 bool fromFallingDeep,
+                                 bool fromSlide,
+                                 bool fromJump,
+                                 bool fromJumpUp,
+                                 bool fromSwim,
+                                 bool fromDive,
+                                 bool fromInWater,
+                                 const char* sourceLocation,
+                                 const char* reason = "movement_delta_proposal") noexcept;
+
+void onCharacterCheckpoint(Npc& actor,
+                           const char* sourceLocation,
+                           const char* reason = "step39_periodic_movement_checkpoint") noexcept;
+
+void onWorldItemPickedUp(Npc& actor,
+                         const Item& inventoryItem,
+                         std::uint32_t sourceWorldItemPersistentId,
+                         std::size_t sourceItemSymbol,
+                         std::size_t sourceAmount,
+                         const char* sourceLocation) noexcept;
+
+void onWorldItemRemoved(World& world,
+                        const Item& worldItem,
+                        const char* sourceLocation) noexcept;
+
+void onInventoryTransfer(World& world,
+                         const Npc* sourceNpc,
+                         std::size_t itemSymbol,
+                         std::uint32_t sourceItemPersistentId,
+                         std::size_t amount,
+                         bool movedWholeInstance,
+                         const char* sourceLocation) noexcept;
+
+void onItemEquipped(Npc& actor,
+                    const Item& item,
+                    std::uint8_t slot,
+                    const char* sourceLocation) noexcept;
+
+void onItemUnequipped(Npc& actor,
+                      const Item& item,
+                      std::uint8_t slot,
+                      const char* sourceLocation) noexcept;
+
+
+void onTradeBuyFromNpc(Npc& buyer,
+                       Npc& vendor,
+                       std::size_t itemSymbol,
+                       std::uint32_t vendorItemPersistentId,
+                       std::size_t amount,
+                       std::int32_t unitPrice,
+                       std::size_t goldBefore,
+                       std::size_t goldAfter,
+                       const char* sourceLocation) noexcept;
+
+void onTradeSellToNpc(Npc& seller,
+                      Npc& buyer,
+                      std::size_t itemSymbol,
+                      std::uint32_t sellerItemPersistentId,
+                      std::size_t amount,
+                      std::int32_t unitPrice,
+                      std::size_t goldBefore,
+                      std::size_t goldAfter,
+                      const char* sourceLocation) noexcept;
+
+void onCharacterItemConsumed(Npc& actor,
+                             std::size_t itemSymbol,
+                             std::uint32_t itemPersistentId,
+                             std::size_t amount,
+                             std::string_view reason,
+                             const char* sourceLocation) noexcept;
+
+void onCharacterAttributeChanged(Npc& actor,
+                                 Attribute attribute,
+                                 std::int32_t valueBefore,
+                                 std::int32_t valueAfter,
+                                 std::int32_t requestedDelta,
+                                 Npc* sourceActor,
+                                 const char* sourceLocation) noexcept;
+
+void onNpcLifecycleChanged(Npc& actor,
+                           Npc* sourceActor,
+                           bool dead,
+                           bool unconscious,
+                           const char* sourceLocation) noexcept;
+
+void onScriptIntChanged(Npc& actor,
+                        std::uint32_t scriptFunctionSymbol,
+                        std::string_view scriptFunctionName,
+                        std::size_t symbolIndex,
+                        std::uint16_t valueIndex,
+                        std::string_view symbolName,
+                        std::int32_t valueBefore,
+                        std::int32_t valueAfter,
+                        const char* sourceLocation) noexcept;
+
+void onCharacterProgressionChanged(Npc& actor,
+                                   std::uint32_t scriptFunctionSymbol,
+                                   std::string_view scriptFunctionName,
+                                   std::int32_t levelBefore,
+                                   std::int32_t levelAfter,
+                                   std::int32_t experienceBefore,
+                                   std::int32_t experienceAfter,
+                                   std::int32_t experienceNextBefore,
+                                   std::int32_t experienceNextAfter,
+                                   std::int32_t learningPointsBefore,
+                                   std::int32_t learningPointsAfter,
+                                   const char* sourceLocation) noexcept;
+
+void onKnownDialogChanged(Npc& actor,
+                          std::uint32_t scriptFunctionSymbol,
+                          std::string_view scriptFunctionName,
+                          std::size_t npcSymbol,
+                          std::string_view npcSymbolName,
+                          std::size_t infoSymbol,
+                          std::string_view infoSymbolName,
+                          bool known,
+                          const char* sourceLocation) noexcept;
+
+void onQuestChanged(Npc& actor,
+                    std::uint32_t scriptFunctionSymbol,
+                    std::string_view scriptFunctionName,
+                    std::string_view questKey,
+                    std::string_view status,
+                    std::size_t entryCount,
+                    const char* sourceLocation) noexcept;
+
+} // namespace Mmo::Hooks
+
+
+
+
+
+
 
 
 ===== game/game/movealgo.cpp =====
@@ -53417,6 +55641,7 @@ class WorldView {
 #include "gothic.h"
 #include "build.h"
 #include "commandline.h"
+#include "game/mmosemanticactionsink.h"
 
 #include <dmusic.h>
 
@@ -53522,6 +55747,7 @@ int main(int argc,const char** argv) {
   Workers::setThreadName("Main thread");
 
   CommandLine          cmd{argc,argv};
+  Mmo::configureSemanticActionSink(cmd);
   auto                 api     = mkApi(cmd);
   const auto           gpuName = selectDevice(*api);
   CrashLog::setGpu(gpuName);
@@ -53536,8 +55762,12 @@ int main(int argc,const char** argv) {
 
   MainWindow           wx(device);
   Tempest::Application app;
-  return app.exec();
+  const int ret = app.exec();
+  Mmo::shutdownSemanticActionSink();
+  return ret;
   }
+
+
 
 
 ===== game/mainwindow.cpp =====
@@ -70156,6 +72386,7 @@ class ItemTorchBurning : public Item {
 #include "game/gamesession.h"
 #include "game/serialize.h"
 #include "game/gamescript.h"
+#include "game/mmosemantichooks.h"
 #include "utils/string_frm.h"
 #include "world/objects/interactive.h"
 #include "world/objects/item.h"
@@ -70448,118 +72679,6 @@ void Npc::save(Serialize &fout, size_t id, std::string_view directory) {
   if(!invent.isEmpty() || id==size_t(-1))
     invent.save(fout);
   }
-
-#include <filesystem>
-#include <fstream>
-#include <unordered_map>
-#include <unordered_set>
-#include <string>
-#include <string_view>
-#include <mutex>
-#include <charconv>
-#include <locale>
-#include <memory>
-
-namespace fs = std::filesystem;
-using DebugDumpId = std::size_t;
-
-struct FileState {
-    std::mutex              m;        // per-file mutex
-    std::once_flag          loaded;   // load-once guard
-    std::unordered_set<DebugDumpId> seen; // known IDs
-    fs::path                path;     // full path (normalized)
-};
-
-// Global registry of per-file states
-inline FileState& get_state(const fs::path& fullPath) {
-    static std::mutex map_m;
-    static std::unordered_map<fs::path, std::unique_ptr<FileState>> map;
-
-    const fs::path norm = fullPath.lexically_normal();
-    std::scoped_lock g(map_m);
-    auto it = map.find(norm);
-    if (it == map.end()) {
-        auto st = std::make_unique<FileState>();
-        st->path = norm;
-        it = map.emplace(norm, std::move(st)).first;
-    }
-    return *it->second;
-}
-
-inline std::string fit25(std::string s) {
-    if (s.size() < 25) s.append(25 - s.size(), ' ');
-    else if (s.size() > 25) s.resize(25);
-    return s;
-}
-
-
-inline std::string pos_to_string(float x, float y, float z) {
-    std::ostringstream oss;
-    oss.imbue(std::locale::classic());
-    oss << std::fixed << std::setprecision(3) << x << "," << y << "," << z; // keep compact
-    return oss.str();
-}
-
-// Append "npcName|instanceId|x,y,z" to `relativePath` (relative to CWD) iff `instanceId` is new.
-// Returns true if written, false if skipped or on error.
-inline bool append_unique(std::string_view relativePath,
-    std::string_view npcName,
-    DebugDumpId instanceId,
-    float x, float y, float z)
-{
-    fs::path full = fs::current_path() / fs::path(relativePath);
-    if (full.has_parent_path()) {
-        std::error_code ec;
-        fs::create_directories(full.parent_path(), ec); // ignore errors here
-    }
-
-    FileState& st = get_state(full);
-
-    // Lock per-file before touching st.seen or loading from disk.
-    std::unique_lock lk(st.m);
-
-    // Load existing IDs once, under the lock (so no concurrent readers touch `seen` while it fills)
-    //std::call_once(st.loaded, [&] {
-    //    if (fs::exists(full)) {
-    //        std::ifstream in(full, std::ios::binary);
-    //        std::string line;
-    //        while (std::getline(in, line)) {
-    //            // Expected: name|id|x,y,z
-    //            const auto p1 = line.find('|');
-    //            if (p1 == std::string::npos) continue;
-    //            const auto p2 = line.find('|', p1 + 1);
-    //            if (p2 == std::string::npos) continue;
-
-    //            std::string_view id_sv{ line.data() + p1 + 1, p2 - (p1 + 1) };
-    //            id_t parsed{};
-    //            if (std::from_chars(id_sv.data(), id_sv.data() + id_sv.size(), parsed).ec == std::errc{}) {
-    //                st.seen.insert(parsed);
-    //            }
-    //        }
-    //    }
-    //    });
-
-    // Fast path: already seen -> skip
-    //if (st.seen.contains(instanceId)) {
-    //    return false;
-    //}
-
-    std::ofstream out(full, std::ios::binary | std::ios::app);
-    if (!out) return false;
-
-    out.imbue(std::locale::classic()); // ensure '.' as decimal separator
-    const std::string colId = fit25(std::to_string(instanceId));
-    const std::string colPos = fit25(pos_to_string(x, y, z));
-    const std::string colName = fit25(std::string(npcName));
-
-    out << colId << '|' << colPos << '|' << colName << '\n';
-
-    out.flush();
-    if (!out) return false;
-
-    //st.seen.insert(instanceId);
-    return true;
-}
 
 void Npc::load(Serialize &fin, size_t id, std::string_view directory) {
   fin.setEntry("worlds/",fin.worldName(),directory,id,"/data");
@@ -70934,6 +73053,9 @@ void Npc::onNoHealth(bool death, HitSound sndMask) {
   if(death)
     setAnim(lastHitType=='A' ? Anim::DeadA        : Anim::DeadB); else
     setAnim(lastHitType=='A' ? Anim::UnconsciousA : Anim::UnconsciousB);
+
+  Mmo::Hooks::onNpcLifecycleChanged(*this, lastHit, death, !death,
+                                    "game/world/objects/npc.cpp:Npc::onNoHealth");
   }
 
 bool Npc::hasAutoroll() const {
@@ -71566,6 +73688,8 @@ void Npc::changeAttribute(Attribute a, int32_t val, bool allowUnconscious) {
       return;
     }
 
+  const int32_t valueBefore = hnpc->attribute[a];
+
   hnpc->attribute[a]+=val;
   if(hnpc->attribute[a]<0)
     hnpc->attribute[a]=0;
@@ -71582,6 +73706,10 @@ void Npc::changeAttribute(Attribute a, int32_t val, bool allowUnconscious) {
     if(aiPolicy==NpcProcessPolicy::AiFar || aiPolicy==NpcProcessPolicy::AiFar2)
       aiState.started = true;
     }
+
+  Mmo::Hooks::onCharacterAttributeChanged(*this, a, valueBefore, hnpc->attribute[a], val,
+                                          currentOther,
+                                          "game/world/objects/npc.cpp:Npc::changeAttribute");
   }
 
 int32_t Npc::protection(Protection p) const {
@@ -73734,6 +75862,10 @@ Item* Npc::takeItem(Item& item) {
   if(item.isTorchBurn() && (isUsingTorch() || weaponState()!=WeaponState::NoWeapon))
     return nullptr;
 
+  const auto sourceWorldItemPersistentId = item.persistentId();
+  const auto sourceItemSymbol = item.clsId();
+  const auto sourceAmount = item.count();
+
   auto state = bodyStateMasked();
   if(state!=BS_STAND && state!=BS_SNEAK && state!=BS_SWIM && state!=BS_DIVE) {
     return nullptr;
@@ -73759,6 +75891,10 @@ Item* Npc::takeItem(Item& item) {
     return nullptr;
 
   it = addItem(std::move(ptr));
+  if(it!=nullptr)
+    Mmo::Hooks::onWorldItemPickedUp(*this, *it, sourceWorldItemPersistentId,
+                                    sourceItemSymbol, sourceAmount,
+                                    "game/world/objects/npc.cpp:Npc::takeItem");
   if(isPlayer() && it!=nullptr)
     owner.sendPassivePerc(*this,*this,*it,PERC_ASSESSTHEFT);
 
@@ -73787,8 +75923,18 @@ void Npc::sellItem(size_t id, Npc &to, size_t count) {
   if(id==owner.script().goldId()->index())
     return;
   int32_t price = invent.sellPriceOf(id);
+  const auto itemBefore = invent.getItem(id);
+  const auto itemPersistentId = itemBefore != nullptr ? itemBefore->persistentId() : 0u;
+  const auto countBefore = invent.itemCount(id);
+  const auto goldBefore = invent.goldCount();
   Inventory::transfer(to.invent,invent,this,id,count,owner);
   invent.addItem(owner.script().goldId()->index(),size_t(price)*count,owner);
+  const auto countAfter = invent.itemCount(id);
+  const auto goldAfter = invent.goldCount();
+  const auto moved = countBefore > countAfter ? countBefore - countAfter : 0u;
+  Mmo::Hooks::onTradeSellToNpc(*this, to, id, itemPersistentId, moved, price,
+                               goldBefore, goldAfter,
+                               "game/world/objects/npc.cpp:Npc::sellItem");
   }
 
 void Npc::buyItem(size_t id, Npc &from, size_t count) {
@@ -73804,10 +75950,20 @@ void Npc::buyItem(size_t id, Npc &from, size_t count) {
     return;
     }
 
+  const auto vendorItemBefore = from.invent.getItem(id);
+  const auto vendorItemPersistentId = vendorItemBefore != nullptr ? vendorItemBefore->persistentId() : 0u;
+  const auto countBefore = invent.itemCount(id);
+  const auto goldBefore = invent.goldCount();
   Inventory::transfer(invent,from.invent,nullptr,id,count,owner);
   if(price>=0)
     invent.delItem(owner.script().goldId()->index(),size_t( price)*count,*this); else
     invent.addItem(owner.script().goldId()->index(),size_t(-price)*count,owner);
+  const auto countAfter = invent.itemCount(id);
+  const auto goldAfter = invent.goldCount();
+  const auto moved = countAfter > countBefore ? countAfter - countBefore : count;
+  Mmo::Hooks::onTradeBuyFromNpc(*this, from, id, vendorItemPersistentId, moved, price,
+                                goldBefore, goldAfter,
+                                "game/world/objects/npc.cpp:Npc::buyItem");
   }
 
 void Npc::dropItem(size_t id, size_t count) {
@@ -74425,9 +76581,13 @@ bool Npc::shootBow(Interactive* focOverride) {
   if(itm==nullptr)
     return false;
 
+  const auto ammoPersistentId = itm->persistentId();
   auto& b = owner.shootBullet(*itm,*this,currentTarget,focOverride);
 
   invent.delItem(size_t(munition),1,*this);
+  Mmo::Hooks::onCharacterItemConsumed(*this, size_t(munition), ammoPersistentId, 1,
+                                      "ranged_ammunition",
+                                      "game/world/objects/npc.cpp:Npc::shootBow");
   b.setOrigin(this);
   b.setDamage(DamageCalculator::rangeDamageValue(*this));
 
@@ -75172,6 +77332,10 @@ void Npc::updateAnimation(uint64_t dt, bool force) {
   if(syncAtt)
     visual.syncAttaches();
   }
+
+
+
+
 
 
 ===== game/world/objects/npc.h =====
@@ -79536,112 +81700,6 @@ class WayPoint final {
 #include <locale>
 #include <memory>
 
-namespace fs = std::filesystem;
-using DebugDumpId = std::size_t;
-
-struct FileState {
-    std::mutex              m;        // per-file mutex
-    std::once_flag          loaded;   // load-once guard
-    std::unordered_set<DebugDumpId> seen; // known IDs
-    fs::path                path;     // full path (normalized)
-};
-
-// Global registry of per-file states
-inline FileState& get_state(const fs::path& fullPath) {
-    static std::mutex map_m;
-    static std::unordered_map<fs::path, std::unique_ptr<FileState>> map;
-
-    const fs::path norm = fullPath.lexically_normal();
-    std::scoped_lock g(map_m);
-    auto it = map.find(norm);
-    if (it == map.end()) {
-        auto st = std::make_unique<FileState>();
-        st->path = norm;
-        it = map.emplace(norm, std::move(st)).first;
-    }
-    return *it->second;
-}
-
-inline std::string fit25(std::string s) {
-    if (s.size() < 25) s.append(25 - s.size(), ' ');
-    else if (s.size() > 25) s.resize(25);
-    return s;
-}
-
-
-inline std::string pos_to_string(float x, float y, float z) {
-    std::ostringstream oss;
-    oss.imbue(std::locale::classic());
-    oss << std::fixed << std::setprecision(3) << x << "," << y << "," << z; // keep compact
-    return oss.str();
-}
-
-// Append "npcName|instanceId|x,y,z" to `relativePath` (relative to CWD) iff `instanceId` is new.
-// Returns true if written, false if skipped or on error.
-inline bool append_obj(std::string_view relativePath,
-    std::string_view npcName,
-    std::string_view npcName2,
-    uint32_t instanceId,
-    float x, float y, float z, float xo, float yo, float zo)
-{
-    fs::path full = fs::current_path() / fs::path(relativePath);
-    if (full.has_parent_path()) {
-        std::error_code ec;
-        fs::create_directories(full.parent_path(), ec); // ignore errors here
-    }
-
-    FileState& st = get_state(full);
-
-    // Lock per-file before touching st.seen or loading from disk.
-    std::unique_lock lk(st.m);
-
-    //if (withInstanceIdCheck) {
-    //    // Load existing IDs once, under the lock (so no concurrent readers touch `seen` while it fills)
-    //    std::call_once(st.loaded, [&] {
-    //        if (fs::exists(full)) {
-    //            std::ifstream in(full, std::ios::binary);
-    //            std::string line;
-    //            while (std::getline(in, line)) {
-    //                // Expected: name|id|x,y,z
-    //                const auto p1 = line.find('|');
-    //                if (p1 == std::string::npos) continue;
-    //                const auto p2 = line.find('|', p1 + 1);
-    //                if (p2 == std::string::npos) continue;
-
-    //                std::string_view id_sv{ line.data() + p1 + 1, p2 - (p1 + 1) };
-    //                id_t parsed{};
-    //                if (std::from_chars(id_sv.data(), id_sv.data() + id_sv.size(), parsed).ec == std::errc{}) {
-    //                    st.seen.insert(parsed);
-    //                }
-    //            }
-    //        }
-    //        });
-
-    //    //Fast path: already seen -> skip
-    //    if (st.seen.contains(instanceId)) {
-    //        return false;
-    //    }
-    //}
-
-    std::ofstream out(full, std::ios::binary | std::ios::app);
-    if (!out) return false;
-
-    out.imbue(std::locale::classic()); // ensure '.' as decimal separator
-    const std::string colId = fit25(std::to_string(instanceId));
-    const std::string colPos = fit25(pos_to_string(x, y, z));
-    const std::string colPosOffset = fit25(pos_to_string(xo, yo, zo));
-    const std::string colName = fit25(std::string(npcName));
-    const std::string colName2 = fit25(std::string(npcName2));
-
-    out << colId << '|' << colPos << '|' << colPosOffset << '|' << colName << '|' << colName2 << '\n';
-
-    out.flush();
-    if (!out) return false;
-
-    //st.seen.insert(instanceId);
-    return true;
-}
-
 const char* materialTag(ItemMaterial src) {
   switch(src) {
     case ItemMaterial::MAT_WOOD:
@@ -80440,17 +82498,6 @@ void World::addTrigger(AbstractTrigger* trigger) {
   }
 
 void World::addInteractive(Interactive* inter) {
-
-    auto a = inter->position();
-    auto b = inter->getDisplayOffset();
-
-    auto c = inter->displayName();
-    auto d = inter->focusName();
-
-    auto f = inter->getId();
-
-    append_obj("logs/npcs_as_items.txt", c, d, f, a.x, a.y, a.z, b.x,b.y,b.z);
-
   wobj.addInteractive(inter);
   }
 
@@ -81019,6 +83066,7 @@ class WorldLight : public Vob {
 #include "worldobjects.h"
 
 #include "game/serialize.h"
+#include "game/mmosemantichooks.h"
 #include "world/objects/itemtorchburning.h"
 #include "world/objects/item.h"
 #include "world/objects/npc.h"
@@ -81757,7 +83805,8 @@ std::unique_ptr<Item> WorldObjects::takeItem(Item &it) {
 
 void WorldObjects::removeItem(Item &it) {
   if(auto ptr=takeItem(it)){
-    (void)ptr;
+    Mmo::Hooks::onWorldItemRemoved(owner, *ptr,
+                                   "game/world/worldobjects.cpp:WorldObjects::removeItem");
     }
   }
 
@@ -81799,9 +83848,6 @@ Item *WorldObjects::addItem(size_t itemInstance, std::string_view at) {
 
   item = addItem(itemInstance, pos, dir);
 
-  auto v = item->position();
-  auto x = item->displayName();
-  append_unique("logs/itms.txt", x, itemInstance, v.x, v.y, v.z);
   return item;
   }
 
@@ -82283,6 +84329,8 @@ bool WorldObjects::testObj(T &src, const Npc &pl, const WorldObjects::SearchOpt 
     }
   return false;
   }
+
+
 
 
 ===== game/world/worldobjects.h =====

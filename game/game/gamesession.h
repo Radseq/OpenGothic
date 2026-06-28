@@ -3,6 +3,7 @@
 #include <Tempest/Sound>
 #include <Tempest/SoundDevice>
 #include <memory>
+#include <cstdint>
 #include <string>
 
 #include "game/gamescript.h"
@@ -106,7 +107,57 @@ class GameSession final {
     std::unique_ptr<World>         wrld;
     std::unique_ptr<MmoRuntimeSqlite> mmoSqlite;
 
+    struct MmoActionCheckpointState final {
+      bool     initialized = false;
+      uint64_t lastEmitTick = 0;
+      float    posX = 0.f, posY = 0.f, posZ = 0.f;
+      float    yaw = 0.f;
+      int32_t  level = 0;
+      int32_t  experience = 0;
+      int32_t  experienceNext = 0;
+      int32_t  learningPoints = 0;
+      int32_t  healthCurrent = 0;
+      int32_t  healthMax = 0;
+      int32_t  manaCurrent = 0;
+      int32_t  manaMax = 0;
+      int32_t  strength = 0;
+      int32_t  dexterity = 0;
+      uint32_t guild = 0;
+      int32_t  trueGuild = 0;
+      int32_t  permanentAttitude = 0;
+      int32_t  temporaryAttitude = 0;
+      };
+
+    const char* mmoActionCheckpointReason(const Npc& npc, uint64_t now) const noexcept;
+    void        recordMmoActionCheckpointState(const Npc& npc, uint64_t now) noexcept;
+
+    struct MmoActionMovementProposalState final {
+      bool     initialized = false;
+      uint64_t lastEmitTick = 0;
+      float    posX = 0.f, posY = 0.f, posZ = 0.f;
+      float    yaw = 0.f;
+      int32_t  healthCurrent = 0;
+      int32_t  healthMax = 0;
+      int32_t  manaCurrent = 0;
+      int32_t  manaMax = 0;
+      bool     inAir = false;
+      bool     falling = false;
+      bool     fallingDeep = false;
+      bool     slide = false;
+      bool     jump = false;
+      bool     jumpUp = false;
+      bool     swim = false;
+      bool     dive = false;
+      bool     inWater = false;
+      };
+
+    const char* mmoActionMovementProposalReason(const Npc& npc, uint64_t now) const noexcept;
+    void        recordMmoActionMovementProposalState(const Npc& npc, uint64_t now) noexcept;
+    void        tickMmoMovementProposal(Npc& npc, uint64_t now) noexcept;
+
     uint64_t                       ticks = 0, wrldTimePart = 0;
+    MmoActionCheckpointState       lastMmoActionCheckpoint;
+    MmoActionMovementProposalState lastMmoActionMovementProposal;
     uint64_t                       timeMul = 1000, timeMulFract = 0;
     gtime                          wrldTime;
 
@@ -118,3 +169,6 @@ class GameSession final {
     static const uint64_t          multTime;
     static const uint64_t          divTime;
   };
+
+
+

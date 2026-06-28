@@ -1,6 +1,7 @@
 #include "worldobjects.h"
 
 #include "game/serialize.h"
+#include "game/mmosemantichooks.h"
 #include "world/objects/itemtorchburning.h"
 #include "world/objects/item.h"
 #include "world/objects/npc.h"
@@ -739,7 +740,8 @@ std::unique_ptr<Item> WorldObjects::takeItem(Item &it) {
 
 void WorldObjects::removeItem(Item &it) {
   if(auto ptr=takeItem(it)){
-    (void)ptr;
+    Mmo::Hooks::onWorldItemRemoved(owner, *ptr,
+                                   "game/world/worldobjects.cpp:WorldObjects::removeItem");
     }
   }
 
@@ -1262,3 +1264,5 @@ bool WorldObjects::testObj(T &src, const Npc &pl, const WorldObjects::SearchOpt 
     }
   return false;
   }
+
+

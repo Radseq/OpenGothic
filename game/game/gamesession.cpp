@@ -1,11 +1,13 @@
 #include "gamesession.h"
 #include "savegameheader.h"
 #include "mmoruntimesqlite.h"
+#include "mmosemantichooks.h"
 
 #include <Tempest/Log>
 #include <Tempest/MemReader>
 #include <Tempest/MemWriter>
 #include <cctype>
+#include <cmath>
 
 #include "utils/string_frm.h"
 #include "worldstatestorage.h"
@@ -22,6 +24,167 @@ using namespace Tempest;
 // rate 14.5 to 1
 const uint64_t GameSession::multTime=14500;
 const uint64_t GameSession::divTime =1000;
+
+namespace {
+
+float checkpointYawDelta(float a, float b) noexcept {
+  float d = std::fabs(a - b);
+  if(d > 360.f)
+    d = std::fmod(d, 360.f);
+  if(d > 180.f)
+    d = 360.f - d;
+  return d;
+}
+
+} // namespace
+
+const char* GameSession::mmoActionCheckpointReason(const Npc& npc, uint64_t now) const noexcept {
+  const auto& cmd = CommandLine::inst();
+  const uint64_t interval = cmd.mmoActionCheckpointIntervalMs();
+  if(interval == 0)
+    return nullptr;
+
+  const auto& prev = lastMmoActionCheckpoint;
+  if(!prev.initialized)
+    return "initial_checkpoint";
+
+  if(now < prev.lastEmitTick + interval)
+    return nullptr;
+
+  const uint64_t forceInterval = cmd.mmoActionCheckpointForceIntervalMs();
+  if(forceInterval != 0 && now >= prev.lastEmitTick + forceInterval)
+    return "forced_checkpoint_keepalive";
+
+  const bool statsChanged =
+    prev.level              != npc.level() ||
+    prev.experience         != npc.experience() ||
+    prev.experienceNext     != npc.experienceNext() ||
+    prev.learningPoints     != npc.learningPoints() ||
+    prev.healthCurrent      != npc.attribute(ATR_HITPOINTS) ||
+    prev.healthMax          != npc.attribute(ATR_HITPOINTSMAX) ||
+    prev.manaCurrent        != npc.attribute(ATR_MANA) ||
+    prev.manaMax            != npc.attribute(ATR_MANAMAX) ||
+    prev.strength           != npc.attribute(ATR_STRENGTH) ||
+    prev.dexterity          != npc.attribute(ATR_DEXTERITY) ||
+    prev.guild              != npc.guild() ||
+    prev.trueGuild          != npc.trueGuild() ||
+    prev.permanentAttitude  != static_cast<int32_t>(npc.attitude()) ||
+    prev.temporaryAttitude  != static_cast<int32_t>(npc.tempAttitude());
+  if(statsChanged)
+    return "stat_delta_checkpoint";
+
+  const auto pos = npc.position();
+  const float dx = pos.x - prev.posX;
+  const float dy = pos.y - prev.posY;
+  const float dz = pos.z - prev.posZ;
+  const float minDistance = cmd.mmoActionCheckpointMinDistance();
+  if(minDistance <= 0.f || dx*dx + dy*dy + dz*dz >= minDistance*minDistance)
+    return minDistance <= 0.f ? "periodic_checkpoint" : "distance_delta_checkpoint";
+
+  const float minYaw = cmd.mmoActionCheckpointMinYawDeg();
+  if(minYaw > 0.f && checkpointYawDelta(npc.rotationY(), prev.yaw) >= minYaw)
+    return "yaw_delta_checkpoint";
+
+  return nullptr;
+}
+
+void GameSession::recordMmoActionCheckpointState(const Npc& npc, uint64_t now) noexcept {
+  auto& out = lastMmoActionCheckpoint;
+  const auto pos = npc.position();
+  out.initialized = true;
+  out.lastEmitTick = now;
+  out.posX = pos.x;
+  out.posY = pos.y;
+  out.posZ = pos.z;
+  out.yaw = npc.rotationY();
+  out.level = npc.level();
+  out.experience = npc.experience();
+  out.experienceNext = npc.experienceNext();
+  out.learningPoints = npc.learningPoints();
+  out.healthCurrent = npc.attribute(ATR_HITPOINTS);
+  out.healthMax = npc.attribute(ATR_HITPOINTSMAX);
+  out.manaCurrent = npc.attribute(ATR_MANA);
+  out.manaMax = npc.attribute(ATR_MANAMAX);
+  out.strength = npc.attribute(ATR_STRENGTH);
+  out.dexterity = npc.attribute(ATR_DEXTERITY);
+  out.guild = npc.guild();
+  out.trueGuild = npc.trueGuild();
+  out.permanentAttitude = static_cast<int32_t>(npc.attitude());
+  out.temporaryAttitude = static_cast<int32_t>(npc.tempAttitude());
+}
+
+const char* GameSession::mmoActionMovementProposalReason(const Npc& npc, uint64_t now) const noexcept {
+  const auto& cmd = CommandLine::inst();
+  const uint64_t interval = cmd.mmoActionMovementProposalIntervalMs();
+  if(interval == 0)
+    return nullptr;
+
+  const auto& prev = lastMmoActionMovementProposal;
+  if(!prev.initialized)
+    return nullptr;
+
+  if(now < prev.lastEmitTick + interval)
+    return nullptr;
+
+  const auto pos = npc.position();
+  const float dx = pos.x - prev.posX;
+  const float dy = pos.y - prev.posY;
+  const float dz = pos.z - prev.posZ;
+  const float minDistance = cmd.mmoActionMovementProposalMinDistance();
+  if(minDistance <= 0.f || dx*dx + dy*dy + dz*dz >= minDistance*minDistance)
+    return minDistance <= 0.f ? "periodic_movement_proposal" : "distance_delta_movement_proposal";
+
+  const float minYaw = cmd.mmoActionMovementProposalMinYawDeg();
+  if(minYaw > 0.f && checkpointYawDelta(npc.rotationY(), prev.yaw) >= minYaw)
+    return "yaw_delta_movement_proposal";
+
+  return nullptr;
+}
+
+void GameSession::recordMmoActionMovementProposalState(const Npc& npc, uint64_t now) noexcept {
+  auto& out = lastMmoActionMovementProposal;
+  const auto pos = npc.position();
+  out.initialized = true;
+  out.lastEmitTick = now;
+  out.posX = pos.x;
+  out.posY = pos.y;
+  out.posZ = pos.z;
+  out.yaw = npc.rotationY();
+  out.healthCurrent = npc.attribute(ATR_HITPOINTS);
+  out.healthMax = npc.attribute(ATR_HITPOINTSMAX);
+  out.manaCurrent = npc.attribute(ATR_MANA);
+  out.manaMax = npc.attribute(ATR_MANAMAX);
+  out.inAir = npc.isInAir();
+  out.falling = npc.isFalling();
+  out.fallingDeep = npc.isFallingDeep();
+  out.slide = npc.isSlide();
+  out.jump = npc.isJump();
+  out.jumpUp = npc.isJumpUp();
+  out.swim = npc.isSwim();
+  out.dive = npc.isDive();
+  out.inWater = npc.isInWater();
+}
+
+void GameSession::tickMmoMovementProposal(Npc& npc, uint64_t now) noexcept {
+  const auto& cmd = CommandLine::inst();
+  if(cmd.mmoActionMovementProposalIntervalMs() == 0)
+    return;
+
+  if(!lastMmoActionMovementProposal.initialized) {
+    recordMmoActionMovementProposalState(npc, now);
+    return;
+    }
+
+  if(const char* reason = mmoActionMovementProposalReason(npc, now)) {
+    const auto& prev = lastMmoActionMovementProposal;
+    Mmo::Hooks::onCharacterMovementProposal(npc, prev.lastEmitTick, prev.posX, prev.posY, prev.posZ, prev.yaw,
+                                            prev.healthCurrent, prev.healthMax, prev.manaCurrent, prev.manaMax,
+                                            prev.inAir, prev.falling, prev.fallingDeep, prev.slide,
+                                            prev.jump, prev.jumpUp, prev.swim, prev.dive, prev.inWater,
+                                            "GameSession::tick", reason);
+    recordMmoActionMovementProposalState(npc, now);
+    }
+}
 
 void GameSession::HeroStorage::save(Npc& npc) {
   storage.clear();
@@ -262,6 +425,8 @@ void GameSession::setWorld(std::unique_ptr<World> &&w) {
       visitedWorlds.emplace_back(*wrld);
     }
   wrld = std::move(w);
+  lastMmoActionCheckpoint = {};
+  lastMmoActionMovementProposal = {};
   }
 
 std::unique_ptr<World> GameSession::clearWorld() {
@@ -270,6 +435,8 @@ std::unique_ptr<World> GameSession::clearWorld() {
       visitedWorlds.emplace_back(*wrld);
       }
     }
+  lastMmoActionCheckpoint = {};
+  lastMmoActionMovementProposal = {};
   return std::move(wrld);
   }
 
@@ -343,6 +510,15 @@ void GameSession::tick(uint64_t dt) {
 
   vm->tick(dt);
   wrld->tick(dt);
+
+  if(auto* pl = wrld->player()) {
+    tickMmoMovementProposal(*pl, ticks);
+    if(const char* reason = mmoActionCheckpointReason(*pl, ticks)) {
+      Mmo::Hooks::onCharacterCheckpoint(*pl, "GameSession::tick", reason);
+      recordMmoActionCheckpointState(*pl, ticks);
+      }
+    }
+
   if(mmoSqlite!=nullptr)
     mmoSqlite->tick(*this, dt);
   // std::this_thread::sleep_for(std::chrono::milliseconds(60));
@@ -554,3 +730,6 @@ void GameSession::initScripts(bool firstTime) {
 
   wrld->resetPositionToTA();
   }
+
+
+

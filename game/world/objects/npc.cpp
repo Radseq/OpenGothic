@@ -11,6 +11,7 @@
 #include "game/gamesession.h"
 #include "game/serialize.h"
 #include "game/gamescript.h"
+#include "game/mmosemantichooks.h"
 #include "utils/string_frm.h"
 #include "world/objects/interactive.h"
 #include "world/objects/item.h"
@@ -677,6 +678,9 @@ void Npc::onNoHealth(bool death, HitSound sndMask) {
   if(death)
     setAnim(lastHitType=='A' ? Anim::DeadA        : Anim::DeadB); else
     setAnim(lastHitType=='A' ? Anim::UnconsciousA : Anim::UnconsciousB);
+
+  Mmo::Hooks::onNpcLifecycleChanged(*this, lastHit, death, !death,
+                                    "game/world/objects/npc.cpp:Npc::onNoHealth");
   }
 
 bool Npc::hasAutoroll() const {
@@ -1309,6 +1313,8 @@ void Npc::changeAttribute(Attribute a, int32_t val, bool allowUnconscious) {
       return;
     }
 
+  const int32_t valueBefore = hnpc->attribute[a];
+
   hnpc->attribute[a]+=val;
   if(hnpc->attribute[a]<0)
     hnpc->attribute[a]=0;
@@ -1325,6 +1331,10 @@ void Npc::changeAttribute(Attribute a, int32_t val, bool allowUnconscious) {
     if(aiPolicy==NpcProcessPolicy::AiFar || aiPolicy==NpcProcessPolicy::AiFar2)
       aiState.started = true;
     }
+
+  Mmo::Hooks::onCharacterAttributeChanged(*this, a, valueBefore, hnpc->attribute[a], val,
+                                          currentOther,
+                                          "game/world/objects/npc.cpp:Npc::changeAttribute");
   }
 
 int32_t Npc::protection(Protection p) const {
@@ -3477,6 +3487,10 @@ Item* Npc::takeItem(Item& item) {
   if(item.isTorchBurn() && (isUsingTorch() || weaponState()!=WeaponState::NoWeapon))
     return nullptr;
 
+  const auto sourceWorldItemPersistentId = item.persistentId();
+  const auto sourceItemSymbol = item.clsId();
+  const auto sourceAmount = item.count();
+
   auto state = bodyStateMasked();
   if(state!=BS_STAND && state!=BS_SNEAK && state!=BS_SWIM && state!=BS_DIVE) {
     return nullptr;
@@ -3502,6 +3516,10 @@ Item* Npc::takeItem(Item& item) {
     return nullptr;
 
   it = addItem(std::move(ptr));
+  if(it!=nullptr)
+    Mmo::Hooks::onWorldItemPickedUp(*this, *it, sourceWorldItemPersistentId,
+                                    sourceItemSymbol, sourceAmount,
+                                    "game/world/objects/npc.cpp:Npc::takeItem");
   if(isPlayer() && it!=nullptr)
     owner.sendPassivePerc(*this,*this,*it,PERC_ASSESSTHEFT);
 
@@ -3530,8 +3548,18 @@ void Npc::sellItem(size_t id, Npc &to, size_t count) {
   if(id==owner.script().goldId()->index())
     return;
   int32_t price = invent.sellPriceOf(id);
+  const auto itemBefore = invent.getItem(id);
+  const auto itemPersistentId = itemBefore != nullptr ? itemBefore->persistentId() : 0u;
+  const auto countBefore = invent.itemCount(id);
+  const auto goldBefore = invent.goldCount();
   Inventory::transfer(to.invent,invent,this,id,count,owner);
   invent.addItem(owner.script().goldId()->index(),size_t(price)*count,owner);
+  const auto countAfter = invent.itemCount(id);
+  const auto goldAfter = invent.goldCount();
+  const auto moved = countBefore > countAfter ? countBefore - countAfter : 0u;
+  Mmo::Hooks::onTradeSellToNpc(*this, to, id, itemPersistentId, moved, price,
+                               goldBefore, goldAfter,
+                               "game/world/objects/npc.cpp:Npc::sellItem");
   }
 
 void Npc::buyItem(size_t id, Npc &from, size_t count) {
@@ -3547,10 +3575,20 @@ void Npc::buyItem(size_t id, Npc &from, size_t count) {
     return;
     }
 
+  const auto vendorItemBefore = from.invent.getItem(id);
+  const auto vendorItemPersistentId = vendorItemBefore != nullptr ? vendorItemBefore->persistentId() : 0u;
+  const auto countBefore = invent.itemCount(id);
+  const auto goldBefore = invent.goldCount();
   Inventory::transfer(invent,from.invent,nullptr,id,count,owner);
   if(price>=0)
     invent.delItem(owner.script().goldId()->index(),size_t( price)*count,*this); else
     invent.addItem(owner.script().goldId()->index(),size_t(-price)*count,owner);
+  const auto countAfter = invent.itemCount(id);
+  const auto goldAfter = invent.goldCount();
+  const auto moved = countAfter > countBefore ? countAfter - countBefore : count;
+  Mmo::Hooks::onTradeBuyFromNpc(*this, from, id, vendorItemPersistentId, moved, price,
+                                goldBefore, goldAfter,
+                                "game/world/objects/npc.cpp:Npc::buyItem");
   }
 
 void Npc::dropItem(size_t id, size_t count) {
@@ -4168,9 +4206,13 @@ bool Npc::shootBow(Interactive* focOverride) {
   if(itm==nullptr)
     return false;
 
+  const auto ammoPersistentId = itm->persistentId();
   auto& b = owner.shootBullet(*itm,*this,currentTarget,focOverride);
 
   invent.delItem(size_t(munition),1,*this);
+  Mmo::Hooks::onCharacterItemConsumed(*this, size_t(munition), ammoPersistentId, 1,
+                                      "ranged_ammunition",
+                                      "game/world/objects/npc.cpp:Npc::shootBow");
   b.setOrigin(this);
   b.setDamage(DamageCalculator::rangeDamageValue(*this));
 
@@ -4915,3 +4957,7 @@ void Npc::updateAnimation(uint64_t dt, bool force) {
   if(syncAtt)
     visual.syncAttaches();
   }
+
+
+
+

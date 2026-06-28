@@ -9,6 +9,7 @@
 #include "game/gamescript.h"
 #include "serialize.h"
 #include "gothic.h"
+#include "mmosemantichooks.h"
 
 using namespace Tempest;
 
@@ -321,6 +322,10 @@ void Inventory::transfer(Inventory &to, Inventory &from, Npc* fromNpc, size_t it
     if(count>it.count())
       count=it.count();
 
+    const auto movedCount = count;
+    const auto movedWholeInstance = (it.count()==count);
+    const auto sourceItemPersistentId = it.persistentId();
+
     if(it.count()==count) {
       if(it.isEquipped()) {
         if(fromNpc==nullptr){
@@ -335,6 +340,10 @@ void Inventory::transfer(Inventory &to, Inventory &from, Npc* fromNpc, size_t it
       it.setCount(it.count()-count);
       to.addItem(itemSymbol,count,wrld);
       }
+
+    Mmo::Hooks::onInventoryTransfer(wrld, fromNpc, itemSymbol, sourceItemPersistentId,
+                                    movedCount, movedWholeInstance,
+                                    "game/game/inventory.cpp:Inventory::transfer");
     }
   }
 
@@ -411,6 +420,8 @@ bool Inventory::setSlot(Item *&slot, Item* next, Npc& owner, bool force) {
     }
 
   if(slot!=nullptr) {
+    Item* removedItem = slot;
+    const uint8_t removedSlot = removedItem->slot();
     auto& itData   = slot->handle();
     auto  mainFlag = ItmFlags(itData.main_flag);
     auto  flag     = ItmFlags(itData.flags);
@@ -435,6 +446,8 @@ bool Inventory::setSlot(Item *&slot, Item* next, Npc& owner, bool force) {
       owner.setRangedWeapon(MeshObjects::Mesh());
       }
     vm.invokeItem(&owner,uint32_t(itData.on_unequip));
+    Mmo::Hooks::onItemUnequipped(owner, *removedItem, removedSlot,
+                                 "game/game/inventory.cpp:Inventory::setSlot");
     }
 
   if(next==nullptr)
@@ -455,6 +468,8 @@ bool Inventory::setSlot(Item *&slot, Item* next, Npc& owner, bool force) {
     applyWeaponStats(owner,*slot,1);
     }
   vm.invokeItem(&owner,uint32_t(itData.on_equip));
+  Mmo::Hooks::onItemEquipped(owner, *slot, slot->slot(),
+                             "game/game/inventory.cpp:Inventory::setSlot");
   return true;
   }
 
@@ -1171,4 +1186,6 @@ Item *Inventory::readPtr(Serialize &fin) {
     return items[v].get();
   return nullptr;
   }
+
+
 

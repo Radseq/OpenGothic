@@ -28,3 +28,6 @@ internal/
 
 #os
 .DS_Store
+
+
+*.sql*

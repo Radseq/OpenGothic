@@ -1,4 +1,5 @@
 OpenGothic v1.0 dev
+MMO semantic action JSONL capture enabled: runtime/mmo_client_actions_step42_movement_proposal.jsonl
 Switching music provider to 'OpenGothic'
 GPU = NVIDIA GeForce RTX 5070 Ti
 Depth format = Depth32F Shadow format = Depth16
@@ -26,6 +27,12 @@ unable to load sound fx: OW_BIRD11
 [zenkit] 1 bytes overflowed in section f590
 [zenkit] 1 bytes overflowed in section f590
 [zenkit] 1 bytes overflowed in section f590
+addNpc: 11069 (MIL_302_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
+addNpc: 11071 (MIL_303_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
+[zenkit] 1 bytes overflowed in section f590
 [zenkit] 1 bytes overflowed in section f590
 [zenkit] 1 bytes overflowed in section f590
 [zenkit] 1 bytes overflowed in section f590
@@ -40,31 +47,10 @@ unable to load sound fx: OW_BIRD11
 [zenkit] 1 bytes overflowed in section f590
 [zenkit] 1 bytes overflowed in section f590
 [zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-mmo sqlite runtime opened: runtime/g2notr.sqlite
-mmo sqlite restored save-slot snapshot: save_slot_1.sav snapshot=2
-unable to load mesh "Waran_1HST1.MDS"
-unable to load mesh "Waran_1HST2.MDS"
-unable to load mesh "Waran_2HST1.MDS"
-unable to load mesh "Waran_2HST2.MDS"
-unable to load mesh "Waran_BOWT1.MDS"
-unable to load mesh "Waran_BOWT2.MDS"
-unable to load mesh "Waran_CBOWT1.MDS"
-unable to load mesh "Waran_CBOWT2.MDS"
-unable to load mesh "Waran_ACROBATIC.MDS"
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-mmo sqlite restored canonical state from runtime DB: units=1053, relations=0
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
 not implemented call [mdl_applyrandomani]
 not implemented call [mdl_applyrandomanifreq]
-mmo sqlite saved DB slot snapshot: save_slot_1.sav snapshot=3
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
 Exiting, by item action (`LEAVE_GAME`)

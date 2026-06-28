@@ -117,6 +117,127 @@ CommandLine::CommandLine(int argc, const char** argv) {
       // It is valid only for the first session of a fresh database, never a save.
       mmoSqliteCaptureBaselineState = true;
       }
+    else if(arg=="-mmo-action-jsonl") {
+      // Dev-only semantic action capture. The game thread only enqueues immutable
+      // JSONL lines; final MMO architecture is still client -> server -> DB.
+      ++i;
+      if(i<argc)
+        mmoActionJsonlPath = argv[i];
+      }
+    else if(arg=="-mmo-action-udp") {
+      // Dev-only local server boundary. The game thread still only enqueues;
+      // an async worker sends immutable JSONL envelopes to host:port over UDP.
+      ++i;
+      if(i<argc)
+        mmoActionUdp = argv[i];
+      }
+    else if(arg=="-mmo-action-session-key") {
+      ++i;
+      if(i<argc)
+        mmoActionSession = argv[i];
+      }
+    else if(arg=="-mmo-action-queue-capacity") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoActionQueueCap = std::max<uint64_t>(1, std::stoull(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-queue-capacity: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-strict-overflow") {
+      mmoActionStrictOverflowState = true;
+      }
+    else if(arg=="-mmo-action-checkpoint-interval-ms") {
+      // Step39 dev-only movement/checkpoint capture cadence. Zero disables
+      // periodic checkpoint envelopes even when the semantic action sink is on.
+      ++i;
+      if(i<argc) {
+        try {
+          auto value = std::stoull(std::string(argv[i]));
+          mmoActionCheckpointInterval = value == 0 ? 0 : std::max<uint64_t>(250, value);
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-checkpoint-interval-ms: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-checkpoint-min-distance") {
+      // Step39 v2: coalesce stationary checkpoints on the game side. The unit is
+      // Gothic world units; zero keeps pure interval capture semantics.
+      ++i;
+      if(i<argc) {
+        try {
+          mmoActionCheckpointMinDistanceWorld = std::max(0.f, std::stof(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-checkpoint-min-distance: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-checkpoint-min-yaw-deg") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoActionCheckpointMinYaw = std::max(0.f, std::stof(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-checkpoint-min-yaw-deg: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-checkpoint-force-interval-ms") {
+      // Optional keepalive interval. It emits even when position/yaw/stats are
+      // unchanged, but never more often than -mmo-action-checkpoint-interval-ms.
+      ++i;
+      if(i<argc) {
+        try {
+          auto value = std::stoull(std::string(argv[i]));
+          mmoActionCheckpointForceInterval = value == 0 ? 0 : std::max<uint64_t>(250, value);
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-checkpoint-force-interval-ms: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-movement-proposal-interval-ms") {
+      // Step41 dev-only movement proposal capture. This is not a DB write; it
+      // produces client intent/proposal envelopes for a server-side validator.
+      ++i;
+      if(i<argc) {
+        try {
+          auto value = std::stoull(std::string(argv[i]));
+          mmoActionMovementProposalInterval = value == 0 ? 0 : std::max<uint64_t>(50, value);
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-movement-proposal-interval-ms: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-movement-proposal-min-distance") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoActionMovementProposalMinDistanceWorld = std::max(0.f, std::stof(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-movement-proposal-min-distance: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-action-movement-proposal-min-yaw-deg") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoActionMovementProposalMinYaw = std::max(0.f, std::stof(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-action-movement-proposal-min-yaw-deg: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
     else if(arg=="-window") {
       isWindow = true;
       }
@@ -275,3 +396,9 @@ bool CommandLine::validateGothicPath() const {
     return false;
   return true;
   }
+
+
+
+
+
+

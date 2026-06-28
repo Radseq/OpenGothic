@@ -1,7 +1,8 @@
-# AI Engineering Context
+# Compact AI Context
 
-Read `ai/00-project-constraints.md` first, then the remaining `ai/` files in numeric order.
+Read only `ai/00-core-context.md` through `ai/06-validation-playbook.md` in numeric order.
+These files replace the large historical `docs/llm/ai/*.md` set. They are optimized for an AI agent: dense, source-oriented, and small enough to keep in context.
 
-The active AI context is English-only and intentionally compact. It describes the current Gothic II NotR MMO migration constraints, runtime persistence ownership, inventory/currency semantics, and safe implementation boundaries.
+`docs/llm/legacy/` may keep older reverse-engineering notes and archived pre-compact AI files. Use legacy only to recover a missing source location, then verify against current `game/` code and current MySQL migrations.
 
-`legacy/` preserves earlier Polish reverse-engineering notes. Use it only to recover historical evidence or a missing source location; verify every assumption against the current code before acting on it.
+Current target: Gothic II NotR first, then Gothic 1/Gothic 2 vanilla. Current implementation language target remains C++23. Performance and deterministic server ownership are more important than convenience.

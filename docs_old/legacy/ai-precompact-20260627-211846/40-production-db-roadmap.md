@@ -34,6 +34,8 @@ Hard rule: gameplay mutations must not be inferred from periodic full-world diff
 
 ## Step 2: Build PostgreSQL bootstrap/import pipeline
 
+Status: implemented by `db/migrations/postgres/production/002_bootstrap_import_pipeline.sql`, `tools/import_runtime_sqlite_to_postgres.py`, and `tools/check_postgres_bootstrap_import.py`.
+
 Input sources:
 
 - current runtime SQLite `mmo_*_current` and `mmo_world_baseline_*` tables;
@@ -51,7 +53,7 @@ Output:
 - one `realm_world_instances` row per imported world;
 - one test `account_accounts` and `characters` row for `PC_HERO`.
 
-Do not import `runtime_*` raw diagnostics as production gameplay tables.
+Do not import `runtime_*` raw diagnostics as production gameplay tables. Import audit metadata is stored in `mmo_import_runs`, `mmo_import_object_map`, and `mmo_import_validation_results`; gameplay state is written only to production-owned content, realm, character, world and event-journal tables.
 
 ## Step 3: Add a minimal server write path
 

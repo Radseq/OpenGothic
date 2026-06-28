@@ -1,0 +1,209 @@
+i uruchom pierwszy raz na świeżej bazie:
+
+./build/opengothic/Gothic2Notr \
+  -g "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
+  -g2 \
+  -mmo-sqlite runtime/g2notr.sqlite \
+  -mmo-sqlite-interval-ms 5000 \
+  -mmo-sqlite-capture-baseline
+
+Potem kolejne uruchomienia już tak:
+
+./build/opengothic/Gothic2Notr \
+  -g "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
+  -g2 \
+  -mmo-sqlite runtime/g2notr.sqlite \
+  -mmo-sqlite-interval-ms 5000
+
+Czyli: nie dodawaj -mmo-sqlite-capture-baseline za każdym razem.
+
+Jeżeli chcesz tylko testować zapis do SQLite bez przywracania stanu z DB, możesz użyć:
+
+./build/opengothic/Gothic2Notr \
+  -g "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
+  -g2 \
+  -mmo-sqlite runtime/g2notr.sqlite \
+  -mmo-sqlite-interval-ms 5000 \
+  -mmo-sqlite-no-restore
+
+
+
+
+
+
+
+Jak użyć
+
+Na czystej bazie PostgreSQL:
+
+createdb gothic_mmo
+
+Potem:
+
+psql "postgresql://USER:PASSWORD@HOST:5432/gothic_mmo" \
+  -v ON_ERROR_STOP=1 \
+  -f db/migrations/postgres/production/001_gothic_mmo_production_schema.sql
+
+Walidacja:
+
+python tools/check_postgres_mmo_schema.py \
+  --dsn "postgresql://USER:PASSWORD@HOST:5432/gothic_mmo"
+
+
+
+
+
+Jak uruchomić
+
+Najpierw migracje:
+
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f db/migrations/postgres/production/001_gothic_mmo_production_schema.sql
+
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f db/migrations/postgres/production/002_bootstrap_import_pipeline.sql
+
+Potem najpierw wygeneruj SQL na sucho:
+
+python tools/import_runtime_sqlite_to_postgres.py \
+  --sqlite runtime/g2notr.sqlite \
+  --dry-run-sql /tmp/import_g2notr.sql
+
+Jak wygląda dobrze, wykonaj import:
+
+python tools/import_runtime_sqlite_to_postgres.py \
+  --sqlite runtime/g2notr.sqlite \
+  --dsn "$DATABASE_URL" \
+  --realm-key local-dev \
+  --account-name local-import \
+  --character-key PC_HERO
+
+Walidacja:
+
+python tools/check_postgres_bootstrap_import.py \
+  --dsn "$DATABASE_URL" \
+  --realm-key local-dev \
+  --character-key PC_HERO
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Jak odpalić
+
+Najpierw baza:
+
+sudo apt update
+sudo apt install mysql-server mysql-client
+
+sudo systemctl enable --now mysql
+
+Wejdź do MySQL:
+
+sudo mysql
+
+Utwórz DB i usera:
+
+CREATE DATABASE gothic_mmo
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_0900_ai_ci;
+
+CREATE USER 'gothic'@'localhost' IDENTIFIED BY 'gothic_dev_password';
+
+GRANT ALL PRIVILEGES ON gothic_mmo.* TO 'gothic'@'localhost';
+
+FLUSH PRIVILEGES;
+
+Wyjdź:
+
+exit
+  Potem:
+
+mysql --default-character-set=utf8mb4 \
+  -u gothic -p gothic_mmo \
+  < db/migrations/mysql/production/001_gothic_mmo_production_schema.sql
+mysql --default-character-set=utf8mb4 \
+  -u gothic -p gothic_mmo \
+  < db/migrations/mysql/production/002_bootstrap_import_pipeline.sql
+Walidacja schematu
+python tools/check_mysql_mmo_schema.py \
+  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo"
+Import z runtime SQLite
+
+Najpierw dry-run:
+
+python tools/import_runtime_sqlite_to_mysql.py \
+  --sqlite runtime/g2notr.sqlite \
+  --dry-run-sql /tmp/import_g2notr_mysql.sql
+
+Jak SQL wygląda dobrze:
+
+python tools/import_runtime_sqlite_to_mysql.py \
+  --sqlite runtime/g2notr.sqlite \
+  --mysql-url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo" \
+  --realm-key local-dev \
+  --account-name local-import \
+  --character-key PC_HERO
+
+Walidacja importu:
+
+python tools/check_mysql_bootstrap_import.py \
+  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo" \
+  --realm-key local-dev \
+  --character-key PC_HERO
+
+
+
+
+
+
+
+
+
+
+
+
+
+Test server-boundary
+
+Terminal 1 — odpal receiver:
+
+cd ~/Desktop/OpenGothic
+
+python3 tools/run_mmo_action_receiver.py \
+  --bind 127.0.0.1:29777 \
+  --jsonl runtime/mmo_server_actions.jsonl \
+  --require-session local-dev-PC_HERO \
+  --truncate
+
+Terminal 2 — odpal grę:
+
+cd ~/Desktop/OpenGothic
+
+rm -f runtime/mmo_actions.jsonl runtime/mmo_server_actions.jsonl
+
+./build/opengothic/Gothic2Notr \
+  -g "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
+  -g2 \
+  -mmo-action-jsonl runtime/mmo_actions.jsonl \
+  -mmo-action-udp 127.0.0.1:29777 \
+  -mmo-action-session-key local-dev-PC_HERO \
+  -mmo-action-queue-capacity 8192
+
