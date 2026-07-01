@@ -1255,6 +1255,14 @@ bool GameSession::tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept {
              " parsed_recent_actions=", result.recentActions.size(),
              " mover_state=", result.moverStateCount,
              " parsed_mover_state=", result.moverStates.size(),
+             " npc_routine_state=", result.npcRoutineStateCount,
+             " npc_ai_state=", result.npcAiStateCount,
+             " npc_path_state=", result.npcPathStateCount,
+             " npc_fight_state=", result.npcFightStateCount,
+             " trigger_queue=", result.triggerQueueCount,
+             " world_transition_state=", result.worldTransitionStateCount,
+             " client_corrections=", result.clientCorrectionCount,
+             " parsed_client_corrections=", result.clientCorrections.size(),
              " applied_movers=", appliedMovers,
              " missing_movers=", missingMovers,
              " skipped_movers=", skippedMovers,
@@ -1348,6 +1356,30 @@ bool GameSession::tryApplyMmoServerWorldSnapshotRefresh() noexcept {
              " tick=", result.worldClock.currentTick,
              " world=", result.worldClock.worldName);
       }
+    size_t appliedCorrections = 0;
+    for(const auto& correction : result.clientCorrections) {
+      if(correction.acknowledged || !correction.hasAuthoritativePosition)
+        continue;
+      auto* hero = player();
+      if(hero == nullptr)
+        break;
+      hero->setPosition(static_cast<float>(correction.x),
+                        static_cast<float>(correction.y),
+                        static_cast<float>(correction.z));
+      hero->setDirectionY(static_cast<float>(correction.yaw));
+      hero->clearSpeed();
+      hero->updateTransform();
+      ++appliedCorrections;
+      Log::i("MMO server correction applied: snapshot_id=", snapshotId,
+             " action=", correction.actionKind,
+             " reason=", correction.reason,
+             " local_sequence=", correction.clientLocalSequence,
+             " x=", correction.x,
+             " y=", correction.y,
+             " z=", correction.z,
+             " yaw=", correction.yaw,
+             " server_tick=", correction.authoritativeServerTick);
+      }
     const auto applied = applyMmoWorldSnapshotState(*wrld, result);
     size_t appliedMovers = 0;
     size_t missingMovers = 0;
@@ -1378,6 +1410,14 @@ bool GameSession::tryApplyMmoServerWorldSnapshotRefresh() noexcept {
            " nearby_waypoints=", result.nearbyWaypoints.size(),
            " recent_actions=", result.recentActions.size(),
            " mover_state=", result.moverStates.size(),
+           " npc_routine_state=", result.npcRoutineStateCount,
+           " npc_ai_state=", result.npcAiStateCount,
+           " npc_path_state=", result.npcPathStateCount,
+           " npc_fight_state=", result.npcFightStateCount,
+           " trigger_queue=", result.triggerQueueCount,
+           " world_transition_state=", result.worldTransitionStateCount,
+           " client_corrections=", result.clientCorrections.size(),
+           " applied_client_corrections=", appliedCorrections,
            " applied_movers=", appliedMovers,
            " missing_movers=", missingMovers,
            " skipped_movers=", skippedMovers,
@@ -1705,5 +1745,6 @@ void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
          " reason=", reason,
          " path=", std::string(path));
   }
+
 
 

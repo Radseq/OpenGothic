@@ -46,6 +46,13 @@ enum class SemanticActionKind : std::uint8_t {
   WorldTimeChanged,
   TriggerEvent,
   MoverStateChanged,
+  RecordNpcRoutineState,
+  RecordNpcAiState,
+  RecordNpcPathState,
+  RecordNpcFightState,
+  RecordTriggerQueueState,
+  RecordWorldTransitionState,
+  ClientCorrectionAck,
   SplitItemStack,
   MergeItemStack,
   SaveCheckpointManifest,
@@ -61,7 +68,7 @@ struct SemanticActionDef final {
   bool               serverAuthoritative = true;
 };
 
-inline constexpr std::array<SemanticActionDef, 39> SemanticActionDefs {{
+inline constexpr std::array<SemanticActionDef, 46> SemanticActionDefs {{
   {SemanticActionKind::ClientBootstrapRequest,"client_bootstrap_request", "client_bootstrap_requested",  "session",      "mmo_client_bootstrap_request",        true, true},
   {SemanticActionKind::MovementProposal,      "movement_proposal",       "movement_proposal_submitted",     "movement",     "server_validate_movement_proposal",     true, true},
   {SemanticActionKind::CharacterCheckpoint,   "character_checkpoint",      "character_position_checkpoint",    "character",    "mmo_checkpoint_character_state",        true, true},
@@ -98,6 +105,13 @@ inline constexpr std::array<SemanticActionDef, 39> SemanticActionDefs {{
   {SemanticActionKind::ConsumeMana,           "consume_mana",              "character_mana_consumed",          "spell",        "mmo_consume_character_mana",            true, true},
   {SemanticActionKind::ConsumeItem,           "consume_item",              "character_item_consumed",          "inventory",    "mmo_consume_character_item",            true, true},
   {SemanticActionKind::WorldTimeChanged,      "world_time_changed",        "world_time_changed",              "world",        "mmo_record_world_time_changed",         true, true},
+  {SemanticActionKind::RecordNpcRoutineState, "record_npc_routine_state",  "npc_routine_state_recorded",      "world_entity", "mmo_record_npc_routine_state",          true, true},
+  {SemanticActionKind::RecordNpcAiState,      "record_npc_ai_state",       "npc_ai_state_recorded",           "world_entity", "mmo_record_npc_ai_state",               true, true},
+  {SemanticActionKind::RecordNpcPathState,    "record_npc_path_state",     "npc_path_state_recorded",         "world_entity", "mmo_record_npc_path_state",             true, true},
+  {SemanticActionKind::RecordNpcFightState,   "record_npc_fight_state",    "npc_fight_state_recorded",        "combat",       "mmo_record_npc_fight_state",            true, true},
+  {SemanticActionKind::RecordTriggerQueueState,"record_trigger_queue_state","trigger_queue_state_recorded",    "world_entity", "mmo_record_trigger_queue_state",        true, true},
+  {SemanticActionKind::RecordWorldTransitionState,"record_world_transition_state","world_transition_state_recorded","character","mmo_record_world_transition_state",true, true},
+  {SemanticActionKind::ClientCorrectionAck,   "client_correction_ack",     "client_correction_acknowledged",  "diagnostic",   "mmo_ack_client_action_correction",      true, true},
   {SemanticActionKind::SplitItemStack,        "split_item_stack",          "item_stack_split",                 "inventory",    "mmo_split_character_item_stack",        true, true},
   {SemanticActionKind::MergeItemStack,        "merge_item_stack",          "item_stack_merged",                "inventory",    "mmo_merge_character_item_stack",        true, true},
   {SemanticActionKind::SaveCheckpointManifest,"save_checkpoint_manifest", "server_save_checkpoint_manifest",  "system",       "mmo_create_save_checkpoint_manifest",  true, true},
@@ -162,6 +176,7 @@ struct SemanticActionEnvelope final {
 [[nodiscard]] std::string toJsonLine(const SemanticActionEnvelope& envelope);
 
 } // namespace Mmo
+
 
 
 

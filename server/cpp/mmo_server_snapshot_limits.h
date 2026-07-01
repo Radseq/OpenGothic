@@ -29,6 +29,10 @@ inline constexpr std::size_t MaxBootstrapNpcLifecycleRows = 2048;
 inline constexpr std::size_t MaxBootstrapInteractiveSampleRows = MaxBootstrapInteractiveStateRows;
 inline constexpr std::size_t MaxBootstrapRecentEventRows = 64;
 inline constexpr std::size_t MaxBootstrapMoverStateRows = 512;
+inline constexpr std::size_t MaxBootstrapNpcAuthorityRows = 512;
+inline constexpr std::size_t MaxBootstrapTriggerQueueRows = 512;
+inline constexpr std::size_t MaxBootstrapWorldTransitionRows = 64;
+inline constexpr std::size_t MaxBootstrapClientCorrectionRows = 64;
 
 inline constexpr std::string_view BootstrapSnapshotSchema = "mmo_bootstrap_snapshot_v1";
 inline constexpr std::string_view BootstrapWorldItemDeltasSection = "world_item_deltas";
@@ -41,8 +45,16 @@ inline constexpr std::string_view BootstrapMoverStateSection = "mover_state";
 inline constexpr std::string_view BootstrapServerCheckpointManifestSection = "server_checkpoint_manifest";
 inline constexpr std::string_view BootstrapInteractiveStateSection = "interactive_state";
 inline constexpr std::string_view BootstrapNpcLifecycleStateSection = "npc_lifecycle_state";
+inline constexpr std::string_view BootstrapNpcRoutineStateSection = "npc_routine_state";
+inline constexpr std::string_view BootstrapNpcAiStateSection = "npc_ai_state";
+inline constexpr std::string_view BootstrapNpcPathStateSection = "npc_path_state";
+inline constexpr std::string_view BootstrapNpcFightStateSection = "npc_fight_state";
+inline constexpr std::string_view BootstrapTriggerQueueSection = "trigger_queue";
+inline constexpr std::string_view BootstrapWorldTransitionStateSection = "world_transition_state";
+inline constexpr std::string_view BootstrapClientCorrectionsSection = "client_corrections";
 
 } // namespace Mmo::Server
+
 
 
 

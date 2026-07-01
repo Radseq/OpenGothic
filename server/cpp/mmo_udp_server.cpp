@@ -1227,6 +1227,80 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
   moverStateQuery += ") rows_json), JSON_ARRAY());";
   const auto moverState = mysqlJsonOrWithDiagnostic(target, moverStateQuery, "[]", "bootstrap_mover_state");
 
+  std::string npcRoutineStateQuery;
+  npcRoutineStateQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+  npcRoutineStateQuery += "SELECT JSON_OBJECT('npc_entity_key',rs.npc_entity_key,'routine_state',rs.routine_state,";
+  npcRoutineStateQuery += "'schedule_key',rs.schedule_key,'current_waypoint_key',rs.current_waypoint_key,'target_waypoint_key',rs.target_waypoint_key,";
+  npcRoutineStateQuery += "'last_server_tick',rs.last_server_tick,'row_version',rs.row_version,'updated_at',DATE_FORMAT(rs.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+  npcRoutineStateQuery += "FROM server_sessions ss JOIN mmo_npc_routine_state_current rs ON rs.world_instance_id=ss.world_instance_id ";
+  npcRoutineStateQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) ORDER BY rs.last_server_tick DESC,rs.npc_entity_key LIMIT " + std::to_string(Mmo::Server::MaxBootstrapNpcAuthorityRows);
+  npcRoutineStateQuery += ") rows_json), JSON_ARRAY());";
+  const auto npcRoutineState = mysqlJsonOrWithDiagnostic(target, npcRoutineStateQuery, "[]", "bootstrap_npc_routine_state");
+
+  std::string npcAiStateQuery;
+  npcAiStateQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+  npcAiStateQuery += "SELECT JSON_OBJECT('npc_entity_key',ais.npc_entity_key,'ai_state',ais.ai_state,'ai_intent',ais.ai_intent,";
+  npcAiStateQuery += "'target_key',ais.target_key,'perception_state',ais.perception_state,'last_server_tick',ais.last_server_tick,";
+  npcAiStateQuery += "'row_version',ais.row_version,'updated_at',DATE_FORMAT(ais.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+  npcAiStateQuery += "FROM server_sessions ss JOIN mmo_npc_ai_state_current ais ON ais.world_instance_id=ss.world_instance_id ";
+  npcAiStateQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) ORDER BY ais.last_server_tick DESC,ais.npc_entity_key LIMIT " + std::to_string(Mmo::Server::MaxBootstrapNpcAuthorityRows);
+  npcAiStateQuery += ") rows_json), JSON_ARRAY());";
+  const auto npcAiState = mysqlJsonOrWithDiagnostic(target, npcAiStateQuery, "[]", "bootstrap_npc_ai_state");
+
+  std::string npcPathStateQuery;
+  npcPathStateQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+  npcPathStateQuery += "SELECT JSON_OBJECT('npc_entity_key',ps.npc_entity_key,'path_state',ps.path_state,'route_key',ps.route_key,";
+  npcPathStateQuery += "'current_waypoint_key',ps.current_waypoint_key,'next_waypoint_key',ps.next_waypoint_key,'target_waypoint_key',ps.target_waypoint_key,";
+  npcPathStateQuery += "'pos_x',ps.pos_x,'pos_y',ps.pos_y,'pos_z',ps.pos_z,'last_server_tick',ps.last_server_tick,";
+  npcPathStateQuery += "'row_version',ps.row_version,'updated_at',DATE_FORMAT(ps.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+  npcPathStateQuery += "FROM server_sessions ss JOIN mmo_npc_path_state_current ps ON ps.world_instance_id=ss.world_instance_id ";
+  npcPathStateQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) ORDER BY ps.last_server_tick DESC,ps.npc_entity_key LIMIT " + std::to_string(Mmo::Server::MaxBootstrapNpcAuthorityRows);
+  npcPathStateQuery += ") rows_json), JSON_ARRAY());";
+  const auto npcPathState = mysqlJsonOrWithDiagnostic(target, npcPathStateQuery, "[]", "bootstrap_npc_path_state");
+
+  std::string npcFightStateQuery;
+  npcFightStateQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+  npcFightStateQuery += "SELECT JSON_OBJECT('npc_entity_key',fs.npc_entity_key,'opponent_key',fs.opponent_key,'fight_state',fs.fight_state,";
+  npcFightStateQuery += "'attack_state',fs.attack_state,'combo_index',fs.combo_index,'last_server_tick',fs.last_server_tick,";
+  npcFightStateQuery += "'row_version',fs.row_version,'updated_at',DATE_FORMAT(fs.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+  npcFightStateQuery += "FROM server_sessions ss JOIN mmo_npc_fight_state_current fs ON fs.world_instance_id=ss.world_instance_id ";
+  npcFightStateQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) ORDER BY fs.last_server_tick DESC,fs.npc_entity_key LIMIT " + std::to_string(Mmo::Server::MaxBootstrapNpcAuthorityRows);
+  npcFightStateQuery += ") rows_json), JSON_ARRAY());";
+  const auto npcFightState = mysqlJsonOrWithDiagnostic(target, npcFightStateQuery, "[]", "bootstrap_npc_fight_state");
+
+  std::string triggerQueueQuery;
+  triggerQueueQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+  triggerQueueQuery += "SELECT JSON_OBJECT('trigger_key',tq.trigger_key,'queue_state',tq.queue_state,'event_type_name',tq.event_type_name,";
+  triggerQueueQuery += "'scheduled_server_tick',tq.scheduled_server_tick,'last_server_tick',tq.last_server_tick,";
+  triggerQueueQuery += "'row_version',tq.row_version,'updated_at',DATE_FORMAT(tq.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+  triggerQueueQuery += "FROM server_sessions ss JOIN mmo_world_trigger_queue_current tq ON tq.world_instance_id=ss.world_instance_id ";
+  triggerQueueQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) ORDER BY tq.scheduled_server_tick ASC,tq.trigger_key LIMIT " + std::to_string(Mmo::Server::MaxBootstrapTriggerQueueRows);
+  triggerQueueQuery += ") rows_json), JSON_ARRAY());";
+  const auto triggerQueue = mysqlJsonOrWithDiagnostic(target, triggerQueueQuery, "[]", "bootstrap_trigger_queue");
+
+  std::string worldTransitionStateQuery;
+  worldTransitionStateQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+  worldTransitionStateQuery += "SELECT JSON_OBJECT('character_key',c.character_key,'from_world_key',ts.from_world_key,'to_world_key',ts.to_world_key,";
+  worldTransitionStateQuery += "'transition_state',ts.transition_state,'chapter_key',ts.chapter_key,'visited',ts.visited,";
+  worldTransitionStateQuery += "'last_server_tick',ts.last_server_tick,'row_version',ts.row_version,'updated_at',DATE_FORMAT(ts.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+  worldTransitionStateQuery += "FROM server_sessions ss JOIN characters c ON c.character_id=ss.character_id ";
+  worldTransitionStateQuery += "JOIN mmo_character_world_transition_state_current ts ON ts.character_id=ss.character_id ";
+  worldTransitionStateQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) ORDER BY ts.last_server_tick DESC,ts.to_world_key LIMIT " + std::to_string(Mmo::Server::MaxBootstrapWorldTransitionRows);
+  worldTransitionStateQuery += ") rows_json), JSON_ARRAY());";
+  const auto worldTransitionState = mysqlJsonOrWithDiagnostic(target, worldTransitionStateQuery, "[]", "bootstrap_world_transition_state");
+
+  std::string clientCorrectionsQuery;
+  clientCorrectionsQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+  clientCorrectionsQuery += "SELECT JSON_OBJECT('action_kind',cc.action_kind,'client_local_sequence',cc.client_local_sequence,'correction_kind',cc.correction_kind,";
+  clientCorrectionsQuery += "'reason',cc.reason,'acknowledged',cc.acknowledged,'rejected_server_tick',cc.rejected_server_tick,";
+  clientCorrectionsQuery += "'authoritative_server_tick',cc.authoritative_server_tick,'authoritative_pos_x',cc.authoritative_pos_x,";
+  clientCorrectionsQuery += "'authoritative_pos_y',cc.authoritative_pos_y,'authoritative_pos_z',cc.authoritative_pos_z,'authoritative_yaw',cc.authoritative_yaw,";
+  clientCorrectionsQuery += "'updated_at',DATE_FORMAT(cc.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+  clientCorrectionsQuery += "FROM server_sessions ss JOIN mmo_client_action_correction_current cc ON cc.session_id=ss.session_id ";
+  clientCorrectionsQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) AND cc.acknowledged=FALSE ORDER BY cc.updated_at DESC LIMIT " + std::to_string(Mmo::Server::MaxBootstrapClientCorrectionRows);
+  clientCorrectionsQuery += ") rows_json), JSON_ARRAY());";
+  const auto clientCorrections = mysqlJsonOrWithDiagnostic(target, clientCorrectionsQuery, "[]", "bootstrap_client_corrections");
+
   std::string checkpointManifestQuery;
   checkpointManifestQuery += "SELECT COALESCE((SELECT JSON_OBJECT(";
   checkpointManifestQuery += "'manifest_uuid',BIN_TO_UUID(sm.manifest_id,1),'manifest_key',sm.manifest_key,'save_slot_key',sm.save_slot_key,'native_save_path',sm.native_save_path,";
@@ -1246,7 +1320,9 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
               scriptState.size() + worldDeltas.size() + worldClock.size() + activeWorldItems.size() +
               nearbyNpcs.size() + nearbyNpcKnownDialogs.size() + nearbyWaypoints.size() +
               interactivesSample.size() + npcLifecycle.size() + recentEvents.size() +
-              moverState.size() + checkpointManifest.size() + 2048);
+              moverState.size() + npcRoutineState.size() + npcAiState.size() + npcPathState.size() +
+              npcFightState.size() + triggerQueue.size() + worldTransitionState.size() +
+              clientCorrections.size() + checkpointManifest.size() + 2048);
   out.push_back('{');
   out += "\"schema\":";
   out += jsonEscape(Mmo::Server::BootstrapSnapshotSchema);
@@ -1284,8 +1360,15 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
   appendJsonRawField(out, Mmo::Server::BootstrapRecentActionsSection, recentEvents);
   appendJsonRawField(out, "recent_events_sample", recentEvents);
   appendJsonRawField(out, Mmo::Server::BootstrapMoverStateSection, moverState);
+  appendJsonRawField(out, Mmo::Server::BootstrapNpcRoutineStateSection, npcRoutineState);
+  appendJsonRawField(out, Mmo::Server::BootstrapNpcAiStateSection, npcAiState);
+  appendJsonRawField(out, Mmo::Server::BootstrapNpcPathStateSection, npcPathState);
+  appendJsonRawField(out, Mmo::Server::BootstrapNpcFightStateSection, npcFightState);
+  appendJsonRawField(out, Mmo::Server::BootstrapTriggerQueueSection, triggerQueue);
+  appendJsonRawField(out, Mmo::Server::BootstrapWorldTransitionStateSection, worldTransitionState);
+  appendJsonRawField(out, Mmo::Server::BootstrapClientCorrectionsSection, clientCorrections);
   appendJsonRawField(out, Mmo::Server::BootstrapServerCheckpointManifestSection, checkpointManifest);
-  out += ",\"server_note\":\"server-bound client applies HERO stats, inventory, equipment, position, story, script ints, world item tombstones, active world items, nearby NPC/dialog/waypoint/action windows, interactive state, mover state, server checkpoint manifest and NPC lifecycle slices when safe\"}";
+  out += ",\"server_note\":\"server-bound client applies HERO stats, inventory, equipment, position, story, script ints, world item tombstones, active world items, nearby NPC/dialog/waypoint/action windows, interactive state, mover state, correction slices, server checkpoint manifest and NPC lifecycle/authority slices when safe\"}";
   return out;
 }
 
@@ -1949,6 +2032,31 @@ void callCheckpoint(const MySqlTarget& target,
   }
   callCheckpoint(target, sessionUuid, packet, dbPayload, toX, toY, toZ, yaw);
   return {true, true, true, "movement_checkpoint"};
+}
+
+void recordClientActionCorrection(const MySqlTarget& target,
+                                  std::string_view sessionUuid,
+                                  const Mmo::Net::ClientActionPacket& packet,
+                                  std::string_view actionName,
+                                  std::string_view reason,
+                                  std::string_view dbPayload) {
+  const auto tick = packetServerTick(packet);
+  std::string idempotency = packet.idempotencyKey;
+  idempotency += ":correction";
+
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @correction_id=NULL;";
+  sql += "CALL mmo_record_client_action_correction(UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1),";
+  sql += sqlLiteral(actionName) + ",";
+  sql += std::to_string(packet.localSequence) + ",";
+  sql += sqlLiteral("rollback_to_authoritative_position") + ",";
+  sql += sqlLiteral(reason) + ",";
+  sql += std::to_string(tick) + ",";
+  sql += sqlJson(dbPayload) + ",";
+  sql += sqlLiteral(idempotency) + ",";
+  sql += "@event_id,@correction_id);";
+  sql += "SELECT BIN_TO_UUID(@correction_id,1);";
+  (void)runMysql(target, sql);
 }
 
 [[nodiscard]] std::string normalizedEquipmentSlot(std::string_view payload) {
@@ -3049,6 +3157,95 @@ constexpr std::int64_t InvalidGothicPersistentId = 4294967295LL;
     sql += sqlLiteral(stateAfterName) + "," + std::to_string(frame) + "," + std::to_string(targetFrame) + ",";
     sql += std::to_string(tick) + "," + sqlJson(dbPayload) + "," + sqlLiteral(packet.idempotencyKey);
     sql += ",@event_id,@row_after);";
+  } else if(packet.kind == Mmo::SemanticActionKind::RecordNpcRoutineState) {
+    const auto npcKey = optionalJsonString(payload, "npc_entity_key",
+                        optionalJsonString(payload, "actor_npc_key",
+                        optionalJsonString(payload, "target_key", packet.targetKey)));
+    const auto routineState = optionalJsonString(payload, "routine_state", "unknown");
+    const auto scheduleKey = optionalJsonString(payload, "schedule_key", optionalJsonString(payload, "routine_key"));
+    const auto currentWaypoint = optionalJsonString(payload, "current_waypoint_key",
+                                 optionalJsonString(payload, "current_waypoint"));
+    const auto targetWaypoint = optionalJsonString(payload, "target_waypoint_key",
+                                optionalJsonString(payload, "target_waypoint"));
+    sql += "SET @event_id=NULL; SET @row_after=NULL;";
+    sql += "CALL mmo_record_npc_routine_state(UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1),";
+    sql += sqlLiteral(npcKey) + "," + sqlLiteral(routineState) + "," + sqlLiteral(scheduleKey) + ",";
+    sql += sqlLiteral(currentWaypoint) + "," + sqlLiteral(targetWaypoint) + "," + std::to_string(tick) + ",";
+    sql += sqlJson(dbPayload) + "," + sqlLiteral(packet.idempotencyKey) + ",@event_id,@row_after);";
+  } else if(packet.kind == Mmo::SemanticActionKind::RecordNpcAiState) {
+    const auto npcKey = optionalJsonString(payload, "npc_entity_key",
+                        optionalJsonString(payload, "actor_npc_key",
+                        optionalJsonString(payload, "target_key", packet.targetKey)));
+    const auto aiState = optionalJsonString(payload, "ai_state", optionalJsonString(payload, "ai_state_name", "unknown"));
+    const auto aiIntent = optionalJsonString(payload, "ai_intent", optionalJsonString(payload, "intent", ""));
+    const auto targetEntity = optionalJsonString(payload, "ai_target_key",
+                            optionalJsonString(payload, "target_entity_key",
+                            optionalJsonString(payload, "target_key", "")));
+    const auto perceptionState = optionalJsonString(payload, "perception_state", "");
+    sql += "SET @event_id=NULL; SET @row_after=NULL;";
+    sql += "CALL mmo_record_npc_ai_state(UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1),";
+    sql += sqlLiteral(npcKey) + "," + sqlLiteral(aiState) + "," + sqlLiteral(aiIntent) + ",";
+    sql += sqlLiteral(targetEntity) + "," + sqlLiteral(perceptionState) + "," + std::to_string(tick) + ",";
+    sql += sqlJson(dbPayload) + "," + sqlLiteral(packet.idempotencyKey) + ",@event_id,@row_after);";
+  } else if(packet.kind == Mmo::SemanticActionKind::RecordNpcPathState) {
+    const auto npcKey = optionalJsonString(payload, "npc_entity_key",
+                        optionalJsonString(payload, "actor_npc_key",
+                        optionalJsonString(payload, "target_key", packet.targetKey)));
+    const auto pathState = optionalJsonString(payload, "path_state", "unknown");
+    const auto routeKey = optionalJsonString(payload, "route_key", "");
+    const auto currentWaypoint = optionalJsonString(payload, "current_waypoint_key",
+                                 optionalJsonString(payload, "current_waypoint"));
+    const auto nextWaypoint = optionalJsonString(payload, "next_waypoint_key",
+                              optionalJsonString(payload, "next_waypoint"));
+    const auto targetWaypoint = optionalJsonString(payload, "target_waypoint_key",
+                                optionalJsonString(payload, "target_waypoint"));
+    sql += "SET @event_id=NULL; SET @row_after=NULL;";
+    sql += "CALL mmo_record_npc_path_state(UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1),";
+    sql += sqlLiteral(npcKey) + "," + sqlLiteral(pathState) + "," + sqlLiteral(routeKey) + ",";
+    sql += sqlLiteral(currentWaypoint) + "," + sqlLiteral(nextWaypoint) + "," + sqlLiteral(targetWaypoint) + ",";
+    sql += optionalJsonDoubleSql(payload, "pos_x") + "," + optionalJsonDoubleSql(payload, "pos_y") + "," + optionalJsonDoubleSql(payload, "pos_z") + ",";
+    sql += std::to_string(tick) + "," + sqlJson(dbPayload) + "," + sqlLiteral(packet.idempotencyKey) + ",@event_id,@row_after);";
+  } else if(packet.kind == Mmo::SemanticActionKind::RecordNpcFightState) {
+    const auto npcKey = optionalJsonString(payload, "npc_entity_key",
+                        optionalJsonString(payload, "actor_npc_key",
+                        optionalJsonString(payload, "target_key", packet.targetKey)));
+    const auto opponentKey = optionalJsonString(payload, "opponent_key", optionalJsonString(payload, "target_entity_key"));
+    const auto fightState = optionalJsonString(payload, "fight_state", "unknown");
+    const auto attackState = optionalJsonString(payload, "attack_state", "");
+    const auto comboIndex = optionalJsonI64(payload, "combo_index", 0);
+    sql += "SET @event_id=NULL; SET @row_after=NULL;";
+    sql += "CALL mmo_record_npc_fight_state(UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1),";
+    sql += sqlLiteral(npcKey) + "," + sqlLiteral(opponentKey) + "," + sqlLiteral(fightState) + ",";
+    sql += sqlLiteral(attackState) + "," + std::to_string(comboIndex) + "," + std::to_string(tick) + ",";
+    sql += sqlJson(dbPayload) + "," + sqlLiteral(packet.idempotencyKey) + ",@event_id,@row_after);";
+  } else if(packet.kind == Mmo::SemanticActionKind::RecordTriggerQueueState) {
+    const auto triggerKey = optionalJsonString(payload, "trigger_key", optionalJsonString(payload, "target_key", packet.targetKey));
+    const auto queueState = optionalJsonString(payload, "queue_state", "queued");
+    const auto eventTypeName = optionalJsonString(payload, "event_type_name", optionalJsonString(payload, "reason", "trigger_event"));
+    const auto scheduledTick = optionalJsonI64(payload, "scheduled_server_tick", optionalJsonI64(payload, "execute_at_tick", tick));
+    sql += "SET @event_id=NULL; SET @row_after=NULL;";
+    sql += "CALL mmo_record_trigger_queue_state(UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1),";
+    sql += sqlLiteral(triggerKey) + "," + sqlLiteral(queueState) + "," + sqlLiteral(eventTypeName) + ",";
+    sql += std::to_string(scheduledTick) + "," + std::to_string(tick) + ",";
+    sql += sqlJson(dbPayload) + "," + sqlLiteral(packet.idempotencyKey) + ",@event_id,@row_after);";
+  } else if(packet.kind == Mmo::SemanticActionKind::RecordWorldTransitionState) {
+    const auto fromWorld = optionalJsonString(payload, "from_world_key", optionalJsonString(payload, "from_world", ""));
+    const auto toWorld = optionalJsonString(payload, "to_world_key", optionalJsonString(payload, "to_world", optionalJsonString(payload, "world", "")));
+    const auto transitionState = optionalJsonString(payload, "transition_state", "visited");
+    const auto chapterKey = optionalJsonString(payload, "chapter_key", optionalJsonString(payload, "chapter", ""));
+    const bool visited = optionalJsonBool(payload, "visited", true);
+    sql += "SET @event_id=NULL; SET @row_after=NULL;";
+    sql += "CALL mmo_record_world_transition_state(UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1),";
+    sql += sqlLiteral(fromWorld) + "," + sqlLiteral(toWorld) + "," + sqlLiteral(transitionState) + ",";
+    sql += sqlLiteral(chapterKey) + "," + sqlBool(visited) + "," + std::to_string(tick) + ",";
+    sql += sqlJson(dbPayload) + "," + sqlLiteral(packet.idempotencyKey) + ",@event_id,@row_after);";
+  } else if(packet.kind == Mmo::SemanticActionKind::ClientCorrectionAck) {
+    const auto actionKind = optionalJsonString(payload, "action_kind", "");
+    const auto localSequence = optionalJsonI64(payload, "client_local_sequence", 0);
+    sql += "SET @row_after=NULL;";
+    sql += "CALL mmo_ack_client_action_correction(UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1),";
+    sql += sqlLiteral(actionKind) + "," + std::to_string(localSequence) + ",";
+    sql += std::to_string(tick) + "," + sqlJson(dbPayload) + "," + sqlLiteral(packet.idempotencyKey) + ",@row_after);";
   } else if(packet.kind == Mmo::SemanticActionKind::TransferCharacterItem) {
     const auto targetCharacter = optionalJsonString(payload, "target_character_key");
     const auto sourceActor = optionalJsonString(payload, "source_actor_key");
@@ -3445,6 +3642,28 @@ int main(int argc, char** argv) {
         }
       }
 
+      if(mysql && opt.directDb && direct.handled && !direct.accepted) {
+        try {
+          recordClientActionCorrection(*mysql, sessionUuid, packet, actionName, direct.label, dbPayload);
+          const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(opt.characterKey);
+          std::string worldName = jsonStringField(packet.payloadJson, "world").value_or("UNKNOWN");
+          auto readiness = readBootstrapReadinessWithFallback(*mysql, characterKey, worldName, sessionUuid, worldName);
+          if(readiness.ready) {
+            liveWorldSnapshotJson = buildBootstrapSnapshotJson(*mysql, sessionUuid, characterKey, worldName, readiness, false, false);
+            std::cout << "[client_correction_snapshot_queued]"
+                      << " action=" << actionName
+                      << " reason=" << direct.label
+                      << " local_sequence=" << packet.localSequence
+                      << " bytes=" << liveWorldSnapshotJson.size()
+                      << "\n";
+          }
+        } catch(const std::exception& exc) {
+          std::cerr << "[client_correction_snapshot_failed] action=" << actionName
+                    << " reason=" << direct.label
+                    << " error=" << exc.what() << "\n";
+        }
+      }
+
       if(mysql && opt.directDb && shouldSendLiveWorldSnapshot(liveWorldSnapshotState, packet, packetAccepted, direct)) {
         try {
           const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(opt.characterKey);
@@ -3539,8 +3758,6 @@ int main(int argc, char** argv) {
     return 2;
   }
 }
-
-
 
 
 

@@ -11,24 +11,23 @@ MMO menu New Game blocked: use Load/Continue for server DB character
 MMO menu New Game blocked: use Load/Continue for server DB character
 MMO menu Continue: loading server DB character without native save slot
 MMO server ACK kind=2 accepted=1 ready=1 seq=1
-MMO server ACK summary accepted=1 rejected=0 bootstrap=1 movement=0 generic=0 diagnostics=0 snapshot_chunks=0 snapshot_bytes=0 last_seq=1
-MMO server bootstrap snapshot receiving: id=1 bytes=1591088 chunks=195
-MMO server bootstrap snapshot progress: id=1 chunks=1/195 bytes=8192/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=16/195 bytes=131072/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=32/195 bytes=262144/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=48/195 bytes=393216/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=64/195 bytes=524288/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=80/195 bytes=655360/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=96/195 bytes=786432/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=112/195 bytes=917504/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=128/195 bytes=1048576/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=144/195 bytes=1179648/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=160/195 bytes=1310720/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=176/195 bytes=1441792/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=192/195 bytes=1572864/1591088
-MMO server bootstrap snapshot progress: id=1 chunks=195/195 bytes=1591088/1591088
-MMO server bootstrap snapshot received: bytes=1591088 chunks=195 path=runtime/mmo_server_bootstrap_snapshot.json
-MMO DB continue pre-world snapshot selected world=newworld.zen snapshot_source=db_save_checkpoint_v1 manifest=d17a9692-757a-11f1-b6fd-30560f155bba
+MMO server bootstrap snapshot receiving: id=1 bytes=1597365 chunks=195
+MMO server bootstrap snapshot progress: id=1 chunks=1/195 bytes=8192/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=16/195 bytes=131072/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=32/195 bytes=262144/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=48/195 bytes=393216/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=64/195 bytes=524288/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=80/195 bytes=655360/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=96/195 bytes=786432/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=112/195 bytes=917504/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=128/195 bytes=1048576/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=144/195 bytes=1179648/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=160/195 bytes=1310720/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=176/195 bytes=1441792/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=192/195 bytes=1572864/1597365
+MMO server bootstrap snapshot progress: id=1 chunks=195/195 bytes=1597365/1597365
+MMO server bootstrap snapshot received: bytes=1597365 chunks=195 path=runtime/mmo_server_bootstrap_snapshot.json
+MMO DB continue pre-world snapshot selected world=newworld.zen snapshot_source=db_save_checkpoint_v1 manifest=263dfeb5-757c-11f1-b6fd-30560f155bba
 MMO DB continue: native save is missing, bootstrapping baseline world newworld.zen and applying server snapshot for slot mmo_db_continue.sav
 [zenkit] Parsing object [MeshAndBsp % 0 0]
 [zenkit] Parsing chunk c000
@@ -75,157 +74,112 @@ addNpc: 11071 (MIL_303_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
 [zenkit] 1 bytes overflowed in section f590
 MMO DB continue: suppressed startup video INTRO.BIK
 MMO DB continue: suppressed startup video Addon_Title.BIK
-MMO DB continue pre-world snapshot reuse enabled world=newworld.zen manifest=d17a9692-757a-11f1-b6fd-30560f155bba path=runtime/mmo_server_bootstrap_snapshot.json
+MMO DB continue pre-world snapshot reuse enabled world=newworld.zen manifest=263dfeb5-757c-11f1-b6fd-30560f155bba path=runtime/mmo_server_bootstrap_snapshot.json
 MMO server snapshot restore scheduled: server_bound=1 inventory=1 position=1 stats=1 story=1 world=1 strict_db_checkpoint=0 reuse_existing_snapshot=1 reason=db_continue_baseline_loaded path=runtime/mmo_server_bootstrap_snapshot.json
 MMO server snapshot restore reusing pre-world DB continue snapshot
-MMO server snapshot restore source: source=mmo_udp_server_cpp_db_save_checkpoint snapshot_source=db_save_checkpoint_v1 db_checkpoint=1 manifest_uuid=d17a9692-757a-11f1-b6fd-30560f155bba
+MMO server snapshot restore source: source=mmo_udp_server_cpp_db_save_checkpoint snapshot_source=db_save_checkpoint_v1 db_checkpoint=1 manifest_uuid=263dfeb5-757c-11f1-b6fd-30560f155bba
 MMO server snapshot stats applied: level=0 exp=25 lp=0 hp=40/40 mana=10/10
 MMO server snapshot inventory applied: inventory=18 equipment=1 restore_items=7 reason=db_continue_baseline_loaded path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server snapshot position applied: x=29973.775000 y=5148.278000 z=-15316.592000 yaw=0.000000 tick=13145
-MMO server snapshot story applied: mode=replace_from_server quests=1 restore_quests=1 known_dialogs=5 restore_known_dialogs=5 script_ints=7 restore_script_ints=7 script_truncated=0
-MMO server snapshot world state applied: world_item_deltas=5 parsed_world_deltas=5 removed_world_items=0 already_absent_world_items=5 skipped_world_item_deltas=0 active_world_items=210 spawned_world_items=0 updated_world_items=210 skipped_active_world_ite
-ms=0 authoritative_window=1 authoritative_radius=12000.000000 local_items_in_window=214 preserved_local_items=210 removed_local_items_not_in_db=4 skipped_authoritative_window=0 nearby_npcs=0 parsed_nearby_npcs=0 nearby_npc_known_dialogs=0 parsed_nearby_np
-c_known_dialogs=0 nearby_waypoints=0 parsed_nearby_waypoints=0 recent_actions=64 parsed_recent_actions=64 mover_state=1 parsed_mover_state=1 applied_movers=1 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=42145 checkpoint_r
-ecent_event_seq=668 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interactive_state=996 parsed_interactives=996 applied_interactives=996 missing_interactives=0 npc_lifecycle_state=0 parsed_npc_lifecycle=0 applied_npc_lifecycle=0 missi
-ng_npc_lifecycle=0 skipped_npc_lifecycle=0
+MMO server snapshot position applied: x=30581.203000 y=5148.382000 z=-14627.465000 yaw=0.000000 tick=14879
+MMO server snapshot story applied: mode=replace_from_server quests=1 restore_quests=1 known_dialogs=6 restore_known_dialogs=6 script_ints=7 restore_script_ints=7 script_truncated=0
+MMO server snapshot world state applied: world_item_deltas=5 parsed_world_deltas=5 removed_world_items=0 already_absent_world_items=5 skipped_world_item_deltas=0 active_world_items=219 spawned_world_items=0 updated_world_items=219 skipped_active_world_ite
+ms=0 authoritative_window=1 authoritative_radius=12000.000000 local_items_in_window=223 preserved_local_items=219 removed_local_items_not_in_db=4 skipped_authoritative_window=0 nearby_npcs=0 parsed_nearby_npcs=0 nearby_npc_known_dialogs=0 parsed_nearby_np
+c_known_dialogs=0 nearby_waypoints=0 parsed_nearby_waypoints=0 recent_actions=64 parsed_recent_actions=64 mover_state=1 parsed_mover_state=1 npc_routine_state=0 npc_ai_state=0 npc_path_state=0 npc_fight_state=0 trigger_queue=0 world_transition_state=0 cli
+ent_corrections=0 parsed_client_corrections=0 applied_movers=1 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=42145 checkpoint_recent_event_seq=695 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interact
+ive_state=996 parsed_interactives=996 applied_interactives=996 missing_interactives=0 npc_lifecycle_state=0 parsed_npc_lifecycle=0 applied_npc_lifecycle=0 missing_npc_lifecycle=0 skipped_npc_lifecycle=0
 MMO DB continue baseline loaded: running existing-world startup trigger
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
 not implemented call [mdl_applyrandomani]
 not implemented call [mdl_applyrandomanifreq]
-MMO server ACK summary accepted=29 rejected=0 bootstrap=1 movement=15 generic=13 diagnostics=0 snapshot_chunks=195 snapshot_bytes=1591088 last_seq=29
-MMO server ACK summary accepted=31 rejected=0 bootstrap=1 movement=17 generic=13 diagnostics=0 snapshot_chunks=195 snapshot_bytes=1591088 last_seq=31
-MMO server ACK summary accepted=66 rejected=0 bootstrap=1 movement=52 generic=13 diagnostics=0 snapshot_chunks=195 snapshot_bytes=1591088 last_seq=66
-MMO server ACK summary accepted=73 rejected=0 bootstrap=1 movement=58 generic=14 diagnostics=0 snapshot_chunks=195 snapshot_bytes=1591088 last_seq=73
+MMO server ACK summary accepted=12 rejected=0 bootstrap=1 movement=1 generic=10 diagnostics=0 snapshot_chunks=195 snapshot_bytes=1597365 last_seq=12
+MMO server ACK summary accepted=44 rejected=0 bootstrap=1 movement=31 generic=12 diagnostics=0 snapshot_chunks=195 snapshot_bytes=1597365 last_seq=44
+MMO server ACK summary accepted=94 rejected=0 bootstrap=1 movement=81 generic=12 diagnostics=0 snapshot_chunks=195 snapshot_bytes=1597365 last_seq=94
+MMO server ACK summary accepted=144 rejected=0 bootstrap=1 movement=131 generic=12 diagnostics=0 snapshot_chunks=195 snapshot_bytes=1597365 last_seq=144
+MMO server ACK summary accepted=194 rejected=0 bootstrap=1 movement=181 generic=12 diagnostics=0 snapshot_chunks=195 snapshot_bytes=1597365 last_seq=194
+MMO server ACK summary accepted=227 rejected=0 bootstrap=1 movement=214 generic=12 diagnostics=0 snapshot_chunks=195 snapshot_bytes=1597365 last_seq=227
+MMO server bootstrap snapshot receiving: id=2 bytes=424424 chunks=52
+MMO server bootstrap snapshot progress: id=2 chunks=1/52 bytes=8192/424424
+MMO server bootstrap snapshot progress: id=2 chunks=16/52 bytes=131072/424424
+MMO server bootstrap snapshot progress: id=2 chunks=32/52 bytes=262144/424424
+MMO server bootstrap snapshot progress: id=2 chunks=48/52 bytes=393216/424424
+MMO server bootstrap snapshot progress: id=2 chunks=52/52 bytes=424424/424424
+MMO server bootstrap snapshot received: bytes=424424 chunks=52 path=runtime/mmo_server_bootstrap_snapshot.json
+MMO server live world clock applied: snapshot_id=2 world_time_ms=28800000 hour=8 minute=0 tick=0 world=newworld.zen
+MMO server live world snapshot applied: snapshot_id=2 source=mmo_udp_server_cpp_live_mysql snapshot_source=current_projections_v1 active_world_items=205 spawned_world_items=0 updated_world_items=205 removed_local_items_not_in_db=0 authoritative_window=1 a
+uthoritative_radius=12000.000000 nearby_npcs=0 nearby_npc_known_dialogs=0 nearby_waypoints=0 recent_actions=64 mover_state=1 npc_routine_state=0 npc_ai_state=0 npc_path_state=0 npc_fight_state=0 trigger_queue=0 world_transition_state=0 client_corrections=
+0 applied_client_corrections=0 applied_movers=1 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=42145 checkpoint_recent_event_seq=695 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interactive_state=996 n
+pc_lifecycle_state=0
+MMO server ACK summary accepted=277 rejected=0 bootstrap=1 movement=264 generic=12 diagnostics=0 snapshot_chunks=247 snapshot_bytes=2021789 last_seq=277
+MMO server ACK summary accepted=327 rejected=0 bootstrap=1 movement=314 generic=12 diagnostics=0 snapshot_chunks=247 snapshot_bytes=2021789 last_seq=327
+MMO server ACK summary accepted=369 rejected=0 bootstrap=1 movement=352 generic=16 diagnostics=0 snapshot_chunks=247 snapshot_bytes=2021789 last_seq=369
+MMO server ACK summary accepted=389 rejected=0 bootstrap=1 movement=370 generic=18 diagnostics=0 snapshot_chunks=247 snapshot_bytes=2021789 last_seq=389
+MMO server bootstrap snapshot receiving: id=3 bytes=395507 chunks=49
+MMO server bootstrap snapshot progress: id=3 chunks=1/49 bytes=8192/395507
+MMO server bootstrap snapshot progress: id=3 chunks=16/49 bytes=131072/395507
+MMO server bootstrap snapshot progress: id=3 chunks=32/49 bytes=262144/395507
+MMO server bootstrap snapshot progress: id=3 chunks=48/49 bytes=393216/395507
+MMO server bootstrap snapshot progress: id=3 chunks=49/49 bytes=395507/395507
+MMO server bootstrap snapshot received: bytes=395507 chunks=49 path=runtime/mmo_server_bootstrap_snapshot.json
+MMO server live world clock applied: snapshot_id=3 world_time_ms=28800000 hour=8 minute=0 tick=0 world=newworld.zen
+MMO server live world snapshot applied: snapshot_id=3 source=mmo_udp_server_cpp_live_mysql snapshot_source=current_projections_v1 active_world_items=174 spawned_world_items=0 updated_world_items=174 removed_local_items_not_in_db=0 authoritative_window=1 a
+uthoritative_radius=12000.000000 nearby_npcs=1 nearby_npc_known_dialogs=0 nearby_waypoints=0 recent_actions=64 mover_state=1 npc_routine_state=0 npc_ai_state=0 npc_path_state=0 npc_fight_state=0 trigger_queue=0 world_transition_state=0 client_corrections=
+0 applied_client_corrections=0 applied_movers=1 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=42145 checkpoint_recent_event_seq=695 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interactive_state=996 n
+pc_lifecycle_state=1
+MMO server ACK summary accepted=406 rejected=0 bootstrap=1 movement=387 generic=18 diagnostics=0 snapshot_chunks=296 snapshot_bytes=2417296 last_seq=407
+MMO server ACK summary accepted=456 rejected=0 bootstrap=1 movement=437 generic=18 diagnostics=0 snapshot_chunks=296 snapshot_bytes=2417296 last_seq=457
+MMO server ACK summary accepted=506 rejected=0 bootstrap=1 movement=484 generic=21 diagnostics=0 snapshot_chunks=296 snapshot_bytes=2417296 last_seq=507
+MMO server ACK summary accepted=556 rejected=0 bootstrap=1 movement=529 generic=26 diagnostics=0 snapshot_chunks=296 snapshot_bytes=2417296 last_seq=557
+MMO server bootstrap snapshot receiving: id=4 bytes=381011 chunks=47
+MMO server bootstrap snapshot progress: id=4 chunks=1/47 bytes=8192/381011
+MMO server bootstrap snapshot progress: id=4 chunks=16/47 bytes=131072/381011
+MMO server bootstrap snapshot progress: id=4 chunks=32/47 bytes=262144/381011
+MMO server bootstrap snapshot progress: id=4 chunks=47/47 bytes=381011/381011
+MMO server bootstrap snapshot received: bytes=381011 chunks=47 path=runtime/mmo_server_bootstrap_snapshot.json
+MMO server live world clock applied: snapshot_id=4 world_time_ms=28800000 hour=8 minute=0 tick=0 world=newworld.zen
+MMO server live world snapshot applied: snapshot_id=4 source=mmo_udp_server_cpp_live_mysql snapshot_source=current_projections_v1 active_world_items=159 spawned_world_items=0 updated_world_items=159 removed_local_items_not_in_db=2 authoritative_window=1 a
+uthoritative_radius=12000.000000 nearby_npcs=2 nearby_npc_known_dialogs=0 nearby_waypoints=0 recent_actions=64 mover_state=1 npc_routine_state=0 npc_ai_state=0 npc_path_state=0 npc_fight_state=0 trigger_queue=0 world_transition_state=0 client_corrections=
+0 applied_client_corrections=0 applied_movers=1 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=42145 checkpoint_recent_event_seq=695 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interactive_state=996 n
+pc_lifecycle_state=2
+MMO server ACK summary accepted=606 rejected=0 bootstrap=1 movement=579 generic=26 diagnostics=0 snapshot_chunks=343 snapshot_bytes=2798307 last_seq=607
+MMO server ACK summary accepted=652 rejected=0 bootstrap=1 movement=620 generic=31 diagnostics=0 snapshot_chunks=343 snapshot_bytes=2798307 last_seq=653
+MMO server ACK summary accepted=685 rejected=0 bootstrap=1 movement=647 generic=37 diagnostics=0 snapshot_chunks=343 snapshot_bytes=2798307 last_seq=686
+MMO server ACK summary accepted=693 rejected=0 bootstrap=1 movement=652 generic=40 diagnostics=0 snapshot_chunks=343 snapshot_bytes=2798307 last_seq=694
+MMO server bootstrap snapshot receiving: id=5 bytes=400654 chunks=49
+MMO server bootstrap snapshot progress: id=5 chunks=1/49 bytes=8192/400654
+MMO server bootstrap snapshot progress: id=5 chunks=16/49 bytes=131072/400654
+MMO server bootstrap snapshot progress: id=5 chunks=32/49 bytes=262144/400654
+MMO server bootstrap snapshot progress: id=5 chunks=48/49 bytes=393216/400654
+MMO server bootstrap snapshot progress: id=5 chunks=49/49 bytes=400654/400654
+MMO server bootstrap snapshot received: bytes=400654 chunks=49 path=runtime/mmo_server_bootstrap_snapshot.json
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+MMO server live world clock applied: snapshot_id=5 world_time_ms=28800000 hour=8 minute=0 tick=0 world=newworld.zen
+MMO server live world snapshot applied: snapshot_id=5 source=mmo_udp_server_cpp_live_mysql snapshot_source=current_projections_v1 active_world_items=178 spawned_world_items=0 updated_world_items=178 removed_local_items_not_in_db=3 authoritative_window=1 a
+uthoritative_radius=12000.000000 nearby_npcs=3 nearby_npc_known_dialogs=0 nearby_waypoints=0 recent_actions=64 mover_state=1 npc_routine_state=0 npc_ai_state=0 npc_path_state=0 npc_fight_state=0 trigger_queue=0 world_transition_state=0 client_corrections=
+0 applied_client_corrections=0 applied_movers=1 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=42145 checkpoint_recent_event_seq=695 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interactive_state=996 n
+pc_lifecycle_state=3
+not implemented call [wld_israining]
+MMO server ACK summary accepted=712 rejected=0 bootstrap=1 movement=669 generic=42 diagnostics=0 snapshot_chunks=392 snapshot_bytes=3198961 last_seq=713
+MMO server ACK summary accepted=727 rejected=0 bootstrap=1 movement=684 generic=42 diagnostics=0 snapshot_chunks=392 snapshot_bytes=3198961 last_seq=728
 MMO menu Continue: loading server DB character without native save slot
-MMO server ACK kind=2 accepted=1 ready=1 seq=83
-MMO server bootstrap snapshot receiving: id=2 bytes=1582288 chunks=194
-MMO server bootstrap snapshot progress: id=2 chunks=1/194 bytes=8192/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=16/194 bytes=131072/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=32/194 bytes=262144/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=48/194 bytes=393216/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=64/194 bytes=524288/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=80/194 bytes=655360/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=96/194 bytes=786432/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=112/194 bytes=917504/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=128/194 bytes=1048576/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=144/194 bytes=1179648/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=160/194 bytes=1310720/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=176/194 bytes=1441792/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=192/194 bytes=1572864/1582288
-MMO server bootstrap snapshot progress: id=2 chunks=194/194 bytes=1582288/1582288
-MMO server bootstrap snapshot received: bytes=1582288 chunks=194 path=runtime/mmo_server_bootstrap_snapshot.json
-MMO DB continue pre-world snapshot selected world=newworld.zen snapshot_source=db_save_checkpoint_v1 manifest=155d7b61-757c-11f1-b6fd-30560f155bba
-MMO DB continue: native save is missing, bootstrapping baseline world newworld.zen and applying server snapshot for slot mmo_db_continue.sav
-[zenkit] Parsing object [MeshAndBsp % 0 0]
-[zenkit] Parsing chunk c000
-[zenkit] Parsing chunk c010
-[zenkit] Parsing chunk c040
-[zenkit] Parsing chunk c045
-[zenkit] Parsing chunk c050
-[zenkit] Parsing chunk c0ff
-[zenkit] 1 bytes remaining in section b020
-[zenkit] Parsing object [VobTree % 0 0]
-[zenkit] Parsing object [WayNet % 0 0]
-[zenkit] Parsing object [EndMarker % 0 0]
-invalid particle system: "INVISIBLE_VOBBOX.3DS"
-addNpc: 11069 (MIL_302_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
-addNpc: 11071 (MIL_303_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
-MMO DB continue: suppressed startup video INTRO.BIK
-MMO DB continue: suppressed startup video Addon_Title.BIK
-MMO DB continue pre-world snapshot reuse enabled world=newworld.zen manifest=155d7b61-757c-11f1-b6fd-30560f155bba path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server snapshot restore scheduled: server_bound=1 inventory=1 position=1 stats=1 story=1 world=1 strict_db_checkpoint=0 reuse_existing_snapshot=1 reason=db_continue_baseline_loaded path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server snapshot restore reusing pre-world DB continue snapshot
-MMO server snapshot restore source: source=mmo_udp_server_cpp_db_save_checkpoint snapshot_source=db_save_checkpoint_v1 db_checkpoint=1 manifest_uuid=155d7b61-757c-11f1-b6fd-30560f155bba
-MMO server snapshot stats applied: level=0 exp=25 lp=0 hp=40/40 mana=10/10
-MMO server snapshot inventory applied: inventory=18 equipment=1 restore_items=7 reason=db_continue_baseline_loaded path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server snapshot position applied: x=30235.787000 y=5148.250500 z=-15780.261000 yaw=0.000000 tick=13152
-MMO server snapshot story applied: mode=replace_from_server quests=1 restore_quests=1 known_dialogs=6 restore_known_dialogs=6 script_ints=7 restore_script_ints=7 script_truncated=0
-MMO server snapshot world state applied: world_item_deltas=5 parsed_world_deltas=5 removed_world_items=0 already_absent_world_items=5 skipped_world_item_deltas=0 active_world_items=196 spawned_world_items=0 updated_world_items=196 skipped_active_world_ite
-ms=0 authoritative_window=1 authoritative_radius=12000.000000 local_items_in_window=200 preserved_local_items=196 removed_local_items_not_in_db=4 skipped_authoritative_window=0 nearby_npcs=0 parsed_nearby_npcs=0 nearby_npc_known_dialogs=0 parsed_nearby_np
-c_known_dialogs=0 nearby_waypoints=0 parsed_nearby_waypoints=0 recent_actions=64 parsed_recent_actions=64 mover_state=1 parsed_mover_state=1 applied_movers=1 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=42145 checkpoint_r
-ecent_event_seq=679 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interactive_state=996 parsed_interactives=996 applied_interactives=996 missing_interactives=0 npc_lifecycle_state=0 parsed_npc_lifecycle=0 applied_npc_lifecycle=0 missi
-ng_npc_lifecycle=0 skipped_npc_lifecycle=0
-MMO DB continue baseline loaded: running existing-world startup trigger
-[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
-[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
-[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
-MMO server ACK summary accepted=89 rejected=0 bootstrap=2 movement=73 generic=14 diagnostics=0 snapshot_chunks=389 snapshot_bytes=3173376 last_seq=89
-MMO menu Continue: loading server DB character without native save slot
-MMO server ACK kind=2 accepted=1 ready=1 seq=97
-MMO server bootstrap snapshot receiving: id=3 bytes=1582346 chunks=194
-MMO server bootstrap snapshot progress: id=3 chunks=1/194 bytes=8192/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=16/194 bytes=131072/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=32/194 bytes=262144/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=48/194 bytes=393216/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=64/194 bytes=524288/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=80/194 bytes=655360/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=96/194 bytes=786432/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=112/194 bytes=917504/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=128/194 bytes=1048576/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=144/194 bytes=1179648/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=160/194 bytes=1310720/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=176/194 bytes=1441792/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=192/194 bytes=1572864/1582346
-MMO server bootstrap snapshot progress: id=3 chunks=194/194 bytes=1582346/1582346
-MMO server bootstrap snapshot received: bytes=1582346 chunks=194 path=runtime/mmo_server_bootstrap_snapshot.json
-MMO DB continue pre-world snapshot selected world=newworld.zen snapshot_source=db_save_checkpoint_v1 manifest=1b387f50-757c-11f1-b6fd-30560f155bba
-MMO DB continue: native save is missing, bootstrapping baseline world newworld.zen and applying server snapshot for slot mmo_db_continue.sav
-[zenkit] Parsing object [MeshAndBsp % 0 0]
-[zenkit] Parsing chunk c000
-[zenkit] Parsing chunk c010
-[zenkit] Parsing chunk c040
-[zenkit] Parsing chunk c045
-[zenkit] Parsing chunk c050
-[zenkit] Parsing chunk c0ff
-[zenkit] 1 bytes remaining in section b020
-[zenkit] Parsing object [VobTree % 0 0]
-[zenkit] Parsing object [WayNet % 0 0]
-[zenkit] Parsing object [EndMarker % 0 0]
-invalid particle system: "INVISIBLE_VOBBOX.3DS"
-addNpc: 11069 (MIL_302_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
-addNpc: 11071 (MIL_303_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
-MMO DB continue: suppressed startup video INTRO.BIK
-MMO DB continue: suppressed startup video Addon_Title.BIK
-MMO DB continue pre-world snapshot reuse enabled world=newworld.zen manifest=1b387f50-757c-11f1-b6fd-30560f155bba path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server snapshot restore scheduled: server_bound=1 inventory=1 position=1 stats=1 story=1 world=1 strict_db_checkpoint=0 reuse_existing_snapshot=1 reason=db_continue_baseline_loaded path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server snapshot restore reusing pre-world DB continue snapshot
-MMO server snapshot restore source: source=mmo_udp_server_cpp_db_save_checkpoint snapshot_source=db_save_checkpoint_v1 db_checkpoint=1 manifest_uuid=1b387f50-757c-11f1-b6fd-30560f155bba
-MMO server snapshot stats applied: level=0 exp=25 lp=0 hp=40/40 mana=10/10
-MMO server snapshot inventory applied: inventory=18 equipment=1 restore_items=7 reason=db_continue_baseline_loaded path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server snapshot position applied: x=30235.787000 y=5148.250500 z=-15780.261000 yaw=0.000000 tick=15
-MMO server snapshot story applied: mode=replace_from_server quests=1 restore_quests=1 known_dialogs=6 restore_known_dialogs=6 script_ints=7 restore_script_ints=7 script_truncated=0
-MMO server snapshot world state applied: world_item_deltas=5 parsed_world_deltas=5 removed_world_items=0 already_absent_world_items=5 skipped_world_item_deltas=0 active_world_items=196 spawned_world_items=0 updated_world_items=196 skipped_active_world_ite
-ms=0 authoritative_window=1 authoritative_radius=12000.000000 local_items_in_window=200 preserved_local_items=196 removed_local_items_not_in_db=4 skipped_authoritative_window=0 nearby_npcs=0 parsed_nearby_npcs=0 nearby_npc_known_dialogs=0 parsed_nearby_np
-c_known_dialogs=0 nearby_waypoints=0 parsed_nearby_waypoints=0 recent_actions=64 parsed_recent_actions=64 mover_state=1 parsed_mover_state=1 applied_movers=1 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=42145 checkpoint_r
-ecent_event_seq=682 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interactive_state=996 parsed_interactives=996 applied_interactives=996 missing_interactives=0 npc_lifecycle_state=0 parsed_npc_lifecycle=0 applied_npc_lifecycle=0 missi
-ng_npc_lifecycle=0 skipped_npc_lifecycle=0
-MMO DB continue baseline loaded: running existing-world startup trigger
-[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
-[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
-[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
-MMO server ACK summary accepted=99 rejected=0 bootstrap=3 movement=81 generic=15 diagnostics=0 snapshot_chunks=583 snapshot_bytes=4755722 last_seq=99
-MMO server ACK summary accepted=144 rejected=0 bootstrap=3 movement=126 generic=15 diagnostics=0 snapshot_chunks=583 snapshot_bytes=4755722 last_seq=144
-MMO server ACK summary accepted=160 rejected=0 bootstrap=3 movement=140 generic=17 diagnostics=0 snapshot_chunks=583 snapshot_bytes=4755722 last_seq=160
-MMO menu Continue: loading server DB character without native save slot
-MMO server ACK kind=2 accepted=1 ready=1 seq=162
-MMO server bootstrap snapshot receiving: id=4 bytes=1597369 chunks=195
-MMO server bootstrap snapshot progress: id=4 chunks=1/195 bytes=8192/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=16/195 bytes=131072/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=32/195 bytes=262144/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=48/195 bytes=393216/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=64/195 bytes=524288/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=80/195 bytes=655360/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=96/195 bytes=786432/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=112/195 bytes=917504/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=128/195 bytes=1048576/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=144/195 bytes=1179648/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=160/195 bytes=1310720/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=176/195 bytes=1441792/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=192/195 bytes=1572864/1597369
-MMO server bootstrap snapshot progress: id=4 chunks=195/195 bytes=1597369/1597369
-MMO server bootstrap snapshot received: bytes=1597369 chunks=195 path=runtime/mmo_server_bootstrap_snapshot.json
+MMO server ACK kind=2 accepted=1 ready=1 seq=729
+MMO server bootstrap snapshot receiving: id=6 bytes=1597013 chunks=195
+MMO server bootstrap snapshot progress: id=6 chunks=1/195 bytes=8192/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=16/195 bytes=131072/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=32/195 bytes=262144/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=48/195 bytes=393216/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=64/195 bytes=524288/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=80/195 bytes=655360/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=96/195 bytes=786432/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=112/195 bytes=917504/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=128/195 bytes=1048576/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=144/195 bytes=1179648/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=160/195 bytes=1310720/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=176/195 bytes=1441792/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=192/195 bytes=1572864/1597013
+MMO server bootstrap snapshot progress: id=6 chunks=195/195 bytes=1597013/1597013
+MMO server bootstrap snapshot received: bytes=1597013 chunks=195 path=runtime/mmo_server_bootstrap_snapshot.json
 MMO DB continue pre-world snapshot selected world=newworld.zen snapshot_source=db_save_checkpoint_v1 manifest=263dfeb5-757c-11f1-b6fd-30560f155bba
 MMO DB continue: native save is missing, bootstrapping baseline world newworld.zen and applying server snapshot for slot mmo_db_continue.sav
 [zenkit] Parsing object [MeshAndBsp % 0 0]
@@ -254,13 +208,28 @@ MMO server snapshot position applied: x=30581.203000 y=5148.382000 z=-14627.4650
 MMO server snapshot story applied: mode=replace_from_server quests=1 restore_quests=1 known_dialogs=6 restore_known_dialogs=6 script_ints=7 restore_script_ints=7 script_truncated=0
 MMO server snapshot world state applied: world_item_deltas=5 parsed_world_deltas=5 removed_world_items=0 already_absent_world_items=5 skipped_world_item_deltas=0 active_world_items=219 spawned_world_items=0 updated_world_items=219 skipped_active_world_ite
 ms=0 authoritative_window=1 authoritative_radius=12000.000000 local_items_in_window=223 preserved_local_items=219 removed_local_items_not_in_db=4 skipped_authoritative_window=0 nearby_npcs=0 parsed_nearby_npcs=0 nearby_npc_known_dialogs=0 parsed_nearby_np
-c_known_dialogs=0 nearby_waypoints=0 parsed_nearby_waypoints=0 recent_actions=64 parsed_recent_actions=64 mover_state=1 parsed_mover_state=1 applied_movers=1 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=42145 checkpoint_r
-ecent_event_seq=695 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interactive_state=996 parsed_interactives=996 applied_interactives=996 missing_interactives=0 npc_lifecycle_state=0 parsed_npc_lifecycle=0 applied_npc_lifecycle=0 missi
-ng_npc_lifecycle=0 skipped_npc_lifecycle=0
+c_known_dialogs=0 nearby_waypoints=0 parsed_nearby_waypoints=0 recent_actions=64 parsed_recent_actions=64 mover_state=1 parsed_mover_state=1 npc_routine_state=0 npc_ai_state=0 npc_path_state=0 npc_fight_state=0 trigger_queue=0 world_transition_state=0 cli
+ent_corrections=0 parsed_client_corrections=0 applied_movers=1 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=42145 checkpoint_recent_event_seq=695 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interact
+ive_state=996 parsed_interactives=996 applied_interactives=996 missing_interactives=0 npc_lifecycle_state=0 parsed_npc_lifecycle=0 applied_npc_lifecycle=0 missing_npc_lifecycle=0 skipped_npc_lifecycle=0
 MMO DB continue baseline loaded: running existing-world startup trigger
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
-MMO server ACK summary accepted=164 rejected=0 bootstrap=4 movement=142 generic=18 diagnostics=0 snapshot_chunks=778 snapshot_bytes=6353091 last_seq=164
+MMO server bootstrap snapshot receiving: id=7 bytes=441243 chunks=54
+MMO server bootstrap snapshot progress: id=7 chunks=1/54 bytes=8192/441243
+MMO server bootstrap snapshot progress: id=7 chunks=16/54 bytes=131072/441243
+MMO server bootstrap snapshot progress: id=7 chunks=32/54 bytes=262144/441243
+MMO server bootstrap snapshot progress: id=7 chunks=48/54 bytes=393216/441243
+MMO server bootstrap snapshot progress: id=7 chunks=54/54 bytes=441243/441243
+MMO server bootstrap snapshot received: bytes=441243 chunks=54 path=runtime/mmo_server_bootstrap_snapshot.json
+MMO server live world clock applied: snapshot_id=7 world_time_ms=28800000 hour=8 minute=0 tick=0 world=newworld.zen
+MMO server live world snapshot applied: snapshot_id=7 source=mmo_udp_server_cpp_live_mysql snapshot_source=current_projections_v1 active_world_items=219 spawned_world_items=0 updated_world_items=219 removed_local_items_not_in_db=0 authoritative_window=1 a
+uthoritative_radius=12000.000000 nearby_npcs=3 nearby_npc_known_dialogs=0 nearby_waypoints=0 recent_actions=64 mover_state=1 npc_routine_state=0 npc_ai_state=0 npc_path_state=0 npc_fight_state=0 trigger_queue=0 world_transition_state=0 client_corrections=
+0 applied_client_corrections=0 applied_movers=1 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=42145 checkpoint_recent_event_seq=695 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interactive_state=996 n
+pc_lifecycle_state=3
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+MMO server ACK summary accepted=734 rejected=0 bootstrap=2 movement=690 generic=42 diagnostics=0 snapshot_chunks=641 snapshot_bytes=5237217 last_seq=735
 Exiting, by item action (`LEAVE_GAME`)
-MMO server ACK summary accepted=180 rejected=0 bootstrap=4 movement=158 generic=18 diagnostics=0 snapshot_chunks=778 snapshot_bytes=6353091 last_seq=180
+MMO server ACK summary accepted=744 rejected=0 bootstrap=2 movement=700 generic=42 diagnostics=0 snapshot_chunks=641 snapshot_bytes=5237217 last_seq=745

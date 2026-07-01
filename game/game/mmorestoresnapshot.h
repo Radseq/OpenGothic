@@ -219,6 +219,21 @@ struct RecentAction final {
   std::size_t serverTick = 0;
   };
 
+struct ClientCorrection final {
+  std::string actionKind;
+  std::string correctionKind;
+  std::string reason;
+  bool        acknowledged = false;
+  std::size_t clientLocalSequence = 0;
+  std::size_t rejectedServerTick = 0;
+  std::size_t authoritativeServerTick = 0;
+  bool        hasAuthoritativePosition = false;
+  double      x = 0.0;
+  double      y = 0.0;
+  double      z = 0.0;
+  double      yaw = 0.0;
+  };
+
 struct CharacterStats final {
   static constexpr std::int32_t Missing = std::numeric_limits<std::int32_t>::min();
 
@@ -263,6 +278,13 @@ struct Result final {
   std::size_t              nearbyWaypointCount = 0;
   std::size_t              recentActionCount = 0;
   std::size_t              moverStateCount = 0;
+  std::size_t              npcRoutineStateCount = 0;
+  std::size_t              npcAiStateCount = 0;
+  std::size_t              npcPathStateCount = 0;
+  std::size_t              npcFightStateCount = 0;
+  std::size_t              triggerQueueCount = 0;
+  std::size_t              worldTransitionStateCount = 0;
+  std::size_t              clientCorrectionCount = 0;
   bool                     serverCheckpointManifestPresent = false;
   bool                     nearbyNpcWindowPresent = false;
   double                   nearbyNpcRadius = 0.0;
@@ -284,6 +306,7 @@ struct Result final {
   std::vector<NearbyWaypoint> nearbyWaypoints;
   std::vector<MoverState> moverStates;
   std::vector<RecentAction> recentActions;
+  std::vector<ClientCorrection> clientCorrections;
   ServerCheckpointManifest serverCheckpointManifest;
   WorldClock              worldClock;
   CharacterPosition        position;
@@ -1197,6 +1220,36 @@ inline std::vector<RecentAction> restoreRecentActions(std::string_view eventArra
   return out;
 }
 
+inline std::vector<ClientCorrection> restoreClientCorrections(std::string_view correctionArray) {
+  std::vector<ClientCorrection> out;
+  for(auto object : objectSpansInArray(correctionArray)) {
+    ClientCorrection correction;
+    correction.actionKind = stringValueForKey(object, "action_kind");
+    correction.correctionKind = stringValueForKey(object, "correction_kind");
+    correction.reason = stringValueForKey(object, "reason");
+    correction.acknowledged = boolValueForKey(object, "acknowledged", false);
+    correction.clientLocalSequence = unsignedValueForKey(object, "client_local_sequence");
+    correction.rejectedServerTick = unsignedValueForKey(object, "rejected_server_tick");
+    correction.authoritativeServerTick = unsignedValueForKey(object, "authoritative_server_tick");
+
+    double x = 0.0, y = 0.0, z = 0.0;
+    correction.hasAuthoritativePosition =
+      realValueForKey(object, "authoritative_pos_x", x) &&
+      realValueForKey(object, "authoritative_pos_y", y) &&
+      realValueForKey(object, "authoritative_pos_z", z);
+    if(correction.hasAuthoritativePosition) {
+      correction.x = x;
+      correction.y = y;
+      correction.z = z;
+      (void)realValueForKey(object, "authoritative_yaw", correction.yaw);
+      }
+
+    if(!correction.actionKind.empty() || correction.clientLocalSequence != 0)
+      out.push_back(std::move(correction));
+    }
+  return out;
+}
+
 inline std::vector<Item> restoreItems(std::string_view inventoryArray, std::string_view equipmentArray) {
   std::unordered_set<std::string> equippedIds;
   for(auto object : objectSpansInArray(equipmentArray)) {
@@ -1405,6 +1458,13 @@ inline Result loadAndValidateBootstrapSnapshot(std::string_view path,
   if(recentActions.empty())
     recentActions = Detail::arrayForKey(text, "recent_events_sample");
   const auto moverState = Detail::arrayForKey(text, "mover_state");
+  const auto npcRoutineState = Detail::arrayForKey(text, "npc_routine_state");
+  const auto npcAiState = Detail::arrayForKey(text, "npc_ai_state");
+  const auto npcPathState = Detail::arrayForKey(text, "npc_path_state");
+  const auto npcFightState = Detail::arrayForKey(text, "npc_fight_state");
+  const auto triggerQueue = Detail::arrayForKey(text, "trigger_queue");
+  const auto worldTransitionState = Detail::arrayForKey(text, "world_transition_state");
+  const auto clientCorrections = Detail::arrayForKey(text, "client_corrections");
   const auto worldClock = Detail::objectForKey(text, "world_clock");
   const auto serverCheckpointManifest = Detail::objectForKey(text, "server_checkpoint_manifest");
   result.worldEntityDeltas = Detail::restoreWorldEntityDeltas(worldItemDeltas);
@@ -1417,6 +1477,7 @@ inline Result loadAndValidateBootstrapSnapshot(std::string_view path,
   result.moverStates = Detail::restoreMoverStates(moverState);
   result.worldClock = Detail::restoreWorldClock(worldClock);
   result.recentActions = Detail::restoreRecentActions(recentActions);
+  result.clientCorrections = Detail::restoreClientCorrections(clientCorrections);
   result.serverCheckpointManifest = Detail::restoreServerCheckpointManifest(serverCheckpointManifest);
   if(result.worldName.empty())
     result.worldName = result.serverCheckpointManifest.clientWorldName;
@@ -1432,6 +1493,13 @@ inline Result loadAndValidateBootstrapSnapshot(std::string_view path,
   result.nearbyWaypointCount = Detail::objectSpansInArray(nearbyWaypoints).size();
   result.recentActionCount = Detail::objectSpansInArray(recentActions).size();
   result.moverStateCount = Detail::objectSpansInArray(moverState).size();
+  result.npcRoutineStateCount = Detail::objectSpansInArray(npcRoutineState).size();
+  result.npcAiStateCount = Detail::objectSpansInArray(npcAiState).size();
+  result.npcPathStateCount = Detail::objectSpansInArray(npcPathState).size();
+  result.npcFightStateCount = Detail::objectSpansInArray(npcFightState).size();
+  result.triggerQueueCount = Detail::objectSpansInArray(triggerQueue).size();
+  result.worldTransitionStateCount = Detail::objectSpansInArray(worldTransitionState).size();
+  result.clientCorrectionCount = Detail::objectSpansInArray(clientCorrections).size();
   result.serverCheckpointManifestPresent = result.serverCheckpointManifest.present;
   result.nearbyNpcWindowPresent = Detail::realValueForKey(text, "nearby_npc_radius", result.nearbyNpcRadius) &&
                                   result.nearbyNpcRadius > 0.0;
@@ -1505,7 +1573,6 @@ inline Result loadAndValidate(std::string_view path,
 }
 
 } // namespace Mmo::RestoreSnapshot
-
 
 
 
