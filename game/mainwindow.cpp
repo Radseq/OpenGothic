@@ -9,6 +9,12 @@
 #include <Tempest/Application>
 #include <Tempest/Log>
 
+#include <chrono>
+#include <filesystem>
+#include <optional>
+#include <system_error>
+#include <thread>
+
 #include "ui/dialogmenu.h"
 #include "ui/menuroot.h"
 #include "ui/stacklayout.h"
@@ -20,6 +26,9 @@
 #include "world/objects/npc.h"
 #include "game/serialize.h"
 #include "game/globaleffects.h"
+#include "game/mmorestoresnapshot.h"
+#include "game/mmosemanticactionsink.h"
+#include "game/mmosemanticevents.h"
 #include "game/worldstateexporter.h"
 #include "utils/gthfont.h"
 #include "utils/dbgpainter.h"
@@ -28,6 +37,132 @@
 #include "gothic.h"
 
 using namespace Tempest;
+
+namespace {
+
+bool nativeSaveFileExists(std::string_view slot) noexcept {
+  if(slot.empty())
+    return false;
+  std::error_code ec;
+  const std::filesystem::path path{std::string(slot)};
+  return std::filesystem::is_regular_file(path, ec) || std::filesystem::exists(path, ec);
+}
+
+std::string mmoDbBootstrapWorldName() {
+  const auto explicitWorld = CommandLine::inst().mmoDbBootstrapWorld();
+  if(!explicitWorld.empty())
+    return std::string(explicitWorld);
+  return std::string(Gothic::inst().defaultWorld());
+}
+
+std::filesystem::path mmoSnapshotTmpPath(std::string_view path) {
+  auto out = std::filesystem::path(std::string(path));
+  out += ".tmp";
+  return out;
+}
+
+void clearMmoBootstrapSnapshotFiles(std::string_view snapshotPath) {
+  std::error_code ec;
+  if(!snapshotPath.empty()) {
+    const std::filesystem::path path{std::string(snapshotPath)};
+    std::filesystem::remove(path, ec);
+    std::filesystem::remove(mmoSnapshotTmpPath(snapshotPath), ec);
+  }
+  std::filesystem::remove("runtime/mmo_server_bootstrap_snapshot_manifest.json", ec);
+  std::filesystem::remove("runtime/mmo_server_bootstrap_snapshot_manifest.json.tmp", ec);
+}
+
+bool requestMmoPreWorldDbContinueSnapshot(std::string_view slot) noexcept {
+  if(!Mmo::isServerBoundClientModeEnabled() || !Mmo::isSemanticActionCaptureEnabled())
+    return false;
+
+  const auto seq = Mmo::nextSemanticActionSequence();
+  std::string target = "character:PC_HERO:db-continue-pre-world";
+
+  std::string payload;
+  payload.reserve(512 + slot.size());
+  payload.append("{\"actor_key\":\"character:PC_HERO\"");
+  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"world\":");
+  payload.append(Mmo::jsonEscape(CommandLine::inst().mmoDbBootstrapWorld()));
+  payload.append(",\"server_tick\":0");
+  payload.append(",\"server_bound_client_mode\":true");
+  payload.append(",\"server_endpoint\":");
+  payload.append(Mmo::jsonEscape(CommandLine::inst().mmoServerEndpoint()));
+  payload.append(",\"reason\":\"db_continue_pre_world_request\"");
+  payload.append(",\"source_location\":\"MainWindow::loadGame\"");
+  payload.append(",\"requested_save_slot\":");
+  payload.append(Mmo::jsonEscape(slot));
+  payload.append(",\"db_save_snapshot_requested\":true");
+  payload.append(",\"pre_world_bootstrap\":true");
+  payload.push_back('}');
+
+  Mmo::SemanticActionEnvelope env;
+  env.kind = Mmo::SemanticActionKind::ClientBootstrapRequest;
+  env.targetKey = std::move(target);
+  env.localSequence = seq;
+  env.clientTick = 0;
+  env.idempotencyKey = Mmo::makeIdempotencyKey(Mmo::semanticActionSessionKey(), seq, env.kind, env.targetKey);
+  env.payloadJson = std::move(payload);
+
+  return Mmo::submitSemanticAction(env).accepted();
+}
+
+bool shouldUseMmoDbContinue(std::string_view slot) noexcept {
+  const auto& cmd = CommandLine::inst();
+  return cmd.mmoClientUsesServer() &&
+         cmd.mmoDbContinueWithoutNativeSave() &&
+         (!nativeSaveFileExists(slot) || slot == cmd.mmoDbContinueSyntheticSlot());
+}
+
+std::optional<std::string> mmoDbContinueWorldFromServerSnapshot(std::string_view slot) {
+  const auto& cmd = CommandLine::inst();
+  if(!shouldUseMmoDbContinue(slot))
+    return std::nullopt;
+  if(!cmd.mmoDbBootstrapWorld().empty())
+    return std::nullopt;
+
+  const auto snapshotPath = std::string(cmd.mmoServerSnapshotJson());
+  if(snapshotPath.empty())
+    return std::nullopt;
+
+  clearMmoBootstrapSnapshotFiles(snapshotPath);
+  if(!requestMmoPreWorldDbContinueSnapshot(slot)) {
+    Log::e("MMO DB continue pre-world bootstrap request was not accepted by the local sink");
+    return std::nullopt;
+  }
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2500);
+  while(std::chrono::steady_clock::now() < deadline) {
+    std::error_code ec;
+    if(std::filesystem::is_regular_file(snapshotPath, ec)) {
+      auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(snapshotPath, "PC_HERO");
+      if(!result.ok) {
+        Log::e("MMO DB continue pre-world snapshot rejected: ", result.message);
+        return std::nullopt;
+      }
+      if(cmd.mmoRequireDbSaveCheckpointRestore() && result.snapshotSource != "db_save_checkpoint_v1") {
+        Log::e("MMO DB continue pre-world snapshot rejected: strict DB checkpoint restore required",
+               " snapshot_source=", result.snapshotSource);
+        return std::nullopt;
+      }
+      if(!result.worldName.empty()) {
+        Log::i("MMO DB continue pre-world snapshot selected world=", result.worldName,
+               " snapshot_source=", result.snapshotSource,
+               " manifest=", result.dbSaveCheckpointManifestUuid);
+        return result.worldName;
+      }
+      Log::e("MMO DB continue pre-world snapshot has no world_name");
+      return std::nullopt;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  Log::e("MMO DB continue pre-world snapshot timed out, falling back to configured/default world");
+  return std::nullopt;
+}
+
+} // namespace
 
 MainWindow::MainWindow(Device& device)
   : Window(Maximized),device(device),swapchain(device,hwnd()),
@@ -1034,6 +1169,11 @@ Camera::Mode MainWindow::solveCameraMode() const {
 
 void MainWindow::startGame(std::string_view slot) {
   // gothic.emitGlobalSound(gothic.loadSoundFx("NEWGAME"));
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    Log::i("MMO menu New Game blocked: redirecting to server DB Continue");
+    loadGame(CommandLine::inst().mmoDbContinueSyntheticSlot());
+    return;
+    }
 
   if(Gothic::inst().checkLoading()==Gothic::LoadState::Idle){
     setGameImpl(nullptr);
@@ -1059,6 +1199,17 @@ void MainWindow::loadGame(std::string_view slot) {
   Gothic::inst().setBenchmarkMode(Benchmark::None);
   Gothic::inst().startLoad("LOADING.TGA",[slot=std::string(slot)](std::unique_ptr<GameSession>&& game){
     game = nullptr; // clear world-memory now
+
+    if(shouldUseMmoDbContinue(slot)) {
+      auto world = mmoDbBootstrapWorldName();
+      if(auto serverWorld = mmoDbContinueWorldFromServerSnapshot(slot))
+        world = std::move(*serverWorld);
+      Log::i("MMO DB continue: native save is missing, bootstrapping baseline world ", world,
+             " and applying server snapshot for slot ", slot);
+      std::unique_ptr<GameSession> w(new GameSession(std::move(world), GameSession::StartupMode::MmoDbContinue));
+      return w;
+      }
+
     Tempest::RFile file(slot);
     Serialize      s(file);
     std::unique_ptr<GameSession> w(new GameSession(s, slot));
@@ -1332,3 +1483,5 @@ void MainWindow::BenchmarkData::clear() {
   numFrames = 0;
   fpsSum = 0;
   }
+
+

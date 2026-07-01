@@ -1,0 +1,13 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-06-30T17:44:52.975138+00:00",
+  "sql": "/home/radseq/Desktop/OpenGothic/server/sql/step92_identity_admin_views.sql",
+  "started_at": "2026-06-30T17:44:52.919436+00:00",
+  "status": "applied",
+  "step": "92_identity_admin_views",
+  "views": {
+    "v_mmo_admin_entity_templates_readable": true,
+    "v_mmo_admin_item_instances_readable": true,
+    "v_mmo_admin_world_entities_readable": true
+  }
+}

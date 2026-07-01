@@ -3,6 +3,7 @@
 #include <string>
 #include <memory>
 #include <thread>
+#include <atomic>
 
 #include <Tempest/Signal>
 #include <Tempest/Dir>
@@ -162,6 +163,10 @@ class Gothic final {
     void         save(std::string_view slot, std::string_view usrName);
     void         load(std::string_view slot);
 
+    void         pushMmoDbContinueVideoSuppression() noexcept;
+    void         popMmoDbContinueVideoSuppression() noexcept;
+    bool         isMmoDbContinueVideoSuppressed() const noexcept;
+
     auto         updateDialog(const GameScript::DlgChoice& dlg, Npc& player, Npc& npc) -> std::vector<GameScript::DlgChoice>;
     void         dialogExec  (const GameScript::DlgChoice& dlg, Npc& player, Npc& npc);
 
@@ -241,6 +246,7 @@ class Gothic final {
     std::atomic_int                         loadProgress{0};
     std::thread                             loaderTh;
     std::atomic<LoadState>                  loadingFlag{LoadState::Idle};
+    std::atomic<uint32_t>                   mmoDbContinueVideoSuppression{0};
 
     std::unique_ptr<GameSession>            game, pendingGame;
     std::unique_ptr<FightAi>                fight;
@@ -310,3 +316,4 @@ class Gothic final {
     void                                    printdebuginst    (std::string_view msg);
     void                                    printdebuginstch  (int ch, std::string_view msg);
   };
+

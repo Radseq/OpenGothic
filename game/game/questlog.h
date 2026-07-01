@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdint>
 #include <utility>
+#include <cstddef>
 
 class Serialize;
 
@@ -35,6 +36,7 @@ class QuestLog final {
     void   setStatus(std::string_view name, Status  s);
     void   addEntry (std::string_view name, std::string_view entry);
     void   replace  (std::vector<Quest> quests);
+    size_t mergePreservingLocal(std::vector<Quest> quests);
 
     void   save(Serialize &fout);
     void   load(Serialize &fin);
@@ -48,3 +50,5 @@ class QuestLog final {
 
     std::vector<Quest> quests;
   };
+
+

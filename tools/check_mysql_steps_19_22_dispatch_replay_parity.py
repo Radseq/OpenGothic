@@ -43,7 +43,7 @@ def json_sql(value: Any) -> str:
 
 def run_mysql(target: Target, sql: str) -> str:
     cmd = [
-        "mysql", "--default-character-set=utf8mb4", "--batch", "--raw", "--skip-column-names",
+        "mysql", "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci", "--batch", "--raw", "--skip-column-names",
         "-h", target.host, "-P", str(target.port), "-u", target.user, f"-p{target.password}", target.database,
     ]
     proc = subprocess.run(cmd, input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

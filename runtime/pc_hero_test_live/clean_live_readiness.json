@@ -1,0 +1,85 @@
+{
+  "character": {
+    "character_key": "PC_HERO",
+    "character_name": "Ja",
+    "character_uuid": "1bb91bbd-756c-11f1-b6fd-30560f155bba",
+    "equipment_count": 0,
+    "found": true,
+    "inventory_count": 0
+  },
+  "character_key": "PC_HERO",
+  "checked_at": "2026-07-01T16:44:28.869586+00:00",
+  "collation": {
+    "mismatch_count": 1,
+    "mismatches_sample": [
+      {
+        "collation": "utf8mb4_unicode_ci",
+        "table": "mmo_world_clock_state_current"
+      }
+    ],
+    "ok": false,
+    "required_collation": "utf8mb4_0900_ai_ci"
+  },
+  "commands": {
+    "game": [
+      "./build/opengothic/Gothic2Notr",
+      "  -g \"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/\"",
+      "  -g2",
+      "  -mmo-client-server 127.0.0.1:29777",
+      "  -mmo-action-jsonl runtime/pc_hero_test_live/client_actions.jsonl",
+      "  -mmo-action-session-key local-dev-PC_HERO_TEST",
+      "  -mmo-action-queue-capacity 8192"
+    ],
+    "receiver": [
+      "python3 tools/run_mmo_pc_hero_test_receiver.py",
+      "  --url \"mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean\""
+    ],
+    "roundtrip_check_after_actions": [
+      "python3 tools/check_mmo_step69_pc_hero_test_inventory_roundtrip.py",
+      "  --url \"mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean\"",
+      "  --session-key local-dev-PC_HERO_TEST",
+      "  --character-key PC_HERO",
+      "  --snapshot runtime/live_resolved_worker/local-dev-PC_HERO_TEST/mysql_restore_snapshot.json",
+      "  --output runtime/live_resolved_worker/local-dev-PC_HERO_TEST/inventory_roundtrip_check_manual.json"
+    ],
+    "worker": [
+      "python3 tools/run_mmo_live_resolved_worker.py",
+      "  --url \"mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean\"",
+      "  --max-actions 500",
+      "  --reset-matching-failed"
+    ]
+  },
+  "database": "gothic_mmo_ch1_clean",
+  "errors": [],
+  "outbox": {
+    "pendingish": 0,
+    "session_key": "local-dev-PC_HERO_TEST",
+    "status_counts": {},
+    "total": 0
+  },
+  "ready_for_live_loop": true,
+  "routines": {
+    "missing": [],
+    "present_count": 16
+  },
+  "runtime_dirs": {
+    "baseline_dir": "/home/radseq/Desktop/OpenGothic/runtime/baselines",
+    "receiver_dir": "/home/radseq/Desktop/OpenGothic/runtime/pc_hero_test_live",
+    "worker_dir": "/home/radseq/Desktop/OpenGothic/runtime/live_resolved_worker/local-dev-PC_HERO_TEST"
+  },
+  "session_key": "local-dev-PC_HERO_TEST",
+  "sqlite": {
+    "exists": true,
+    "path": "/home/radseq/Desktop/OpenGothic/runtime/g2notr_ch1_pre_xardas.sqlite"
+  },
+  "status": "passed",
+  "step": "70_clean_live_readiness",
+  "strict_collation": false,
+  "tables": {
+    "missing": [],
+    "present_count": 15
+  },
+  "warnings": [
+    "collation_mismatch"
+  ]
+}

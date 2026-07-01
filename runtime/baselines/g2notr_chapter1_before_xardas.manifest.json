@@ -1,0 +1,76 @@
+{
+  "baseline_key": "g2notr_chapter1_before_xardas",
+  "captured_at": "2026-07-01T16:44:17.646295+00:00",
+  "display_name": "Gothic II NotR - Chapter 1 clean start before Xardas dialog",
+  "game_code": "g2notr",
+  "intended_use": [
+    "restore runtime/g2notr.sqlite to a known clean point",
+    "import this zero-point into a freshly created MySQL dev DB",
+    "start client-server feature migration from a deterministic Chapter 1 baseline"
+  ],
+  "manifest_path": "runtime/baselines/g2notr_chapter1_before_xardas.manifest.json",
+  "output": {
+    "path": "runtime/baselines/g2notr_chapter1_before_xardas.sqlite",
+    "sha256": "9050d5ea9d74b255dbaaa59d58ca3817a5615fd64ae2addd1f59b0fa16bd29cd",
+    "size_bytes": 170311680,
+    "stamped": true
+  },
+  "source": {
+    "path": "runtime/g2notr_ch1_pre_xardas.sqlite",
+    "sha256": "7ce49e0f443afa98949ce64c66bbbf84c83bf01a1012ff47e8862490b7f4e76b",
+    "size_bytes": 170303488
+  },
+  "step": 54,
+  "validation": {
+    "chapter_number_detected": 1,
+    "counts": {
+      "mmo_character_inventory_current": 0,
+      "mmo_character_known_dialogs_current": 0,
+      "mmo_character_quests_current": 0,
+      "mmo_character_story_progress_current": 1,
+      "mmo_characters_current": 1,
+      "mmo_creature_spawns_current": 1052,
+      "mmo_script_globals_current": 2924,
+      "mmo_world_baseline_creatures": 1052,
+      "mmo_world_baseline_interactives": 996,
+      "mmo_world_baseline_items": 2461,
+      "mmo_world_clock_current": 1,
+      "mmo_world_container_inventory_current": 438,
+      "mmo_world_interactives_current": 996,
+      "mmo_world_items_current": 2461,
+      "runtime_character_inventory": 0,
+      "runtime_characters": 1,
+      "runtime_dialog_selections": 0,
+      "runtime_events": 2,
+      "runtime_script_globals": 2924,
+      "runtime_sessions": 1,
+      "runtime_story_progress_current": 1,
+      "runtime_world_items": 2461,
+      "runtime_world_mobsi": 996,
+      "runtime_world_npcs": 1053
+    },
+    "dialog_selection_rows": 0,
+    "errors": [],
+    "missing_core_tables": [],
+    "pc_hero_present": true,
+    "schema_version": 25,
+    "story_progress_rows": [
+      {
+        "_source_table": "mmo_character_story_progress_current",
+        "chapter_key": "chapter:1",
+        "chapter_number": 1,
+        "character_key": "PC_HERO",
+        "persistence_class": "character_story_progress_current",
+        "source_global_key": "global:3223:KAPITEL",
+        "source_symbol_index": 3223,
+        "source_symbol_name": "KAPITEL",
+        "tick_count": 0,
+        "updated_at": "2026-06-28 16:31:05",
+        "world_name": "newworld.zen"
+      }
+    ],
+    "valid": true,
+    "warnings": [],
+    "xardas_dialog_selection_rows": 0
+  }
+}

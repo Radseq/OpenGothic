@@ -1,0 +1,15 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-07-01T06:24:30.481466+00:00",
+  "routines": {
+    "mmo_assert_latest_save_checkpoint_restore_v1": true,
+    "mmo_validate_latest_save_checkpoint_restore_v1": true
+  },
+  "sql": "/home/radseq/Desktop/OpenGothic/server/sql/step98_strict_db_continue_restore.sql",
+  "started_at": "2026-07-01T06:24:30.403362+00:00",
+  "status": "applied",
+  "step": "98_strict_db_continue_restore",
+  "views": {
+    "v_mmo_latest_save_checkpoint_strict_restore": true
+  }
+}

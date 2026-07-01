@@ -1,0 +1,11 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-06-30T05:37:18.500923+00:00",
+  "routines": {
+    "mmo_grant_character_item_by_symbol": true
+  },
+  "sql": "/home/radseq/Desktop/OpenGothic/server/sql/step84_world_identity_lifecycle_bridge.sql",
+  "started_at": "2026-06-30T05:37:18.465567+00:00",
+  "status": "applied",
+  "step": "84_world_identity_lifecycle_bridge"
+}

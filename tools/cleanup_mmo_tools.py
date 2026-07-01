@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""Clean obsolete OpenGothic MMO helper tools safely.
+"""Archive obsolete OpenGothic MMO tools and old AI context safely.
 
-Default mode is read-only. With --apply it moves obsolete/legacy tools into an
-archive directory, preserving history. Use --delete only when you intentionally
-want to remove them instead of archiving.
-
-The goal is to keep tools/ focused on the current MySQL + server-boundary path:
-client semantic envelopes -> receiver/outbox -> resolved worker -> MySQL
-procedures -> evidence checkers.
+Default is dry-run. Use --apply to move files into archive directories. This
+script intentionally archives instead of deleting so historical step evidence can
+be recovered without keeping it in the hot LLM/tooling path.
 """
 from __future__ import annotations
 
@@ -17,120 +13,231 @@ import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterable
 
 
-@dataclass(frozen=True)
-class ToolDisposition:
-    path: str
-    action: str
-    reason: str
+ROOT = Path(__file__).resolve().parents[1]
 
 
-# Remove/archive first because current target is MySQL 8.0+ and docs now say
-# PostgreSQL is no longer the active production path.
-OBSOLETE: tuple[ToolDisposition, ...] = (
-    ToolDisposition("tools/import_runtime_sqlite_to_postgres.py", "archive", "PostgreSQL bootstrap path is superseded by current MySQL production target."),
-    ToolDisposition("tools/check_postgres_bootstrap_import.py", "archive", "PostgreSQL bootstrap checker is not needed on the active MySQL path."),
-    ToolDisposition("tools/check_postgres_mmo_schema.py", "archive", "PostgreSQL schema checker is not needed on the active MySQL path."),
-    ToolDisposition("tools/apply_mmo_hook_cmake_fix.py", "archive", "One-shot Step32/34 CMake repair helper; keep only as archaeology once source list is fixed."),
-    ToolDisposition("tools/compact_llm_docs.py", "archive", "One-shot compact-doc migration helper; not part of current runtime/evidence loop."),
-    ToolDisposition("tools/print_mysql_mmo_remaining_work.py", "archive", "Replaced by DB readiness views/checkers and compact validation playbook."),
-)
-
-KEEP_CURRENT: tuple[str, ...] = (
+KEEP_TOOLS_ACTIVE_SERVER: set[str] = {
+    # hygiene
+    "tools/cleanup_mmo_tools.py",
+    # runtime/SQLite/MySQL audit/import
     "tools/audit_runtime_sqlite.py",
     "tools/check_runtime_sqlite.py",
     "tools/import_runtime_sqlite_to_mysql.py",
     "tools/check_mysql_mmo_schema.py",
     "tools/check_mysql_bootstrap_import.py",
+    "tools/check_mysql_world_item_write_path.py",
+    "tools/check_mysql_wallet_write_path.py",
+    "tools/check_mysql_character_inventory_equipment_write_path.py",
+    "tools/check_mysql_container_interactive_write_path.py",
+    "tools/check_mysql_progress_npc_projection_write_paths.py",
+    "tools/check_mysql_server_write_path.py",
+    "tools/check_mysql_steps_11_14_economy_combat_stack.py",
+    "tools/check_mysql_steps_15_18_bridge_replay_parity.py",
+    "tools/check_mysql_steps_19_22_dispatch_replay_parity.py",
     "tools/check_mysql_steps_23_30_database_completion.py",
-    "tools/check_mmo_semantic_action_jsonl.py",
+    # server-boundary core
+    "tools/run_mmo_server.py",
     "tools/run_mmo_action_receiver.py",
     "tools/run_mmo_resolved_action_worker.py",
     "tools/replay_mmo_actions_to_receiver.py",
+    "tools/check_mmo_semantic_action_jsonl.py",
     "tools/check_mmo_action_receiver_outbox.py",
     "tools/check_mmo_action_dispatch_results.py",
-    "tools/prepare_mmo_dispatch_dev_fixture.py",
-    "tools/check_mmo_step36_vertical_slice.py",
-    "tools/package_mmo_step36_evidence.py",
-    "tools/check_mmo_step37_bookstand_script_xp.py",
-)
+    "tools/inspect_mmo_action_resolution.py",
+    # current live gameplay probes/checkers
+    "tools/check_mmo_step43_server_live.py",
+    "tools/run_mmo_step43_server_smoke.py",
+    "tools/check_mmo_step44_live_gameplay_domains.py",
+    "tools/run_mmo_step44_worker_followup.py",
+    "tools/build_mmo_step44_gameplay_manifest.py",
+    "tools/check_mmo_step45_world_ai_weapon_loot.py",
+    "tools/run_mmo_step45_world_ai_followup.py",
+    "tools/build_mmo_step45_world_ai_manifest.py",
+    "tools/check_mmo_step46_consumables_sleep_ai_context.py",
+    "tools/run_mmo_step46_consumables_sleep_followup.py",
+    "tools/check_mmo_step47_interactive_mobsi_state.py",
+    "tools/run_mmo_step47_interactive_followup.py",
+    "tools/check_mmo_step48_interactive_trigger_filter.py",
+    "tools/run_mmo_step48_interactive_trigger_followup.py",
+    "tools/inspect_mmo_runtime_navigation.py",
+    "tools/inspect_mmo_mysql_server_bootstrap_state.py",
+    "tools/run_mmo_step49_server_bootstrap_probe.py",
+    "tools/apply_mmo_step51_authority_gap_procedures.py",
+    "tools/check_mmo_step51_authority_gap_procedures.py",
+    "tools/run_mmo_step51_authority_gap_followup.py",
+    "tools/inspect_mmo_mysql_schema_maturity.py",
+    "tools/run_mmo_step52_db_maturity_probe.py",
+    "tools/materialize_mmo_server_read_model_v1.py",
+    "tools/inspect_mmo_server_read_model_v1.py",
+    "tools/export_mmo_server_materialization_manifest.py",
+    "tools/run_mmo_step53_server_materialization_followup.py",
+    "tools/capture_mmo_chapter1_start_sqlite_baseline.py",
+    "tools/restore_mmo_chapter1_start_sqlite_baseline.py",
+    "tools/reset_mmo_mysql_from_chapter1_start.py",
+    "tools/run_mmo_step54_chapter1_clean_start_followup.py",
+    "tools/check_mmo_step55_client_server_bootstrap.py",
+    "tools/run_mmo_step55_clean_mysql_from_pre_xardas.py",
+    "tools/apply_mmo_step55_live_receiver_bridge.py",
+    "tools/check_mmo_step55_live_receiver_bridge.py",
+    "tools/check_mmo_step56_server_bootstrap_ack.py",
+    "tools/apply_mmo_step56b_clean_db_progress_bridge.py",
+    "tools/check_mmo_step56b_clean_db_progress_bridge.py",
+    "tools/normalize_mmo_mysql_collation.py",
+    "tools/check_mmo_step57_clean_reset_and_checkpoint_ack.py",
+    "tools/check_mmo_step58_movement_authority_gate.py",
+}
+
+# Safe profile only archives things that are known-obsolete even on old branches.
+SAFE_OBSOLETE_TOOLS: set[str] = {
+    "tools/import_runtime_sqlite_to_postgres.py",
+    "tools/check_postgres_bootstrap_import.py",
+    "tools/check_postgres_mmo_schema.py",
+    "tools/apply_mmo_hook_cmake_fix.py",
+    "tools/compact_llm_docs.py",
+    "tools/print_mysql_mmo_remaining_work.py",
+}
+
+KEEP_DOCS_ACTIVE: set[str] = {
+    "docs/llm/ai/00-current-mmo-state.md",
+    "docs/llm/ai/01-authority-and-bootstrap.md",
+    "docs/llm/ai/02-gameplay-domain-contract.md",
+    "docs/llm/ai/03-source-map-and-hooks.md",
+    "docs/llm/ai/04-active-tools.md",
+    "docs/llm/ai/05-next-work.md",
+    "docs/llm/ai/06-step50-context-hygiene.md",
+    "docs/llm/ai/07-step51-authority-gap-db.md",
+    "docs/llm/ai/08-step52-production-db-contract.md",
+    "docs/llm/ai/09-step53-server-read-model.md",
+    "docs/llm/ai/10-step54-chapter1-clean-start.md",
+    "docs/llm/ai/10-step54-pre-xardas-capture.md",
+    "docs/llm/ai/11-step55-client-server-bootstrap.md",
+    "docs/llm/ai/12-step55b-clean-mysql-flow.md",
+    "docs/llm/ai/13-step55d-live-receiver-bridge.md",
+    "docs/llm/ai/14-step55e-live-receiver-event-class-fix.md",
+    "docs/llm/ai/15-step56-server-bootstrap-ack.md",
+    "docs/llm/ai/16-step56b-clean-db-progress-bridge.md",
+    "docs/llm/ai/17-step57-clean-reset-and-checkpoint-ack.md",
+    "docs/llm/ai/18-step58-movement-authority-gate.md",
+    "docs/llm/ai/10-step54-pre-xardas-capture.md",
+    "docs/llm/ai/11-step55-client-server-bootstrap.md",
+}
 
 
-def rel(root: Path, value: str) -> Path:
-    path = Path(value)
-    if path.is_absolute():
-        raise ValueError(f"path must be relative: {value}")
-    return root / path
+@dataclass(frozen=True)
+class Candidate:
+    path: str
+    archive_subdir: str
+    reason: str
 
 
-def archive_one(root: Path, archive_dir: Path, item: ToolDisposition, delete: bool, apply: bool) -> dict[str, str]:
-    src = rel(root, item.path)
-    entry = {
-        "path": item.path,
-        "requested_action": "delete" if delete else item.action,
-        "reason": item.reason,
-        "exists": str(src.exists()).lower(),
-        "status": "missing",
+def rel(path: Path) -> str:
+    return path.relative_to(ROOT).as_posix()
+
+
+def iter_root_tools() -> Iterable[str]:
+    tools = ROOT / "tools"
+    if not tools.exists():
+        return []
+    return sorted(rel(p) for p in tools.glob("*.py") if p.is_file())
+
+
+def iter_ai_docs() -> Iterable[str]:
+    ai = ROOT / "docs" / "llm" / "ai"
+    if not ai.exists():
+        return []
+    return sorted(rel(p) for p in ai.glob("*.md") if p.is_file())
+
+
+def build_candidates(profile: str, include_tools: bool, include_docs: bool) -> list[Candidate]:
+    out: list[Candidate] = []
+    if include_tools:
+        if profile == "safe":
+            for path in sorted(SAFE_OBSOLETE_TOOLS):
+                if (ROOT / path).exists():
+                    out.append(Candidate(path, "tools", "known obsolete one-shot or superseded non-MySQL tool"))
+        elif profile == "active-server":
+            for path in iter_root_tools():
+                if path not in KEEP_TOOLS_ACTIVE_SERVER:
+                    out.append(Candidate(path, "tools", "not in active server-boundary/MySQL/tooling set"))
+        else:
+            raise ValueError(f"unknown profile: {profile}")
+    if include_docs and profile == "active-server":
+        for path in iter_ai_docs():
+            if path not in KEEP_DOCS_ACTIVE:
+                out.append(Candidate(path, "docs-llm-ai", "old step history; compact active memory replaces it"))
+    return out
+
+
+def archive_path(base: Path, candidate: Candidate) -> Path:
+    return base / candidate.archive_subdir / candidate.path
+
+
+def move_candidate(base: Path, candidate: Candidate, apply: bool) -> dict[str, str]:
+    src = ROOT / candidate.path
+    dst = archive_path(base, candidate)
+    status = "missing" if not src.exists() else ("would_archive" if not apply else "archived")
+    if apply and src.exists():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.exists():
+            raise FileExistsError(f"archive target already exists: {dst}")
+        shutil.move(str(src), str(dst))
+    return {
+        "path": candidate.path,
+        "status": status,
+        "archive_path": rel(dst) if dst.is_relative_to(ROOT) else str(dst),
+        "reason": candidate.reason,
     }
-    if not src.exists():
-        return entry
-    if not apply:
-        entry["status"] = "would_delete" if delete else "would_archive"
-        if not delete:
-            entry["archive_path"] = str((archive_dir / item.path).as_posix())
-        return entry
-    if delete:
-        src.unlink()
-        entry["status"] = "deleted"
-        return entry
-    dst = archive_dir / item.path
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if dst.exists():
-        dst = dst.with_suffix(dst.suffix + "." + datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"))
-    shutil.move(str(src), str(dst))
-    entry["status"] = "archived"
-    entry["archive_path"] = str(dst.as_posix())
-    return entry
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Safely archive/delete obsolete OpenGothic MMO tools.")
-    ap.add_argument("--root", default=".", help="OpenGothic project root, default: current directory")
-    ap.add_argument("--archive-dir", default="docs/llm/legacy/tools-cleanup-step37", help="archive directory relative to root")
-    ap.add_argument("--apply", action="store_true", help="perform changes; without this only prints a dry-run manifest")
-    ap.add_argument("--delete", action="store_true", help="delete instead of archiving obsolete files")
-    ap.add_argument("--manifest", default="", help="optional JSON manifest path")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description="Archive obsolete MMO tools and old docs/llm/ai files safely.")
+    parser.add_argument("--profile", choices=("safe", "active-server"), default="safe")
+    parser.add_argument("--apply", action="store_true", help="Actually move files into archive directories.")
+    parser.add_argument("--dry-run", action="store_true", help="Force dry-run even if --apply is omitted; kept for explicitness.")
+    parser.add_argument("--no-tools", action="store_true", help="Do not process tools/*.py.")
+    parser.add_argument("--no-docs", action="store_true", help="Do not process docs/llm/ai/*.md.")
+    parser.add_argument("--archive-root", default=None, help="Override archive root. Default: .mmo_archive/step50_<timestamp>.")
+    parser.add_argument("--manifest", default=None, help="Manifest path. Default: archive_root/manifest.json.")
+    args = parser.parse_args()
 
-    root = Path(args.root).resolve()
-    archive_dir = rel(root, args.archive_dir)
-    if not root.exists():
-        raise SystemExit(f"project root does not exist: {root}")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive_root = Path(args.archive_root) if args.archive_root else Path(".mmo_archive") / f"step50_context_hygiene_{timestamp}"
+    if not archive_root.is_absolute():
+        archive_root = ROOT / archive_root
 
-    actions = [archive_one(root, archive_dir, item, args.delete, args.apply) for item in OBSOLETE]
-    keep = [{"path": path, "exists": str(rel(root, path).exists()).lower()} for path in KEEP_CURRENT]
+    include_tools = not args.no_tools
+    include_docs = not args.no_docs
+    candidates = build_candidates(args.profile, include_tools, include_docs)
+    apply = bool(args.apply)
+
     manifest = {
-        "tool": "cleanup_mmo_tools.py",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "root": str(root),
-        "mode": "apply" if args.apply else "dry-run",
-        "delete": args.delete,
-        "archive_dir": str(archive_dir),
-        "obsolete_actions": actions,
-        "kept_current_tools": keep,
-        "note": "Default cleanup archives, not deletes. MySQL validation and Step36/Step37 evidence tools are intentionally kept.",
+        "step": 50,
+        "profile": args.profile,
+        "apply": apply,
+        "archive_root": rel(archive_root) if archive_root.is_relative_to(ROOT) else str(archive_root),
+        "candidate_count": len(candidates),
+        "entries": [],
     }
 
-    text = json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True)
-    print(text)
-    if args.manifest:
-        path = Path(args.manifest)
-        if not path.is_absolute():
-            path = root / path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text + "\n", encoding="utf-8")
-        print(f"manifest={path}")
+    for candidate in candidates:
+        entry = move_candidate(archive_root, candidate, apply)
+        manifest["entries"].append(entry)
+        print(f"{entry['status']}: {entry['path']} -> {entry['archive_path']} [{entry['reason']}]")
+
+    manifest_path = Path(args.manifest) if args.manifest else archive_root / "manifest.json"
+    if not manifest_path.is_absolute():
+        manifest_path = ROOT / manifest_path
+    if apply:
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(f"manifest={rel(manifest_path) if manifest_path.is_relative_to(ROOT) else manifest_path}")
+    else:
+        print(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True))
+
+    print(f"summary: candidates={len(candidates)} mode={'apply' if apply else 'dry-run'} profile={args.profile}")
     return 0
 
 

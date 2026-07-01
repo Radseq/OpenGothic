@@ -957,6 +957,10 @@ bool Inventory::use(size_t cls, Npc &owner, uint8_t slotHint, bool force) {
     return false;
     }
 
+  const auto itemSymbol = it->clsId();
+  const auto itemPersistentId = it->persistentId();
+  const auto countBeforeUse = owner.itemCount(itemSymbol);
+
   bool deleteLater = false;
   if(flag & ITM_TORCH) {
     if(owner.weaponState()!=WeaponState::NoWeapon)
@@ -972,7 +976,7 @@ bool Inventory::use(size_t cls, Npc &owner, uint8_t slotHint, bool force) {
     return false;
 
   // owner.stopDlgAnim();
-  setCurrentItem(it->clsId());
+  setCurrentItem(itemSymbol);
   if(itData.on_state[0]!=0){
     auto& vm = owner.world().script();
     vm.invokeItem(&owner,uint32_t(itData.on_state[0]));
@@ -980,6 +984,14 @@ bool Inventory::use(size_t cls, Npc &owner, uint8_t slotHint, bool force) {
 
   if(deleteLater)
     owner.delItem(cls,1);
+
+  const auto countAfterUse = owner.itemCount(itemSymbol);
+  if(countBeforeUse > countAfterUse) {
+    Mmo::Hooks::onCharacterItemConsumed(owner, itemSymbol, itemPersistentId,
+                                        countBeforeUse - countAfterUse,
+                                        deleteLater ? "torch_use_consumed" : "item_use_consumed",
+                                        "game/game/inventory.cpp:Inventory::use");
+    }
 
   return true;
   }
@@ -1186,6 +1198,8 @@ Item *Inventory::readPtr(Serialize &fin) {
     return items[v].get();
   return nullptr;
   }
+
+
 
 
 

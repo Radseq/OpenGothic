@@ -1,0 +1,20 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-06-30T19:57:33.376771+00:00",
+  "routines": {
+    "mmo_build_latest_save_checkpoint_bootstrap_snapshot_v1": true,
+    "mmo_create_db_save_checkpoint_v1": true,
+    "mmo_materialize_save_checkpoint_world_clock_snapshot_v1": true
+  },
+  "sql": "/home/radseq/Desktop/OpenGothic/server/sql/step97_db_save_checkpoint_restore_bridge.sql",
+  "started_at": "2026-06-30T19:57:33.266245+00:00",
+  "status": "applied",
+  "step": "97_db_save_checkpoint_restore_bridge",
+  "tables": {
+    "mmo_save_checkpoint_world_clock_snapshot": true
+  },
+  "views": {
+    "v_mmo_latest_save_checkpoint_restore_readiness": true,
+    "v_mmo_save_checkpoint_snapshot_domain_counts": true
+  }
+}

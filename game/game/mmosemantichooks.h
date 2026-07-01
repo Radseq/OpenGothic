@@ -5,14 +5,33 @@
 #include <string_view>
 
 #include "game/constants.h"
+#include "gametime.h"
 
+class Interactive;
 class Item;
 class Npc;
 class World;
 
+
 namespace Mmo::Hooks {
 
+class ScopedCaptureSuppression final {
+  public:
+    ScopedCaptureSuppression() noexcept;
+    ScopedCaptureSuppression(const ScopedCaptureSuppression&) = delete;
+    ScopedCaptureSuppression& operator=(const ScopedCaptureSuppression&) = delete;
+    ~ScopedCaptureSuppression();
+
+  private:
+    bool active = true;
+};
+
 [[nodiscard]] bool shouldCaptureScriptAction(Npc* actor) noexcept;
+[[nodiscard]] bool isCaptureSuppressed() noexcept;
+
+void onClientBootstrapRequest(World& world,
+                              const char* sourceLocation,
+                              const char* reason = "client_bootstrap_request") noexcept;
 
 void onCharacterMovementProposal(Npc& actor,
                                  std::uint64_t fromTick,
@@ -39,6 +58,62 @@ void onCharacterMovementProposal(Npc& actor,
 void onCharacterCheckpoint(Npc& actor,
                            const char* sourceLocation,
                            const char* reason = "step39_periodic_movement_checkpoint") noexcept;
+
+void onSaveCheckpointManifest(World& world,
+                              std::string_view slotPath,
+                              std::string_view displayName,
+                              const char* sourceLocation,
+                              const char* reason = "native_save_checkpoint_manifest") noexcept;
+
+
+void onWorldTimeChanged(World& world,
+                        gtime before,
+                        gtime after,
+                        const char* sourceLocation,
+                        const char* reason = "world_time_changed") noexcept;
+
+
+void onInteractiveUsed(World& world,
+                       Interactive& interactive,
+                       Npc& actor,
+                       const char* sourceLocation,
+                       const char* reason = "interactive_use_accepted") noexcept;
+
+void onInteractiveStateChanged(World& world,
+                               Interactive& interactive,
+                               const Npc* actor,
+                               std::int32_t stateBefore,
+                               std::int32_t stateAfter,
+                               bool lockedBefore,
+                               bool lockedAfter,
+                               bool crackedBefore,
+                               bool crackedAfter,
+                               const char* sourceLocation,
+                               const char* reason = "interactive_state_changed") noexcept;
+
+
+void onWorldTriggerEvent(World& world,
+                         std::uint32_t triggerVobId,
+                         std::string_view triggerName,
+                         std::string_view targetName,
+                         std::string_view eventTarget,
+                         std::string_view eventEmitter,
+                         std::uint8_t eventType,
+                         std::string_view eventTypeName,
+                         const char* sourceLocation,
+                         const char* reason = "world_trigger_event") noexcept;
+
+void onMoverStateChanged(World& world,
+                         std::uint32_t moverVobId,
+                         std::string_view moverName,
+                         std::int32_t stateBefore,
+                         std::int32_t stateAfter,
+                         std::uint32_t frame,
+                         std::uint32_t targetFrame,
+                         std::string_view stateBeforeName,
+                         std::string_view stateAfterName,
+                         const char* sourceLocation,
+                         const char* reason = "mover_state_changed") noexcept;
 
 void onWorldItemPickedUp(Npc& actor,
                          const Item& inventoryItem,
@@ -69,6 +144,33 @@ void onItemUnequipped(Npc& actor,
                       std::uint8_t slot,
                       const char* sourceLocation) noexcept;
 
+
+void onWeaponStateChanged(Npc& actor,
+                          WeaponState previousState,
+                          WeaponState newState,
+                          const char* sourceLocation,
+                          const char* reason = "weapon_state_changed") noexcept;
+
+void onContainerInventoryTaken(Npc& actor,
+                               Interactive& container,
+                               std::size_t itemSymbol,
+                               std::uint32_t sourceItemPersistentId,
+                               std::size_t amount,
+                               const char* sourceLocation) noexcept;
+
+void onNpcInventoryLooted(Npc& looter,
+                          Npc& sourceNpc,
+                          std::size_t itemSymbol,
+                          std::uint32_t sourceItemPersistentId,
+                          std::size_t amount,
+                          const char* sourceLocation) noexcept;
+
+void onCharacterItemDropped(Npc& actor,
+                            const Item& worldItem,
+                            std::size_t itemSymbol,
+                            std::uint32_t sourceItemPersistentId,
+                            std::size_t amount,
+                            const char* sourceLocation) noexcept;
 
 void onTradeBuyFromNpc(Npc& buyer,
                        Npc& vendor,
@@ -153,6 +255,23 @@ void onQuestChanged(Npc& actor,
                     const char* sourceLocation) noexcept;
 
 } // namespace Mmo::Hooks
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

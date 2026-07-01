@@ -1,0 +1,19 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-06-30T20:12:37.693163+00:00",
+  "missing": [
+    "routines:mmo_validate_latest_save_checkpoint_restore_v1",
+    "routines:mmo_assert_latest_save_checkpoint_restore_v1",
+    "views:v_mmo_latest_save_checkpoint_strict_restore"
+  ],
+  "routines": {
+    "mmo_assert_latest_save_checkpoint_restore_v1": false,
+    "mmo_validate_latest_save_checkpoint_restore_v1": false
+  },
+  "started_at": "2026-06-30T20:12:37.652279+00:00",
+  "status": "failed",
+  "step": "98_strict_db_continue_restore",
+  "views": {
+    "v_mmo_latest_save_checkpoint_strict_restore": false
+  }
+}

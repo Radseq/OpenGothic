@@ -1,0 +1,14 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-06-30T18:24:17.834522+00:00",
+  "routines": {
+    "mmo_update_character_quest": true
+  },
+  "sql": "/home/radseq/Desktop/OpenGothic/server/sql/step93_save_checkpoint_quest_utf8_bridge.sql",
+  "started_at": "2026-06-30T18:24:17.792416+00:00",
+  "status": "applied",
+  "step": "93_save_checkpoint_quest_utf8_bridge",
+  "tables": {
+    "character_quest_audit": true
+  }
+}

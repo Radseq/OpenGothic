@@ -2,8 +2,12 @@
 
 #include <Tempest/Log>
 
+#include <string>
+#include <string_view>
+
 #include "graphics/mesh/animmath.h"
 #include "game/serialize.h"
+#include "game/mmosemantichooks.h"
 #include "world/world.h"
 
 using namespace Tempest;
@@ -82,6 +86,71 @@ void MoveTrigger::load(Serialize& fin) {
     invalidateView();
     enableTicks();
     }
+  }
+
+bool MoveTrigger::matchesPersistentKey(std::string_view moverKey, std::string_view worldName) const {
+  std::string expected;
+  expected.reserve(32 + worldName.size() + vobName.size());
+  expected.append("mover:");
+  expected.append(worldName);
+  expected.push_back(':');
+  expected.append(std::to_string(getId()));
+  expected.push_back(':');
+  if(vobName.empty()) {
+    expected.append("mover:");
+    expected.append(std::to_string(getId()));
+  } else {
+    expected.append(vobName);
+  }
+  return moverKey == expected;
+  }
+
+bool MoveTrigger::restorePersistentState(int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex) {
+  if(moverKeyFrames.empty())
+    return false;
+  if(stateAfter < int32_t(Idle) || stateAfter > int32_t(SingleKey))
+    return false;
+
+  const auto maxFrame = uint32_t(moverKeyFrames.size() - 1);
+  if(frameIndex < 0)
+    frameIndex = 0;
+  auto restoredState = State(stateAfter);
+  auto restoredFrame = std::min<uint32_t>(uint32_t(frameIndex), maxFrame);
+  targetFrame = uint32_t(-1);
+  if(targetFrameIndex >= 0)
+    targetFrame = std::min<uint32_t>(uint32_t(targetFrameIndex), maxFrame);
+
+  if(targetFrame != uint32_t(-1)) {
+    switch(restoredState) {
+      case Open:
+      case OpenTimed:
+      case Close:
+      case SingleKey:
+        restoredFrame = targetFrame;
+        restoredState = Idle;
+        targetFrame = uint32_t(-1);
+        break;
+      case Idle:
+      case Loop:
+        break;
+      }
+    }
+
+  frame = restoredFrame;
+  state = restoredState;
+  frameTime = 0;
+
+  auto mat = pos0;
+  mat.mul(mkMatrix(moverKeyFrames[frame]));
+  setLocalTransform(mat);
+  invalidateView();
+  moveEvent();
+
+  if(state == Idle)
+    disableTicks();
+  else
+    enableTicks();
+  return true;
   }
 
 float MoveTrigger::scaleRotSpeed(float speed) const {
@@ -178,6 +247,19 @@ void MoveTrigger::onTrigger(const TriggerEvent& e) {
       }
     }
   preProcessTrigger(prev);
+  auto stateName = [](State s) -> std::string_view {
+    switch(s) {
+      case Idle:      return "idle";
+      case Loop:      return "loop";
+      case Open:      return "open";
+      case OpenTimed: return "open_timed";
+      case Close:     return "close";
+      case SingleKey: return "single_key";
+    }
+    return "unknown";
+    };
+  Mmo::Hooks::onMoverStateChanged(world, getId(), vobName, std::int32_t(prev), std::int32_t(state), frame, targetFrame,
+                                  stateName(prev), stateName(state), "MoveTrigger::onTrigger", "mover_trigger_accepted");
   }
 
 void MoveTrigger::onUntrigger(const TriggerEvent& e) {
@@ -186,9 +268,23 @@ void MoveTrigger::onUntrigger(const TriggerEvent& e) {
   if(behavior!=zenkit::MoverBehavior::TRIGGER_CONTROL)
     return;
   if(frame>0 && state==Idle) {
+    const auto prev = state;
     state       = Close;
     targetFrame = 0;
     preProcessTrigger();
+    auto stateName = [](State s) -> std::string_view {
+      switch(s) {
+        case Idle:      return "idle";
+        case Loop:      return "loop";
+        case Open:      return "open";
+        case OpenTimed: return "open_timed";
+        case Close:     return "close";
+        case SingleKey: return "single_key";
+      }
+      return "unknown";
+      };
+    Mmo::Hooks::onMoverStateChanged(world, getId(), vobName, std::int32_t(prev), std::int32_t(state), frame, targetFrame,
+                                    stateName(prev), stateName(state), "MoveTrigger::onUntrigger", "mover_untrigger_accepted");
     }
   }
 
@@ -214,7 +310,21 @@ void MoveTrigger::onGotoMsg(const TriggerEvent& evt) {
       targetFrame = uint32_t(evt.move.key);
       break;
     }
+  const auto prev = Idle;
   preProcessTrigger();
+  auto stateName = [](State s) -> std::string_view {
+    switch(s) {
+      case Idle:      return "idle";
+      case Loop:      return "loop";
+      case Open:      return "open";
+      case OpenTimed: return "open_timed";
+      case Close:     return "close";
+      case SingleKey: return "single_key";
+    }
+    return "unknown";
+    };
+  Mmo::Hooks::onMoverStateChanged(world, getId(), vobName, std::int32_t(prev), std::int32_t(state), frame, targetFrame,
+                                  stateName(prev), stateName(state), "MoveTrigger::onGotoMsg", "mover_goto_accepted");
   }
 
 void MoveTrigger::preProcessTrigger(State prev) {
@@ -387,3 +497,4 @@ Matrix4x4 MoveTrigger::calcTransform(uint32_t f1, uint32_t f2, float a) const {
          0,   0,   0,   1
          };
   }
+

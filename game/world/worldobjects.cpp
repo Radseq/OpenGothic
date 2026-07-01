@@ -9,6 +9,7 @@
 #include "world/objects/vob.h"
 #include "world/collisionzone.h"
 #include "world/triggers/cscamera.h"
+#include "world/triggers/movetrigger.h"
 #include "world/triggers/pfxcontroller.h"
 #include "world/triggers/triggerworldstart.h"
 #include "world/triggers/abstracttrigger.h"
@@ -547,6 +548,18 @@ bool WorldObjects::execTriggerEvent(const TriggerEvent& e) {
     }
 
   return emitted;
+  }
+
+bool WorldObjects::restoreMoverState(std::string_view moverKey, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex) {
+  for(auto* trigger : triggers) {
+    auto* mover = dynamic_cast<MoveTrigger*>(trigger);
+    if(mover == nullptr)
+      continue;
+    if(!mover->matchesPersistentKey(moverKey, owner.name()))
+      continue;
+    return mover->restorePersistentState(stateAfter, frameIndex, targetFrameIndex);
+    }
+  return false;
   }
 
 void WorldObjects::updateAnimation(uint64_t dt) {
@@ -1264,5 +1277,6 @@ bool WorldObjects::testObj(T &src, const Npc &pl, const WorldObjects::SearchOpt 
     }
   return false;
   }
+
 
 

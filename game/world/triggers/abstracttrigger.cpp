@@ -2,13 +2,31 @@
 
 #include <Tempest/Log>
 
+#include <string_view>
+
 #include <zenkit/vobs/Trigger.hh>
 
 #include "world/objects/npc.h"
 #include "world/world.h"
 #include "game/serialize.h"
+#include "game/mmosemantichooks.h"
 
 using namespace Tempest;
+
+static std::string_view triggerEventTypeName(TriggerEvent::Type type) noexcept {
+  switch(type) {
+    case TriggerEvent::T_Trigger:          return "trigger";
+    case TriggerEvent::T_Untrigger:        return "untrigger";
+    case TriggerEvent::T_Enable:           return "enable";
+    case TriggerEvent::T_Disable:          return "disable";
+    case TriggerEvent::T_ToggleEnable:     return "toggle_enable";
+    case TriggerEvent::T_Touch:            return "touch";
+    case TriggerEvent::T_StartupFirstTime: return "startup_first_time";
+    case TriggerEvent::T_Startup:          return "startup";
+    case TriggerEvent::T_Move:             return "move";
+  }
+  return "unknown";
+}
 
 AbstractTrigger::AbstractTrigger(Vob* parent, World &world, const zenkit::VirtualObject& data, Flags flags)
   : Vob(parent,world,data,flags & (~Flags::Static)), callback(this), vobName(data.vob_name) {
@@ -104,23 +122,35 @@ void AbstractTrigger::implProcessEvent(const TriggerEvent& evt) {
       if(emitCount>=maxActivationCount)
         return;
       ++emitCount;
+      Mmo::Hooks::onWorldTriggerEvent(world, getId(), vobName, target, evt.target, evt.emitter, std::uint8_t(evt.type), triggerEventTypeName(evt.type),
+                                      "AbstractTrigger::implProcessEvent", "trigger_accepted");
       onTrigger(evt);
       break;
     case TriggerEvent::T_Untrigger:
       if(disabled || !sendUntrigger)
         return;
+      Mmo::Hooks::onWorldTriggerEvent(world, getId(), vobName, target, evt.target, evt.emitter, std::uint8_t(evt.type), triggerEventTypeName(evt.type),
+                                      "AbstractTrigger::implProcessEvent", "untrigger_accepted");
       onUntrigger(evt);
       break;
     case TriggerEvent::T_Enable:
       disabled = false;
+      Mmo::Hooks::onWorldTriggerEvent(world, getId(), vobName, target, evt.target, evt.emitter, std::uint8_t(evt.type), triggerEventTypeName(evt.type),
+                                      "AbstractTrigger::implProcessEvent", "trigger_enable_accepted");
       break;
     case TriggerEvent::T_Disable:
       disabled = true;
+      Mmo::Hooks::onWorldTriggerEvent(world, getId(), vobName, target, evt.target, evt.emitter, std::uint8_t(evt.type), triggerEventTypeName(evt.type),
+                                      "AbstractTrigger::implProcessEvent", "trigger_disable_accepted");
       break;
     case TriggerEvent::T_ToggleEnable:
       disabled = !disabled;
+      Mmo::Hooks::onWorldTriggerEvent(world, getId(), vobName, target, evt.target, evt.emitter, std::uint8_t(evt.type), triggerEventTypeName(evt.type),
+                                      "AbstractTrigger::implProcessEvent", "trigger_toggle_enable_accepted");
       break;
     case TriggerEvent::T_Move: {
+      Mmo::Hooks::onWorldTriggerEvent(world, getId(), vobName, target, evt.target, evt.emitter, std::uint8_t(evt.type), triggerEventTypeName(evt.type),
+                                      "AbstractTrigger::implProcessEvent", "trigger_move_accepted");
       onGotoMsg(evt);
       };
     }
@@ -231,3 +261,4 @@ void TriggerEvent::load(Serialize& fin) {
   if(type==T_Move)
     fin.read(reinterpret_cast<uint8_t&>(move.msg),move.key);
   }
+

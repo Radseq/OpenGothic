@@ -1,0 +1,29 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-06-30T18:24:18.033010+00:00",
+  "routines": {
+    "mmo_append_world_event": true,
+    "mmo_login_character": true,
+    "mmo_logout_character": true,
+    "mmo_update_character_quest": true
+  },
+  "smoke": {
+    "audit_rows": 1,
+    "first_event_uuid": "e7f4fe30-74b0-11f1-9435-30560f155bba",
+    "quest_key": "step93_zażółć_quest",
+    "same_event_replayed": true,
+    "second_event_uuid": "e7f4fe30-74b0-11f1-9435-30560f155bba",
+    "session_uuid": "e7f2e639-74b0-11f1-9435-30560f155bba",
+    "stored_entry": "Zażółć gęślą jaźń — próba UTF-8 i idempotencji.",
+    "stored_entry_matches": true
+  },
+  "started_at": "2026-06-30T18:24:17.862636+00:00",
+  "status": "passed",
+  "step": "93_save_checkpoint_quest_utf8_bridge",
+  "tables": {
+    "character_quest_audit": true,
+    "character_quests": true,
+    "server_sessions": true,
+    "world_event_journal": true
+  }
+}

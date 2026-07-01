@@ -1,8 +1,24 @@
-# Compact AI Context
+# OpenGothic MMO AI Context
 
-Read only `ai/00-core-context.md` through `ai/06-validation-playbook.md` in numeric order.
-These files replace the large historical `docs/llm/ai/*.md` set. They are optimized for an AI agent: dense, source-oriented, and small enough to keep in context.
+Read these files by default, in order:
 
-`docs/llm/legacy/` may keep older reverse-engineering notes and archived pre-compact AI files. Use legacy only to recover a missing source location, then verify against current `game/` code and current MySQL migrations.
+1. `ai/00-current-state.md`
+2. `ai/01-authority-data-model.md`
+3. `ai/02-gameplay-domains.md`
+4. `ai/03-code-map-and-hooks.md`
+5. `ai/04-cpp-asio-network.md`
+6. `ai/05-dev-loop-and-next-work.md`
+7. `ai/06-save-to-server-roadmap.md`
+8. `ai/22-mmo-menu-db-continue-step109.md`
+9. `ai/23-db-continue-no-new-game-trigger-step110.md`
+10. `ai/24-mmo-db-continue-startup-suppression-step112.md`
+11. `ai/25-mmo-menu-in-session-db-continue-step113.md`
+12. `ai/26-mmo-db-mover-materialization-step114.md`
+13. `ai/27-mmo-db-world-clock-routine-bootstrap-step115.md`
 
-Current target: Gothic II NotR first, then Gothic 1/Gothic 2 vanilla. Current implementation language target remains C++23. Performance and deterministic server ownership are more important than convenience.
+Do not load old numbered step files during normal work. They are archaeology.
+Keep their hard facts only when they became durable project rules below.
+
+Target: Gothic II NotR first, later Gothic 1/Gothic 2 vanilla. C++23. Prefer
+safe, explicit, high-performance code. Old single-player behavior must remain
+unchanged unless an explicit MMO/server flag is passed.

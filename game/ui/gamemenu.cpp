@@ -6,6 +6,7 @@
 #include <Tempest/Dialog>
 
 #include <algorithm>
+#include <string_view>
 
 #include "utils/string_frm.h"
 #include "world/objects/npc.h"
@@ -17,6 +18,7 @@
 #include "game/definitions/musicdefinitions.h"
 #include "game/serialize.h"
 #include "game/savegameheader.h"
+#include "commandline.h"
 #include "gothic.h"
 #include "resources.h"
 #include "build.h"
@@ -24,6 +26,31 @@
 using namespace Tempest;
 
 static const float scriptDiv=8192.0f;
+
+namespace {
+
+bool shouldMmoMenuActionLoadDbCharacter(std::string_view action) noexcept {
+  if(!CommandLine::inst().mmoClientUsesServer())
+    return false;
+  if(action == "MENU_SAVEGAME")
+    return true;
+  return action.find("LOAD") != std::string_view::npos;
+}
+
+bool shouldMmoMenuActionBlockNewGame(std::string_view action) noexcept {
+  return CommandLine::inst().mmoClientUsesServer() && action == "NEW_GAME";
+}
+
+void loadMmoDbCharacterFromMenu() {
+  Log::i("MMO menu Continue: loading server DB character without native save slot");
+  Gothic::inst().load(CommandLine::inst().mmoDbContinueSyntheticSlot());
+}
+
+void blockMmoNewGameFromMenu() {
+  Log::i("MMO menu New Game blocked: use Load/Continue for server DB character");
+}
+
+}
 
 struct GameMenu::ListContentDialog : Dialog {
   ListContentDialog(Item& textView):textView(textView) {
@@ -841,6 +868,15 @@ void GameMenu::execSingle(Item &it, int slideDx, KeyCodec::Action hint) {
         exitFlag = true;
         break;
       case zenkit::MenuItemSelectAction::START_MENU:
+        if(shouldMmoMenuActionBlockNewGame(onSelAction_S[i])) {
+          blockMmoNewGameFromMenu();
+          break;
+          }
+        if(shouldMmoMenuActionLoadDbCharacter(onSelAction_S[i])) {
+          loadMmoDbCharacterFromMenu();
+          closeFlag = true;
+          break;
+          }
         if(vm->find_symbol_by_name(onSelAction_S[i]) != nullptr)
           owner.pushMenu(new GameMenu(owner,keyCodec,*vm,onSelAction_S[i],keyClose()));
         break;
@@ -849,7 +885,14 @@ void GameMenu::execSingle(Item &it, int slideDx, KeyCodec::Action hint) {
       case zenkit::MenuItemSelectAction::CLOSE:
         Gothic::inst().emitGlobalSound(Gothic::inst().loadSoundFx("MENU_ESC"));
 
-        if(onSelAction_S[i]=="NEW_GAME") {
+        if(shouldMmoMenuActionBlockNewGame(onSelAction_S[i])) {
+          blockMmoNewGameFromMenu();
+          break;
+          }
+        else if(shouldMmoMenuActionLoadDbCharacter(onSelAction_S[i])) {
+          loadMmoDbCharacterFromMenu();
+          }
+        else if(onSelAction_S[i]=="NEW_GAME") {
           Gothic::inst().onStartGame(Gothic::inst().defaultWorld());
           }
         else if(onSelAction_S[i]=="LEAVE_GAME") {
@@ -926,6 +969,11 @@ bool GameMenu::execLoadGame(const GameMenu::Item &item) {
   const size_t id = saveSlotId(item);
   if(id==size_t(-1))
     return false;
+
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    loadMmoDbCharacterFromMenu();
+    return true;
+    }
 
   string_frm fname("save_slot_",int(id),".sav");
   if(!FileUtil::exists(TextCodec::toUtf16(fname.c_str())))
@@ -1258,3 +1306,5 @@ void GameMenu::setPlayer(const Npc &pl) {
     set(string_frm("MENU_ITEM_TALENT_",i),          string_frm(val,"%"));
     }
   }
+
+

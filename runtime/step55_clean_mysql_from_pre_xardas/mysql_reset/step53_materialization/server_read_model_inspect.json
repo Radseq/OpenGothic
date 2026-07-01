@@ -1,0 +1,57 @@
+{
+  "counts": {
+    "mmo_server_character_inventory_read_model": 0,
+    "mmo_server_character_quest_read_model": 0,
+    "mmo_server_character_read_model": 1,
+    "mmo_server_interactive_read_model": 0,
+    "mmo_server_known_dialog_read_model": 0,
+    "mmo_server_read_model_meta": 1,
+    "mmo_server_script_int_read_model": 5848,
+    "mmo_server_waypoint_edge_read_model": 0,
+    "mmo_server_waypoint_read_model": 0,
+    "mmo_server_world_clock_read_model": 0,
+    "mmo_server_world_entity_read_model": 3458,
+    "mmo_server_world_inventory_read_model": 438
+  },
+  "database": "gothic_mmo_ch1_clean",
+  "index_counts": {
+    "mmo_server_character_inventory_read_model": 1,
+    "mmo_server_character_quest_read_model": 1,
+    "mmo_server_character_read_model": 1,
+    "mmo_server_interactive_read_model": 1,
+    "mmo_server_known_dialog_read_model": 1,
+    "mmo_server_read_model_meta": 1,
+    "mmo_server_script_int_read_model": 1,
+    "mmo_server_waypoint_edge_read_model": 1,
+    "mmo_server_waypoint_read_model": 1,
+    "mmo_server_world_clock_read_model": 1,
+    "mmo_server_world_entity_read_model": 1,
+    "mmo_server_world_inventory_read_model": 1
+  },
+  "json_columns": [],
+  "missing_tables": [],
+  "source_counts": {
+    "character_inventory": 0,
+    "character_known_dialogs": 0,
+    "character_quests": 0,
+    "character_script_state": 3143,
+    "characters": 1,
+    "world_entity_state": 3458,
+    "world_event_journal": 1,
+    "world_inventory": 438,
+    "world_script_state": 2924
+  },
+  "status": "passed",
+  "step": 53,
+  "suspect_payload_columns": [],
+  "verdict": {
+    "reason_if_not_ready": [],
+    "server_read_model_v1_core_populated": true,
+    "server_read_model_v1_exists": true,
+    "server_read_model_v1_has_no_json": true,
+    "server_read_model_v1_ready_for_bootstrap_experiments": true,
+    "server_read_model_v1_uses_no_views": true,
+    "still_final_production_db": false
+  },
+  "views": []
+}

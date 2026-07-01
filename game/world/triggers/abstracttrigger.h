@@ -3,6 +3,7 @@
 #include <zenkit/vobs/Misc.hh>
 #include <zenkit/vobs/Trigger.hh>
 #include <string>
+#include <cstdint>
 
 #include "world/objects/vob.h"
 #include "world/collisionzone.h"
@@ -49,6 +50,7 @@ class AbstractTrigger : public Vob {
     virtual ~AbstractTrigger();
 
     std::string_view             name() const;
+    std::uint32_t                getId() const { return vobObjectID; }
     bool                         isEnabled() const;
     bool                         hasDelayedEvents() const;
 
@@ -106,3 +108,4 @@ class AbstractTrigger : public Vob {
     std::string                  vobName;
     std::string                  target;
   };
+

@@ -1,0 +1,447 @@
+{
+  "apply": true,
+  "archive_root": ".mmo_archive/step50_context_hygiene_20260628T150621Z",
+  "candidate_count": 73,
+  "entries": [
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/build_mmo_database.py",
+      "path": "tools/build_mmo_database.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/build_mmo_step39_movement_manifest.py",
+      "path": "tools/build_mmo_step39_movement_manifest.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/build_mmo_step40_movement_authority_final_manifest.py",
+      "path": "tools/build_mmo_step40_movement_authority_final_manifest.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/build_mmo_step40_movement_authority_manifest.py",
+      "path": "tools/build_mmo_step40_movement_authority_manifest.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/build_mmo_step40_movement_negative_corpus.py",
+      "path": "tools/build_mmo_step40_movement_negative_corpus.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/build_mmo_step41_movement_proposal_manifest.py",
+      "path": "tools/build_mmo_step41_movement_proposal_manifest.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/build_mmo_step41_movement_proposal_negative_corpus.py",
+      "path": "tools/build_mmo_step41_movement_proposal_negative_corpus.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/build_mmo_step42_movement_proposal_final_manifest.py",
+      "path": "tools/build_mmo_step42_movement_proposal_final_manifest.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/check_mmo_database.py",
+      "path": "tools/check_mmo_database.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/check_mmo_step36_vertical_slice.py",
+      "path": "tools/check_mmo_step36_vertical_slice.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/check_mmo_step37_bookstand_script_xp.py",
+      "path": "tools/check_mmo_step37_bookstand_script_xp.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/check_mmo_step37_script_jsonl.py",
+      "path": "tools/check_mmo_step37_script_jsonl.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/check_mmo_step38_trade_combat_jsonl.py",
+      "path": "tools/check_mmo_step38_trade_combat_jsonl.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/check_mmo_step38_trade_combat_mysql.py",
+      "path": "tools/check_mmo_step38_trade_combat_mysql.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/check_mmo_step39_movement_jsonl.py",
+      "path": "tools/check_mmo_step39_movement_jsonl.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/check_mmo_step39_movement_mysql.py",
+      "path": "tools/check_mmo_step39_movement_mysql.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/check_mmo_step40_movement_authority.py",
+      "path": "tools/check_mmo_step40_movement_authority.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/check_mmo_step41_movement_proposal_jsonl.py",
+      "path": "tools/check_mmo_step41_movement_proposal_jsonl.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/import_world_dump_sqlite.py",
+      "path": "tools/import_world_dump_sqlite.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/package_mmo_step36_evidence.py",
+      "path": "tools/package_mmo_step36_evidence.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/prepare_mmo_dispatch_dev_fixture.py",
+      "path": "tools/prepare_mmo_dispatch_dev_fixture.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/prepare_mmo_step38_dev_fixture.py",
+      "path": "tools/prepare_mmo_step38_dev_fixture.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/run_mmo_step37_bookstand_mysql_e2e.py",
+      "path": "tools/run_mmo_step37_bookstand_mysql_e2e.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/run_mmo_step38_trade_combat_e2e.py",
+      "path": "tools/run_mmo_step38_trade_combat_e2e.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/run_mmo_step39_movement_e2e.py",
+      "path": "tools/run_mmo_step39_movement_e2e.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/run_mmo_step40_movement_authority_e2e.py",
+      "path": "tools/run_mmo_step40_movement_authority_e2e.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/run_mmo_step40_movement_negative_suite.py",
+      "path": "tools/run_mmo_step40_movement_negative_suite.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/run_mmo_step41_movement_proposal_e2e.py",
+      "path": "tools/run_mmo_step41_movement_proposal_e2e.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/run_mmo_step41_movement_proposal_negative_suite.py",
+      "path": "tools/run_mmo_step41_movement_proposal_negative_suite.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/tools/tools/run_mysql_mmo_action_worker.py",
+      "path": "tools/run_mysql_mmo_action_worker.py",
+      "reason": "not in active server-boundary/MySQL/tooling set",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/00-core-context.md",
+      "path": "docs/llm/ai/00-core-context.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/01-persistence-stack.md",
+      "path": "docs/llm/ai/01-persistence-stack.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/02-domain-model.md",
+      "path": "docs/llm/ai/02-domain-model.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/03-engine-surfaces.md",
+      "path": "docs/llm/ai/03-engine-surfaces.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/04-mutation-boundaries.md",
+      "path": "docs/llm/ai/04-mutation-boundaries.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/05-server-first-roadmap.md",
+      "path": "docs/llm/ai/05-server-first-roadmap.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/06-validation-playbook.md",
+      "path": "docs/llm/ai/06-validation-playbook.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/07-cpp-hook-link-fix.md",
+      "path": "docs/llm/ai/07-cpp-hook-link-fix.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/07-step43-mmo-server.md",
+      "path": "docs/llm/ai/07-step43-mmo-server.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/08-cpp-hook-bootstrap-filter.md",
+      "path": "docs/llm/ai/08-cpp-hook-bootstrap-filter.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/08-step44-live-gameplay-domains.md",
+      "path": "docs/llm/ai/08-step44-live-gameplay-domains.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/09-cpp-action-udp-receiver.md",
+      "path": "docs/llm/ai/09-cpp-action-udp-receiver.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/09-step45-world-ai-weapon-loot.md",
+      "path": "docs/llm/ai/09-step45-world-ai-weapon-loot.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/10-mysql-outbox-enqueue-bridge.md",
+      "path": "docs/llm/ai/10-mysql-outbox-enqueue-bridge.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/10-step46-consumables-clock-ai-context.md",
+      "path": "docs/llm/ai/10-step46-consumables-clock-ai-context.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/11-mysql-resolved-action-dispatcher.md",
+      "path": "docs/llm/ai/11-mysql-resolved-action-dispatcher.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/11-step47-interactive-mobsi-state.md",
+      "path": "docs/llm/ai/11-step47-interactive-mobsi-state.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/12-mysql-dispatch-dev-fixture.md",
+      "path": "docs/llm/ai/12-mysql-dispatch-dev-fixture.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/12-step48-interactive-trigger-filter.md",
+      "path": "docs/llm/ai/12-step48-interactive-trigger-filter.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/13-mysql-dispatch-diagnostics-fixes.md",
+      "path": "docs/llm/ai/13-mysql-dispatch-diagnostics-fixes.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/13-step49-server-bootstrap-npc-navigation.md",
+      "path": "docs/llm/ai/13-step49-server-bootstrap-npc-navigation.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/14-step36-vertical-slice-evidence.md",
+      "path": "docs/llm/ai/14-step36-vertical-slice-evidence.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/15-step36-jsonl-fingerprint-correlation.md",
+      "path": "docs/llm/ai/15-step36-jsonl-fingerprint-correlation.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/16-step36-server-jsonl-recovery.md",
+      "path": "docs/llm/ai/16-step36-server-jsonl-recovery.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/17-step36-evidence-package.md",
+      "path": "docs/llm/ai/17-step36-evidence-package.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/18-tools-cleanup-and-step37.md",
+      "path": "docs/llm/ai/18-tools-cleanup-and-step37.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/19-step37-cpp-script-hooks.md",
+      "path": "docs/llm/ai/19-step37-cpp-script-hooks.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/20-step37-const-fix.md",
+      "path": "docs/llm/ai/20-step37-const-fix.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/20-step37-e2e-runner.md",
+      "path": "docs/llm/ai/20-step37-e2e-runner.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/21-step37-dialog-availability-fix.md",
+      "path": "docs/llm/ai/21-step37-dialog-availability-fix.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/22-step38-trade-combat-resource.md",
+      "path": "docs/llm/ai/22-step38-trade-combat-resource.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/23-step38-const-correctness-fix.md",
+      "path": "docs/llm/ai/23-step38-const-correctness-fix.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/24-step38-resolver-fixture.md",
+      "path": "docs/llm/ai/24-step38-resolver-fixture.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/25-step38-fixture-schema-fix.md",
+      "path": "docs/llm/ai/25-step38-fixture-schema-fix.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/26-step38-stale-combat-noop.md",
+      "path": "docs/llm/ai/26-step38-stale-combat-noop.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/27-step38-focused-trade-fixture.md",
+      "path": "docs/llm/ai/27-step38-focused-trade-fixture.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/28-step39-movement-checkpoint-foundation.md",
+      "path": "docs/llm/ai/28-step39-movement-checkpoint-foundation.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/29-step39-coalesced-movement-evidence.md",
+      "path": "docs/llm/ai/29-step39-coalesced-movement-evidence.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/30-step39-sign-compare-fix.md",
+      "path": "docs/llm/ai/30-step39-sign-compare-fix.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/31-step40-movement-authority-harness.md",
+      "path": "docs/llm/ai/31-step40-movement-authority-harness.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/32-step40-movement-authority-negative-suite.md",
+      "path": "docs/llm/ai/32-step40-movement-authority-negative-suite.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/33-step41-movement-proposal-harness.md",
+      "path": "docs/llm/ai/33-step41-movement-proposal-harness.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    },
+    {
+      "archive_path": ".mmo_archive/step50_context_hygiene_20260628T150621Z/docs-llm-ai/docs/llm/ai/34-step42-fall-aware-movement-proposal.md",
+      "path": "docs/llm/ai/34-step42-fall-aware-movement-proposal.md",
+      "reason": "old step history; compact active memory replaces it",
+      "status": "archived"
+    }
+  ],
+  "profile": "active-server",
+  "step": 50
+}

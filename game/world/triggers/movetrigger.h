@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <string_view>
+
 #include <zenkit/vobs/Trigger.hh>
 
 #include "graphics/meshobjects.h"
@@ -18,6 +21,8 @@ class MoveTrigger : public AbstractTrigger {
     void onGotoMsg(const TriggerEvent& evt) override;
 
     void tick(uint64_t dt) override;
+    bool matchesPersistentKey(std::string_view moverKey, std::string_view worldName) const;
+    bool restorePersistentState(int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex);
 
   private:
     enum State : int32_t {

@@ -1,0 +1,8 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-07-01T14:51:56.732138+00:00",
+  "sql": "/home/radseq/Desktop/OpenGothic/server/sql/step103_db_checkpoint_export_coverage.sql",
+  "started_at": "2026-07-01T14:51:56.713869+00:00",
+  "status": "ok",
+  "step": "103_db_checkpoint_export_coverage"
+}

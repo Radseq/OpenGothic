@@ -1,0 +1,35 @@
+{
+  "accepted": true,
+  "amount_picked": 1,
+  "authority": {
+    "client_does_not_consume_this_ack_yet": true,
+    "item_added_to_character_inventory": true,
+    "old_single_player_unchanged": true,
+    "server_resolved_world_item": true,
+    "world_item_removed_from_world_projection": true
+  },
+  "bag_index": 1,
+  "character_uuid": "daffc52a-73d6-11f1-b8ca-30560f155bba",
+  "event_uuid": "6a902d01-73d7-11f1-b8ca-30560f155bba",
+  "item_instance_uuid": "dbb1c3d2-73d6-11f1-b8ca-30560f155bba",
+  "outbox_status": "applied",
+  "pickup_status": "accepted_inventory_persisted",
+  "request_action_uuid": "5abbd79d-73d7-11f1-b8ca-30560f155bba",
+  "request_idempotency_key": "local-dev-PC_HERO_TEST:pickup_world_item:world-item:newworld.zen:pid:67:sym:6765:106",
+  "request_kind": "pickup_world_item",
+  "resolved": {
+    "bag_index": 1,
+    "bag_index_resolver": "server_next_free_bag_index_v3",
+    "item_symbol": "6765",
+    "lifecycle_state": "active",
+    "persistent_id": "67",
+    "resolver": "world_item_engine_key_v2",
+    "world_item_entity_key": "world_item:newworld.zen:67:6765:67"
+  },
+  "response_kind": "pickup_ack",
+  "session_uuid": "f77562f3-73d6-11f1-b8ca-30560f155bba",
+  "version": 1,
+  "worker_run_uuid": "6723a220-73d7-11f1-b8ca-30560f155bba",
+  "world_item_entity_key": "world_item:newworld.zen:67:6765:67",
+  "world_uuid": "daff877d-73d6-11f1-b8ca-30560f155bba"
+}

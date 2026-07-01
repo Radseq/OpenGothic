@@ -243,6 +243,62 @@ void Npc::restorePersistentState(const PersistentState& state) {
     }
   }
 
+namespace {
+
+void restoreNpcStatIfPresent(int32_t& dst, int32_t value) noexcept {
+  if(value != Npc::PersistentStats::Missing)
+    dst = std::max(0, value);
+}
+
+} // namespace
+
+void Npc::restorePersistentStats(const PersistentStats& state) {
+  restoreNpcStatIfPresent(hnpc->level, state.level);
+  restoreNpcStatIfPresent(hnpc->exp, state.experience);
+  restoreNpcStatIfPresent(hnpc->exp_next, state.experienceNext);
+  restoreNpcStatIfPresent(hnpc->lp, state.learningPoints);
+
+  if(state.guild != PersistentStats::Missing)
+    hnpc->guild = state.guild;
+  if(state.trueGuild != PersistentStats::Missing)
+    setTrueGuild(state.trueGuild);
+
+  restoreNpcStatIfPresent(hnpc->attribute[ATR_HITPOINTSMAX], state.healthMax);
+  restoreNpcStatIfPresent(hnpc->attribute[ATR_MANAMAX], state.manaMax);
+  restoreNpcStatIfPresent(hnpc->attribute[ATR_STRENGTH], state.strength);
+  restoreNpcStatIfPresent(hnpc->attribute[ATR_DEXTERITY], state.dexterity);
+
+  if(state.healthCurrent != PersistentStats::Missing) {
+    hnpc->attribute[ATR_HITPOINTS] = std::max(0, state.healthCurrent);
+    if(hnpc->attribute[ATR_HITPOINTSMAX] > 0)
+      hnpc->attribute[ATR_HITPOINTS] = std::min(hnpc->attribute[ATR_HITPOINTS], hnpc->attribute[ATR_HITPOINTSMAX]);
+    }
+  if(state.manaCurrent != PersistentStats::Missing) {
+    hnpc->attribute[ATR_MANA] = std::max(0, state.manaCurrent);
+    if(hnpc->attribute[ATR_MANAMAX] > 0)
+      hnpc->attribute[ATR_MANA] = std::min(hnpc->attribute[ATR_MANA], hnpc->attribute[ATR_MANAMAX]);
+    }
+}
+
+void Npc::restorePersistentLifecycle(int32_t healthCurrent, int32_t healthMax, bool dead) {
+  if(healthMax >= 0)
+    hnpc->attribute[ATR_HITPOINTSMAX] = std::max(0, healthMax);
+  if(healthCurrent >= 0) {
+    const int32_t maxHp = std::max(0, hnpc->attribute[ATR_HITPOINTSMAX]);
+    hnpc->attribute[ATR_HITPOINTS] = maxHp > 0 ? std::clamp(healthCurrent, 0, maxHp) : std::max(0, healthCurrent);
+    }
+
+  if(dead || hnpc->attribute[ATR_HITPOINTS] <= 0) {
+    hnpc->attribute[ATR_HITPOINTS] = 0;
+    if(!isDead())
+      onNoHealth(true, HS_NoSound);
+    return;
+    }
+
+  if(!isDead())
+    physic.setEnable(true);
+}
+
 void Npc::restorePersistentInventory(const std::vector<PersistentInventoryItem>& next) {
   invent.resetForPersistence(*this);
   for(const auto& item : next) {
@@ -3433,6 +3489,7 @@ void Npc::setToFightMode(const size_t item) {
   if(w==nullptr || w->clsId()!=item)
     return;
 
+  const auto previousWeaponState = weaponState();
   auto weaponSt = WeaponState::W1H;
   if(w->is2H()) {
     weaponSt = WeaponState::W2H;
@@ -3446,6 +3503,9 @@ void Npc::setToFightMode(const size_t item) {
   auto& weapon = *currentMeleeWeapon();
   auto  st     = weapon.is2H() ? WeaponState::W2H : WeaponState::W1H;
   hnpc->weapon  = (st==WeaponState::W1H ? 3:4);
+  Mmo::Hooks::onWeaponStateChanged(*this, previousWeaponState, st,
+                                   "game/world/objects/npc.cpp:Npc::setToFightMode",
+                                   "weapon_ready_script_set_fight_mode");
   }
 
 void Npc::setToFistMode() {
@@ -3456,6 +3516,9 @@ void Npc::setToFistMode() {
   if(visual.setToFightMode(WeaponState::Fist))
     updateWeaponSkeleton();
   hnpc->weapon  = 1;
+  Mmo::Hooks::onWeaponStateChanged(*this, weaponSt, WeaponState::Fist,
+                                   "game/world/objects/npc.cpp:Npc::setToFistMode",
+                                   "weapon_ready_script_set_fist_mode");
   }
 
 void Npc::aiPush(AiQueue::AiAction&& a) {
@@ -3533,11 +3596,25 @@ void Npc::onWldItemRemoved(const Item& itm) {
   }
 
 void Npc::addItem(size_t id, Interactive &chest, size_t count) {
+  const auto sourceItemBefore = chest.inventory().getItem(id);
+  const auto sourceItemPersistentId = sourceItemBefore != nullptr ? sourceItemBefore->persistentId() : 0u;
+  const auto before = invent.itemCount(id);
   Inventory::transfer(invent,chest.inventory(),nullptr,id,count,owner);
+  const auto after = invent.itemCount(id);
+  const auto moved = after > before ? after - before : 0u;
+  Mmo::Hooks::onContainerInventoryTaken(*this, chest, id, sourceItemPersistentId, moved,
+                                        "game/world/objects/npc.cpp:Npc::addItem(Interactive)");
   }
 
 void Npc::addItem(size_t id, Npc &from, size_t count) {
+  const auto sourceItemBefore = from.invent.getItem(id);
+  const auto sourceItemPersistentId = sourceItemBefore != nullptr ? sourceItemBefore->persistentId() : 0u;
+  const auto before = invent.itemCount(id);
   Inventory::transfer(invent,from.invent,&from,id,count,owner);
+  const auto after = invent.itemCount(id);
+  const auto moved = after > before ? after - before : 0u;
+  Mmo::Hooks::onNpcInventoryLooted(*this, from, id, sourceItemPersistentId, moved,
+                                   "game/world/objects/npc.cpp:Npc::addItem(Npc)");
   }
 
 void Npc::moveItem(size_t id, Interactive &to, size_t count) {
@@ -3600,6 +3677,9 @@ void Npc::dropItem(size_t id, size_t count) {
   if(count<1)
     return;
 
+  const auto inventoryItemBefore = invent.getItem(id);
+  const auto sourceItemPersistentId = inventoryItemBefore != nullptr ? inventoryItemBefore->persistentId() : 0u;
+
   auto sk = visual.visualSkeleton();
   if(sk==nullptr)
     return;
@@ -3616,8 +3696,12 @@ void Npc::dropItem(size_t id, size_t count) {
     mat = visual.pose().bone(rightHand);
 
   auto it = owner.addItemDyn(id,mat,hnpc->symbol_index());
+  if(it==nullptr)
+    return;
   it->setCount(count);
   invent.delItem(id,count,*this);
+  Mmo::Hooks::onCharacterItemDropped(*this, *it, id, sourceItemPersistentId, count,
+                                     "game/world/objects/npc.cpp:Npc::dropItem");
   }
 
 void Npc::clearInventory() {
@@ -3764,6 +3848,7 @@ bool Npc::canSwitchWeapon() const {
 
 bool Npc::closeWeapon(bool noAnim) {
   auto weaponSt=weaponState();
+  const auto previousWeaponState = weaponSt;
   if(weaponSt==WeaponState::NoWeapon)
     return true;
   if(!noAnim && !visual.startAnim(*this,WeaponState::NoWeapon))
@@ -3784,6 +3869,9 @@ bool Npc::closeWeapon(bool noAnim) {
   castNextTime     = 0;
   if(isPlayer())
     owner.sendPassivePerc(*this,*this,PERC_ASSESSREMOVEWEAPON);
+  Mmo::Hooks::onWeaponStateChanged(*this, previousWeaponState, WeaponState::NoWeapon,
+                                   "game/world/objects/npc.cpp:Npc::closeWeapon",
+                                   noAnim ? "weapon_holster_no_anim" : "weapon_holster");
   return true;
   }
 
@@ -3808,6 +3896,9 @@ bool Npc::drawWeaponFist() {
 
   invent.switchActiveWeaponFist();
   hnpc->weapon = 1;
+  Mmo::Hooks::onWeaponStateChanged(*this, weaponSt, WeaponState::Fist,
+                                   "game/world/objects/npc.cpp:Npc::drawWeaponFist",
+                                   "weapon_ready_fist");
   return true;
   }
 
@@ -3834,6 +3925,9 @@ bool Npc::drawWeaponMelee() {
 
   invent.switchActiveWeapon(*this,1);
   hnpc->weapon = (st==WeaponState::W1H ? 3:4);
+  Mmo::Hooks::onWeaponStateChanged(*this, weaponSt, st,
+                                   "game/world/objects/npc.cpp:Npc::drawWeaponMelee",
+                                   "weapon_ready_melee");
   return true;
   }
 
@@ -3857,6 +3951,9 @@ bool Npc::drawWeaponBow() {
     return false;
   invent.switchActiveWeapon(*this,2);
   hnpc->weapon = (st==WeaponState::Bow ? 5:6);
+  Mmo::Hooks::onWeaponStateChanged(*this, weaponSt, st,
+                                   "game/world/objects/npc.cpp:Npc::drawWeaponBow",
+                                   "weapon_ready_ranged");
   return true;
   }
 
@@ -3890,6 +3987,9 @@ bool Npc::drawSpell(int32_t spell) {
   hnpc->weapon = 7;
 
   updateWeaponSkeleton();
+  Mmo::Hooks::onWeaponStateChanged(*this, weaponSt, WeaponState::Mage,
+                                   "game/world/objects/npc.cpp:Npc::drawSpell",
+                                   "weapon_ready_spell");
   return true;
   }
 
@@ -4957,6 +5057,17 @@ void Npc::updateAnimation(uint64_t dt, bool force) {
   if(syncAtt)
     visual.syncAttaches();
   }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

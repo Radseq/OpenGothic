@@ -130,6 +130,7 @@ class World final {
     void                 triggerEvent(const TriggerEvent& e);
     void                 triggerChangeWorld(std::string_view world, std::string_view wayPoint);
     void                 execTriggerEvent(const TriggerEvent& e);
+    bool                 restoreMoverState(std::string_view moverKey, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex);
     void                 enableDefTrigger(AbstractTrigger& t);
     void                 enableTicks (AbstractTrigger& t);
     void                 disableTicks(AbstractTrigger& t);
@@ -228,3 +229,4 @@ class World final {
 
     Sound        addHitEffect(std::string_view src, std::string_view reciver, std::string_view scheme, const Tempest::Matrix4x4& pos);
   };
+

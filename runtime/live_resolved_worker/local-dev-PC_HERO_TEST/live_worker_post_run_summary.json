@@ -1,0 +1,165 @@
+{
+  "action_summary": {
+    "action_totals": {
+      "adjust_progression": 1,
+      "equip_character_item": 1,
+      "holster_weapon": 1,
+      "movement_proposal": 59,
+      "pickup_world_item": 2,
+      "ready_weapon": 13,
+      "set_known_dialog": 3,
+      "set_script_int": 7,
+      "update_interactive_state": 5,
+      "update_quest": 1,
+      "use_interactive": 1
+    },
+    "failures": [],
+    "response_kind_totals": {
+      "interactive_use_ack": 1,
+      "movement_authority_ack": 59
+    },
+    "rows": [
+      {
+        "action_kind": "adjust_progression",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "equip_character_item",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "holster_weapon",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "movement_proposal",
+        "count": 59,
+        "response_kind": "movement_authority_ack",
+        "status": "applied"
+      },
+      {
+        "action_kind": "pickup_world_item",
+        "count": 2,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "ready_weapon",
+        "count": 13,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "set_known_dialog",
+        "count": 3,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "set_script_int",
+        "count": 7,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "update_interactive_state",
+        "count": 5,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "update_quest",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "use_interactive",
+        "count": 1,
+        "response_kind": "interactive_use_ack",
+        "status": "applied"
+      }
+    ],
+    "session_key": "local-dev-PC_HERO_TEST",
+    "status_totals": {
+      "applied": 94
+    }
+  },
+  "character_key": "PC_HERO",
+  "created_at": "2026-06-29T16:27:27.083708+00:00",
+  "inventory_evidence_summary": {
+    "events": [
+      {
+        "count": 1,
+        "event_class": "equipment",
+        "event_type": "character_item_equipped"
+      },
+      {
+        "count": 5,
+        "event_class": "world_entity",
+        "event_type": "interactive_state_changed"
+      },
+      {
+        "count": 1,
+        "event_class": "world_entity",
+        "event_type": "interactive_used"
+      },
+      {
+        "count": 2,
+        "event_class": "inventory",
+        "event_type": "world_item_picked_up"
+      }
+    ],
+    "world_item_audit": [
+      {
+        "audit_type": "pickup",
+        "count": 2
+      }
+    ]
+  },
+  "roundtrip_check": {
+    "cmd": [
+      "/usr/bin/python3",
+      "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step69_pc_hero_test_inventory_roundtrip.py",
+      "--url",
+      "mysql://gothic:***@127.0.0.1:3306/gothic_mmo_ch1_clean",
+      "--session-key",
+      "local-dev-PC_HERO_TEST",
+      "--character-key",
+      "PC_HERO",
+      "--snapshot",
+      "/home/radseq/Desktop/OpenGothic/runtime/live_resolved_worker/local-dev-PC_HERO_TEST/mysql_restore_snapshot.json",
+      "--output",
+      "/home/radseq/Desktop/OpenGothic/runtime/live_resolved_worker/local-dev-PC_HERO_TEST/inventory_roundtrip_check.json"
+    ],
+    "returncode": 1,
+    "stderr_tail": "",
+    "stdout_tail": "status=failed\nerrors=response_kind_mismatch\n"
+  },
+  "session_key": "local-dev-PC_HERO_TEST",
+  "snapshot": {
+    "cmd": [
+      "/usr/bin/python3",
+      "/home/radseq/Desktop/OpenGothic/tools/export_mmo_pc_hero_test_restore_snapshot.py",
+      "--url",
+      "mysql://gothic:***@127.0.0.1:3306/gothic_mmo_ch1_clean",
+      "--session-key",
+      "local-dev-PC_HERO_TEST",
+      "--character-key",
+      "PC_HERO",
+      "--output",
+      "/home/radseq/Desktop/OpenGothic/runtime/live_resolved_worker/local-dev-PC_HERO_TEST/mysql_restore_snapshot.json"
+    ],
+    "returncode": 0,
+    "stderr_tail": "",
+    "stdout_tail": "status=passed\ncharacter_key=PC_HERO\ninventory_count=2\nequipment_count=1\noutput=/home/radseq/Desktop/OpenGothic/runtime/live_resolved_worker/local-dev-PC_HERO_TEST/mysql_restore_snapshot.json\n"
+  },
+  "step": "69_pc_hero_test_inventory_roundtrip_post_run",
+  "worker_returncode": 0
+}

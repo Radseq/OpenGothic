@@ -1,0 +1,736 @@
+{
+  "applied_sql": [
+    {
+      "path": "db/migrations/mysql/production/001_gothic_mmo_production_schema.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "db/migrations/mysql/production/002_bootstrap_import_pipeline.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step51_authority_gap_procedures.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step55_live_receiver_bridge.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step56b_clean_db_progress_bridge.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step59_clean_db_item_interactive_progress_bridge.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step60_clean_db_equipment_bridge.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step67_interactive_use_bridge.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step68_drop_loot_inventory_bridge.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step83_combat_lifecycle_bridge.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step84_world_identity_lifecycle_bridge.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step93_save_checkpoint_quest_utf8_bridge.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step94_server_save_checkpoint_manifest.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step95_save_slot_catalog_db_continue_bridge.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step96_db_save_checkpoint_snapshots.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step108_db_checkpoint_world_clock_foundation.sql",
+      "phase": "before_step103_step104",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step97_db_save_checkpoint_restore_bridge.sql",
+      "status": "skipped_replaced_by_step104_procedure_export"
+    },
+    {
+      "path": "server/sql/step98_strict_db_continue_restore.sql",
+      "status": "skipped_replaced_by_step104_procedure_export"
+    },
+    {
+      "path": "server/sql/step103_db_checkpoint_export_coverage.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step104_db_checkpoint_script_state_full_export.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step108_db_checkpoint_world_clock_foundation.sql",
+      "phase": "after_step104",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "127.0.0.1",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    }
+  ],
+  "baseline": "runtime/baselines/g2notr_chapter1_before_xardas.sqlite",
+  "commands": [
+    {
+      "cmd": [
+        "/usr/bin/mysql",
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "-h",
+        "127.0.0.1",
+        "-P",
+        "3306",
+        "-u",
+        "gothic",
+        "-pgothic_dev_password"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/import_runtime_sqlite_to_mysql.py",
+        "--sqlite",
+        "/home/radseq/Desktop/OpenGothic/runtime/baselines/g2notr_chapter1_before_xardas.sqlite",
+        "--mysql-url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--realm-key",
+        "local-dev",
+        "--realm-display-name",
+        "Local Dev Realm",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/run_mmo_step53_server_materialization_followup.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--output-dir",
+        "/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization",
+        "--limit",
+        "80",
+        "--sample-limit",
+        "25"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "artifact=/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_read_model_materialize.json\nStep53 server read-model materialization\ndatabase=gothic_mmo_ch1_clean\n  characters: materialized rows=1\n  character_inventory: materialized\n  character_quests: materialized\n  known_dialogs: materialized\n  world_entity_state: materialized rows=3458\n  world_inventory: materialized rows=438\n  script_ints: materialized rows=5848\n  world_clock: materialized\n  waypoints: skipped reason=source table runtime_waypoints missing in MySQL; SQLite still has this context\n  waypoint_edges: skipped reason=source table runtime_waypoint_edges missing in MySQL; SQLite still has this context\nstatus=materialized\nStep53 server read-model v1 inspection\ndatabase=gothic_mmo_ch1_clean\ncounts:\n  mmo_server_read_model_meta: 1\n  mmo_server_character_read_model: 1\n  mmo_server_character_inventory_read_model: 0\n  mmo_server_character_quest_read_model: 0\n  mmo_server_known_dialog_read_model: 0\n  mmo_server_world_entity_read_model: 3458\n  mmo_server_world_inventory_read_model: 438\n  mmo_server_interactive_read_model: 0\n  mmo_server_script_int_read_model: 5848\n  mmo_server_world_clock_read_model: 0\n  mmo_server_waypoint_read_model: 0\n  mmo_server_waypoint_edge_read_model: 0\nverdict:\n  server_read_model_v1_exists: True\n  server_read_model_v1_has_no_json: True\n  server_read_model_v1_uses_no_views: True\n  server_read_model_v1_core_populated: True\n  server_read_model_v1_ready_for_bootstrap_experiments: True\n  still_final_production_db: False\n  reason_if_not_ready:\nstatus=passed\nartifact=/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_read_model_inspect.json\nartifact=/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_materialization_manifest.json\nStep53 server materialization manifest\ndatabase=gothic_mmo_ch1_clean\n  mmo_server_read_model_meta: 1\n  mmo_server_character_read_model: 1\n  mmo_server_character_inventory_read_model: 0\n  mmo_server_character_quest_read_model: 0\n  mmo_server_known_dialog_read_model: 0\n  mmo_server_world_entity_read_model: 3458\n  mmo_server_world_inventory_read_model: 438\n  mmo_server_interactive_read_model: 0\n  mmo_server_script_int_read_model: 5848\n  mmo_server_world_clock_read_model: 0\n  mmo_server_waypoint_read_model: 0\n  mmo_server_waypoint_edge_read_model: 0\nstatus=exported\n[RUN] /usr/bin/python3 /home/radseq/Desktop/OpenGothic/tools/materialize_mmo_server_read_model_v1.py --url mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean --output /home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_read_model_materialize.json\n[RUN] /usr/bin/python3 /home/radseq/Desktop/OpenGothic/tools/inspect_mmo_server_read_model_v1.py --url mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean --output /home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_read_model_inspect.json --limit 80\n[RUN] /usr/bin/python3 /home/radseq/Desktop/OpenGothic/tools/export_mmo_server_materialization_manifest.py --url mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean --output /home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_materialization_manifest.json --sample-limit 25\nartifact=/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_read_model_materialize.json\nartifact=/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_read_model_inspect.json\nartifact=/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_materialization_manifest.json\nartifact=/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/manifest.json\nstatus=passed\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/normalize_mmo_mysql_collation.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--output",
+        "/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/normalize_collation.json"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "converted=mmo_character_resource_state_current\nconverted=mmo_character_resource_state_history\nconverted=mmo_character_teleport_history\nconverted=mmo_character_training_history\nconverted=mmo_character_training_state_current\nconverted=mmo_npc_reaction_history\nconverted=mmo_npc_weapon_state_current\nconverted=mmo_npc_weapon_state_history\nconverted=mmo_server_character_inventory_read_model\nconverted=mmo_server_character_quest_read_model\nconverted=mmo_server_character_read_model\nconverted=mmo_server_interactive_read_model\nconverted=mmo_server_known_dialog_read_model\nconverted=mmo_server_read_model_meta\nconverted=mmo_server_script_int_read_model\nconverted=mmo_server_waypoint_edge_read_model\nconverted=mmo_server_waypoint_read_model\nconverted=mmo_server_world_clock_read_model\nconverted=mmo_server_world_entity_read_model\nconverted=mmo_server_world_inventory_read_model\nconverted=mmo_world_clock_state_history\nconverted=mmo_world_mover_state_current\nconverted=mmo_world_mover_state_history\nconverted=mmo_world_respawn_history\nconverted=mmo_world_trigger_events\nartifact=/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/normalize_collation.json\nstatus=passed\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mysql_bootstrap_import.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--realm-key",
+        "local-dev",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "[OK] schema marker 001: 1 rows, expected >= 1\n[OK] schema marker 002: 1 rows, expected >= 1\n[OK] finished import runs: 1 rows, expected >= 1\n[OK] content game target: 1 rows, expected >= 1\n[OK] content revisions: 1 rows, expected >= 1\n[OK] world templates: 1 rows, expected >= 1\n[OK] realm: 1 rows, expected >= 1\n[OK] world instances: 1 rows, expected >= 1\n[OK] character: 1 rows, expected >= 1\n[OK] character position: 1 rows, expected >= 1\n[OK] character stats: 1 rows, expected >= 1\n[OK] import event: 1 rows, expected >= 1\nlatest import:\n3285a327-a5e8-40d8-b1fd-0cc2a398ebcd\t25\tg2notr\tfinished\t{\"mmo_world_instances\": 1, \"mmo_world_templates\": 1, \"imported_character_key\": \"PC_HERO\", \"mmo_characters_current\": 1, \"imported_item_templates\": 315, \"mmo_world_clock_current\": 1, \"mmo_world_items_current\": 2461, \"imported_world_templates\": 1, \"mmo_world_baseline_items\": 2461, \"imported_entity_templates\": 638, \"mmo_script_globals_current\": 2924, \"mmo_creature_spawns_current\": 1052, \"mmo_unit_stat_sheet_current\": 1053, \"mmo_character_quests_current\": 0, \"mmo_character_wallet_current\": 1, \"mmo_world_baseline_creatures\": 1052, \"mmo_creature_inventory_current\": 2482, \"mmo_creature_templates_current\": 404, \"mmo_world_interactives_current\": 996, \"mmo_character_inventory_current\": 0, \"mmo_world_baseline_interactives\": 996, \"mmo_script_global_values_current\": 3143, \"mmo_world_baseline_creature_stats\": 200932, \"mmo_world_baseline_script_globals\": 2924, \"mmo_character_known_dialogs_current\": 0, \"mmo_character_story_progress_current\": 1, \"mmo_world_baseline_creature_inventory\": 2482, \"mmo_world_baseline_creature_templates\": 404, \"mmo_world_container_inventory_current\": 438, \"mmo_world_baseline_container_inventory\": 438, \"mmo_world_baseline_script_global_values\": 3143}\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step55_live_receiver_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "OK: table server_sessions\nOK: table mmo_server_action_outbox\nOK: table mmo_server_action_worker_runs\nOK: table mmo_server_action_worker_results\nOK: routine mmo_login_character\nOK: routine mmo_enqueue_server_action\nOK: routine mmo_claim_next_server_action\nOK: routine mmo_mark_server_action_applied\nOK: routine mmo_mark_server_action_failed\nOK: routine mmo_start_server_action_worker_run\nOK: routine mmo_finish_server_action_worker_run\nOK: routine mmo_record_server_action_worker_result\nstatus=passed\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step56b_clean_db_progress_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Step56b clean DB progress bridge check\nstatus=passed\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step59_clean_db_item_interactive_progress_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "status=passed\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step60_clean_db_equipment_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "status=passed\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step67_interactive_use_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "status=passed\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step68_drop_loot_inventory_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "status=passed\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step93_save_checkpoint_quest_utf8_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\n",
+      "stdout": "1\n1\nstatus=ok\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step94_server_save_checkpoint_manifest.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\n",
+      "stdout": "1\n1\nstatus=ok\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step95_save_slot_catalog_db_continue_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\n",
+      "stdout": "1\n1\n1\n1\n1\n1\n1\n1\nstatus=ok\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step96_db_save_checkpoint_snapshots.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\nmysql: [Warning] Using a password on the command line interface can be insecure.\n",
+      "stdout": "1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n1\nstatus=ok\n"
+    }
+  ],
+  "compatibility": {
+    "legacy_step97_restore_enabled": false,
+    "legacy_step98_strict_enabled": false,
+    "step104_procedure_export_enabled": true
+  },
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-07-01T16:44:28.846685+00:00",
+  "started_at": "2026-07-01T16:44:18.002585+00:00",
+  "status": "passed",
+  "step": 54
+}

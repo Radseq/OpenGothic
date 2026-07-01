@@ -1,0 +1,190 @@
+{
+  "character": {
+    "character_key": "PC_HERO",
+    "character_uuid": "daffc52a-73d6-11f1-b8ca-30560f155bba",
+    "display_name": "NULL",
+    "realm_uuid": "daff792f-73d6-11f1-b8ca-30560f155bba"
+  },
+  "character_key": "PC_HERO",
+  "created_at": "2026-06-29T16:27:27.237540+00:00",
+  "equipment": [
+    {
+      "display_name": "Laga",
+      "equipment_slot": "weapon_melee",
+      "equipped_at": "2026-06-29 18:27:26.893605",
+      "item_instance_key": "import:runtime-sqlite:g2notr:ea9f1fb893556f4a:world-item:world_item:newworld.zen:67:6765:67",
+      "item_instance_uuid": "dbb1c3d2-73d6-11f1-b8ca-30560f155bba",
+      "item_template_key": "item-symbol:6765",
+      "lifecycle_state": "active",
+      "owner_type": "character",
+      "symbol_index": 6765,
+      "updated_at": "2026-06-29 18:27:26.893605"
+    }
+  ],
+  "integrity": {
+    "duplicate_bag_indexes": [],
+    "duplicate_equipment_slots": [],
+    "equipment_count": 1,
+    "equipped_items_missing_from_inventory": [],
+    "inventory_count": 2,
+    "ok": true,
+    "problems": []
+  },
+  "inventory": [
+    {
+      "amount": 1,
+      "bag_index": 0,
+      "display_name": "Stara kamienna tablica",
+      "instance_quantity": 1,
+      "item_instance_key": "import:runtime-sqlite:g2notr:ea9f1fb893556f4a:world-item:world_item:newworld.zen:2387:7812:2387",
+      "item_instance_uuid": "dbee7482-73d6-11f1-b8ca-30560f155bba",
+      "item_template_key": "item-symbol:7812",
+      "lifecycle_state": "active",
+      "owner_type": "character",
+      "source_amount": 1,
+      "source_iterator_count": 1,
+      "symbol_index": 7812,
+      "updated_at": "2026-06-29 18:27:24.399241"
+    },
+    {
+      "amount": 1,
+      "bag_index": 1,
+      "display_name": "Laga",
+      "instance_quantity": 1,
+      "item_instance_key": "import:runtime-sqlite:g2notr:ea9f1fb893556f4a:world-item:world_item:newworld.zen:67:6765:67",
+      "item_instance_uuid": "dbb1c3d2-73d6-11f1-b8ca-30560f155bba",
+      "item_template_key": "item-symbol:6765",
+      "lifecycle_state": "active",
+      "owner_type": "character",
+      "source_amount": 1,
+      "source_iterator_count": 1,
+      "symbol_index": 6765,
+      "updated_at": "2026-06-29 18:27:26.819056"
+    }
+  ],
+  "inventory_evidence_summary": {
+    "events": [
+      {
+        "count": 1,
+        "event_class": "equipment",
+        "event_type": "character_item_equipped"
+      },
+      {
+        "count": 5,
+        "event_class": "world_entity",
+        "event_type": "interactive_state_changed"
+      },
+      {
+        "count": 1,
+        "event_class": "world_entity",
+        "event_type": "interactive_used"
+      },
+      {
+        "count": 2,
+        "event_class": "inventory",
+        "event_type": "world_item_picked_up"
+      }
+    ],
+    "world_item_audit": [
+      {
+        "audit_type": "pickup",
+        "count": 2
+      }
+    ]
+  },
+  "session_key": "local-dev-PC_HERO_TEST",
+  "session_summary": {
+    "failures": [],
+    "response_kind_totals": {
+      "interactive_use_ack": 1,
+      "movement_authority_ack": 59
+    },
+    "rows": [
+      {
+        "action_kind": "adjust_progression",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "equip_character_item",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "holster_weapon",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "movement_proposal",
+        "count": 59,
+        "response_kind": "movement_authority_ack",
+        "status": "applied"
+      },
+      {
+        "action_kind": "pickup_world_item",
+        "count": 2,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "ready_weapon",
+        "count": 13,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "set_known_dialog",
+        "count": 3,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "set_script_int",
+        "count": 7,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "update_interactive_state",
+        "count": 5,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "update_quest",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "use_interactive",
+        "count": 1,
+        "response_kind": "interactive_use_ack",
+        "status": "applied"
+      }
+    ],
+    "session_key": "local-dev-PC_HERO_TEST",
+    "status_totals": {
+      "applied": 94
+    }
+  },
+  "source": {
+    "client_restore_enabled": false,
+    "client_restore_note": "This is a server truth snapshot artifact. Client consumption must remain behind an explicit server-bound restore flag in a later C++ step.",
+    "database": "gothic_mmo_ch1_clean",
+    "item_template_table": "content_item_templates",
+    "kind": "mysql_current_projection",
+    "tables": {
+      "character_equipment": true,
+      "character_inventory": true,
+      "characters": true,
+      "content_item_templates": true,
+      "item_instances": true
+    }
+  },
+  "step": "63_guarded_inventory_equipment_restore_snapshot"
+}

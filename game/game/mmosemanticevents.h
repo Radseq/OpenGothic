@@ -10,6 +10,7 @@
 namespace Mmo {
 
 enum class SemanticActionKind : std::uint8_t {
+  ClientBootstrapRequest,
   MovementProposal,
   CharacterCheckpoint,
   WalletDelta,
@@ -20,8 +21,13 @@ enum class SemanticActionKind : std::uint8_t {
   TransferCharacterItem,
   EquipCharacterItem,
   UnequipCharacterItem,
+  DropCharacterItem,
+  LootNpcInventory,
+  ReadyWeapon,
+  HolsterWeapon,
   TakeContainerItem,
   PutContainerItem,
+  UseInteractive,
   UpdateInteractiveState,
   SetScriptInt,
   UpdateQuest,
@@ -33,11 +39,16 @@ enum class SemanticActionKind : std::uint8_t {
   TradeBuyFromNpc,
   TradeSellToNpc,
   ApplyCharacterDamage,
+  ApplyCharacterResourceDelta,
   ApplyWorldEntityDamage,
   ConsumeMana,
   ConsumeItem,
+  WorldTimeChanged,
+  TriggerEvent,
+  MoverStateChanged,
   SplitItemStack,
   MergeItemStack,
+  SaveCheckpointManifest,
 };
 
 struct SemanticActionDef final {
@@ -50,7 +61,8 @@ struct SemanticActionDef final {
   bool               serverAuthoritative = true;
 };
 
-inline constexpr std::array<SemanticActionDef, 28> SemanticActionDefs {{
+inline constexpr std::array<SemanticActionDef, 39> SemanticActionDefs {{
+  {SemanticActionKind::ClientBootstrapRequest,"client_bootstrap_request", "client_bootstrap_requested",  "session",      "mmo_client_bootstrap_request",        true, true},
   {SemanticActionKind::MovementProposal,      "movement_proposal",       "movement_proposal_submitted",     "movement",     "server_validate_movement_proposal",     true, true},
   {SemanticActionKind::CharacterCheckpoint,   "character_checkpoint",      "character_position_checkpoint",    "character",    "mmo_checkpoint_character_state",        true, true},
   {SemanticActionKind::WalletDelta,           "wallet_delta",              "character_wallet_delta",           "inventory",    "mmo_adjust_character_wallet",           true, true},
@@ -61,9 +73,16 @@ inline constexpr std::array<SemanticActionDef, 28> SemanticActionDefs {{
   {SemanticActionKind::TransferCharacterItem, "transfer_character_item",   "character_inventory_transferred",  "inventory",    "mmo_transfer_character_item",           true, true},
   {SemanticActionKind::EquipCharacterItem,    "equip_character_item",      "character_item_equipped",          "equipment",    "mmo_equip_character_item",              true, true},
   {SemanticActionKind::UnequipCharacterItem,  "unequip_character_item",    "character_item_unequipped",        "equipment",    "mmo_unequip_character_item",            true, true},
+  {SemanticActionKind::DropCharacterItem,     "drop_character_item",       "character_item_dropped",           "inventory",    "mmo_drop_character_item",               true, true},
+  {SemanticActionKind::LootNpcInventory,       "loot_npc_inventory",        "npc_inventory_looted",             "inventory",    "mmo_loot_npc_inventory",               true, true},
+  {SemanticActionKind::ReadyWeapon,            "ready_weapon",              "npc_weapon_readied",               "combat",       "mmo_record_npc_weapon_state",          true, true},
+  {SemanticActionKind::HolsterWeapon,          "holster_weapon",            "npc_weapon_holstered",             "combat",       "mmo_record_npc_weapon_state",          true, true},
   {SemanticActionKind::TakeContainerItem,     "take_container_item",       "container_item_taken",             "inventory",    "mmo_take_container_item",               true, true},
   {SemanticActionKind::PutContainerItem,      "put_container_item",        "container_item_put",               "inventory",    "mmo_put_container_item",                true, true},
+  {SemanticActionKind::UseInteractive,        "use_interactive",           "interactive_used",                 "world_entity", "mmo_record_interactive_use",           true, true},
   {SemanticActionKind::UpdateInteractiveState,"update_interactive_state",  "interactive_state_changed",        "world_entity", "mmo_update_interactive_state",          true, true},
+  {SemanticActionKind::TriggerEvent,          "trigger_event",             "world_trigger_event",              "world_entity", "mmo_record_trigger_event",              true, true},
+  {SemanticActionKind::MoverStateChanged,     "mover_state_changed",       "world_mover_state_changed",        "world_entity", "mmo_record_mover_state",                true, true},
   {SemanticActionKind::SetScriptInt,          "set_script_int",            "character_script_int_set",         "script",       "mmo_set_character_script_int",          true, true},
   {SemanticActionKind::UpdateQuest,           "update_quest",              "character_quest_updated",          "quest",        "mmo_update_character_quest",            true, true},
   {SemanticActionKind::SetKnownDialog,        "set_known_dialog",          "character_dialog_known_set",       "dialog",       "mmo_set_character_known_dialog",        true, true},
@@ -74,11 +93,14 @@ inline constexpr std::array<SemanticActionDef, 28> SemanticActionDefs {{
   {SemanticActionKind::TradeBuyFromNpc,       "trade_buy_from_npc",        "trade_buy_from_npc",               "trade",        "mmo_trade_buy_from_npc",                true, true},
   {SemanticActionKind::TradeSellToNpc,        "trade_sell_to_npc",         "trade_sell_to_npc",                "trade",        "mmo_trade_sell_to_npc",                 true, true},
   {SemanticActionKind::ApplyCharacterDamage,  "apply_character_damage",    "character_damage_applied",         "combat",       "mmo_apply_character_damage",            true, true},
+  {SemanticActionKind::ApplyCharacterResourceDelta,"character_resource_delta", "character_resource_delta",      "character",    "mmo_record_character_resource_delta",   true, true},
   {SemanticActionKind::ApplyWorldEntityDamage,"apply_world_entity_damage", "world_entity_damage_applied",      "combat",       "mmo_apply_world_entity_damage",         true, true},
   {SemanticActionKind::ConsumeMana,           "consume_mana",              "character_mana_consumed",          "spell",        "mmo_consume_character_mana",            true, true},
   {SemanticActionKind::ConsumeItem,           "consume_item",              "character_item_consumed",          "inventory",    "mmo_consume_character_item",            true, true},
+  {SemanticActionKind::WorldTimeChanged,      "world_time_changed",        "world_time_changed",              "world",        "mmo_record_world_time_changed",         true, true},
   {SemanticActionKind::SplitItemStack,        "split_item_stack",          "item_stack_split",                 "inventory",    "mmo_split_character_item_stack",        true, true},
   {SemanticActionKind::MergeItemStack,        "merge_item_stack",          "item_stack_merged",                "inventory",    "mmo_merge_character_item_stack",        true, true},
+  {SemanticActionKind::SaveCheckpointManifest,"save_checkpoint_manifest", "server_save_checkpoint_manifest",  "system",       "mmo_create_save_checkpoint_manifest",  true, true},
 }};
 
 [[nodiscard]] constexpr const SemanticActionDef* findSemanticAction(SemanticActionKind kind) noexcept {
@@ -140,6 +162,15 @@ struct SemanticActionEnvelope final {
 [[nodiscard]] std::string toJsonLine(const SemanticActionEnvelope& envelope);
 
 } // namespace Mmo
+
+
+
+
+
+
+
+
+
 
 
 

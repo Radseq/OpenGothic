@@ -1,0 +1,342 @@
+{
+  "character_key": "PC_HERO",
+  "checkpoint_counts": {
+    "character": 1,
+    "equipment": 2,
+    "interactives": 996,
+    "inventory": 28,
+    "known_dialogs": 6,
+    "movers": 1,
+    "npc_lifecycle_non_active": 2,
+    "npcs_total": 3,
+    "quests": 1,
+    "script_state": 3151,
+    "world_clock": 0,
+    "world_entities": 3462,
+    "world_inventory": 437,
+    "world_items_active": 2451,
+    "world_items_removed": 12,
+    "world_items_total": 2463
+  },
+  "count_drift": {
+    "character": {
+      "checkpoint": 1,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 1
+    },
+    "equipment": {
+      "checkpoint": 2,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 2
+    },
+    "interactives": {
+      "checkpoint": 996,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 996
+    },
+    "inventory": {
+      "checkpoint": 28,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 28
+    },
+    "known_dialogs": {
+      "checkpoint": 6,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 6
+    },
+    "movers": {
+      "checkpoint": 1,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 1
+    },
+    "npc_lifecycle_non_active": {
+      "checkpoint": 2,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 2
+    },
+    "npcs_total": {
+      "checkpoint": 3,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 3
+    },
+    "quests": {
+      "checkpoint": 1,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 1
+    },
+    "script_state": {
+      "checkpoint": 3151,
+      "delta_live_minus_checkpoint": -3143,
+      "equal": false,
+      "live": 8
+    },
+    "world_clock": {
+      "checkpoint": 0,
+      "delta_live_minus_checkpoint": 1,
+      "equal": false,
+      "live": 1
+    },
+    "world_entities": {
+      "checkpoint": 3462,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 3462
+    },
+    "world_inventory": {
+      "checkpoint": 437,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 437
+    },
+    "world_items_active": {
+      "checkpoint": 2451,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 2451
+    },
+    "world_items_removed": {
+      "checkpoint": 12,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 12
+    },
+    "world_items_total": {
+      "checkpoint": 2463,
+      "delta_live_minus_checkpoint": 0,
+      "equal": true,
+      "live": 2463
+    }
+  },
+  "count_drift_excluded_domains": [
+    "script_state"
+  ],
+  "database": "gothic_mmo_ch1_clean",
+  "export_coverage": {
+    "equipment": {
+      "delta_export_minus_expected": 0,
+      "equal": true,
+      "expected_from_checkpoint_table": 2,
+      "export_key": "equipment",
+      "exported_in_bootstrap_json": 2
+    },
+    "interactives": {
+      "delta_export_minus_expected": 0,
+      "equal": true,
+      "expected_from_checkpoint_table": 996,
+      "export_key": "interactive_state",
+      "exported_in_bootstrap_json": 996
+    },
+    "inventory": {
+      "delta_export_minus_expected": 0,
+      "equal": true,
+      "expected_from_checkpoint_table": 28,
+      "export_key": "inventory",
+      "exported_in_bootstrap_json": 28
+    },
+    "known_dialogs": {
+      "delta_export_minus_expected": 0,
+      "equal": true,
+      "expected_from_checkpoint_table": 6,
+      "export_key": "known_dialogs",
+      "exported_in_bootstrap_json": 6
+    },
+    "movers": {
+      "delta_export_minus_expected": 0,
+      "equal": true,
+      "expected_from_checkpoint_table": 1,
+      "export_key": "mover_state",
+      "exported_in_bootstrap_json": 1
+    },
+    "npc_lifecycle_non_active": {
+      "delta_export_minus_expected": 0,
+      "equal": true,
+      "expected_from_checkpoint_table": 2,
+      "export_key": "npc_lifecycle_state",
+      "exported_in_bootstrap_json": 2
+    },
+    "quests": {
+      "delta_export_minus_expected": 0,
+      "equal": true,
+      "expected_from_checkpoint_table": 1,
+      "export_key": "quests",
+      "exported_in_bootstrap_json": 1
+    },
+    "script_state": {
+      "delta_export_minus_expected": 0,
+      "equal": true,
+      "expected_from_checkpoint_table": 3151,
+      "export_key": "script_state_full",
+      "exported_in_bootstrap_json": 3151
+    },
+    "world_items_removed": {
+      "delta_export_minus_expected": 0,
+      "equal": true,
+      "expected_from_checkpoint_table": 12,
+      "export_key": "world_item_deltas",
+      "exported_in_bootstrap_json": 12
+    }
+  },
+  "export_probe": {
+    "active_world_items": 146,
+    "bytes": 1558913,
+    "equipment": 2,
+    "interactive_state": 996,
+    "inventory": 28,
+    "known_dialogs": 6,
+    "manifest_uuid": "a41eb91d-755a-11f1-b6fd-30560f155bba",
+    "mover_state": 1,
+    "nearby_npcs": 2,
+    "npc_lifecycle_state": 2,
+    "quests": 1,
+    "script_state": 8,
+    "script_state_full": 3151,
+    "snapshot_source": "db_save_checkpoint_v1",
+    "world_item_deltas": 12,
+    "world_name": "newworld.zen"
+  },
+  "export_ready": true,
+  "finished_at": "2026-07-01T15:50:01.833474+00:00",
+  "latest_manifest": {
+    "client_world_name": "newworld.zen",
+    "created_at": "2026-07-01T16:39:18.617936Z",
+    "display_name": "character:PC_HERO:save-checkpoint",
+    "equipment_rows": 2,
+    "interactive_rows": 996,
+    "inventory_rows": 28,
+    "known_dialog_rows": 6,
+    "latest_checkpoint_tick": 108938,
+    "manifest_hex": "11F1755AA41EB91DB6FD30560F155BBA",
+    "manifest_key": "character:PC_HERO:save-checkpoint",
+    "manifest_uuid": "a41eb91d-755a-11f1-b6fd-30560f155bba",
+    "mover_rows": 1,
+    "native_save_present": 0,
+    "npc_lifecycle_rows": 2,
+    "quest_rows": 1,
+    "recent_event_seq": 881,
+    "row_version": 1,
+    "save_slot_key": "character:PC_HERO:save-checkpoint",
+    "script_state_rows": 3151,
+    "server_tick": 101207,
+    "world_inventory_rows": 437,
+    "world_item_rows": 2463
+  },
+  "live_counts": {
+    "character": 1,
+    "equipment": 2,
+    "interactives": 996,
+    "inventory": 28,
+    "known_dialogs": 6,
+    "movers": 1,
+    "npc_lifecycle_non_active": 2,
+    "npcs_total": 3,
+    "quests": 1,
+    "script_state": 8,
+    "world_clock": 1,
+    "world_entities": 3462,
+    "world_inventory": 437,
+    "world_items_active": 2451,
+    "world_items_removed": 12,
+    "world_items_total": 2463
+  },
+  "missing": [],
+  "no_drift": false,
+  "optional_runtime_tables": {
+    "mmo_world_mover_state_current": true
+  },
+  "routines": {
+    "mmo_assert_latest_save_checkpoint_restore_v1": true,
+    "mmo_build_latest_save_checkpoint_bootstrap_snapshot_v1": true,
+    "mmo_validate_latest_save_checkpoint_restore_v1": true
+  },
+  "session": {
+    "character_key": "PC_HERO",
+    "last_seen_at": "2026-07-01T16:40:06.287924Z",
+    "lifecycle_state": "active",
+    "session_hex": "11F174B9AEE94BC4943530560F155BBA",
+    "session_key": "local-dev-PC_HERO_TEST",
+    "session_uuid": "aee94bc4-74b9-11f1-9435-30560f155bba",
+    "world_name": "newworld.zen"
+  },
+  "session_key": "local-dev-PC_HERO_TEST",
+  "snapshot_tables": {
+    "mmo_save_checkpoint_character_snapshot": true,
+    "mmo_save_checkpoint_equipment_snapshot": true,
+    "mmo_save_checkpoint_inventory_snapshot": true,
+    "mmo_save_checkpoint_known_dialog_snapshot": true,
+    "mmo_save_checkpoint_mover_snapshot": true,
+    "mmo_save_checkpoint_quest_snapshot": true,
+    "mmo_save_checkpoint_script_state_snapshot": true,
+    "mmo_save_checkpoint_world_clock_snapshot": true,
+    "mmo_save_checkpoint_world_entity_snapshot": true,
+    "mmo_save_checkpoint_world_inventory_snapshot": true
+  },
+  "started_at": "2026-07-01T15:50:01.362420+00:00",
+  "status": "passed",
+  "step": "104_db_checkpoint_script_state_full_export",
+  "strict_ready": true,
+  "strict_restore": {
+    "character_key": "PC_HERO",
+    "character_rows": 1,
+    "client_world_name": "newworld.zen",
+    "created_at": "2026-07-01T16:39:18.617936Z",
+    "display_name": "character:PC_HERO:save-checkpoint",
+    "equipment_rows": 2,
+    "exported_bootstrap_bytes": 1558913,
+    "inventory_rows": 28,
+    "known_dialog_rows": 6,
+    "manifest_uuid": "a41eb91d-755a-11f1-b6fd-30560f155bba",
+    "mover_rows": 1,
+    "native_save_present": false,
+    "quest_rows": 1,
+    "reason": "ok",
+    "save_key": "character:PC_HERO:save-checkpoint",
+    "script_state_rows": 3151,
+    "session_found": true,
+    "session_uuid": "aee94bc4-74b9-11f1-9435-30560f155bba",
+    "snapshot_source": "db_save_checkpoint_v1",
+    "strict_restore_ok": true,
+    "world_clock_rows": 0,
+    "world_entity_rows": 3462,
+    "world_instance_key": "local-dev:g2notr:newworld.zen:1",
+    "world_inventory_rows": 437
+  },
+  "validation": {
+    "character_key": "PC_HERO",
+    "character_rows": 1,
+    "client_world_name": "newworld.zen",
+    "created_at": "2026-07-01T16:39:18.617936Z",
+    "display_name": "character:PC_HERO:save-checkpoint",
+    "equipment_rows": 2,
+    "exported_bootstrap_bytes": 1558913,
+    "inventory_rows": 28,
+    "known_dialog_rows": 6,
+    "manifest_uuid": "a41eb91d-755a-11f1-b6fd-30560f155bba",
+    "mover_rows": 1,
+    "native_save_present": false,
+    "quest_rows": 1,
+    "reason": "ok",
+    "save_key": "character:PC_HERO:save-checkpoint",
+    "script_state_rows": 3151,
+    "session_found": true,
+    "session_uuid": "aee94bc4-74b9-11f1-9435-30560f155bba",
+    "snapshot_source": "db_save_checkpoint_v1",
+    "strict_restore_ok": true,
+    "world_clock_rows": 0,
+    "world_entity_rows": 3462,
+    "world_instance_key": "local-dev:g2notr:newworld.zen:1",
+    "world_inventory_rows": 437
+  },
+  "views": {
+    "v_mmo_latest_save_checkpoint_strict_restore": true,
+    "v_mmo_save_checkpoint_snapshot_domain_counts": true
+  }
+}

@@ -905,8 +905,22 @@ void GameScript::restoreQuestLogForPersistence(std::vector<QuestLog::Quest> next
   quests.replace(std::move(next));
   }
 
+size_t GameScript::mergeQuestLogForPersistence(std::vector<QuestLog::Quest> next) {
+  return quests.mergePreservingLocal(std::move(next));
+  }
+
 void GameScript::restoreKnownDialogsForPersistence(std::set<std::pair<size_t,size_t>> dialogs) {
   dlgKnownInfos = std::move(dialogs);
+  }
+
+size_t GameScript::mergeKnownDialogsForPersistence(const std::set<std::pair<size_t,size_t>>& dialogs) {
+  size_t changed = 0;
+  for(const auto& dialog : dialogs) {
+    const bool inserted = dlgKnownInfos.insert(dialog).second;
+    if(inserted)
+      ++changed;
+    }
+  return changed;
   }
 
 bool GameScript::restoreGlobalIntForPersistence(size_t symbolIndex, uint16_t valueIndex, int32_t value) {
@@ -3696,5 +3710,7 @@ bool GameScript::doesNpcKnowInfo(const zenkit::INpc& npc, size_t infoInstance) c
   auto id = std::make_pair(vm.find_symbol_by_instance(npc)->index(),infoInstance);
   return dlgKnownInfos.find(id)!=dlgKnownInfos.end();
   }
+
+
 
 

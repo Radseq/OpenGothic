@@ -529,6 +529,24 @@ void Gothic::startLoad(std::string_view banner,
   implStartLoadSave(banner,true,f);
   }
 
+void Gothic::pushMmoDbContinueVideoSuppression() noexcept {
+  mmoDbContinueVideoSuppression.fetch_add(1, std::memory_order_relaxed);
+  }
+
+void Gothic::popMmoDbContinueVideoSuppression() noexcept {
+  auto value = mmoDbContinueVideoSuppression.load(std::memory_order_relaxed);
+  while(value != 0) {
+    if(mmoDbContinueVideoSuppression.compare_exchange_weak(value, value - 1,
+                                                           std::memory_order_relaxed,
+                                                           std::memory_order_relaxed))
+      return;
+    }
+  }
+
+bool Gothic::isMmoDbContinueVideoSuppressed() const noexcept {
+  return mmoDbContinueVideoSuppression.load(std::memory_order_relaxed) != 0;
+  }
+
 void Gothic::implStartLoadSave(std::string_view banner,
                                bool load,
                                const std::function<std::unique_ptr<GameSession>(std::unique_ptr<GameSession>&&)> f) {
@@ -1053,11 +1071,19 @@ void Gothic::introducechapter(std::string_view title, std::string_view subtitle,
   }
 
 bool Gothic::playvideo(std::string_view name) {
+  if(isMmoDbContinueVideoSuppressed()) {
+    Log::i("MMO DB continue: suppressed startup video ", std::string(name));
+    return true;
+    }
   onVideo(name);
   return true;
   }
 
 bool Gothic::playvideoex(std::string_view name, bool, bool) {
+  if(isMmoDbContinueVideoSuppressed()) {
+    Log::i("MMO DB continue: suppressed startup video ", std::string(name));
+    return true;
+    }
   onVideo(name);
   return true;
   }
@@ -1229,3 +1255,4 @@ void Gothic::printdebuginstch(int ch, std::string_view msg) {
   if(version().game==2)
     Log::d("[zspy,",ch,"]: ",msg);
   }
+

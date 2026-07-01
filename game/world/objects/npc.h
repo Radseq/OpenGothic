@@ -16,6 +16,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -102,11 +103,30 @@ class Npc final {
       bool   equipped = false;
       };
 
+    struct PersistentStats final {
+      static constexpr int32_t Missing = std::numeric_limits<int32_t>::min();
+
+      int32_t level = Missing;
+      int32_t experience = Missing;
+      int32_t experienceNext = Missing;
+      int32_t learningPoints = Missing;
+      int32_t healthCurrent = Missing;
+      int32_t healthMax = Missing;
+      int32_t manaCurrent = Missing;
+      int32_t manaMax = Missing;
+      int32_t strength = Missing;
+      int32_t dexterity = Missing;
+      int32_t guild = Missing;
+      int32_t trueGuild = Missing;
+      };
+
     Npc(World &owner, size_t instance, std::string_view waypoint, NpcProcessPolicy aiPolicy = NpcProcessPolicy::AiNormal);
     Npc(const Npc&)=delete;
     ~Npc();
 
     void       restorePersistentState(const PersistentState& state);
+    void       restorePersistentStats(const PersistentStats& state);
+    void       restorePersistentLifecycle(int32_t healthCurrent, int32_t healthMax, bool dead);
     void       restorePersistentInventory(const std::vector<PersistentInventoryItem>& items);
 
     void       save(Serialize& fout, size_t id, std::string_view directory);
@@ -689,3 +709,7 @@ class Npc final {
 
   friend class MoveAlgo;
   };
+
+
+
+

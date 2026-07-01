@@ -3,6 +3,7 @@
 #include <functional>
 #include <future>
 #include <cctype>
+#include <cstdint>
 
 #include <Tempest/Log>
 #include <Tempest/Painter>
@@ -17,8 +18,10 @@
 #include "world/triggers/cscamera.h"
 #include "game/globaleffects.h"
 #include "game/serialize.h"
+#include "game/mmosemantichooks.h"
 #include "utils/string_frm.h"
 #include "gothic.h"
+#include "commandline.h"
 #include "focus.h"
 #include "resources.h"
 
@@ -32,6 +35,67 @@
 #include <charconv>
 #include <locale>
 #include <memory>
+
+namespace {
+
+constexpr int64_t MmoSleepMinuteMs = 60 * 1000;
+constexpr int64_t MmoSleepDayMs = 24 * 60 * MmoSleepMinuteMs;
+constexpr int32_t MmoSleepRestorePercentPerMinute = 10;
+
+int64_t forwardWorldTimeDeltaMs(gtime before, gtime after) noexcept {
+  int64_t delta = after.toInt() - before.toInt();
+  if(delta < 0)
+    delta += MmoSleepDayMs;
+  return delta;
+  }
+
+int32_t mmoSleepRestoreDelta(int32_t value, int32_t valueMax, int64_t minutes) noexcept {
+  if(valueMax <= 0 || value >= valueMax || minutes <= 0)
+    return 0;
+
+  const int32_t missing = valueMax - value;
+  int64_t restore = (int64_t(valueMax) * MmoSleepRestorePercentPerMinute * minutes + 99) / 100;
+  if(restore <= 0)
+    restore = 1;
+  if(restore > missing)
+    restore = missing;
+  return int32_t(restore);
+  }
+
+bool applyMmoServerSleepRest(World& world, gtime before, gtime after) noexcept {
+  auto* hero = world.player();
+  if(hero == nullptr)
+    return false;
+
+  const int64_t deltaMs = forwardWorldTimeDeltaMs(before, after);
+  if(deltaMs < MmoSleepMinuteMs)
+    return false;
+
+  const int64_t minutes = deltaMs / MmoSleepMinuteMs;
+  const int32_t hpBefore = hero->attribute(ATR_HITPOINTS);
+  const int32_t hpMax = hero->attribute(ATR_HITPOINTSMAX);
+  const int32_t manaBefore = hero->attribute(ATR_MANA);
+  const int32_t manaMax = hero->attribute(ATR_MANAMAX);
+  const int32_t hpDelta = mmoSleepRestoreDelta(hpBefore, hpMax, minutes);
+  const int32_t manaDelta = mmoSleepRestoreDelta(manaBefore, manaMax, minutes);
+
+  if(hpDelta != 0)
+    hero->changeAttribute(ATR_HITPOINTS, hpDelta, false);
+  if(manaDelta != 0)
+    hero->changeAttribute(ATR_MANA, manaDelta, false);
+
+  if(hpDelta != 0 || manaDelta != 0)
+    Mmo::Hooks::onCharacterCheckpoint(*hero,
+                                      "game/world/world.cpp:applyMmoServerSleepRest",
+                                      "mmo_sleep_rest");
+
+  Tempest::Log::i("MMO sleep rest applied without world time skip: minutes=", minutes,
+                  " hp_delta=", hpDelta,
+                  " mana_delta=", manaDelta);
+  return true;
+  }
+
+}
 
 const char* materialTag(ItemMaterial src) {
   switch(src) {
@@ -405,11 +469,20 @@ void World::setDayTime(int32_t h, int32_t min) {
   gtime dayTime = now.timeInDay();
   gtime next    = gtime(h,min);
 
+  gtime after;
   if(dayTime<=next){
-    game.setTime(gtime(day,h,min));
+    after = gtime(day,h,min);
     } else {
-    game.setTime(gtime(day+1,h,min));
+    after = gtime(day+1,h,min);
     }
+
+  if(CommandLine::inst().mmoClientUsesServer() && applyMmoServerSleepRest(*this, now, after))
+    return;
+
+  game.setTime(after);
+  Mmo::Hooks::onWorldTimeChanged(*this, now, after,
+                                 "game/world/world.cpp:World::setDayTime",
+                                 "set_day_time_or_sleep");
   wobj.resetPositionToTA();
   }
 
@@ -531,6 +604,10 @@ void World::execTriggerEvent(const TriggerEvent& e) {
       return; // known problem on dragonisland.zen, skip for now
     Tempest::Log::d("unable to process trigger: \"",e.target,"\"");
     }
+  }
+
+bool World::restoreMoverState(std::string_view moverKey, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex) {
+  return wobj.restoreMoverState(moverKey, stateAfter, frameIndex, targetFrameIndex);
   }
 
 void World::enableDefTrigger(AbstractTrigger& t) {
@@ -1098,3 +1175,7 @@ int32_t World::guildOfRoom(std::string_view portalName) {
     }
   return GIL_NONE;
   }
+
+
+
+

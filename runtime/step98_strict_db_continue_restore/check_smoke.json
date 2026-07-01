@@ -1,0 +1,71 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-07-01T06:24:38.254651+00:00",
+  "latest": [
+    {
+      "character_key": "PC_HERO",
+      "character_rows": 1,
+      "client_world_name": "NEWWORLD.ZEN",
+      "created_at": "2026-07-01T08:24:38.011710Z",
+      "display_name": "Step98 Strict DB Continue Smoke",
+      "equipment_rows": 0,
+      "exported_bootstrap_bytes": 881256,
+      "inventory_rows": 2,
+      "known_dialog_rows": 3,
+      "manifest_uuid": "8919a067-7515-11f1-8325-30560f155bba",
+      "mover_rows": 0,
+      "native_save_present": true,
+      "quest_rows": 1,
+      "reason": "ok",
+      "save_key": "step98-smoke-slot",
+      "script_state_rows": 3150,
+      "session_found": true,
+      "session_uuid": "aee94bc4-74b9-11f1-9435-30560f155bba",
+      "snapshot_source": "db_save_checkpoint_v1",
+      "strict_restore_ok": true,
+      "world_clock_rows": 0,
+      "world_entity_rows": 3458,
+      "world_instance_key": "local-dev:g2notr:newworld.zen:1",
+      "world_inventory_rows": 438
+    }
+  ],
+  "routines": {
+    "mmo_assert_latest_save_checkpoint_restore_v1": true,
+    "mmo_validate_latest_save_checkpoint_restore_v1": true
+  },
+  "smoke": {
+    "ok": true,
+    "validation": {
+      "character_key": "PC_HERO",
+      "character_rows": 1,
+      "client_world_name": "NEWWORLD.ZEN",
+      "created_at": "2026-07-01T08:24:38.011710Z",
+      "display_name": "Step98 Strict DB Continue Smoke",
+      "equipment_rows": 0,
+      "exported_bootstrap_bytes": 881256,
+      "inventory_rows": 2,
+      "known_dialog_rows": 3,
+      "manifest_uuid": "8919a067-7515-11f1-8325-30560f155bba",
+      "mover_rows": 0,
+      "native_save_present": true,
+      "quest_rows": 1,
+      "reason": "ok",
+      "save_key": "step98-smoke-slot",
+      "script_state_rows": 3150,
+      "session_found": true,
+      "session_uuid": "aee94bc4-74b9-11f1-9435-30560f155bba",
+      "snapshot_source": "db_save_checkpoint_v1",
+      "strict_restore_ok": true,
+      "world_clock_rows": 0,
+      "world_entity_rows": 3458,
+      "world_instance_key": "local-dev:g2notr:newworld.zen:1",
+      "world_inventory_rows": 438
+    }
+  },
+  "started_at": "2026-07-01T06:24:37.953944+00:00",
+  "status": "ok",
+  "step": "98_strict_db_continue_restore",
+  "views": {
+    "v_mmo_latest_save_checkpoint_strict_restore": true
+  }
+}

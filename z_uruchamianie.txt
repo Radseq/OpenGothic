@@ -1,3 +1,5 @@
+npc je i regeneruje swoje hp
+
 i uruchom pierwszy raz na świeżej bazie:
 
 ./build/opengothic/Gothic2Notr \
@@ -207,3 +209,216 @@ rm -f runtime/mmo_actions.jsonl runtime/mmo_server_actions.jsonl
   -mmo-action-session-key local-dev-PC_HERO \
   -mmo-action-queue-capacity 8192
 
+
+
+
+
+
+Terminal 1 — odpal server i zostaw go włączony
+
+Wklej:
+
+python3 tools/run_mmo_server.py \
+  --bind 127.0.0.1:29777 \
+  --accepted-jsonl runtime/mmo_server_actions_step43.jsonl \
+  --rejected-jsonl runtime/mmo_server_rejects_step43.jsonl \
+  --checkpoint-jsonl runtime/mmo_server_checkpoints_step43.jsonl \
+  --summary-json runtime/mmo_server_step43_summary.json \
+  --require-session local-dev-PC_HERO_STEP43 \
+  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo" \
+  --account-name local-import \
+  --character-key PC_HERO \
+  --db-session-key local-dev-PC_HERO_STEP43 \
+  --enqueue-outbox \
+  --truncate \
+  --require-motion-state-for-large-fall
+
+Jak zobaczysz:
+
+step43 server listening udp://127.0.0.1:29777
+
+to nie zamykaj tego terminala. On ma czekać na pakiety z gry.
+
+Terminal 2 — odpal grę z UDP do tego servera
+
+Wklej:
+
+./build/opengothic/Gothic2Notr \
+  -g "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
+  -g2 \
+  -mmo-action-jsonl runtime/mmo_client_actions_step43.jsonl \
+  -mmo-action-udp 127.0.0.1:29777 \
+  -mmo-action-session-key local-dev-PC_HERO_STEP43 \
+  -mmo-action-queue-capacity 8192 \
+  -mmo-action-movement-proposal-interval-ms 250 \
+  -mmo-action-movement-proposal-min-distance 75 \
+  -mmo-action-movement-proposal-min-yaw-deg 15
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Jak zbudować czystą MySQL DB dla nowej gry
+
+cd ~/Desktop/OpenGothic
+
+python3 tools/run_mmo_step55_clean_mysql_from_pre_xardas.py \
+  --sqlite runtime/g2notr_ch1_pre_xardas.sqlite \
+  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --i-understand-this-drops-database
+
+
+
+  Jak uruchomić Step56 live
+3. Terminal 1 — receiver / serwer UDP
+
+To jest proces, który słucha klienta gry. Klient wyśle tutaj client_bootstrap_request.
+
+cd ~/Desktop/OpenGothic
+
+mkdir -p runtime/step56_server_bootstrap_ack
+
+python3 tools/run_mmo_pc_hero_test_receiver.py \
+  --url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean"
+
+Zostaw ten terminal uruchomiony.
+
+4. Terminal 2 — gra / klient
+cd ~/Desktop/OpenGothic
+
+./build/opengothic/Gothic2Notr \
+  -g "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
+  -g2 \
+  -mmo-client-server 127.0.0.1:29777 \
+  -mmo-action-jsonl runtime/pc_hero_test_live/client_actions.jsonl \
+  -mmo-action-session-key local-dev-PC_HERO_TEST \
+  -mmo-restore-snapshot-json runtime/pc_hero_test_live/mysql_restore_snapshot.json
+
+Po wejściu do gry albo po wczytaniu save klient powinien wysłać:
+
+client_bootstrap_request
+
+Powinieneś zobaczyć to w:
+
+tail -f runtime/mmo_server_actions_step56.jsonl
+5. Terminal 3 — worker
+
+cd ~/Desktop/OpenGothic
+
+python3 tools/run_mmo_live_resolved_worker.py \
+  --url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --max-actions 500
+
+Po tym sprawdź:
+
+cat runtime/mmo_server_bootstrap_acks_step56.jsonl | jq .
+cat runtime/step56_server_bootstrap_ack/manifest.json | jq .
+Po co worker?
+
+
+
+
+
+
+
+
+
+
+cd ~/Desktop/OpenGothic
+
+python3 tools/run_mmo_step55_clean_mysql_from_pre_xardas.py \
+  --sqlite runtime/g2notr_ch1_pre_xardas.sqlite \
+  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --i-understand-this-drops-database
+
+
+
+
+cd ~/Desktop/OpenGothic
+
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build --target Gothic2Notr -j15
+
+cmake -S server/cpp -B build/mmo_cpp_server -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build/mmo_cpp_server --target mmo_udp_server -j15
+
+
+
+Terminal 1, server normalny:
+
+cd ~/Desktop/OpenGothic
+
+./build/mmo_cpp_server/mmo_udp_server \
+  --bind 127.0.0.1:29777 \
+  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --session-key local-dev-PC_HERO_TEST \
+  --character-key PC_HERO
+
+Terminal 2, klient normalny:
+
+cd ~/Desktop/OpenGothic
+
+./build/opengothic/Gothic2Notr \
+  -g "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
+  -g2 \
+  -mmo-client-server 127.0.0.1:29777 \
+  -mmo-action-session-key local-dev-PC_HERO_TEST
+
+W grze: pograj chwilę, zrób normalny save, wyjdź. To tworzy/odświeża DB checkpoint.
+
+Potem checker:
+
+cd ~/Desktop/OpenGothic
+
+python3 tools/check_mmo_step104_db_checkpoint_export.py \
+  --url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --session-key local-dev-PC_HERO_TEST \
+  --character-key PC_HERO \
+  --assert-strict \
+  --assert-export-coverage \
+  --assert-no-drift \
+  --output runtime/step104_db_checkpoint_script_state_full_export/check_after_new_save.json
+
+Test 2: Strict DB continue
+Tego używasz dopiero, gdy checker przeszedł. To jest test: “czy wstajemy z DB, a nie z pliku save”.
+
+Terminal 1, server strict:
+
+cd ~/Desktop/OpenGothic
+
+./build/mmo_cpp_server/mmo_udp_server \
+  --bind 127.0.0.1:29777 \
+  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --session-key local-dev-PC_HERO_TEST \
+  --character-key PC_HERO \
+  --require-db-save-checkpoint-restore
+
+Terminal 2, klient strict DB-only:
+
+cd ~/Desktop/OpenGothic
+
+./build/opengothic/Gothic2Notr \
+  -g "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
+  -g2 \
+  -save 99 \
+  -mmo-client-server 127.0.0.1:29777 \
+  -mmo-action-session-key local-dev-PC_HERO_TEST \
+  -mmo-db-continue-without-native-save \
+  -mmo-require-db-save-checkpoint-restore

@@ -90,6 +90,7 @@ class WorldObjects final {
     bool           triggerOnStart(bool firstTime);
     void           execDelayedEvents();
     bool           execTriggerEvent(const TriggerEvent& e);
+    bool           restoreMoverState(std::string_view moverKey, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex);
     void           enableTicks (AbstractTrigger& t);
     void           disableTicks(AbstractTrigger& t);
     void           enableCollizionZone (CollisionZone& z);
@@ -203,3 +204,4 @@ class WorldObjects final {
     uint32_t         allocItemPersistentId();
     static bool      isTargetedBy(Npc& npc,Npc& by);
   };
+

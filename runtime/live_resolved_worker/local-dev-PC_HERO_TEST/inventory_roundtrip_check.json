@@ -1,0 +1,182 @@
+{
+  "actions": {
+    "action_totals": {
+      "adjust_progression": 1,
+      "equip_character_item": 1,
+      "holster_weapon": 1,
+      "movement_proposal": 59,
+      "pickup_world_item": 2,
+      "ready_weapon": 13,
+      "set_known_dialog": 3,
+      "set_script_int": 7,
+      "update_interactive_state": 5,
+      "update_quest": 1,
+      "use_interactive": 1
+    },
+    "failed_rows": [],
+    "grouped": [
+      {
+        "action_kind": "adjust_progression",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "equip_character_item",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "holster_weapon",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "movement_proposal",
+        "count": 59,
+        "response_kind": "movement_authority_ack",
+        "status": "applied"
+      },
+      {
+        "action_kind": "pickup_world_item",
+        "count": 2,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "ready_weapon",
+        "count": 13,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "set_known_dialog",
+        "count": 3,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "set_script_int",
+        "count": 7,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "update_interactive_state",
+        "count": 5,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "update_quest",
+        "count": 1,
+        "response_kind": null,
+        "status": "applied"
+      },
+      {
+        "action_kind": "use_interactive",
+        "count": 1,
+        "response_kind": "interactive_use_ack",
+        "status": "applied"
+      }
+    ],
+    "response_kind_mismatches": [
+      {
+        "action_kind": "pickup_world_item",
+        "actual_response_kind": null,
+        "expected_response_kind": "pickup_ack",
+        "idempotency_key": "local-dev-PC_HERO_TEST:pickup_world_item:world-item:newworld.zen:pid:2387:sym:7812:63"
+      },
+      {
+        "action_kind": "pickup_world_item",
+        "actual_response_kind": null,
+        "expected_response_kind": "pickup_ack",
+        "idempotency_key": "local-dev-PC_HERO_TEST:pickup_world_item:world-item:newworld.zen:pid:67:sym:6765:106"
+      },
+      {
+        "action_kind": "equip_character_item",
+        "actual_response_kind": null,
+        "expected_response_kind": "equipment_ack",
+        "idempotency_key": "local-dev-PC_HERO_TEST:equip_character_item:item-template:6765:equip:0:1:108"
+      }
+    ],
+    "response_kind_totals": {
+      "interactive_use_ack": 1,
+      "movement_authority_ack": 59
+    },
+    "status_totals": {
+      "applied": 94
+    }
+  },
+  "character_key": "PC_HERO",
+  "checked_at": "2026-06-29T16:27:27.321915+00:00",
+  "database": "gothic_mmo_ch1_clean",
+  "errors": [
+    "response_kind_mismatch"
+  ],
+  "evidence": {
+    "events": [
+      {
+        "count": 1,
+        "event_class": "equipment",
+        "event_type": "character_item_equipped"
+      },
+      {
+        "count": 5,
+        "event_class": "world_entity",
+        "event_type": "interactive_state_changed"
+      },
+      {
+        "count": 1,
+        "event_class": "world_entity",
+        "event_type": "interactive_used"
+      },
+      {
+        "count": 2,
+        "event_class": "inventory",
+        "event_type": "world_item_picked_up"
+      }
+    ],
+    "world_item_audit": [
+      {
+        "audit_type": "pickup",
+        "count": 2
+      }
+    ]
+  },
+  "inventory_integrity": {
+    "duplicate_bag_indexes": 0,
+    "equipment_count": 1,
+    "equipped_missing_inventory": 0,
+    "inventory_count": 2,
+    "inventory_owner_mismatch": 0,
+    "non_positive_amount": 0,
+    "ok": true,
+    "problems": []
+  },
+  "session_key": "local-dev-PC_HERO_TEST",
+  "snapshot": {
+    "exists": true,
+    "ok": true,
+    "path": "/home/radseq/Desktop/OpenGothic/runtime/live_resolved_worker/local-dev-PC_HERO_TEST/mysql_restore_snapshot.json",
+    "problems": [],
+    "snapshot_equipment_count": 1,
+    "snapshot_inventory_count": 2
+  },
+  "status": "failed",
+  "step": "69_pc_hero_test_inventory_roundtrip",
+  "tables": {
+    "missing": [],
+    "present": {
+      "character_equipment": true,
+      "character_inventory": true,
+      "characters": true,
+      "item_instances": true,
+      "mmo_server_action_outbox": true,
+      "world_event_journal": true,
+      "world_item_audit": true
+    }
+  }
+}

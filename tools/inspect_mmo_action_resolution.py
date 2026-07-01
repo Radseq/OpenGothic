@@ -45,7 +45,7 @@ def mysql_cmd(target: Target) -> list[str]:
     exe = shutil.which("mysql")
     if exe is None:
         raise RuntimeError("mysql executable not found")
-    cmd = [exe, "--default-character-set=utf8mb4", "--batch", "--raw", "--skip-column-names", "-h", target.host, "-P", str(target.port), "-u", target.user]
+    cmd = [exe, "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci", "--batch", "--raw", "--skip-column-names", "-h", target.host, "-P", str(target.port), "-u", target.user]
     if target.password:
         cmd.append(f"-p{target.password}")
     cmd.append(target.database)

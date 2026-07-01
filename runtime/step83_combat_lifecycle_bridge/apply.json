@@ -1,0 +1,13 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-06-29T21:20:11.456922+00:00",
+  "routines": {
+    "mmo_apply_character_damage": true,
+    "mmo_apply_world_entity_damage": true,
+    "mmo_mark_npc_dead": true
+  },
+  "sql": "/home/radseq/Desktop/OpenGothic/server/sql/step83_combat_lifecycle_bridge.sql",
+  "started_at": "2026-06-29T21:20:11.399741+00:00",
+  "status": "applied",
+  "step": "83_combat_lifecycle_bridge"
+}

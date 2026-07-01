@@ -1,0 +1,101 @@
+{
+  "counts": {
+    "mmo_server_character_inventory_read_model": 0,
+    "mmo_server_character_quest_read_model": 0,
+    "mmo_server_character_read_model": 1,
+    "mmo_server_interactive_read_model": 0,
+    "mmo_server_known_dialog_read_model": 0,
+    "mmo_server_read_model_meta": 1,
+    "mmo_server_script_int_read_model": 5848,
+    "mmo_server_waypoint_edge_read_model": 0,
+    "mmo_server_waypoint_read_model": 0,
+    "mmo_server_world_clock_read_model": 0,
+    "mmo_server_world_entity_read_model": 3458,
+    "mmo_server_world_inventory_read_model": 438
+  },
+  "database": "gothic_mmo_ch1_clean",
+  "materializers": [
+    {
+      "name": "characters",
+      "reason": "",
+      "rows": 1,
+      "status": "materialized"
+    },
+    {
+      "name": "character_inventory",
+      "reason": "",
+      "rows": 0,
+      "status": "materialized"
+    },
+    {
+      "name": "character_quests",
+      "reason": "",
+      "rows": 0,
+      "status": "materialized"
+    },
+    {
+      "name": "known_dialogs",
+      "reason": "",
+      "rows": 0,
+      "status": "materialized"
+    },
+    {
+      "name": "world_entity_state",
+      "reason": "",
+      "rows": 3458,
+      "status": "materialized"
+    },
+    {
+      "name": "world_inventory",
+      "reason": "",
+      "rows": 438,
+      "status": "materialized"
+    },
+    {
+      "name": "script_ints",
+      "reason": "",
+      "rows": 5848,
+      "status": "materialized"
+    },
+    {
+      "name": "world_clock",
+      "reason": "",
+      "rows": 0,
+      "status": "materialized"
+    },
+    {
+      "name": "waypoints",
+      "reason": "source table runtime_waypoints missing in MySQL; SQLite still has this context",
+      "rows": 0,
+      "status": "skipped"
+    },
+    {
+      "name": "waypoint_edges",
+      "reason": "source table runtime_waypoint_edges missing in MySQL; SQLite still has this context",
+      "rows": 0,
+      "status": "skipped"
+    }
+  ],
+  "meta": {
+    "source_event_count": 1,
+    "source_max_event_column": "event_seq",
+    "source_max_event_id": "1"
+  },
+  "read_model_tables": [
+    "mmo_server_read_model_meta",
+    "mmo_server_character_read_model",
+    "mmo_server_character_inventory_read_model",
+    "mmo_server_character_quest_read_model",
+    "mmo_server_known_dialog_read_model",
+    "mmo_server_world_entity_read_model",
+    "mmo_server_world_inventory_read_model",
+    "mmo_server_interactive_read_model",
+    "mmo_server_script_int_read_model",
+    "mmo_server_world_clock_read_model",
+    "mmo_server_waypoint_read_model",
+    "mmo_server_waypoint_edge_read_model"
+  ],
+  "sql": "/home/radseq/Desktop/OpenGothic/server/sql/step53_server_read_model_v1.sql",
+  "status": "materialized",
+  "step": 53
+}

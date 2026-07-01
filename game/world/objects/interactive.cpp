@@ -1,4 +1,5 @@
 #include "interactive.h"
+#include "game/mmosemantichooks.h"
 
 #include <algorithm>
 
@@ -811,8 +812,13 @@ bool Interactive::attach(Npc& npc, Interactive::Pos& to) {
       return false; // TODO: same for npc
     }
 
+  const int  stateBeforeUseCheck   = state;
+  const bool lockedBeforeUseCheck  = locked;
+  const bool crackedBeforeUseCheck = isLockCracked;
   if(!checkUseConditions(npc))
     return false;
+  Mmo::Hooks::onInteractiveStateChanged(world, *this, &npc, stateBeforeUseCheck, state, lockedBeforeUseCheck, locked, crackedBeforeUseCheck, isLockCracked,
+                                        "Interactive::attach.checkUseConditions", "interactive_lock_state_changed");
 
   if(!useWithItem.empty()) {
     size_t it = world.script().findSymbolIndex(useWithItem);
@@ -841,6 +847,7 @@ bool Interactive::attach(Npc& npc, Interactive::Pos& to) {
   to.user       = &npc;
   to.started    = NotStarted;
   to.attachMode = true;
+  Mmo::Hooks::onInteractiveUsed(world, *this, npc, "Interactive::attach", "interactive_attach_accepted");
   return true;
   }
 
@@ -1044,8 +1051,13 @@ bool Interactive::setAnim(Npc* npc, Anim dir) {
   }
 
 void Interactive::setState(int st) {
+  const int  previousState   = state;
+  const bool previousLocked  = locked;
+  const bool previousCracked = isLockCracked;
   state = st;
   onStateChanged();
+  Mmo::Hooks::onInteractiveStateChanged(world, *this, nullptr, previousState, state, previousLocked, locked, previousCracked, isLockCracked,
+                                        "Interactive::setState", "interactive_state_set");
   }
 
 const Animation::Sequence* Interactive::animNpc(const AnimationSolver &solver, Anim t) const {
@@ -1155,3 +1167,5 @@ bool Interactive::Pos::isAttachPoint() const {
 bool Interactive::Pos::isDistPos() const {
   return name.rfind("_DIST")==name.size()-5;
   }
+
+

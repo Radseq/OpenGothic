@@ -1,0 +1,121 @@
+{
+  "accepted": true,
+  "authority": {
+    "accepted_proposal_persisted_as_checkpoint": true,
+    "client_does_not_consume_this_ack_yet": true,
+    "old_single_player_unchanged": true,
+    "rejected_proposal_mutated_no_gameplay_state": false,
+    "server_validated_movement_proposal": true
+  },
+  "character_uuid": "daffc52a-73d6-11f1-b8ca-30560f155bba",
+  "event_uuid": "6a80734a-73d7-11f1-b8ca-30560f155bba",
+  "movement_status": "accepted_checkpoint_persisted",
+  "outbox_status": "applied",
+  "request_action_uuid": "5a8c13eb-73d7-11f1-b8ca-30560f155bba",
+  "request_idempotency_key": "local-dev-PC_HERO_TEST:movement_proposal:character:PC_HERO:movement-proposal:105",
+  "request_kind": "movement_proposal",
+  "resolved": {
+    "actor_key": "character:PC_HERO:sym:11471",
+    "character_uuid": "daffc52a-73d6-11f1-b8ca-30560f155bba",
+    "current_waypoint_key": "",
+    "experience": 25,
+    "experience_next": 500,
+    "learning_points": 0,
+    "level": 0,
+    "pos_x": 29947.94,
+    "pos_y": 5153.501,
+    "pos_z": -14634.47,
+    "reason": "distance_delta_movement_proposal",
+    "resolver": "movement_proposal_authority_gate_v1",
+    "rotation_yaw": 0.0,
+    "server_checkpoint_source": "accepted_movement_proposal",
+    "source_action_kind": "movement_proposal",
+    "validation": {
+      "accepted": true,
+      "delta_ms": 105,
+      "from": {
+        "pos_x": 29951.27,
+        "pos_y": 5153.501,
+        "pos_z": -14670.742,
+        "rotation_yaw": 0.0
+      },
+      "limits": {
+        "max_coord_abs": 10000000.0,
+        "max_delta_ms": 5000,
+        "max_fall_delta": 6000.0,
+        "max_fall_speed": 12000.0,
+        "max_horizontal_speed": 2500.0,
+        "max_step_distance": 2500.0,
+        "max_vertical_delta": 1600.0,
+        "max_vertical_speed": 3500.0,
+        "min_delta_ms": 1
+      },
+      "metrics": {
+        "falling_or_air": false,
+        "horizontal_distance": 36.424536839884084,
+        "horizontal_speed": 346.9003508560389,
+        "swimming_or_water": false,
+        "total_distance": 36.424536839884084,
+        "vertical_delta": 0.0,
+        "vertical_speed": 0.0,
+        "yaw_delta_deg": 0.0
+      },
+      "rejection_reasons": [],
+      "seconds": 0.105,
+      "to": {
+        "pos_x": 29947.94,
+        "pos_y": 5153.501,
+        "pos_z": -14634.47,
+        "rotation_yaw": 0.0
+      },
+      "validator": "movement_proposal_authority_gate_v1",
+      "vertical_axis": "y"
+    }
+  },
+  "response_kind": "movement_authority_ack",
+  "session_uuid": "f77562f3-73d6-11f1-b8ca-30560f155bba",
+  "validation": {
+    "accepted": true,
+    "delta_ms": 105,
+    "from": {
+      "pos_x": 29951.27,
+      "pos_y": 5153.501,
+      "pos_z": -14670.742,
+      "rotation_yaw": 0.0
+    },
+    "limits": {
+      "max_coord_abs": 10000000.0,
+      "max_delta_ms": 5000,
+      "max_fall_delta": 6000.0,
+      "max_fall_speed": 12000.0,
+      "max_horizontal_speed": 2500.0,
+      "max_step_distance": 2500.0,
+      "max_vertical_delta": 1600.0,
+      "max_vertical_speed": 3500.0,
+      "min_delta_ms": 1
+    },
+    "metrics": {
+      "falling_or_air": false,
+      "horizontal_distance": 36.424536839884084,
+      "horizontal_speed": 346.9003508560389,
+      "swimming_or_water": false,
+      "total_distance": 36.424536839884084,
+      "vertical_delta": 0.0,
+      "vertical_speed": 0.0,
+      "yaw_delta_deg": 0.0
+    },
+    "rejection_reasons": [],
+    "seconds": 0.105,
+    "to": {
+      "pos_x": 29947.94,
+      "pos_y": 5153.501,
+      "pos_z": -14634.47,
+      "rotation_yaw": 0.0
+    },
+    "validator": "movement_proposal_authority_gate_v1",
+    "vertical_axis": "y"
+  },
+  "version": 1,
+  "worker_run_uuid": "6723a220-73d7-11f1-b8ca-30560f155bba",
+  "world_uuid": "daff877d-73d6-11f1-b8ca-30560f155bba"
+}

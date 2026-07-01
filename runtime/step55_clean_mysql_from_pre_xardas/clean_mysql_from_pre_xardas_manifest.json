@@ -1,0 +1,91 @@
+{
+  "canonical_baseline": "runtime/baselines/g2notr_chapter1_before_xardas.sqlite",
+  "canonical_baseline_manifest": "runtime/baselines/g2notr_chapter1_before_xardas.manifest.json",
+  "commands": [
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/audit_runtime_sqlite.py",
+        "--db",
+        "/home/radseq/Desktop/OpenGothic/runtime/g2notr_ch1_pre_xardas.sqlite"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "OK: schema_version=25\nOK: persisted SQL views=0; schema 21 expects physical tables only\nOK: realms=1\nOK: accounts=1\nOK: character bindings=1\nOK: sessions=1\nOK: one character current-state row\nOK: character history rows=2\nWARN: current inventory is empty\nWARN: inventory history looks shallow: 0\nOK: runtime events=2\nOK: runtime world NPC rows=1053\nWARN: no runtime world NPC history rows yet\nOK: runtime NPC stat rows=201123\nOK: runtime NPC stat capture states=1053/1053\nOK: character wallet rows=1\nOK: runtime NPC stat history rows=0\nOK: MMO stat definitions=191\nOK: runtime NPC AI state rows=1053\nOK: runtime NPC AI history rows=0\nINFO: runtime follow/escort checkpoints=0\nOK: runtime waypoint rows=5249\nOK: runtime waypoint edge rows=6804\nOK: runtime NPC routine rows=1771\nOK: runtime NPC navigation rows=1053\nOK: runtime NPC navigation history rows=0\nINFO: runtime quest rows=0\nINFO: runtime known dialog rows=0\nOK: runtime dialog catalog rows=4139\nINFO: runtime dialog choice snapshots=0\nOK: runtime dialog choice rows=0\nINFO: runtime dialog selections=0\nOK: runtime world item rows=2461\nOK: runtime world mobsi rows=996\nOK: runtime world mobsi inventory rows=438\nOK: runtime script global rows=2924\nOK: runtime script global history rows=2\nOK: runtime story progress rows=1\nOK: runtime story progress history rows=0\nOK: runtime chapter intro events=0\nOK: inventory display_name has no NULL values\nOK: world tables display_name has no NULL values\n\nText quality\nOK: no NULL/empty key/name/text fields in audited runtime tables\n\nText storage encoding\nOK: all SQLite TEXT payloads are valid UTF-8\nOK: no duplicate same tick/type/entity/subject events\nOK: equipment split rows look consistent\n\nEvent counts\n  script_global_changed: 2\nOK: dialog event types are phase-specific\nWARN: missing expected event classes: item_added, character_moved\nINFO: no inventory stack quantity changes in history; test buy/pickup same template/consume stack next\nINFO: no item_removed events in this run; test drop/consume/sell next\nOK: MMO current contract tables=20\nINFO: empty MMO current tables: mmo_creature_relations_current, mmo_character_inventory_current, mmo_character_quests_current, mmo_character_known_dialogs_current\nOK: undefined runtime stat rows=0\nOK: MMO unit stat sheet rows=1053/1053\nOK: MMO character stat sheets=1/1\nOK: MMO creature templates=404\nOK: MMO creature spawns=1052\nOK: mmo_character_wallet_current rows=1/1 from runtime_character_wallet\nOK: mmo_character_story_progress_current rows=1/1 from runtime_story_progress_current\nOK: mmo_world_items_current active rows=2461/2461 from runtime_world_items\nOK: mmo_script_global_values_current rows=3143/3143 from runtime_script_global_values\nOK: mmo_guild_attitudes_current rows=4356/4356 from runtime_guild_attitudes\nOK: mmo_world_clock_current rows=1/1 from runtime_world_clock\nOK: mmo_creature_inventory_current rows=2482/2482 from runtime_world_npc_inventory\nOK: mmo_creature_inventory_snapshots_current rows=1052/1052 creature checkpoints\nOK: mmo_creature_relations_current rows=0/0 from runtime_npc_relation_checkpoints\nOK: sealed world baselines=1\nOK: world instances/baselines=1/1\nINFO: world item tombstones=0\nINFO: mmo save slots=0\nOK: mmo save slot snapshots=0\nOK: save slots with current snapshots=0/0\n\nUseful SQL\n  SELECT type, name FROM sqlite_master WHERE type='view' ORDER BY name;\n  SELECT character_key, display_name, world_name, level, experience FROM mmo_characters_current;\n  SELECT slot_key, display_name, source_slot_path, world_name, tick_count, current_snapshot_id, last_saved_at FROM mmo_save_slots ORDER BY updated_at DESC;\n  SELECT snapshot_id, slot_key, display_name, world_name, tick_count, created_at FROM mmo_save_slot_snapshots ORDER BY snapshot_id DESC LIMIT 20;\n  SELECT character_key, world_name, chapter_number, chapter_key, source_symbol_name, updated_at FROM mmo_character_story_progress_current;\n  SELECT tick_count, chapter_before, chapter_after, chapter_key, source_symbol_name FROM runtime_story_progress_history ORDER BY id DESC LIMIT 20;\n  SELECT tick_count, title, subtitle, image, sound, duration FROM runtime_chapter_intro_events ORDER BY id DESC LIMIT 20;\n  SELECT character_key, currency_key, currency_display_name, amount FROM runtime_character_wallet;\n  SELECT character_key, currency_key, currency_display_name, amount FROM mmo_character_wallet_current;\n  SELECT * FROM mmo_unit_stat_sheet_current WHERE unit_type='character';\n  SELECT unit_type, stat_domain, stat_family, COUNT(*) FROM mmo_unit_stat_current GROUP BY unit_type, stat_domain, stat_family;\n  SELECT creature_template_id, display_name, spawn_count, min_level, max_level, base_health_max FROM mmo_creature_templates_current ORDER BY spawn_count DESC LIMIT 50;\n  SELECT creature_spawn_key, creature_template_id, display_name, health_current, health_max, current_waypoint_name FROM mmo_creature_spawns_current ORDER BY display_name LIMIT 50;\n  SELECT event_type, COUNT(*) FROM runtime_events GROUP BY event_type ORDER BY COUNT(*) DESC;\n  SELECT * FROM runtime_events ORDER BY id DESC LIMIT 50;\n  SELECT display_name, symbol_index, iterator_count, equipped, slot FROM runtime_character_inventory ORDER BY equipped DESC, display_name;\n  SELECT tick_count, COUNT(*), SUM(iterator_count) FROM runtime_character_inventory_history GROUP BY tick_count ORDER BY tick_count DESC LIMIT 30;\n  SELECT display_name, symbol_index, hp, hp_max, dead, pos_x, pos_y, pos_z FROM runtime_world_npcs ORDER BY dead DESC, display_name LIMIT 50;\n  SELECT display_name, stat_group, stat_key, value FROM runtime_npc_stats WHERE player!=0 ORDER BY stat_group, stat_key;\n  SELECT display_name, ai_state_name, target_display_name, target_key, state_other_key, state_victim_key, relation_kind FROM runtime_npc_ai_state ORDER BY updated_at DESC LIMIT 50;\n  SELECT world_name, kind, COUNT(*) AS points FROM runtime_waypoints GROUP BY world_name, kind;\n  SELECT display_name, current_waypoint_name, routine_waypoint_name, move_hint, move_target_waypoint_name, path_next_waypoint_name FROM runtime_npc_navigation_state ORDER BY display_name LIMIT 50;\n  SELECT display_name, routine_index, start_minute, end_minute, callback_symbol_name, waypoint_name, active FROM runtime_npc_routines ORDER BY display_name, start_minute LIMIT 50;\n  SELECT tick_count, display_name, changed_fields FROM runtime_npc_navigation_history ORDER BY id DESC LIMIT 50;\n  SELECT display_name, stat_group, stat_key, value_before, value_after FROM runtime_npc_stat_history ORDER BY id DESC LIMIT 50;\n  SELECT name, status, entry_count FROM runtime_quests ORDER BY status, name;\n  SELECT npc_symbol_name, info_symbol_name FROM runtime_known_dialogs ORDER BY first_seen_tick DESC LIMIT 50;\n  SELECT tick_count, npc_display_name, phase, title, info_symbol_name FROM runtime_dialog_selections ORDER BY id DESC LIMIT 50;\n  SELECT display_name, symbol_index, amount, pos_x, pos_y, pos_z FROM runtime_world_items ORDER BY display_name LIMIT 50;\n  SELECT display_name, state, container, door, locked, cracked FROM runtime_world_mobsi ORDER BY container DESC, door DESC, display_name LIMIT 50;\n  SELECT owner_display_name, display_name, iterator_count FROM runtime_world_mobsi_inventory ORDER BY owner_display_name, display_name LIMIT 50;\n  SELECT category, COUNT(*) FROM runtime_script_globals GROUP BY category ORDER BY COUNT(*) DESC;\n  SELECT category, symbol_name, value_before, value_after FROM runtime_script_global_history ORDER BY id DESC LIMIT 50;\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/capture_mmo_chapter1_start_sqlite_baseline.py",
+        "--source",
+        "/home/radseq/Desktop/OpenGothic/runtime/g2notr_ch1_pre_xardas.sqlite",
+        "--output",
+        "/home/radseq/Desktop/OpenGothic/runtime/baselines/g2notr_chapter1_before_xardas.sqlite",
+        "--manifest",
+        "/home/radseq/Desktop/OpenGothic/runtime/baselines/g2notr_chapter1_before_xardas.manifest.json",
+        "--character-key",
+        "PC_HERO",
+        "--strict",
+        "--overwrite"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "Step54 Chapter 1 clean-start baseline captured\nbaseline=runtime/baselines/g2notr_chapter1_before_xardas.sqlite\nmanifest=runtime/baselines/g2notr_chapter1_before_xardas.manifest.json\nschema_version=25\nchapter_number_detected=1\nxardas_dialog_selection_rows=0\nsha256=9050d5ea9d74b255dbaaa59d58ca3817a5615fd64ae2addd1f59b0fa16bd29cd\nstatus=passed\n"
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/reset_mmo_mysql_from_chapter1_start.py",
+        "--mysql-url",
+        "mysql://gothic:***@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--baseline",
+        "/home/radseq/Desktop/OpenGothic/runtime/baselines/g2notr_chapter1_before_xardas.sqlite",
+        "--output-dir",
+        "/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset",
+        "--realm-key",
+        "local-dev",
+        "--realm-display-name",
+        "Local Dev Realm",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO",
+        "--i-understand-this-drops-database"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": ""
+    },
+    {
+      "cmd": [
+        "/usr/bin/python3",
+        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step70_clean_live_readiness.py",
+        "--url",
+        "mysql://gothic:***@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "--sqlite",
+        "/home/radseq/Desktop/OpenGothic/runtime/g2notr_ch1_pre_xardas.sqlite",
+        "--session-key",
+        "local-dev-PC_HERO_TEST",
+        "--character-key",
+        "PC_HERO",
+        "--prepare-runtime",
+        "--output",
+        "/home/radseq/Desktop/OpenGothic/runtime/pc_hero_test_live/clean_live_readiness.json"
+      ],
+      "dry_run": false,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "status=passed\nready_for_live_loop=true\noutput=/home/radseq/Desktop/OpenGothic/runtime/pc_hero_test_live/clean_live_readiness.json\nwarnings=collation_mismatch\n"
+    }
+  ],
+  "finished_at": "2026-07-01T16:44:28.942030+00:00",
+  "mysql_database": "gothic_mmo_ch1_clean",
+  "mysql_url_redacted": "mysql://gothic:***@127.0.0.1:3306/gothic_mmo_ch1_clean",
+  "sqlite_source": "runtime/g2notr_ch1_pre_xardas.sqlite",
+  "started_at": "2026-07-01T16:44:15.713727+00:00",
+  "status": "passed",
+  "step": "55b_clean_mysql_from_pre_xardas"
+}

@@ -83,7 +83,9 @@ class GameScript final {
     // Database restore is intentionally routed through GameScript so persistence
     // never mutates Daedalus or quest internals directly.
     void         restoreQuestLogForPersistence(std::vector<QuestLog::Quest> quests);
+    size_t       mergeQuestLogForPersistence(std::vector<QuestLog::Quest> quests);
     void         restoreKnownDialogsForPersistence(std::set<std::pair<size_t,size_t>> dialogs);
+    size_t       mergeKnownDialogsForPersistence(const std::set<std::pair<size_t,size_t>>& dialogs);
     bool         restoreGlobalIntForPersistence(size_t symbolIndex, uint16_t valueIndex, int32_t value);
     bool         restoreGlobalFloatForPersistence(size_t symbolIndex, uint16_t valueIndex, float value);
     bool         restoreGlobalStringForPersistence(size_t symbolIndex, uint16_t valueIndex, std::string_view value);
@@ -513,3 +515,5 @@ class GameScript final {
 
   friend struct ScopeCtx;
   };
+
+

@@ -44,7 +44,7 @@ REQUIRED_FIELDS = (
     "payload",
 )
 
-DB_BRIDGE_VERSION = 1
+DB_BRIDGE_VERSION = 2
 
 
 @dataclass
@@ -114,7 +114,7 @@ def mysql_cmd(target: MySqlTarget) -> list[str]:
         f"--host={target.host}",
         f"--port={target.port}",
         f"--user={target.user}",
-        "--default-character-set=utf8mb4",
+        "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
         "--batch",
         "--raw",
         "--skip-column-names",
@@ -252,6 +252,20 @@ def required_shape_for_dispatch(action_kind: str, normalized_payload: dict[str, 
         "apply_character_damage": ("target_character_key", "damage_amount", "server_tick"),
         "apply_world_entity_damage": ("target_key", "damage_amount", "server_tick"),
         "mark_npc_dead": ("target_key", "server_tick"),
+        "trigger_event": ("trigger_key", "event_type_name", "server_tick"),
+        "mover_state_changed": ("mover_key", "state_after", "server_tick"),
+        "ready_weapon": ("actor_key", "new_weapon_state", "server_tick"),
+        "holster_weapon": ("actor_key", "new_weapon_state", "server_tick"),
+        "character_resource_delta": ("resource_key", "delta_amount", "server_tick"),
+        "world_time_changed": ("world_time_after_ms", "server_tick"),
+        "spend_learning_points": ("stat_key", "learning_points_cost", "server_tick"),
+        "character_teleport": ("pos_x", "pos_y", "pos_z", "server_tick"),
+        "world_transition": ("pos_x", "pos_y", "pos_z", "server_tick"),
+        "respawn_world_item": ("respawn_policy_key", "world_item_entity_key", "server_tick"),
+        "respawn_container_item": ("respawn_policy_key", "owner_entity_key", "server_tick"),
+        "npc_reaction_started": ("actor_npc_key", "reaction_kind", "server_tick"),
+        "npc_dialog_initiated": ("actor_npc_key", "target_character_key", "server_tick"),
+        "client_bootstrap_request": ("character_key", "world", "server_tick"),
         "character_checkpoint": ("pos_x", "pos_y", "pos_z", "rotation_yaw", "server_tick"),
     }
     required = required_by_kind.get(action_kind, ("server_tick",))
@@ -293,7 +307,12 @@ def normalized_db_payload(obj: dict[str, Any], remote: tuple[str, int]) -> dict[
     normalized["item_persistent_id"] = payload.get("item_persistent_id") or payload.get("source_world_item_persistent_id")
     normalized["amount"] = payload.get("amount", 1)
 
-    if action_kind in {"pickup_world_item", "remove_world_item"}:
+    if action_kind == "client_bootstrap_request":
+        normalized["character_key"] = payload.get("character_key") or "PC_HERO"
+        normalized["server_endpoint"] = payload.get("server_endpoint")
+        normalized["server_bound_client_mode"] = payload.get("server_bound_client_mode", True)
+        normalized["reason"] = payload.get("reason", "client_bootstrap_request")
+    elif action_kind in {"pickup_world_item", "remove_world_item"}:
         normalized["world_item_entity_key"] = payload.get("target_key") or obj.get("target_key")
         normalized["engine_world_item_key"] = payload.get("target_key") or obj.get("target_key")
         normalized["source_world_item_persistent_id"] = payload.get("source_world_item_persistent_id")
@@ -368,6 +387,88 @@ def normalized_db_payload(obj: dict[str, Any], remote: tuple[str, int]) -> dict[
         normalized["target_npc_entity_key"] = payload.get("target_npc_entity_key") or payload.get("target_key") or obj.get("target_key")
         normalized["dead"] = payload.get("dead", True)
         normalized["reason"] = payload.get("reason", "npc_no_health")
+    elif action_kind == "trigger_event":
+        normalized["trigger_key"] = payload.get("trigger_key") or payload.get("target_key") or obj.get("target_key")
+        normalized["trigger_vob_id"] = payload.get("trigger_vob_id")
+        normalized["trigger_name"] = payload.get("trigger_name")
+        normalized["trigger_target"] = payload.get("trigger_target")
+        normalized["event_target"] = payload.get("event_target")
+        normalized["event_emitter"] = payload.get("event_emitter")
+        normalized["event_type_name"] = payload.get("event_type_name") or payload.get("event_type") or "trigger"
+        normalized["capture_cause"] = payload.get("capture_cause")
+        normalized["player_caused"] = payload.get("player_caused")
+        normalized["reason"] = payload.get("reason", "world_trigger_event")
+    elif action_kind == "mover_state_changed":
+        normalized["mover_key"] = payload.get("mover_key") or payload.get("target_key") or obj.get("target_key")
+        normalized["mover_vob_id"] = payload.get("mover_vob_id")
+        normalized["mover_name"] = payload.get("mover_name")
+        normalized["state_before"] = payload.get("state_before")
+        normalized["state_after"] = payload.get("state_after")
+        normalized["state_before_name"] = payload.get("state_before_name")
+        normalized["state_after_name"] = payload.get("state_after_name")
+        normalized["frame"] = payload.get("frame")
+        normalized["target_frame"] = payload.get("target_frame")
+        normalized["capture_cause"] = payload.get("capture_cause")
+        normalized["player_caused"] = payload.get("player_caused")
+        normalized["reason"] = payload.get("reason", "mover_state_changed")
+    elif action_kind in {"ready_weapon", "holster_weapon"}:
+        normalized["actor_key"] = payload.get("actor_key") or payload.get("actor_entity_key") or obj.get("target_key")
+        normalized["actor_entity_key"] = payload.get("actor_entity_key")
+        normalized["previous_weapon_state"] = payload.get("previous_weapon_state")
+        normalized["new_weapon_state"] = payload.get("new_weapon_state") or payload.get("weapon_state") or action_kind
+        normalized["ready"] = payload.get("ready", action_kind == "ready_weapon")
+        normalized["reason"] = payload.get("reason", action_kind)
+    elif action_kind == "character_resource_delta":
+        normalized["target_character_key"] = payload.get("target_character_key") or payload.get("character_key") or "PC_HERO"
+        normalized["resource_key"] = payload.get("resource_key") or payload.get("stat_key")
+        normalized["delta_amount"] = payload.get("delta_amount") or payload.get("amount") or payload.get("delta")
+        normalized["value_before"] = payload.get("value_before")
+        normalized["value_after"] = payload.get("value_after")
+        normalized["reason"] = payload.get("reason", "character_resource_delta")
+    elif action_kind == "world_time_changed":
+        normalized["world_time_before_ms"] = payload.get("world_time_before_ms")
+        normalized["world_time_after_ms"] = payload.get("world_time_after_ms") or payload.get("time_after_ms")
+        normalized["world_day_before"] = payload.get("world_day_before")
+        normalized["world_day_after"] = payload.get("world_day_after")
+        normalized["time_delta_ms"] = payload.get("time_delta_ms")
+        normalized["reason"] = payload.get("reason", "world_time_changed")
+    elif action_kind == "spend_learning_points":
+        normalized["stat_key"] = payload.get("stat_key") or payload.get("talent_key") or payload.get("attribute_key") or obj.get("target_key")
+        normalized["learning_points_cost"] = payload.get("learning_points_cost") or payload.get("lp_cost") or payload.get("learning_points_delta")
+        normalized["value_before"] = payload.get("value_before")
+        normalized["value_after"] = payload.get("value_after")
+        normalized["gold_cost"] = payload.get("gold_cost", 0)
+        normalized["trainer_key"] = payload.get("trainer_key") or payload.get("npc_key")
+        normalized["reason"] = payload.get("reason", "trainer_learning_points_spent")
+    elif action_kind in {"character_teleport", "world_transition"}:
+        pos = payload.get("position") if isinstance(payload.get("position"), dict) else {}
+        normalized["target_world_instance_key"] = payload.get("target_world_instance_key") or payload.get("world_instance_key")
+        normalized["pos_x"] = payload.get("pos_x", pos.get("x"))
+        normalized["pos_y"] = payload.get("pos_y", pos.get("y"))
+        normalized["pos_z"] = payload.get("pos_z", pos.get("z"))
+        normalized["rotation_yaw"] = payload.get("rotation_yaw", payload.get("yaw", 0))
+        normalized["reason"] = payload.get("reason", action_kind)
+    elif action_kind == "respawn_world_item":
+        normalized["respawn_policy_key"] = payload.get("respawn_policy_key") or payload.get("policy_key") or obj.get("target_key")
+        normalized["world_item_entity_key"] = payload.get("world_item_entity_key") or payload.get("target_key")
+        normalized["amount"] = payload.get("amount", 1)
+        normalized["reason"] = payload.get("reason", "scheduled_world_item_respawn")
+    elif action_kind == "respawn_container_item":
+        normalized["respawn_policy_key"] = payload.get("respawn_policy_key") or payload.get("policy_key") or obj.get("target_key")
+        normalized["owner_entity_key"] = payload.get("owner_entity_key") or payload.get("container_key")
+        normalized["item_instance_key"] = payload.get("item_instance_key")
+        normalized["amount"] = payload.get("amount", 1)
+        normalized["reason"] = payload.get("reason", "scheduled_container_item_respawn")
+    elif action_kind == "npc_reaction_started":
+        normalized["actor_npc_key"] = payload.get("actor_npc_key") or payload.get("actor_key") or obj.get("target_key")
+        normalized["target_key"] = payload.get("target_key") or payload.get("target_character_key")
+        normalized["reaction_kind"] = payload.get("reaction_kind") or payload.get("reason") or "attention"
+        normalized["reason"] = payload.get("reason", "npc_reaction_started")
+    elif action_kind == "npc_dialog_initiated":
+        normalized["actor_npc_key"] = payload.get("actor_npc_key") or payload.get("actor_key") or obj.get("target_key")
+        normalized["target_character_key"] = payload.get("target_character_key") or payload.get("character_key") or "PC_HERO"
+        normalized["dialog_info_key"] = payload.get("dialog_info_key") or payload.get("info_key")
+        normalized["reason"] = payload.get("reason", "npc_dialog_initiated")
     elif action_kind == "character_checkpoint":
         pos = payload.get("position") if isinstance(payload.get("position"), dict) else {}
         normalized["character_key"] = payload.get("character_key", "PC_HERO")
@@ -417,6 +518,20 @@ def normalized_db_payload(obj: dict[str, Any], remote: tuple[str, int]) -> dict[
         "apply_character_damage": ("target_character_key", "damage_amount", "server_tick"),
         "apply_world_entity_damage": ("target_key", "damage_amount", "server_tick"),
         "mark_npc_dead": ("target_key", "server_tick"),
+        "trigger_event": ("trigger_key", "event_type_name", "server_tick"),
+        "mover_state_changed": ("mover_key", "state_after", "server_tick"),
+        "ready_weapon": ("actor_key", "new_weapon_state", "server_tick"),
+        "holster_weapon": ("actor_key", "new_weapon_state", "server_tick"),
+        "character_resource_delta": ("resource_key", "delta_amount", "server_tick"),
+        "world_time_changed": ("world_time_after_ms", "server_tick"),
+        "spend_learning_points": ("stat_key", "learning_points_cost", "server_tick"),
+        "character_teleport": ("pos_x", "pos_y", "pos_z", "server_tick"),
+        "world_transition": ("pos_x", "pos_y", "pos_z", "server_tick"),
+        "respawn_world_item": ("respawn_policy_key", "world_item_entity_key", "server_tick"),
+        "respawn_container_item": ("respawn_policy_key", "owner_entity_key", "server_tick"),
+        "npc_reaction_started": ("actor_npc_key", "reaction_kind", "server_tick"),
+        "npc_dialog_initiated": ("actor_npc_key", "target_character_key", "server_tick"),
+        "client_bootstrap_request": ("character_key", "world", "server_tick"),
         "character_checkpoint": ("pos_x", "pos_y", "pos_z", "rotation_yaw", "server_tick"),
     }
     direct_missing = [key for key in direct_required_by_kind.get(action_kind, ("server_tick",)) if normalized.get(key) in (None, "")]
@@ -624,6 +739,10 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
+
 
 
 

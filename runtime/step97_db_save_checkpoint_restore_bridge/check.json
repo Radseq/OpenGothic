@@ -1,0 +1,37 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-06-30T19:58:03.994096+00:00",
+  "latest": [
+    {
+      "character_key": "PC_HERO",
+      "character_rows": 1,
+      "display_name": "Step97 DB Save Restore Smoke",
+      "exported_bootstrap_bytes": 881167,
+      "inventory_rows": 2,
+      "known_dialog_rows": 3,
+      "manifest_uuid": "f211d026-74bd-11f1-9435-30560f155bba",
+      "mover_rows": 0,
+      "quest_rows": 1,
+      "save_key": "step97-smoke-slot",
+      "script_state_rows": 3150,
+      "world_clock_rows": 0,
+      "world_entity_rows": 3458,
+      "world_inventory_rows": 438
+    }
+  ],
+  "routines": {
+    "mmo_build_latest_save_checkpoint_bootstrap_snapshot_v1": true,
+    "mmo_create_db_save_checkpoint_v1": true,
+    "mmo_materialize_save_checkpoint_world_clock_snapshot_v1": true
+  },
+  "started_at": "2026-06-30T19:58:03.873298+00:00",
+  "status": "ok",
+  "step": "97_db_save_checkpoint_restore_bridge",
+  "tables": {
+    "mmo_save_checkpoint_world_clock_snapshot": true
+  },
+  "views": {
+    "v_mmo_latest_save_checkpoint_restore_readiness": true,
+    "v_mmo_save_checkpoint_snapshot_domain_counts": true
+  }
+}

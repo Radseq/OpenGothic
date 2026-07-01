@@ -50,9 +50,11 @@ struct SemanticActionSinkConfig final {
   std::string  sessionKey = "local-dev";
   std::size_t  queueCapacity = 4096;
   bool         strictOverflow = false;
+  bool         serverBoundClientMode = false;
 };
 
 [[nodiscard]] bool isSemanticActionCaptureEnabled() noexcept;
+[[nodiscard]] bool isServerBoundClientModeEnabled() noexcept;
 [[nodiscard]] std::uint64_t nextSemanticActionSequence() noexcept;
 [[nodiscard]] std::string_view semanticActionSessionKey() noexcept;
 
@@ -65,4 +67,6 @@ void configureSemanticActionSink(const CommandLine& cmd);
 void shutdownSemanticActionSink() noexcept;
 
 } // namespace Mmo
+
+
 

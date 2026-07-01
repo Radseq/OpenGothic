@@ -54,8 +54,23 @@ class CommandLine {
     uint64_t            mmoSqliteIntervalMs() const { return mmoSqliteInterval; }
     bool                mmoSqliteRestore() const { return mmoSqliteRestoreState; }
     bool                mmoSqliteCaptureBaseline() const { return mmoSqliteCaptureBaselineState; }
+    bool                mmoSqliteCapturePreStartExit() const { return mmoSqliteCapturePreStartExitState; }
     std::string_view    mmoActionJsonl() const { return mmoActionJsonlPath; }
     std::string_view    mmoActionUdpEndpoint() const { return mmoActionUdp; }
+    bool                mmoClientUsesServer() const { return mmoClientUsesServerState; }
+    std::string_view    mmoServerEndpoint() const { return mmoServerEndpointValue; }
+    std::string_view    mmoRestoreSnapshotJson() const { return mmoRestoreSnapshotJsonPath; }
+    bool                mmoRestoreSnapshotApply() const { return mmoRestoreSnapshotApplyState; }
+    std::string_view    mmoServerSnapshotJson() const { return mmoServerSnapshotJsonPath; }
+    bool                mmoServerSnapshotApplyInventory() const { return mmoClientUsesServerState; }
+    bool                mmoServerSnapshotApplyPosition() const { return mmoClientUsesServerState; }
+    bool                mmoServerSnapshotApplyStats() const { return mmoClientUsesServerState; }
+    bool                mmoServerSnapshotApplyStory() const { return mmoClientUsesServerState; }
+    bool                mmoServerSnapshotApplyWorldState() const { return mmoClientUsesServerState; }
+    bool                mmoDbContinueWithoutNativeSave() const { return mmoDbContinueWithoutNativeSaveState; }
+    std::string_view    mmoDbContinueSyntheticSlot() const { return "mmo_db_continue.sav"; }
+    bool                mmoRequireDbSaveCheckpointRestore() const { return mmoRequireDbSaveCheckpointRestoreState; }
+    std::string_view    mmoDbBootstrapWorld() const { return mmoDbBootstrapWorldValue; }
     std::string_view    mmoActionSessionKey() const { return mmoActionSession; }
     uint64_t            mmoActionQueueCapacity() const { return mmoActionQueueCap; }
     bool                mmoActionStrictOverflow() const { return mmoActionStrictOverflowState; }
@@ -83,8 +98,17 @@ class CommandLine {
     uint64_t            mmoSqliteInterval = 5000;
     bool                mmoSqliteRestoreState = true;
     bool                mmoSqliteCaptureBaselineState = false;
+    bool                mmoSqliteCapturePreStartExitState = false;
     std::string         mmoActionJsonlPath;
     std::string         mmoActionUdp;
+    bool                mmoClientUsesServerState = false;
+    std::string         mmoServerEndpointValue;
+    std::string         mmoRestoreSnapshotJsonPath;
+    bool                mmoRestoreSnapshotApplyState = false;
+    std::string         mmoServerSnapshotJsonPath = "runtime/mmo_server_bootstrap_snapshot.json";
+    bool                mmoDbContinueWithoutNativeSaveState = false;
+    bool                mmoRequireDbSaveCheckpointRestoreState = false;
+    std::string         mmoDbBootstrapWorldValue;
     std::string         mmoActionSession = "local-dev";
     uint64_t            mmoActionQueueCap = 4096;
     bool                mmoActionStrictOverflowState = false;
@@ -116,9 +140,3 @@ class CommandLine {
     bool                forceG2NR    = false;
     uint32_t            aaPresetId = 0;
   };
-
-
-
-
-
-

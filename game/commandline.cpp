@@ -117,6 +117,14 @@ CommandLine::CommandLine(int argc, const char** argv) {
       // It is valid only for the first session of a fresh database, never a save.
       mmoSqliteCaptureBaselineState = true;
       }
+    else if(arg=="-mmo-sqlite-capture-pre-start-exit") {
+      // One-shot deterministic baseline capture for a fresh New Game. The SQLite
+      // DB is opened and flushed before world start triggers/dialog AI can run,
+      // then the process exits. This intentionally avoids Xardas auto-dialog.
+      mmoSqliteCapturePreStartExitState = true;
+      mmoSqliteCaptureBaselineState = true;
+      mmoSqliteRestoreState = false;
+      }
     else if(arg=="-mmo-action-jsonl") {
       // Dev-only semantic action capture. The game thread only enqueues immutable
       // JSONL lines; final MMO architecture is still client -> server -> DB.
@@ -130,6 +138,73 @@ CommandLine::CommandLine(int argc, const char** argv) {
       ++i;
       if(i<argc)
         mmoActionUdp = argv[i];
+      }
+    else if(arg=="-mmo-client-server" || arg=="-mmo-use-server") {
+      // Explicit opt-in for a server-bound client. Old single-player behavior
+      // is unchanged unless this flag is present. The optional value is the same
+      // host:port syntax as -mmo-action-udp.
+      mmoClientUsesServerState = true;
+      if(i + 1 < argc && argv[i + 1][0] != '-') {
+        ++i;
+        mmoServerEndpointValue = argv[i];
+        if(mmoActionUdp.empty())
+          mmoActionUdp = mmoServerEndpointValue;
+        }
+      }
+    else if(arg=="-mmo-server-endpoint") {
+      // Alias kept separate from -mmo-action-udp so future code can distinguish
+      // capture-only transport from real client->server intent mode.
+      ++i;
+      if(i<argc) {
+        mmoClientUsesServerState = true;
+        mmoServerEndpointValue = argv[i];
+        if(mmoActionUdp.empty())
+          mmoActionUdp = mmoServerEndpointValue;
+        }
+      }
+    else if(arg=="-mmo-restore-snapshot-json" || arg=="-mmo-client-restore-snapshot-json") {
+      // Guarded server-truth restore contract. Validation is allowed in
+      // server-bound mode; mutation additionally requires -mmo-restore-snapshot-apply.
+      ++i;
+      if(i<argc)
+        mmoRestoreSnapshotJsonPath = argv[i];
+      }
+    else if(arg=="-mmo-restore-snapshot-apply" || arg=="-mmo-client-restore-snapshot-apply") {
+      // Explicit second key for replacing .sav inventory/equipment with a
+      // validated server snapshot. No effect without -mmo-client-server.
+      mmoRestoreSnapshotApplyState = true;
+      }
+    else if(arg=="-mmo-server-snapshot-json" || arg=="-mmo-bootstrap-snapshot-json") {
+      // Optional path for the snapshot downloaded from the C++ server during
+      // bootstrap. The default is runtime/mmo_server_bootstrap_snapshot.json.
+      ++i;
+      if(i<argc)
+        mmoServerSnapshotJsonPath = argv[i];
+      }
+    else if(arg=="-mmo-db-continue-without-native-save" || arg=="-mmo-db-continue") {
+      // Step95: explicit development bridge for DB-backed Continue. When a
+      // requested native .sav is missing, server-bound mode can bootstrap the
+      // baseline ZEN world and then apply the server snapshot. Old load remains
+      // unchanged unless this flag and -mmo-client-server are both present.
+      mmoDbContinueWithoutNativeSaveState = true;
+      }
+    else if(arg=="-mmo-db-bootstrap-world") {
+      // Optional baseline world override for -mmo-db-continue-without-native-save.
+      // Default is Gothic::defaultWorld()/the configured -w world.
+      ++i;
+      if(i<argc)
+        mmoDbBootstrapWorldValue = argv[i];
+      }
+    else if(arg=="-mmo-require-db-save-checkpoint-restore" || arg=="-mmo-strict-db-continue") {
+      // Step98: test guard for DB-native Continue. The downloaded bootstrap
+      // snapshot must explicitly come from a DB save checkpoint, not fallback
+      // live projections. Normal server-bound flow stays unchanged without it.
+      mmoRequireDbSaveCheckpointRestoreState = true;
+      }
+    else if(arg=="-mmo-server-snapshot-apply-inventory" || arg=="-mmo-bootstrap-snapshot-apply-inventory" ||
+            arg=="-mmo-server-snapshot-apply-position"  || arg=="-mmo-bootstrap-snapshot-apply-position") {
+      // Compatibility no-op. In server-bound mode the bootstrap snapshot is now
+      // the client materialization source selected by -mmo-client-server.
       }
     else if(arg=="-mmo-action-session-key") {
       ++i;
@@ -316,6 +391,54 @@ CommandLine::CommandLine(int argc, const char** argv) {
       }
     }
 
+  if(mmoClientUsesServerState) {
+    if(mmoServerEndpointValue.empty())
+      mmoServerEndpointValue = mmoActionUdp;
+    if(mmoActionUdp.empty()) {
+      Log::e("-mmo-client-server enabled without server endpoint; pass -mmo-client-server 127.0.0.1:29777 or -mmo-server-endpoint 127.0.0.1:29777");
+      }
+    else {
+      Log::i("MMO server-bound client mode enabled: ", mmoActionUdp);
+      }
+
+    // Conservative server-mode defaults. They apply only when the explicit
+    // client-server flag is present and the user did not override cadence.
+    if(mmoActionQueueCap < 8192)
+      mmoActionQueueCap = 8192;
+    if(mmoActionMovementProposalInterval == 0)
+      mmoActionMovementProposalInterval = 100;
+    if(mmoActionMovementProposalMinDistanceWorld <= 0.f)
+      mmoActionMovementProposalMinDistanceWorld = 25.f;
+    if(mmoActionMovementProposalMinYaw <= 0.f)
+      mmoActionMovementProposalMinYaw = 5.f;
+    if(mmoActionCheckpointInterval == 0)
+      mmoActionCheckpointInterval = 1000;
+    if(mmoActionCheckpointMinDistanceWorld <= 0.f)
+      mmoActionCheckpointMinDistanceWorld = 100.f;
+    if(mmoActionCheckpointMinYaw <= 0.f)
+      mmoActionCheckpointMinYaw = 15.f;
+    if(mmoActionCheckpointForceInterval == 0)
+      mmoActionCheckpointForceInterval = 5000;
+
+    // In server-bound mode the local .sav file is only a compatibility/debug
+    // cache. A DB-backed character should be able to enter through Load/Continue
+    // without requiring a fake -save slot on the command line.
+    mmoDbContinueWithoutNativeSaveState = true;
+    Log::i("MMO DB continue without native save enabled by server-bound mode");
+    }
+
+  if(mmoDbContinueWithoutNativeSaveState && !mmoClientUsesServerState)
+    Log::e("-mmo-db-continue-without-native-save requires -mmo-client-server");
+
+  if(mmoRequireDbSaveCheckpointRestoreState && !mmoClientUsesServerState)
+    Log::e("-mmo-require-db-save-checkpoint-restore requires -mmo-client-server");
+
+  if(mmoRestoreSnapshotApplyState && mmoRestoreSnapshotJsonPath.empty())
+    Log::e("-mmo-restore-snapshot-apply requires -mmo-restore-snapshot-json <path>");
+
+  if(mmoClientUsesServerState && mmoServerSnapshotJsonPath.empty())
+    Log::e("-mmo-client-server requires a non-empty server snapshot path");
+
   if(gpath.empty()) {
     InstallDetect inst;
     gpath = inst.detectG2();
@@ -396,9 +519,3 @@ bool CommandLine::validateGothicPath() const {
     return false;
   return true;
   }
-
-
-
-
-
-

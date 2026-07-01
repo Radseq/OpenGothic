@@ -1,0 +1,12 @@
+---crashlog(std::runtime_error(Engine internal error. VkResult=2))---
+GPU: NVIDIA GeForce RTX 5070 Ti
+#1: std::unexpected() - /usr/lib/x86_64-linux-gnu/libstdc++.so.6(_ZSt10unexpectedv+0) [0x7f89b6cabc6c]
+#2: std::unexpected() - /usr/lib/x86_64-linux-gnu/libstdc++.so.6(+0xc3901) [0x7f89b6cc3901]
+#3: Tempest::Detail::vkAssert(VkResult) - ./build/opengothic/Gothic2Notr(_ZN7Tempest6Detail8vkAssertE8VkResult+0x11f) [0x55c19724b34f]
+#4: Tempest::Detail::VSwapchain::implAcquireNextImage() - ./build/opengothic/Gothic2Notr(_ZN7Tempest6Detail10VSwapchain20implAcquireNextImageEv+0x167) [0x55c19725c207]
+#5: Tempest::Detail::VSwapchain::acquireNextImage() - ./build/opengothic/Gothic2Notr(_ZN7Tempest6Detail10VSwapchain16acquireNextImageEv+0xd) [0x55c19725c29d]
+#6: Tempest::Detail::VSwapchain::present() - ./build/opengothic/Gothic2Notr(_ZN7Tempest6Detail10VSwapchain7presentEv+0x17f) [0x55c19725c44f]
+#7: MainWindow::render() - ./build/opengothic/Gothic2Notr(_ZN10MainWindow6renderEv+0x3c4) [0x55c19707cb74]
+#8: Tempest::X11Api::implProcessEvents(Tempest::SystemApi::AppCallBack&) - ./build/opengothic/Gothic2Notr(_ZN7Tempest6X11Api17implProcessEventsERNS_9SystemApi11AppCallBackE+0x69) [0x55c19725e719]
+#9: Tempest::X11Api::implExec(Tempest::SystemApi::AppCallBack&) - ./build/opengothic/Gothic2Notr(_ZN7Tempest6X11Api8implExecERNS_9SystemApi11AppCallBackE+0x23) [0x55c19725ee83]
+#10: main - ./build/opengothic/Gothic2Notr(main+0x246) [0x55c196e884c6]

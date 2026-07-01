@@ -516,7 +516,7 @@ def mysql_cmd(target: MySqlTarget) -> list[str]:
         f"--host={target.host}",
         f"--port={target.port}",
         f"--user={target.user}",
-        "--default-character-set=utf8mb4",
+        "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
         target.database,
     ]
     if target.password:

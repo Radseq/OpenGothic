@@ -1,6 +1,8 @@
 #include "questlog.h"
 #include "serialize.h"
 
+#include <algorithm>
+
 QuestLog::QuestLog() {
   }
 
@@ -31,6 +33,31 @@ void QuestLog::replace(std::vector<Quest> next) {
   quests = std::move(next);
   }
 
+
+size_t QuestLog::mergePreservingLocal(std::vector<Quest> next) {
+  size_t changed = 0;
+  for(auto& src : next) {
+    if(src.name.empty())
+      continue;
+
+    Quest* dst = find(src.name);
+    if(dst == nullptr) {
+      quests.emplace_back(std::move(src));
+      ++changed;
+      continue;
+      }
+
+    for(auto& entry : src.entry) {
+      const auto exists = std::find(dst->entry.begin(), dst->entry.end(), entry) != dst->entry.end();
+      if(exists)
+        continue;
+      dst->entry.emplace_back(std::move(entry));
+      ++changed;
+      }
+    }
+  return changed;
+  }
+
 QuestLog::Quest *QuestLog::find(std::string_view name) {
   for(auto& i:quests)
     if(i.name==name)
@@ -55,3 +82,5 @@ void QuestLog::load(Serialize &fin) {
     fin.read(i.name,reinterpret_cast<uint8_t&>(i.section),reinterpret_cast<uint8_t&>(i.status),i.entry);
     }
   }
+
+

@@ -27,7 +27,13 @@ class GameSession final {
   public:
     GameSession()=delete;
     GameSession(const GameSession&)=delete;
+    enum class StartupMode : uint8_t {
+      NewGame,
+      MmoDbContinue,
+      };
+
     GameSession(std::string file);
+    GameSession(std::string file, StartupMode startupMode);
     GameSession(Serialize&  fin, std::string sourceSlot = {});
     ~GameSession();
 
@@ -97,6 +103,7 @@ class GameSession final {
     bool         isWorldKnown(std::string_view name) const;
     void         initPerceptions();
     void         initScripts(bool firstTime);
+    void         consumeMmoRestoreSnapshot(std::string_view reason) noexcept;
     auto         implChangeWorld(std::unique_ptr<GameSession> &&game, std::string_view world, std::string_view wayPoint) -> std::unique_ptr<GameSession>;
     auto         findStorage(std::string_view name) -> const WorldStateStorage&;
 
@@ -155,9 +162,29 @@ class GameSession final {
     void        recordMmoActionMovementProposalState(const Npc& npc, uint64_t now) noexcept;
     void        tickMmoMovementProposal(Npc& npc, uint64_t now) noexcept;
 
+    struct MmoServerSnapshotRestoreState final {
+      bool        requested = false;
+      bool        completed = false;
+      bool        waitingLogged = false;
+      bool        storyDirtySinceRequest = false;
+      uint64_t    requestedAtTick = 0;
+      uint64_t    lastPollTick = 0;
+      uint64_t    lastLiveRefreshPollTick = 0;
+      uint32_t    lastAppliedSnapshotId = 0;
+      std::string reason;
+      };
+
+    void        scheduleMmoServerSnapshotRestore(std::string_view reason, bool reuseExistingSnapshot = false) noexcept;
+    bool        tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept;
+    void        waitForMmoServerSnapshotRestoreDuringLoad() noexcept;
+    void        pollMmoServerSnapshotRestore() noexcept;
+    bool        tryApplyMmoServerWorldSnapshotRefresh() noexcept;
+    void        markMmoServerSnapshotStoryDirty() noexcept;
+
     uint64_t                       ticks = 0, wrldTimePart = 0;
     MmoActionCheckpointState       lastMmoActionCheckpoint;
     MmoActionMovementProposalState lastMmoActionMovementProposal;
+    MmoServerSnapshotRestoreState  mmoServerSnapshotRestore;
     uint64_t                       timeMul = 1000, timeMulFract = 0;
     gtime                          wrldTime;
 
@@ -169,6 +196,11 @@ class GameSession final {
     static const uint64_t          multTime;
     static const uint64_t          divTime;
   };
+
+
+
+
+
 
 
 

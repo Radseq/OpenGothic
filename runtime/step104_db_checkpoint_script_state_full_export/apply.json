@@ -1,0 +1,9 @@
+{
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-07-01T15:49:46.697880+00:00",
+  "patched_create_function_characteristics_for_binlog": 0,
+  "sql": "/home/radseq/Desktop/OpenGothic/server/sql/step104_db_checkpoint_script_state_full_export.sql",
+  "started_at": "2026-07-01T15:49:46.660163+00:00",
+  "status": "ok",
+  "step": "104_db_checkpoint_script_state_full_export"
+}
