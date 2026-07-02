@@ -29,5 +29,9 @@ internal/
 #os
 .DS_Store
 
+__pycache__/
+*.py[cod]
+
+/tools/_archive/*
 
 *.sql*

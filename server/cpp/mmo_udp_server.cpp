@@ -73,6 +73,15 @@ struct LiveWorldSnapshotState final {
   std::uint64_t lastTick = 0;
 };
 
+[[nodiscard]] std::optional<std::uint16_t> rawClientActionKind(std::string_view bytes) noexcept {
+  constexpr std::size_t ActionKindOffset = 4 + 2 + 2 + 2;
+  if(bytes.size() < ActionKindOffset + 2)
+    return std::nullopt;
+  const auto lo = static_cast<std::uint16_t>(static_cast<unsigned char>(bytes[ActionKindOffset]));
+  const auto hi = static_cast<std::uint16_t>(static_cast<unsigned char>(bytes[ActionKindOffset + 1]));
+  return static_cast<std::uint16_t>(lo | (hi << 8));
+}
+
 using Mmo::Server::BootstrapReadiness;
 using Mmo::Server::DirectApplyResult;
 using Mmo::Server::MySqlTarget;
@@ -537,6 +546,18 @@ void appendJsonRawField(std::string& out, std::string_view key, std::string_view
   out += value.empty() ? "null" : std::string(value);
 }
 
+void appendJsonRawFieldBeforeFinalObjectBrace(std::string& out, std::string_view key, std::string_view value) {
+  if(out.find(jsonEscape(key)) != std::string::npos)
+    return;
+  while(!out.empty() && std::isspace(static_cast<unsigned char>(out.back())))
+    out.pop_back();
+  if(out.empty() || out.back() != '}')
+    return;
+  out.pop_back();
+  appendJsonRawField(out, key, value);
+  out.push_back('}');
+}
+
 void appendJsonNumberField(std::string& out, std::string_view key, std::uint64_t value) {
   out.push_back(',');
   out += jsonEscape(key);
@@ -869,6 +890,54 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
   auto out = mysqlSingleFieldWithDiagnostic(target, query, "bootstrap_db_save_checkpoint_restore");
   if(out == "NULL")
     out.clear();
+  if(!out.empty()) {
+    const std::string sessionSql = sqlLiteral(sessionUuid);
+
+    std::string npcRoutineStateQuery;
+    npcRoutineStateQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+    npcRoutineStateQuery += "SELECT JSON_OBJECT('npc_entity_key',rs.npc_entity_key,'routine_state',rs.routine_state,";
+    npcRoutineStateQuery += "'schedule_key',rs.schedule_key,'current_waypoint_key',rs.current_waypoint_key,'target_waypoint_key',rs.target_waypoint_key,";
+    npcRoutineStateQuery += "'last_server_tick',rs.last_server_tick,'row_version',rs.row_version,'updated_at',DATE_FORMAT(rs.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+    npcRoutineStateQuery += "FROM server_sessions ss JOIN mmo_npc_routine_state_current rs ON rs.world_instance_id=ss.world_instance_id ";
+    npcRoutineStateQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) ORDER BY rs.last_server_tick DESC,rs.npc_entity_key LIMIT " + std::to_string(Mmo::Server::MaxBootstrapNpcAuthorityRows);
+    npcRoutineStateQuery += ") rows_json), JSON_ARRAY());";
+    appendJsonRawFieldBeforeFinalObjectBrace(out, Mmo::Server::BootstrapNpcRoutineStateSection,
+                                             mysqlJsonOrWithDiagnostic(target, npcRoutineStateQuery, "[]", "bootstrap_db_checkpoint_npc_routine_state"));
+
+    std::string npcAiStateQuery;
+    npcAiStateQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+    npcAiStateQuery += "SELECT JSON_OBJECT('npc_entity_key',ais.npc_entity_key,'ai_state',ais.ai_state,'ai_intent',ais.ai_intent,";
+    npcAiStateQuery += "'target_key',ais.target_key,'perception_state',ais.perception_state,'last_server_tick',ais.last_server_tick,";
+    npcAiStateQuery += "'row_version',ais.row_version,'updated_at',DATE_FORMAT(ais.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+    npcAiStateQuery += "FROM server_sessions ss JOIN mmo_npc_ai_state_current ais ON ais.world_instance_id=ss.world_instance_id ";
+    npcAiStateQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) ORDER BY ais.last_server_tick DESC,ais.npc_entity_key LIMIT " + std::to_string(Mmo::Server::MaxBootstrapNpcAuthorityRows);
+    npcAiStateQuery += ") rows_json), JSON_ARRAY());";
+    appendJsonRawFieldBeforeFinalObjectBrace(out, Mmo::Server::BootstrapNpcAiStateSection,
+                                             mysqlJsonOrWithDiagnostic(target, npcAiStateQuery, "[]", "bootstrap_db_checkpoint_npc_ai_state"));
+
+    std::string npcPathStateQuery;
+    npcPathStateQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+    npcPathStateQuery += "SELECT JSON_OBJECT('npc_entity_key',ps.npc_entity_key,'path_state',ps.path_state,'route_key',ps.route_key,";
+    npcPathStateQuery += "'current_waypoint_key',ps.current_waypoint_key,'next_waypoint_key',ps.next_waypoint_key,'target_waypoint_key',ps.target_waypoint_key,";
+    npcPathStateQuery += "'pos_x',ps.pos_x,'pos_y',ps.pos_y,'pos_z',ps.pos_z,'last_server_tick',ps.last_server_tick,";
+    npcPathStateQuery += "'row_version',ps.row_version,'updated_at',DATE_FORMAT(ps.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+    npcPathStateQuery += "FROM server_sessions ss JOIN mmo_npc_path_state_current ps ON ps.world_instance_id=ss.world_instance_id ";
+    npcPathStateQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) ORDER BY ps.last_server_tick DESC,ps.npc_entity_key LIMIT " + std::to_string(Mmo::Server::MaxBootstrapNpcAuthorityRows);
+    npcPathStateQuery += ") rows_json), JSON_ARRAY());";
+    appendJsonRawFieldBeforeFinalObjectBrace(out, Mmo::Server::BootstrapNpcPathStateSection,
+                                             mysqlJsonOrWithDiagnostic(target, npcPathStateQuery, "[]", "bootstrap_db_checkpoint_npc_path_state"));
+
+    std::string npcFightStateQuery;
+    npcFightStateQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+    npcFightStateQuery += "SELECT JSON_OBJECT('npc_entity_key',fs.npc_entity_key,'opponent_key',fs.opponent_key,'fight_state',fs.fight_state,";
+    npcFightStateQuery += "'attack_state',fs.attack_state,'combo_index',fs.combo_index,'last_server_tick',fs.last_server_tick,";
+    npcFightStateQuery += "'row_version',fs.row_version,'updated_at',DATE_FORMAT(fs.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+    npcFightStateQuery += "FROM server_sessions ss JOIN mmo_npc_fight_state_current fs ON fs.world_instance_id=ss.world_instance_id ";
+    npcFightStateQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) ORDER BY fs.last_server_tick DESC,fs.npc_entity_key LIMIT " + std::to_string(Mmo::Server::MaxBootstrapNpcAuthorityRows);
+    npcFightStateQuery += ") rows_json), JSON_ARRAY());";
+    appendJsonRawFieldBeforeFinalObjectBrace(out, Mmo::Server::BootstrapNpcFightStateSection,
+                                             mysqlJsonOrWithDiagnostic(target, npcFightStateQuery, "[]", "bootstrap_db_checkpoint_npc_fight_state"));
+  }
   return out;
 }
 
@@ -3531,7 +3600,13 @@ int main(int argc, char** argv) {
       const auto decoded = Mmo::Net::decodeClientActionPacket(std::string_view(buffer.data(), n));
       if(!decoded.ok()) {
         ++invalid;
-        std::cout << "[invalid] remote=" << remote << " error=" << Mmo::Net::decodeErrorName(decoded.error) << "\n";
+        const auto bytes = std::string_view(buffer.data(), n);
+        std::cout << "[invalid] remote=" << remote << " error=" << Mmo::Net::decodeErrorName(decoded.error);
+        if(decoded.error == Mmo::Net::DecodeError::BadActionKind) {
+          if(const auto raw = rawClientActionKind(bytes))
+            std::cout << " raw_action_kind=" << *raw << " known_actions=" << Mmo::SemanticActionDefs.size();
+        }
+        std::cout << " datagram_bytes=" << n << "\n";
         continue;
       }
 
@@ -3758,6 +3833,7 @@ int main(int argc, char** argv) {
     return 2;
   }
 }
+
 
 
 

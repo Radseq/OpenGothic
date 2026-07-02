@@ -21,6 +21,7 @@
 #include <thread>
 #include <limits>
 #include <iterator>
+#include <functional>
 
 #include "utils/string_frm.h"
 #include "worldstatestorage.h"
@@ -28,6 +29,7 @@
 #include "world/objects/item.h"
 #include "world/objects/interactive.h"
 #include "world/world.h"
+#include "world/waypoint.h"
 #include "sound/soundfx.h"
 #include "serialize.h"
 #include "camera.h"
@@ -54,6 +56,76 @@ float checkpointYawDelta(float a, float b) noexcept {
 constexpr uint64_t MmoServerSnapshotPollInterval = 250;
 constexpr uint64_t MmoServerSnapshotWaitingLogDelay = 10000;
 constexpr uint64_t MmoServerLiveSnapshotPollInterval = 500;
+constexpr uint64_t MmoNpcAuthoritySampleInterval = 2500;
+constexpr uint64_t MmoNpcAuthoritySampleStaleInterval = 10000;
+constexpr uint64_t MmoNpcAuthoritySamplePruneInterval = 60000;
+constexpr float    MmoNpcAuthoritySampleRadius = 12000.f;
+constexpr size_t   MmoNpcAuthoritySampleMaxPerSweep = 8;
+
+void hashCombine(std::uint64_t& seed, std::uint64_t value) noexcept {
+  seed ^= value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2);
+}
+
+std::uint64_t hashString(std::string_view value) noexcept {
+  return static_cast<std::uint64_t>(std::hash<std::string_view>{}(value));
+}
+
+std::uint64_t quantizedFloatHash(float value, float scale) noexcept {
+  return static_cast<std::uint64_t>(static_cast<std::int64_t>(std::lround(value / scale)));
+}
+
+std::string_view waypointName(const WayPoint* waypoint) noexcept {
+  if(waypoint == nullptr)
+    return {};
+  return waypoint->name;
+}
+
+std::string mmoNpcAuthorityCacheKey(const Npc& npc) {
+  std::string out;
+  out.reserve(48);
+  out.append(std::to_string(npc.persistentId()));
+  out.push_back(':');
+  out.append(std::to_string(npc.instanceSymbol()));
+  return out;
+}
+
+std::uint64_t mmoNpcAuthoritySignature(Npc& npc) noexcept {
+  std::uint64_t out = 0xC0FFEE117ull;
+  const auto pos = npc.position();
+  hashCombine(out, npc.persistentId());
+  hashCombine(out, npc.instanceSymbol());
+  hashCombine(out, quantizedFloatHash(pos.x, 50.f));
+  hashCombine(out, quantizedFloatHash(pos.y, 50.f));
+  hashCombine(out, quantizedFloatHash(pos.z, 50.f));
+  hashCombine(out, quantizedFloatHash(npc.rotationY(), 5.f));
+  hashCombine(out, static_cast<std::uint64_t>(npc.attribute(ATR_HITPOINTS)));
+  hashCombine(out, static_cast<std::uint64_t>(npc.attribute(ATR_HITPOINTSMAX)));
+  hashCombine(out, static_cast<std::uint64_t>(npc.bodyStateMasked()));
+  hashCombine(out, static_cast<std::uint64_t>(npc.weaponState()));
+  hashCombine(out, npc.currentAiStateFunction());
+  hashCombine(out, hashString(npc.currentAiStateName()));
+  hashCombine(out, hashString(waypointName(npc.currentWayPoint())));
+  hashCombine(out, hashString(waypointName(npc.currentTaPoint())));
+  hashCombine(out, hashString(waypointName(npc.moveTargetWayPoint())));
+  hashCombine(out, hashString(waypointName(npc.nextPathWayPoint())));
+  hashCombine(out, hashString(waypointName(npc.finalPathWayPoint())));
+  hashCombine(out, npc.remainingPathPointCount());
+  hashCombine(out, static_cast<std::uint64_t>(npc.moveHint()));
+  hashCombine(out, npc.isDead() ? 1u : 0u);
+  hashCombine(out, npc.isUnconscious() ? 1u : 0u);
+  hashCombine(out, npc.isDown() ? 1u : 0u);
+  hashCombine(out, npc.isAttack() ? 1u : 0u);
+  hashCombine(out, npc.isAttackAnim() ? 1u : 0u);
+  if(auto* target = npc.target()) {
+    hashCombine(out, target->persistentId());
+    hashCombine(out, target->instanceSymbol());
+    }
+  if(auto* victim = npc.stateVictim()) {
+    hashCombine(out, victim->persistentId());
+    hashCombine(out, victim->instanceSymbol());
+    }
+  return out;
+}
 
 std::filesystem::path snapshotTmpPath(std::string_view path) {
   auto out = std::filesystem::path(std::string(path));
@@ -634,6 +706,47 @@ void GameSession::tickMmoMovementProposal(Npc& npc, uint64_t now) noexcept {
     }
 }
 
+void GameSession::tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept {
+  const auto& cmd = CommandLine::inst();
+  if(!cmd.mmoClientUsesServer() || wrld == nullptr)
+    return;
+
+  auto& state = mmoNpcAuthoritySamples;
+  if(state.lastSweepTick != 0 && now - state.lastSweepTick < MmoNpcAuthoritySampleInterval)
+    return;
+  state.lastSweepTick = now;
+
+  const auto center = hero.position();
+  size_t emitted = 0;
+  wrld->detectNpc(center, MmoNpcAuthoritySampleRadius, [&](Npc& npc) {
+    if(emitted >= MmoNpcAuthoritySampleMaxPerSweep || npc.isPlayer())
+      return;
+
+    const auto key = mmoNpcAuthorityCacheKey(npc);
+    const auto signature = mmoNpcAuthoritySignature(npc);
+    auto& cached = state.observed[key];
+    const bool changed = cached.lastEmitTick == 0 || cached.signature != signature;
+    const bool stale = cached.lastEmitTick == 0 || now - cached.lastEmitTick >= MmoNpcAuthoritySampleStaleInterval;
+    if(!changed && !stale)
+      return;
+
+    Mmo::Hooks::onObservedNpcAuthorityState(npc, "GameSession::tickMmoNpcAuthoritySamples",
+                                            changed ? "observed_npc_authority_changed" : "observed_npc_authority_refresh");
+    cached.lastEmitTick = now;
+    cached.signature = signature;
+    ++emitted;
+    });
+
+  if(state.observed.size() > 1024) {
+    for(auto it = state.observed.begin(); it != state.observed.end();) {
+      if(now - it->second.lastEmitTick > MmoNpcAuthoritySamplePruneInterval)
+        it = state.observed.erase(it);
+      else
+        ++it;
+      }
+    }
+}
+
 void GameSession::HeroStorage::save(Npc& npc) {
   storage.clear();
   Tempest::MemWriter wr{storage};
@@ -684,6 +797,7 @@ GameSession::GameSession(std::string file) : GameSession(std::move(file), Startu
 
 GameSession::GameSession(std::string file, StartupMode startupMode) {
   const bool dbContinueRequested = startupMode == StartupMode::MmoDbContinue && CommandLine::inst().mmoClientUsesServer();
+  const bool mmoServerFreshNewGame = startupMode == StartupMode::MmoServerFreshNewGame && CommandLine::inst().mmoClientUsesServer();
   const ScopedMmoDbContinueVideoSuppression suppressStartupVideos(dbContinueRequested);
 
   cam.reset(new Camera());
@@ -757,24 +871,30 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
     std::exit(0);
     }
 
-  const bool reuseDbContinueSnapshot = dbContinueRequested && canReuseMmoDbContinuePreWorldSnapshot();
-  const char* restoreReason = dbContinueRequested ? "db_continue_baseline_loaded" : "new_game_pre_start_loaded";
-  scheduleMmoServerSnapshotRestore(restoreReason, reuseDbContinueSnapshot);
-  if(reuseDbContinueSnapshot) {
-    Log::i("MMO server snapshot restore reusing pre-world DB continue snapshot");
+  if(!mmoServerFreshNewGame) {
+    const bool reuseDbContinueSnapshot = dbContinueRequested && canReuseMmoDbContinuePreWorldSnapshot();
+    const char* restoreReason = dbContinueRequested ? "db_continue_baseline_loaded" : "new_game_pre_start_loaded";
+    scheduleMmoServerSnapshotRestore(restoreReason, reuseDbContinueSnapshot);
+    if(reuseDbContinueSnapshot) {
+      Log::i("MMO server snapshot restore reusing pre-world DB continue snapshot");
+    } else {
+      const char* bootstrapSourceLocation = dbContinueRequested
+          ? "game/game/gamesession.cpp:GameSession::GameSession(db-continue)"
+          : "game/game/gamesession.cpp:GameSession::GameSession(new/pre-start)";
+      Mmo::Hooks::onClientBootstrapRequest(*wrld,
+                                           bootstrapSourceLocation,
+                                           restoreReason);
+    }
+    waitForMmoServerSnapshotRestoreDuringLoad();
   } else {
-    const char* bootstrapSourceLocation = dbContinueRequested
-        ? "game/game/gamesession.cpp:GameSession::GameSession(db-continue)"
-        : "game/game/gamesession.cpp:GameSession::GameSession(new/pre-start)";
-    Mmo::Hooks::onClientBootstrapRequest(*wrld,
-                                         bootstrapSourceLocation,
-                                         restoreReason);
+    Log::i("MMO server-bound New Game: starting fresh local baseline without DB bootstrap snapshot");
   }
-  waitForMmoServerSnapshotRestoreDuringLoad();
 
   if(dbContinueRequested) {
     Log::i("MMO DB continue baseline loaded: running existing-world startup trigger");
     wrld->triggerOnStart(false);
+    const auto resumedNpcRoutines = wrld->resumeNpcRoutinesAfterServerRestore();
+    Log::i("MMO DB continue startup NPC routines resumed: count=", resumedNpcRoutines);
   } else {
     wrld->triggerOnStart(true);
   }
@@ -789,7 +909,8 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
                                          {}));
     mmoSqlite->open(*this);
     }
-  consumeMmoRestoreSnapshot(dbContinueRequested ? "db_continue_session_loaded" : "new_game_session_loaded");
+  if(!mmoServerFreshNewGame)
+    consumeMmoRestoreSnapshot(dbContinueRequested ? "db_continue_session_loaded" : "new_game_session_loaded");
   // wrld->setDayTime(8,0);
   }
 
@@ -1286,7 +1407,19 @@ bool GameSession::tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept {
       }
     catch(...) {
       Log::e("MMO server snapshot world state apply failed: unknown exception");
-      }
+    }
+    }
+
+  if(restoredFromDbSaveCheckpoint || state.reason == "db_continue_baseline_loaded") {
+    wrld->resetPositionToTA();
+    const auto resumedNpcRoutines = wrld->resumeNpcRoutinesAfterServerRestore();
+    Log::i("MMO server DB restore NPC routines resumed: count=", resumedNpcRoutines,
+           " db_checkpoint=", restoredFromDbSaveCheckpoint ? 1 : 0,
+           " reason=", state.reason,
+           " npc_routine_state=", result.npcRoutineStateCount,
+           " npc_ai_state=", result.npcAiStateCount,
+           " npc_path_state=", result.npcPathStateCount,
+           " npc_fight_state=", result.npcFightStateCount);
     }
 
   if(const auto snapshotId = readMmoSnapshotManifestId())
@@ -1479,6 +1612,7 @@ void GameSession::tick(uint64_t dt) {
 
   if(auto* pl = wrld->player()) {
     tickMmoMovementProposal(*pl, ticks);
+    tickMmoNpcAuthoritySamples(*pl, ticks);
     if(const char* reason = mmoActionCheckpointReason(*pl, ticks)) {
       Mmo::Hooks::onCharacterCheckpoint(*pl, "GameSession::tick", reason);
       recordMmoActionCheckpointState(*pl, ticks);
@@ -1745,6 +1879,7 @@ void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
          " reason=", reason,
          " path=", std::string(path));
   }
+
 
 
 

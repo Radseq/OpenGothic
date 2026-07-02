@@ -1,5 +1,5 @@
 # OpenGothic docs/llm snapshot
-# Generated: 2026-07-01T21:01:03+02:00
+# Generated: 2026-07-01T22:09:41+02:00
 # Project root: /home/radseq/Desktop/OpenGothic
 # MAX_BYTES per file: 1500000
 
@@ -2719,5 +2719,112 @@ What this unlocks next:
 - Trigger timers can become DB-authoritative instead of purely local queues.
 - Client rollback has a concrete DB-backed correction slice instead of only an
   ACK/NACK log.
+
+
+===== docs/llm/ai/29-mmo-observed-npc-authority-feed-step117.md =====
+# MMO observed NPC authority feed - Step117
+
+Step117 turns the previously empty NPC authority snapshot domains into live data in server-bound client mode.
+
+## What changed
+
+- `GameSession` samples nearby non-player NPCs around the hero every 2.5 seconds while `-mmo-client-server` is active.
+- The sampler keeps a compact signature cache per NPC and emits only changed or stale records, capped to 8 NPCs per sweep.
+- `Mmo::Hooks::onObservedNpcAuthorityState` emits four existing semantic action types:
+  - `record_npc_routine_state`
+  - `record_npc_ai_state`
+  - `record_npc_path_state`
+  - `record_npc_fight_state`
+- Payloads use stable `npc:<world>:pid:<id>:sym:<symbol>` keys and stable `waypoint:<world>:<name>` keys.
+- The UDP server logs raw action id and datagram size for `bad_action_kind`, which makes enum/protocol drift diagnosable.
+
+## Expected runtime effect
+
+After the first live snapshot refreshes, logs that previously showed:
+
+```text
+npc_routine_state=0 npc_ai_state=0 npc_path_state=0 npc_fight_state=0
+```
+
+should start showing positive counts when nearby NPCs are present and the client has had at least one sampling interval.
+
+This is still not a full authoritative server AI tick. It is the next durable layer for that: the server database now receives routine, AI, pathing and fight observations for nearby NPCs without relying on native save files.
+
+
+===== docs/llm/ai/30-mmo-server-bound-fresh-new-game-step118.md =====
+# MMO server-bound fresh New Game - Step118
+
+Step118 deliberately re-opens the `New Game` menu action while `-mmo-client-server`
+is active.
+
+## Why
+
+DB Continue is still the authoritative restore path, but it restores
+`character_script_state` from MySQL. After a clean import this can already contain
+thousands of script rows, which is useful for continuing a DB character but wrong
+when the developer wants to test a fresh vanilla New Game script baseline.
+
+## Behavior
+
+- `New Game` in server-bound mode starts `GameSession::StartupMode::MmoServerFreshNewGame`.
+- That mode builds the normal local world/script baseline and runs first-time
+  startup triggers.
+- It does not request or apply a DB bootstrap snapshot during loading.
+- `Load`/`Continue` still use the synthetic DB Continue slot and restore from
+  the server snapshot.
+
+Expected log:
+
+```text
+MMO menu New Game: starting fresh server-bound client baseline without DB Continue restore
+MMO server-bound New Game: starting fresh local baseline without DB bootstrap snapshot
+```
+
+This does not delete MySQL rows. It only prevents New Game from importing DB
+script/world snapshot state into the just-created local session.
+
+
+===== docs/llm/ai/31-mmo-db-continue-npc-routine-wakeup-step119.md =====
+# MMO DB Continue NPC routine wakeup - Step119
+
+Problem observed after Step118:
+
+- Fresh server-bound `New Game` produced a correct local baseline.
+- Xardas walked and used bookstands normally.
+- After save, exit and DB-backed load/continue, Xardas could stand idle instead
+  of resuming his TA routine.
+
+Why this differs from native `.sav`:
+
+- Native save stores `Npc::saveAiState`, `AiQueue`, `AiQueueOverlay`, the
+  routine list, current waypoint/freepoint and `WayPath`.
+- DB checkpoint restore intentionally avoids raw transient queues and rebuilds a
+  ZEN/script baseline, then materializes typed server slices.
+- `WorldObjects::resetPositionToTA()` places NPCs at their TA points but also
+  clears local AI queues. If nothing resumes the current routine after the final
+  DB startup reset, a routine NPC can remain standing.
+
+Changes:
+
+- `World::resumeNpcRoutinesAfterServerRestore()` resumes active routine NPCs
+  through the existing `Npc::resumeAiRoutine()` path.
+- DB snapshot restore runs a TA reset plus routine wakeup after DB world/lifecycle
+  state is applied.
+- DB Continue runs a second wakeup after `triggerOnStart(false)`, because that
+  startup path performs another `resetPositionToTA()`.
+- DB checkpoint bootstrap JSON is augmented with current NPC routine/AI/path/fight
+  arrays from the same tables used by live bootstrap.
+- `server/sql/step119_npc_authority_restore_bridge.sql` creates the current and
+  history tables plus `mmo_record_npc_*` procedures used by the Step117 client
+  observer.
+
+Expected log after DB Continue:
+
+```text
+MMO DB continue startup NPC routines resumed: count=N
+```
+
+For Xardas, `N` should be greater than zero in a normal NewWorld load with
+routine NPCs present.
 
 

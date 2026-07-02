@@ -3,6 +3,7 @@
 #include <Tempest/VertexBuffer>
 #include <Tempest/IndexBuffer>
 #include <Tempest/Matrix4x4>
+#include <cstddef>
 #include <string>
 #include <functional>
 
@@ -47,6 +48,7 @@ class World final {
     uint32_t             npcId(const Npc* ptr) const;
     Npc*                 npcById(uint32_t id);
     uint32_t             npcCount() const;
+    size_t               resumeNpcRoutinesAfterServerRestore();
 
     uint32_t             mobsiId(const Interactive* ptr) const;
     Interactive*         mobsiById(uint32_t id);

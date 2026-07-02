@@ -286,6 +286,29 @@ uint32_t World::npcCount() const {
   return uint32_t(wobj.npcCount());
   }
 
+size_t World::resumeNpcRoutinesAfterServerRestore() {
+  size_t resumed = 0;
+  for(uint32_t i = 0, count = npcCount(); i < count; ++i) {
+    auto* npc = npcById(i);
+    if(npc == nullptr || npc->isPlayer() || npc->isDead() || npc->isDown() || npc->isUnconscious())
+      continue;
+
+    bool hasActiveRoutine = false;
+    for(const auto& routine : npc->routineSnapshot()) {
+      if(routine.active && routine.callback.isValid()) {
+        hasActiveRoutine = true;
+        break;
+        }
+      }
+    if(!hasActiveRoutine)
+      continue;
+
+    npc->resumeAiRoutine();
+    ++resumed;
+    }
+  return resumed;
+  }
+
 uint32_t World::mobsiId(const Interactive* ptr) const {
   return wobj.mobsiId(ptr);
   }

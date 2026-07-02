@@ -292,6 +292,150 @@ std::string weaponStateName(WeaponState state) {
   return "unknown";
 }
 
+std::string_view goToHintName(Npc::GoToHint hint) noexcept {
+  switch(hint) {
+    case Npc::GT_No:     return "none";
+    case Npc::GT_Way:    return "waypoint";
+    case Npc::GT_NextFp: return "next_freepoint";
+    case Npc::GT_Enemy:  return "enemy";
+    case Npc::GT_Item:   return "item";
+    case Npc::GT_Point:  return "point";
+    case Npc::GT_EnemyG: return "enemy_deprecated";
+    case Npc::GT_Flee:   return "flee";
+  }
+  return "unknown";
+}
+
+std::string_view waypointName(const WayPoint* waypoint) noexcept {
+  if(waypoint == nullptr)
+    return {};
+  return waypoint->name;
+}
+
+std::string waypointKey(const World& world, const WayPoint* waypoint) {
+  if(waypoint == nullptr || waypoint->name.empty())
+    return {};
+  std::string out = "waypoint:";
+  out.append(world.name());
+  out.push_back(':');
+  out.append(waypoint->name);
+  return out;
+}
+
+std::string npcTargetKey(Npc* npc) {
+  if(npc == nullptr)
+    return {};
+  if(npc->isPlayer())
+    return actorKey(*npc);
+  return npcEntityKey(npc->world().name(), npc->persistentId(), npc->instanceSymbol());
+}
+
+std::string scriptFunctionKey(size_t function) {
+  if(function == 0)
+    return {};
+  std::string out = "script-fn:";
+  appendUInt(out, function);
+  return out;
+}
+
+bool hasActiveRoutine(Npc& npc) {
+  const auto routines = npc.routineSnapshot();
+  for(const auto& routine : routines) {
+    if(routine.active)
+      return true;
+    }
+  return false;
+}
+
+std::string routineStateName(Npc& npc) {
+  if(npc.isDead())
+    return "dead";
+  if(npc.isUnconscious())
+    return "unconscious";
+  if(npc.isDown())
+    return "down";
+  if(npc.remainingPathPointCount() != 0 || npc.moveTargetWayPoint() != nullptr)
+    return "moving";
+  if(hasActiveRoutine(npc))
+    return "routine_active";
+  return "idle";
+}
+
+std::string aiStateName(Npc& npc) {
+  if(!npc.currentAiStateName().empty())
+    return std::string(npc.currentAiStateName());
+  if(npc.currentAiStateFunction() != 0)
+    return scriptFunctionKey(npc.currentAiStateFunction());
+  if(npc.isDead())
+    return "dead";
+  return "idle";
+}
+
+std::string aiIntentName(Npc& npc) {
+  if(npc.isDead())
+    return "dead";
+  if(npc.isUnconscious() || npc.isDown())
+    return "down";
+  if(npc.isAttack() || npc.isAttackAnim() || npc.stateVictim() != nullptr)
+    return "combat";
+  if(npc.remainingPathPointCount() != 0 || npc.moveTargetWayPoint() != nullptr)
+    return "pathing";
+  if(hasActiveRoutine(npc))
+    return "routine";
+  return "idle";
+}
+
+std::string pathStateName(Npc& npc) {
+  if(npc.isDead())
+    return "dead";
+  if(npc.remainingPathPointCount() != 0)
+    return "pathing";
+  if(npc.moveTargetWayPoint() != nullptr)
+    return "moving_to_waypoint";
+  if(npc.currentWayPoint() != nullptr)
+    return "at_waypoint";
+  return "idle";
+}
+
+std::string fightStateName(Npc& npc) {
+  if(npc.isDead())
+    return "dead";
+  if(npc.isUnconscious() || npc.isDown())
+    return "down";
+  if(npc.isAttack() || npc.isAttackAnim())
+    return "attacking";
+  if(npc.stateVictim() != nullptr || npc.target() != nullptr)
+    return "engaged";
+  if(npc.weaponState() != WeaponState::NoWeapon)
+    return "ready";
+  return "idle";
+}
+
+std::string attackStateName(Npc& npc) {
+  if(npc.isAttackAnim())
+    return "attack_anim";
+  if(npc.isAttack())
+    return "attack";
+  if(npc.weaponState() != WeaponState::NoWeapon)
+    return "ready";
+  return "none";
+}
+
+void appendWaypointPayload(std::string& out,
+                           const World& world,
+                           const char* field,
+                           const WayPoint* waypoint) {
+  const auto key = waypointKey(world, waypoint);
+  out.append(",\"");
+  out.append(field);
+  out.append("_key\":");
+  appendEscaped(out, key);
+  out.append(",\"");
+  out.append(field);
+  out.append("\":");
+  appendEscaped(out, waypointName(waypoint));
+}
+
 bool shouldCaptureWorldAiAction(Npc& actor, Npc* other = nullptr) noexcept {
   if(!isLiveWorldTick(actor.world()))
     return false;
@@ -565,10 +709,29 @@ void appendNpcIdentity(std::string& out, const char* prefix, Npc& npc) {
   appendEscaped(out, npc.displayName());
 }
 
+void appendObservedNpcCommon(std::string& out, Npc& actor, std::string_view target) {
+  appendNpcIdentity(out, "actor_npc", actor);
+  out.append(",\"npc_entity_key\":"); appendEscaped(out, target);
+  out.append(",\"target_key\":"); appendEscaped(out, target);
+  out.append(",\"display_name\":"); appendEscaped(out, actor.displayName());
+  out.append(",\"health_current\":"); appendInt(out, actor.attribute(ATR_HITPOINTS));
+  out.append(",\"health_max\":"); appendInt(out, actor.attribute(ATR_HITPOINTSMAX));
+  out.append(",\"dead\":"); appendBool(out, actor.isDead());
+  out.append(",\"unconscious\":"); appendBool(out, actor.isUnconscious());
+  out.append(",\"down\":"); appendBool(out, actor.isDown());
+}
+
 void submit(SemanticActionKind kind, std::string targetKey, std::string payload, std::uint64_t tick) noexcept {
   if(!isSemanticActionCaptureEnabled() || isCaptureSuppressed())
     return;
   (void)submitSemanticAction(makeEnvelope(kind, std::move(targetKey), std::move(payload), tick));
+}
+
+void submitObservedNpcState(SemanticActionKind kind, Npc& actor, std::string target, std::string payload) noexcept {
+  appendWorld(payload, actor.world());
+  appendVec3(payload, "position", actor.position());
+  payload.push_back('}');
+  submit(kind, std::move(target), std::move(payload), actor.world().tickCount());
 }
 
 
@@ -1553,6 +1716,88 @@ void onNpcLifecycleChanged(Npc& actor,
   submit(SemanticActionKind::MarkNpcDead, std::move(target), std::move(payload), world.tickCount());
 }
 
+void onObservedNpcAuthorityState(Npc& actor,
+                                 const char* sourceLocation,
+                                 const char* reason) noexcept {
+  if(!isServerBoundClientModeEnabled() || !isSemanticActionCaptureEnabled() ||
+     actor.isPlayer() || !isLiveWorldTick(actor.world()))
+    return;
+
+  auto& world = actor.world();
+  auto target = npcEntityKey(world.name(), actor.persistentId(), actor.instanceSymbol());
+  const auto aiState = aiStateName(actor);
+  const auto routineState = routineStateName(actor);
+  const auto intent = aiIntentName(actor);
+  const auto pathState = pathStateName(actor);
+  const auto fightState = fightStateName(actor);
+  const auto targetEntity = npcTargetKey(actor.stateVictim() != nullptr ? actor.stateVictim() :
+                                        actor.target() != nullptr ? actor.target() : actor.stateOther());
+  const auto currentWp = actor.currentWayPoint();
+  const auto targetWp = actor.moveTargetWayPoint() != nullptr ? actor.moveTargetWayPoint() : actor.currentTaPoint();
+
+  std::string routinePayload;
+  routinePayload.reserve(768);
+  routinePayload.append("{\"source\":"); appendEscaped(routinePayload, sourceLocation);
+  routinePayload.append(",\"reason\":"); appendEscaped(routinePayload, reason);
+  appendObservedNpcCommon(routinePayload, actor, target);
+  routinePayload.append(",\"routine_state\":"); appendEscaped(routinePayload, routineState);
+  routinePayload.append(",\"schedule_key\":"); appendEscaped(routinePayload, scriptFunctionKey(actor.currentAiStateFunction()));
+  appendWaypointPayload(routinePayload, world, "current_waypoint", currentWp);
+  appendWaypointPayload(routinePayload, world, "target_waypoint", targetWp);
+  submitObservedNpcState(SemanticActionKind::RecordNpcRoutineState, actor, target, std::move(routinePayload));
+
+  std::string aiPayload;
+  aiPayload.reserve(832);
+  aiPayload.append("{\"source\":"); appendEscaped(aiPayload, sourceLocation);
+  aiPayload.append(",\"reason\":"); appendEscaped(aiPayload, reason);
+  appendObservedNpcCommon(aiPayload, actor, target);
+  aiPayload.append(",\"ai_state\":"); appendEscaped(aiPayload, aiState);
+  aiPayload.append(",\"ai_state_function\":"); appendUInt(aiPayload, actor.currentAiStateFunction());
+  aiPayload.append(",\"ai_intent\":"); appendEscaped(aiPayload, intent);
+  aiPayload.append(",\"ai_target_key\":"); appendEscaped(aiPayload, targetEntity);
+  aiPayload.append(",\"perception_state\":");
+  {
+    std::string perception = "body:";
+    appendUInt(perception, static_cast<std::uint64_t>(actor.bodyStateMasked()));
+    perception.append(";weapon:");
+    perception.append(weaponStateName(actor.weaponState()));
+    perception.append(";move:");
+    perception.append(goToHintName(actor.moveHint()));
+    appendEscaped(aiPayload, perception);
+  }
+  submitObservedNpcState(SemanticActionKind::RecordNpcAiState, actor, target, std::move(aiPayload));
+
+  std::string pathPayload;
+  pathPayload.reserve(896);
+  pathPayload.append("{\"source\":"); appendEscaped(pathPayload, sourceLocation);
+  pathPayload.append(",\"reason\":"); appendEscaped(pathPayload, reason);
+  appendObservedNpcCommon(pathPayload, actor, target);
+  pathPayload.append(",\"path_state\":"); appendEscaped(pathPayload, pathState);
+  pathPayload.append(",\"route_key\":"); appendEscaped(pathPayload, scriptFunctionKey(actor.currentAiStateFunction()));
+  appendWaypointPayload(pathPayload, world, "current_waypoint", currentWp);
+  appendWaypointPayload(pathPayload, world, "next_waypoint", actor.nextPathWayPoint());
+  appendWaypointPayload(pathPayload, world, "target_waypoint", targetWp);
+  pathPayload.append(",\"remaining_path_points\":"); appendUInt(pathPayload, actor.remainingPathPointCount());
+  pathPayload.append(",\"move_hint\":"); appendEscaped(pathPayload, goToHintName(actor.moveHint()));
+  const auto pos = actor.position();
+  pathPayload.append(",\"pos_x\":"); appendFloat(pathPayload, pos.x);
+  pathPayload.append(",\"pos_y\":"); appendFloat(pathPayload, pos.y);
+  pathPayload.append(",\"pos_z\":"); appendFloat(pathPayload, pos.z);
+  submitObservedNpcState(SemanticActionKind::RecordNpcPathState, actor, target, std::move(pathPayload));
+
+  std::string fightPayload;
+  fightPayload.reserve(768);
+  fightPayload.append("{\"source\":"); appendEscaped(fightPayload, sourceLocation);
+  fightPayload.append(",\"reason\":"); appendEscaped(fightPayload, reason);
+  appendObservedNpcCommon(fightPayload, actor, target);
+  fightPayload.append(",\"opponent_key\":"); appendEscaped(fightPayload, targetEntity);
+  fightPayload.append(",\"fight_state\":"); appendEscaped(fightPayload, fightState);
+  fightPayload.append(",\"attack_state\":"); appendEscaped(fightPayload, attackStateName(actor));
+  fightPayload.append(",\"combo_index\":0");
+  fightPayload.append(",\"weapon_state\":"); appendEscaped(fightPayload, weaponStateName(actor.weaponState()));
+  submitObservedNpcState(SemanticActionKind::RecordNpcFightState, actor, target, std::move(fightPayload));
+}
+
 void onScriptIntChanged(Npc& actor,
                         std::uint32_t scriptFunctionSymbol,
                         std::string_view scriptFunctionName,
@@ -1701,7 +1946,6 @@ void onQuestChanged(Npc& actor,
 }
 
 } // namespace Mmo::Hooks
-
 
 
 

@@ -213,6 +213,10 @@ void onNpcLifecycleChanged(Npc& actor,
                            bool unconscious,
                            const char* sourceLocation) noexcept;
 
+void onObservedNpcAuthorityState(Npc& actor,
+                                 const char* sourceLocation,
+                                 const char* reason = "observed_npc_authority_state") noexcept;
+
 void onScriptIntChanged(Npc& actor,
                         std::uint32_t scriptFunctionSymbol,
                         std::string_view scriptFunctionName,
@@ -255,6 +259,7 @@ void onQuestChanged(Npc& actor,
                     const char* sourceLocation) noexcept;
 
 } // namespace Mmo::Hooks
+
 
 
 

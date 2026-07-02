@@ -37,17 +37,9 @@ bool shouldMmoMenuActionLoadDbCharacter(std::string_view action) noexcept {
   return action.find("LOAD") != std::string_view::npos;
 }
 
-bool shouldMmoMenuActionBlockNewGame(std::string_view action) noexcept {
-  return CommandLine::inst().mmoClientUsesServer() && action == "NEW_GAME";
-}
-
 void loadMmoDbCharacterFromMenu() {
   Log::i("MMO menu Continue: loading server DB character without native save slot");
   Gothic::inst().load(CommandLine::inst().mmoDbContinueSyntheticSlot());
-}
-
-void blockMmoNewGameFromMenu() {
-  Log::i("MMO menu New Game blocked: use Load/Continue for server DB character");
 }
 
 }
@@ -868,10 +860,6 @@ void GameMenu::execSingle(Item &it, int slideDx, KeyCodec::Action hint) {
         exitFlag = true;
         break;
       case zenkit::MenuItemSelectAction::START_MENU:
-        if(shouldMmoMenuActionBlockNewGame(onSelAction_S[i])) {
-          blockMmoNewGameFromMenu();
-          break;
-          }
         if(shouldMmoMenuActionLoadDbCharacter(onSelAction_S[i])) {
           loadMmoDbCharacterFromMenu();
           closeFlag = true;
@@ -885,11 +873,7 @@ void GameMenu::execSingle(Item &it, int slideDx, KeyCodec::Action hint) {
       case zenkit::MenuItemSelectAction::CLOSE:
         Gothic::inst().emitGlobalSound(Gothic::inst().loadSoundFx("MENU_ESC"));
 
-        if(shouldMmoMenuActionBlockNewGame(onSelAction_S[i])) {
-          blockMmoNewGameFromMenu();
-          break;
-          }
-        else if(shouldMmoMenuActionLoadDbCharacter(onSelAction_S[i])) {
+        if(shouldMmoMenuActionLoadDbCharacter(onSelAction_S[i])) {
           loadMmoDbCharacterFromMenu();
           }
         else if(onSelAction_S[i]=="NEW_GAME") {

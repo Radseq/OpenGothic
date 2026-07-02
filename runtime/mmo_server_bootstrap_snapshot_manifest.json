@@ -1,10 +1,10 @@
 {
   "status": "received",
   "path": "runtime/mmo_server_bootstrap_snapshot.json",
-  "snapshot_id": 7,
-  "bytes": 441243,
-  "chunks": 54,
-  "ack_accepted": 730,
+  "snapshot_id": 1,
+  "bytes": 1577439,
+  "chunks": 193,
+  "ack_accepted": 1,
   "ack_rejected": 0,
-  "snapshot_datagrams_seen": 641
+  "snapshot_datagrams_seen": 193
 }

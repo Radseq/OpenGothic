@@ -1169,11 +1169,9 @@ Camera::Mode MainWindow::solveCameraMode() const {
 
 void MainWindow::startGame(std::string_view slot) {
   // gothic.emitGlobalSound(gothic.loadSoundFx("NEWGAME"));
-  if(CommandLine::inst().mmoClientUsesServer()) {
-    Log::i("MMO menu New Game blocked: redirecting to server DB Continue");
-    loadGame(CommandLine::inst().mmoDbContinueSyntheticSlot());
-    return;
-    }
+  const bool mmoServerFreshNewGame = CommandLine::inst().mmoClientUsesServer();
+  if(mmoServerFreshNewGame)
+    Log::i("MMO menu New Game: starting fresh server-bound client baseline without DB Continue restore");
 
   if(Gothic::inst().checkLoading()==Gothic::LoadState::Idle){
     setGameImpl(nullptr);
@@ -1181,7 +1179,10 @@ void MainWindow::startGame(std::string_view slot) {
 
   Gothic::inst().startLoad("LOADING.TGA",[slot=std::string(slot)](std::unique_ptr<GameSession>&& game){
     game = nullptr; // clear world-memory now
-    std::unique_ptr<GameSession> w(new GameSession(slot));
+    const auto startupMode = CommandLine::inst().mmoClientUsesServer()
+        ? GameSession::StartupMode::MmoServerFreshNewGame
+        : GameSession::StartupMode::NewGame;
+    std::unique_ptr<GameSession> w(new GameSession(slot, startupMode));
     if(!CommandLine::inst().dumpInitialWorld().empty())
       WorldStateExporter::exportInitialState(*w, CommandLine::inst().dumpInitialWorld());
     return w;
@@ -1483,5 +1484,6 @@ void MainWindow::BenchmarkData::clear() {
   numFrames = 0;
   fpsSum = 0;
   }
+
 
 

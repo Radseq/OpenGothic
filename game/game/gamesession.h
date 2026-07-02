@@ -5,6 +5,7 @@
 #include <memory>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 
 #include "game/gamescript.h"
 #include "camera.h"
@@ -30,6 +31,7 @@ class GameSession final {
     enum class StartupMode : uint8_t {
       NewGame,
       MmoDbContinue,
+      MmoServerFreshNewGame,
       };
 
     GameSession(std::string file);
@@ -162,6 +164,18 @@ class GameSession final {
     void        recordMmoActionMovementProposalState(const Npc& npc, uint64_t now) noexcept;
     void        tickMmoMovementProposal(Npc& npc, uint64_t now) noexcept;
 
+    struct MmoNpcAuthoritySampleRecord final {
+      uint64_t lastEmitTick = 0;
+      uint64_t signature = 0;
+      };
+
+    struct MmoNpcAuthoritySampleState final {
+      uint64_t lastSweepTick = 0;
+      std::unordered_map<std::string, MmoNpcAuthoritySampleRecord> observed;
+      };
+
+    void        tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept;
+
     struct MmoServerSnapshotRestoreState final {
       bool        requested = false;
       bool        completed = false;
@@ -184,6 +198,7 @@ class GameSession final {
     uint64_t                       ticks = 0, wrldTimePart = 0;
     MmoActionCheckpointState       lastMmoActionCheckpoint;
     MmoActionMovementProposalState lastMmoActionMovementProposal;
+    MmoNpcAuthoritySampleState     mmoNpcAuthoritySamples;
     MmoServerSnapshotRestoreState  mmoServerSnapshotRestore;
     uint64_t                       timeMul = 1000, timeMulFract = 0;
     gtime                          wrldTime;
@@ -196,6 +211,8 @@ class GameSession final {
     static const uint64_t          multTime;
     static const uint64_t          divTime;
   };
+
+
 
 
 
