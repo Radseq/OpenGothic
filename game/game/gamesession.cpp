@@ -296,7 +296,7 @@ bool canReuseMmoDbContinuePreWorldSnapshot() noexcept {
   if(!std::filesystem::is_regular_file(path, ec))
     return false;
 
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, "PC_HERO");
+  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO DB continue pre-world snapshot reuse rejected: ", result.message,
            " path=", std::string(pathView));
@@ -326,7 +326,7 @@ bool loadMmoDbContinuePreWorldClock(gtime& out) noexcept {
   if(pathView.empty())
     return false;
 
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, "PC_HERO");
+  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO DB continue pre-world clock rejected: ", result.message,
            " path=", std::string(pathView));
@@ -1024,7 +1024,7 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
     wrld->triggerOnStart(false);
     const auto resumedNpcRoutines = wrld->resumeNpcRoutinesAfterServerRestore();
     Log::i("MMO DB continue startup NPC routines resumed: count=", resumedNpcRoutines);
-    if(auto snapshot = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(CommandLine::inst().mmoServerSnapshotJson(), "PC_HERO"); snapshot.ok) {
+    if(auto snapshot = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(CommandLine::inst().mmoServerSnapshotJson(), CommandLine::inst().mmoCharacterKey()); snapshot.ok) {
       const auto npcAuthority = applyMmoNpcRoutineAuthorityState(*wrld, snapshot);
       Log::i("MMO DB continue startup NPC authority applied: routine_applied=", npcAuthority.applied,
              " routine_fallback=", npcAuthority.fallback,
@@ -1330,7 +1330,7 @@ bool GameSession::tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept {
     return false;
     }
 
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, "PC_HERO");
+  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO server snapshot restore rejected: ", result.message,
            " reason=", state.reason,
@@ -1619,7 +1619,7 @@ bool GameSession::tryApplyMmoServerWorldSnapshotRefresh() noexcept {
     return false;
 
   const auto pathView = cmd.mmoServerSnapshotJson();
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, "PC_HERO");
+  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO server live world snapshot rejected: snapshot_id=", snapshotId,
            " message=", result.message,
@@ -1997,7 +1997,7 @@ void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
     return;
     }
 
-  const auto result = Mmo::RestoreSnapshot::loadAndValidate(path, "PC_HERO", cmd.mmoActionSessionKey());
+  const auto result = Mmo::RestoreSnapshot::loadAndValidate(path, cmd.mmoCharacterKey(), cmd.mmoActionSessionKey());
   if(!result.ok) {
     Log::e("MMO restore snapshot rejected: ", result.message,
            " reason=", reason,
@@ -2033,4 +2033,5 @@ void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
          " reason=", reason,
          " path=", std::string(path));
   }
+
 

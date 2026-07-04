@@ -179,16 +179,16 @@
       "mmo_server_waypoint_read_model",
       "mmo_server_waypoint_edge_read_model"
     ],
-    "sql": "/home/radseq/Desktop/OpenGothic/server/sql/step53_server_read_model_v1.sql",
+    "sql": "C:\\Users\\admin\\Desktop\\OpenGothic\\server\\sql\\step53_server_read_model_v1.sql",
     "status": "materialized",
     "step": 53
   },
   "return_codes": {
-    "export": 1,
-    "inspect": 1,
-    "materialize": 1
+    "export": 0,
+    "inspect": 0,
+    "materialize": 0
   },
-  "status": "failed",
+  "status": "passed",
   "step": 53,
   "tool": "run_mmo_step53_server_materialization_followup.py"
 }

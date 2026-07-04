@@ -632,10 +632,19 @@ void Gothic::updateAnimation(uint64_t dt) {
   }
 
 void Gothic::quickSave() {
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    Log::i("MMO quick save ignored: server owns persistence");
+    return;
+    }
   save("save_slot_0.sav","Quick save");
   }
 
 void Gothic::quickLoad() {
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    Log::i("MMO quick load redirected to DB character continue");
+    load(CommandLine::inst().mmoDbContinueSyntheticSlot());
+    return;
+    }
   load("save_slot_0.sav");
   }
 
@@ -1255,4 +1264,5 @@ void Gothic::printdebuginstch(int ch, std::string_view msg) {
   if(version().game==2)
     Log::d("[zspy,",ch,"]: ",msg);
   }
+
 

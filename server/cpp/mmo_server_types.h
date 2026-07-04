@@ -10,6 +10,7 @@ struct Options final {
   std::string mysqlUrl;
   std::string accountName = "local-import";
   std::string characterKey = "PC_HERO";
+  std::string characterDisplayName = "Ja";
   std::string sessionKey = "local-dev-PC_HERO_TEST";
   std::string dbSessionUuid;
   int outboxPriority = 100;

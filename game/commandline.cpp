@@ -211,6 +211,16 @@ CommandLine::CommandLine(int argc, const char** argv) {
       if(i<argc)
         mmoActionSession = argv[i];
       }
+    else if(arg=="-mmo-character-key") {
+      ++i;
+      if(i<argc && argv[i][0] != '\0')
+        mmoCharacterKeyValue = argv[i];
+      }
+    else if(arg=="-mmo-character-name" || arg=="-mmo-character-display-name") {
+      ++i;
+      if(i<argc && argv[i][0] != '\0')
+        mmoCharacterDisplayNameValue = argv[i];
+      }
     else if(arg=="-mmo-action-queue-capacity") {
       ++i;
       if(i<argc) {
@@ -478,6 +488,15 @@ const CommandLine& CommandLine::inst() {
   return *instance;
   }
 
+void CommandLine::setMmoCharacterIdentity(std::string_view key, std::string_view displayName) const {
+  if(!key.empty())
+    mmoCharacterKeyValue = key;
+  if(!displayName.empty())
+    mmoCharacterDisplayNameValue = displayName;
+  else if(!key.empty())
+    mmoCharacterDisplayNameValue = key;
+}
+
 CommandLine::GraphicBackend CommandLine::graphicsApi() const {
   return graphics;
   }
@@ -519,3 +538,5 @@ bool CommandLine::validateGothicPath() const {
     return false;
   return true;
   }
+
+

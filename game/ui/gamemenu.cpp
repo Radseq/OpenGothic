@@ -6,7 +6,13 @@
 #include <Tempest/Dialog>
 
 #include <algorithm>
+#include <chrono>
+#include <fstream>
+#include <iterator>
+#include <optional>
 #include <string_view>
+#include <thread>
+#include <vector>
 
 #include "utils/string_frm.h"
 #include "world/objects/npc.h"
@@ -16,6 +22,8 @@
 #include "utils/fileutil.h"
 #include "utils/keycodec.h"
 #include "game/definitions/musicdefinitions.h"
+#include "game/mmosemanticactionsink.h"
+#include "game/mmosemanticevents.h"
 #include "game/serialize.h"
 #include "game/savegameheader.h"
 #include "commandline.h"
@@ -29,17 +37,284 @@ static const float scriptDiv=8192.0f;
 
 namespace {
 
+struct MmoMenuCharacter final {
+  std::string key;
+  std::string name;
+  std::string world;
+  std::string updatedAt;
+};
+
 bool shouldMmoMenuActionLoadDbCharacter(std::string_view action) noexcept {
   if(!CommandLine::inst().mmoClientUsesServer())
     return false;
-  if(action == "MENU_SAVEGAME")
-    return true;
-  return action.find("LOAD") != std::string_view::npos;
+  return action == "CONTINUE";
 }
 
 void loadMmoDbCharacterFromMenu() {
-  Log::i("MMO menu Continue: loading server DB character without native save slot");
+  Log::i("MMO menu Continue: loading server DB character without native save slot",
+         " character_key=", CommandLine::inst().mmoCharacterKey(),
+         " display_name=", CommandLine::inst().mmoCharacterDisplayName());
   Gothic::inst().load(CommandLine::inst().mmoDbContinueSyntheticSlot());
+}
+
+bool isSaveMenuAction(const std::shared_ptr<zenkit::IMenuItem>& item) noexcept {
+  if(item == nullptr)
+    return false;
+  if(item->on_sel_action_s[0] == "MENU_SAVEGAME" ||
+     item->on_sel_action_s[1] == "MENU_SAVEGAME")
+    return true;
+  return item->on_sel_action_s[0] == "SAVEGAME_SAVE" ||
+         item->on_sel_action_s[1] == "SAVEGAME_SAVE";
+}
+
+std::string readTextFile(std::string_view path) {
+  std::ifstream in{std::string(path), std::ios::binary};
+  if(!in)
+    return {};
+  return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+std::optional<std::size_t> matchingJsonEnd(std::string_view text, std::size_t openPos, char openCh, char closeCh) noexcept {
+  if(openPos >= text.size() || text[openPos] != openCh)
+    return std::nullopt;
+  std::size_t depth = 0;
+  bool inString = false;
+  bool escape = false;
+  for(std::size_t i = openPos; i < text.size(); ++i) {
+    const char c = text[i];
+    if(inString) {
+      if(escape) {
+        escape = false;
+        continue;
+        }
+      if(c == '\\') {
+        escape = true;
+        continue;
+        }
+      if(c == '"')
+        inString = false;
+      continue;
+      }
+    if(c == '"') {
+      inString = true;
+      continue;
+      }
+    if(c == openCh)
+      ++depth;
+    else if(c == closeCh) {
+      if(depth == 0)
+        return std::nullopt;
+      --depth;
+      if(depth == 0)
+        return i;
+      }
+    }
+  return std::nullopt;
+}
+
+std::string_view jsonArrayForKey(std::string_view text, std::string_view key) noexcept {
+  const std::string needle = "\"" + std::string(key) + "\"";
+  const auto keyPos = text.find(needle);
+  if(keyPos == std::string_view::npos)
+    return {};
+  const auto colon = text.find(':', keyPos + needle.size());
+  if(colon == std::string_view::npos)
+    return {};
+  auto pos = colon + 1;
+  while(pos < text.size() && static_cast<unsigned char>(text[pos]) <= ' ')
+    ++pos;
+  if(pos >= text.size() || text[pos] != '[')
+    return {};
+  const auto end = matchingJsonEnd(text, pos, '[', ']');
+  if(!end)
+    return {};
+  return text.substr(pos, *end - pos + 1);
+}
+
+std::vector<std::string_view> jsonObjectsInArray(std::string_view array) {
+  std::vector<std::string_view> out;
+  for(std::size_t pos = 0; pos < array.size();) {
+    const auto open = array.find('{', pos);
+    if(open == std::string_view::npos)
+      break;
+    const auto end = matchingJsonEnd(array, open, '{', '}');
+    if(!end)
+      break;
+    out.push_back(array.substr(open, *end - open + 1));
+    pos = *end + 1;
+    }
+  return out;
+}
+
+std::string jsonStringForKey(std::string_view object, std::string_view key) {
+  const std::string needle = "\"" + std::string(key) + "\"";
+  const auto keyPos = object.find(needle);
+  if(keyPos == std::string_view::npos)
+    return {};
+  const auto colon = object.find(':', keyPos + needle.size());
+  if(colon == std::string_view::npos)
+    return {};
+  auto pos = colon + 1;
+  while(pos < object.size() && static_cast<unsigned char>(object[pos]) <= ' ')
+    ++pos;
+  if(pos >= object.size() || object[pos] != '"')
+    return {};
+  ++pos;
+  std::string out;
+  bool escape = false;
+  for(; pos < object.size(); ++pos) {
+    const char c = object[pos];
+    if(escape) {
+      switch(c) {
+        case '"': out.push_back('"'); break;
+        case '\\': out.push_back('\\'); break;
+        case '/': out.push_back('/'); break;
+        case 'n': out.push_back('\n'); break;
+        case 'r': out.push_back('\r'); break;
+        case 't': out.push_back('\t'); break;
+        default: out.push_back(c); break;
+        }
+      escape = false;
+      continue;
+      }
+    if(c == '\\') {
+      escape = true;
+      continue;
+      }
+    if(c == '"')
+      break;
+    out.push_back(c);
+    }
+  return out;
+}
+
+std::vector<MmoMenuCharacter> parseMmoCharacterList(std::string_view snapshotJson) {
+  std::vector<MmoMenuCharacter> out;
+  const auto array = jsonArrayForKey(snapshotJson, "character_list");
+  for(auto object : jsonObjectsInArray(array)) {
+    MmoMenuCharacter ch;
+    ch.key = jsonStringForKey(object, "character_key");
+    ch.name = jsonStringForKey(object, "display_name");
+    ch.world = jsonStringForKey(object, "world_name");
+    ch.updatedAt = jsonStringForKey(object, "updated_at");
+    if(!ch.key.empty()) {
+      if(ch.name.empty())
+        ch.name = ch.key;
+      out.push_back(std::move(ch));
+      }
+    }
+  return out;
+}
+
+void requestMmoBootstrapSnapshot(std::string_view reason, std::string_view sourceLocation) {
+  if(!Mmo::isServerBoundClientModeEnabled() || !Mmo::isSemanticActionCaptureEnabled())
+    return;
+
+  const auto& cmd = CommandLine::inst();
+  const auto seq = Mmo::nextSemanticActionSequence();
+  const std::string characterKey(cmd.mmoCharacterKey());
+  std::string characterEntity = "character:";
+  characterEntity.append(characterKey);
+
+  std::string target = characterEntity;
+  target.append(":character-list");
+
+  std::string payload;
+  payload.reserve(512);
+  payload.append("{\"actor_key\":");
+  payload.append(Mmo::jsonEscape(characterEntity));
+  payload.append(",\"character_key\":");
+  payload.append(Mmo::jsonEscape(characterKey));
+  payload.append(",\"display_name\":");
+  payload.append(Mmo::jsonEscape(cmd.mmoCharacterDisplayName()));
+  payload.append(",\"world\":");
+  payload.append(Mmo::jsonEscape(Gothic::inst().defaultWorld()));
+  payload.append(",\"server_tick\":0");
+  payload.append(",\"server_bound_client_mode\":true");
+  payload.append(",\"server_endpoint\":");
+  payload.append(Mmo::jsonEscape(cmd.mmoServerEndpoint()));
+  payload.append(",\"reason\":");
+  payload.append(Mmo::jsonEscape(reason));
+  payload.append(",\"source_location\":");
+  payload.append(Mmo::jsonEscape(sourceLocation.empty() ? std::string_view("GameMenu") : sourceLocation));
+  payload.push_back('}');
+
+  Mmo::SemanticActionEnvelope env;
+  env.kind = Mmo::SemanticActionKind::ClientBootstrapRequest;
+  env.targetKey = std::move(target);
+  env.localSequence = seq;
+  env.clientTick = 0;
+  env.idempotencyKey = Mmo::makeIdempotencyKey(Mmo::semanticActionSessionKey(), seq, env.kind, env.targetKey);
+  env.payloadJson = std::move(payload);
+  (void)Mmo::submitSemanticAction(env);
+}
+
+void requestMmoCharacterListSnapshot() {
+  requestMmoBootstrapSnapshot("character_list_request", "GameMenu::updateSavTitle");
+}
+
+std::string makeMmoNewCharacterKey() {
+  const auto now = std::chrono::system_clock::now().time_since_epoch();
+  const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+  std::string out = "PC_HERO_";
+  out.append(std::to_string(millis));
+  return out;
+}
+
+void startMmoNewCharacterFromMenu() {
+  const auto key = makeMmoNewCharacterKey();
+  std::string name = "Nowa postac ";
+  name.append(key.substr(std::string("PC_HERO_").size()));
+  CommandLine::inst().setMmoCharacterIdentity(key, name);
+  requestMmoBootstrapSnapshot("new_character_request", "GameMenu::execSingle(NEW_GAME)");
+  const std::string marker = "\"character_key\":\"" + key + "\"";
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+  do {
+    if(readTextFile(CommandLine::inst().mmoServerSnapshotJson()).find(marker) != std::string::npos)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while(std::chrono::steady_clock::now() < deadline);
+  Log::i("MMO menu New Game: requested DB character creation",
+         " character_key=", CommandLine::inst().mmoCharacterKey(),
+         " display_name=", CommandLine::inst().mmoCharacterDisplayName());
+  Gothic::inst().onStartGame(Gothic::inst().defaultWorld());
+}
+
+const std::vector<MmoMenuCharacter>& mmoMenuCharacters() {
+  static std::vector<MmoMenuCharacter> cache;
+  static bool loaded = false;
+  if(loaded)
+    return cache;
+  loaded = true;
+
+  const auto& cmd = CommandLine::inst();
+  const std::string snapshotPath(cmd.mmoServerSnapshotJson());
+  requestMmoCharacterListSnapshot();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(900);
+  do {
+    cache = parseMmoCharacterList(readTextFile(snapshotPath));
+    if(!cache.empty())
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while(std::chrono::steady_clock::now() < deadline);
+
+  if(cache.empty()) {
+    MmoMenuCharacter fallback;
+    fallback.key = std::string(cmd.mmoCharacterKey());
+    fallback.name = std::string(cmd.mmoCharacterDisplayName());
+    if(fallback.name.empty())
+      fallback.name = fallback.key;
+    cache.push_back(std::move(fallback));
+    }
+  return cache;
+}
+
+const MmoMenuCharacter* mmoMenuCharacterForSlot(size_t slotId) {
+  const auto& chars = mmoMenuCharacters();
+  const size_t index = slotId == 0 ? 0 : slotId - 1;
+  if(index >= chars.size())
+    return nullptr;
+  return &chars[index];
 }
 
 }
@@ -769,6 +1044,8 @@ bool GameMenu::isHorSelectable(const std::shared_ptr<zenkit::IMenuItem>& item) {
 bool GameMenu::isEnabled(const std::shared_ptr<zenkit::IMenuItem>& item) {
   if(item==nullptr)
     return false;
+  if(CommandLine::inst().mmoClientUsesServer() && isSaveMenuAction(item))
+    return false;
   if((item->flags & zenkit::MenuItemFlag::ONLY_INGAME) && !Gothic::inst().isInGameAndAlive())
     return false;
   if((item->flags & zenkit::MenuItemFlag::ONLY_OUTGAME) && Gothic::inst().isInGameAndAlive())
@@ -877,7 +1154,10 @@ void GameMenu::execSingle(Item &it, int slideDx, KeyCodec::Action hint) {
           loadMmoDbCharacterFromMenu();
           }
         else if(onSelAction_S[i]=="NEW_GAME") {
-          Gothic::inst().onStartGame(Gothic::inst().defaultWorld());
+          if(CommandLine::inst().mmoClientUsesServer())
+            startMmoNewCharacterFromMenu();
+          else
+            Gothic::inst().onStartGame(Gothic::inst().defaultWorld());
           }
         else if(onSelAction_S[i]=="LEAVE_GAME") {
           Log::i("Exiting, by item action (`LEAVE_GAME`)");
@@ -941,6 +1221,10 @@ void GameMenu::execChgOption(Item &item, int slideDx) {
   }
 
 void GameMenu::execSaveGame(const GameMenu::Item& item) {
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    Log::i("MMO menu Save ignored: local .sav slots are disabled in server-bound mode");
+    return;
+    }
   const size_t id = saveSlotId(item);
   if(id==size_t(-1))
     return;
@@ -955,6 +1239,10 @@ bool GameMenu::execLoadGame(const GameMenu::Item &item) {
     return false;
 
   if(CommandLine::inst().mmoClientUsesServer()) {
+    const auto* character = mmoMenuCharacterForSlot(id);
+    if(character == nullptr)
+      return false;
+    CommandLine::inst().setMmoCharacterIdentity(character->key, character->name);
     loadMmoDbCharacterFromMenu();
     return true;
     }
@@ -1022,6 +1310,23 @@ void GameMenu::updateSavTitle(GameMenu::Item& sel) {
   if(id==size_t(-1))
     return;
 
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    if(sel.handle->on_sel_action_s[0]=="SAVEGAME_LOAD") {
+      const auto* character = mmoMenuCharacterForSlot(id);
+      if(character == nullptr) {
+        sel.handle->text[0] = "---";
+        return;
+        }
+      std::string label = "DB: ";
+      label.append(character->name.empty() ? character->key : character->name);
+      sel.handle->text[0] = std::move(label);
+      }
+    else {
+      sel.handle->text[0] = "---";
+      }
+    return;
+    }
+
   char fname[64]={};
   std::snprintf(fname,sizeof(fname)-1,"save_slot_%d.sav",int(id));
 
@@ -1083,6 +1388,9 @@ void GameMenu::setDefaultKeys(std::string_view preset) {
   }
 
 bool GameMenu::implUpdateSavThumb(GameMenu::Item& sel) {
+  if(CommandLine::inst().mmoClientUsesServer())
+    return false;
+
   const size_t id = saveSlotId(sel);
   if(id==size_t(-1))
     return false;
@@ -1290,5 +1598,3 @@ void GameMenu::setPlayer(const Npc &pl) {
     set(string_frm("MENU_ITEM_TALENT_",i),          string_frm(val,"%"));
     }
   }
-
-

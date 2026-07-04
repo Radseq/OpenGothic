@@ -87,9 +87,25 @@ void appendEscaped(std::string& out, std::string_view v) {
   out.push_back('"');
 }
 
+std::string_view characterKey() noexcept {
+  return CommandLine::inst().mmoCharacterKey();
+}
+
+std::string characterEntityKey() {
+  std::string out = "character:";
+  out.append(characterKey());
+  return out;
+}
+
+std::string characterTargetKey(std::string_view suffix) {
+  auto out = characterEntityKey();
+  out.push_back(':');
+  out.append(suffix);
+  return out;
+}
 
 std::string actorKey(const Npc& npc) {
-  std::string out = npc.isPlayer() ? "character:PC_HERO" : "npc:";
+  std::string out = npc.isPlayer() ? characterEntityKey() : "npc:";
   if(!npc.isPlayer())
     appendUInt(out, npc.persistentId());
   out.append(":sym:");
@@ -100,7 +116,7 @@ std::string actorKey(const Npc& npc) {
 std::string playerOrDefaultKey(const World& world) {
   if(const auto* player = world.player())
     return actorKey(*player);
-  return "character:PC_HERO";
+  return characterEntityKey();
 }
 
 std::string worldItemKey(std::string_view worldName, std::uint32_t persistentId, std::size_t symbol) {
@@ -763,7 +779,10 @@ void onClientBootstrapRequest(World& world,
   payload.reserve(384);
   payload.append("{\"actor_key\":");
   payload.append(jsonEscape(target));
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"character_key\":");
+  payload.append(jsonEscape(characterKey()));
+  payload.append(",\"display_name\":");
+  payload.append(jsonEscape(CommandLine::inst().mmoCharacterDisplayName()));
   payload.append(",\"world\":");
   payload.append(jsonEscape(world.name()));
   payload.append(",\"server_tick\":");
@@ -848,7 +867,7 @@ void onCharacterMovementProposal(Npc& actor,
     return;
 
   auto& world = actor.world();
-  auto target = std::string("character:PC_HERO:movement-proposal");
+  auto target = characterTargetKey("movement-proposal");
   const auto pos = actor.position();
   const auto* wp = actor.currentWayPoint();
   const auto& cmd = CommandLine::inst();
@@ -859,7 +878,7 @@ void onCharacterMovementProposal(Npc& actor,
   payload.reserve(1536);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
   payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
   payload.append(",\"target_key\":"); appendEscaped(payload, target);
   payload.append(",\"proposal_version\":1");
   payload.append(",\"input_model\":\"checkpoint_delta_v1\"");
@@ -931,7 +950,7 @@ void onCharacterCheckpoint(Npc& actor,
     return;
 
   auto& world = actor.world();
-  auto target = std::string("character:PC_HERO:checkpoint");
+  auto target = characterTargetKey("checkpoint");
   const auto pos = actor.position();
   const auto* wp = actor.currentWayPoint();
 
@@ -939,7 +958,7 @@ void onCharacterCheckpoint(Npc& actor,
   payload.reserve(1152);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
   payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
   payload.append(",\"target_key\":"); appendEscaped(payload, target);
   payload.append(",\"pos_x\":"); appendFloat(payload, pos.x);
   payload.append(",\"pos_y\":"); appendFloat(payload, pos.y);
@@ -983,13 +1002,13 @@ void onSaveCheckpointManifest(World& world,
   if(!isLiveWorldTick(world))
     return;
 
-  const std::string target = "character:PC_HERO:save-checkpoint";
+  const std::string target = characterTargetKey("save-checkpoint");
 
   std::string payload;
   payload.reserve(1280);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation != nullptr ? std::string_view(sourceLocation) : std::string_view("unknown"));
-  payload.append(",\"actor_key\":\"character:PC_HERO\"");
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"actor_key\":"); appendEscaped(payload, characterEntityKey());
+  payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
   payload.append(",\"target_key\":"); appendEscaped(payload, target);
   payload.append(",\"manifest_key\":"); appendEscaped(payload, target);
   payload.append(",\"checkpoint_kind\":\"native_save\"");
@@ -1593,12 +1612,12 @@ void onCharacterAttributeChanged(Npc& actor,
 
   if(delta > 0) {
     if(actor.isPlayer() && (attribute == ATR_HITPOINTS || attribute == ATR_MANA)) {
-      std::string target = attribute == ATR_HITPOINTS ? "character:PC_HERO:hitpoints" : "character:PC_HERO:mana";
+      std::string target = attribute == ATR_HITPOINTS ? characterTargetKey("hitpoints") : characterTargetKey("mana");
       std::string payload;
       payload.reserve(640);
       payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
       payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
-      payload.append(",\"character_key\":\"PC_HERO\"");
+      payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
       payload.append(",\"target_key\":"); appendEscaped(payload, target);
       payload.append(",\"resource_key\":"); appendEscaped(payload, attrName);
       payload.append(",\"delta_amount\":"); appendInt(payload, delta);
@@ -1620,12 +1639,12 @@ void onCharacterAttributeChanged(Npc& actor,
   const auto amount = -delta;
 
   if(actor.isPlayer() && attribute == ATR_MANA) {
-    std::string target = "character:PC_HERO:mana";
+    std::string target = characterTargetKey("mana");
     std::string payload;
     payload.reserve(512);
     payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
     payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
-    payload.append(",\"character_key\":\"PC_HERO\"");
+    payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
     payload.append(",\"resource_key\":\"mana\"");
     payload.append(",\"mana_amount\":"); appendInt(payload, amount);
     payload.append(",\"value_before\":"); appendInt(payload, valueBefore);
@@ -1643,12 +1662,12 @@ void onCharacterAttributeChanged(Npc& actor,
     return;
 
   if(actor.isPlayer()) {
-    std::string target = "character:PC_HERO:hitpoints";
+    std::string target = characterTargetKey("hitpoints");
     std::string payload;
     payload.reserve(640);
     payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
-    payload.append(",\"target_character_key\":\"PC_HERO\"");
-    payload.append(",\"target_key\":\"character:PC_HERO\"");
+    payload.append(",\"target_character_key\":"); appendEscaped(payload, characterKey());
+    payload.append(",\"target_key\":"); appendEscaped(payload, characterEntityKey());
     if(sourceActor != nullptr)
       appendNpcIdentity(payload, "source_actor", *sourceActor);
     payload.append(",\"damage_amount\":"); appendInt(payload, amount);
@@ -1853,13 +1872,13 @@ void onCharacterProgressionChanged(Npc& actor,
     return;
 
   auto& world = actor.world();
-  std::string target = "character:PC_HERO:progression";
+  std::string target = characterTargetKey("progression");
 
   std::string payload;
   payload.reserve(768);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
   payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
   appendScriptContext(payload, scriptFunctionSymbol, scriptFunctionName);
   payload.append(",\"level_before\":"); appendInt(payload, static_cast<std::int64_t>(levelBefore));
   payload.append(",\"level_after\":"); appendInt(payload, static_cast<std::int64_t>(levelAfter));
@@ -1946,6 +1965,7 @@ void onQuestChanged(Npc& actor,
 }
 
 } // namespace Mmo::Hooks
+
 
 
 

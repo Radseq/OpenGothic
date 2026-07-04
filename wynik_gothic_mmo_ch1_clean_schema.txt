@@ -267,7 +267,7 @@ CREATE TABLE `character_progress_audit` (
   UNIQUE KEY `ux_character_progress_audit_idempotency` (`idempotency_key`),
   KEY `ix_character_progress_audit_character` (`character_id`),
   KEY `ix_character_progress_audit_event` (`event_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -297,7 +297,7 @@ CREATE TABLE `character_quest_audit` (
   CONSTRAINT `character_quest_audit_entries_json_ck` CHECK (json_valid(`text_entries`)),
   CONSTRAINT `character_quest_audit_metadata_json_ck` CHECK (((`metadata` is null) or json_valid(`metadata`))),
   CONSTRAINT `character_quest_audit_status_ck` CHECK ((`status` in (_utf8mb4'running',_utf8mb4'success',_utf8mb4'failed',_utf8mb4'obsolete')))
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1260,7 +1260,7 @@ CREATE TABLE `mmo_npc_weapon_state_history` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `ux_mmo_npc_weapon_state_history_idem` (`idempotency_key`),
   KEY `ix_mmo_npc_weapon_state_history_key` (`world_instance_id`,`npc_entity_key`,`server_tick`)
-) ENGINE=InnoDB AUTO_INCREMENT=97 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2281,6 +2281,157 @@ CREATE TABLE `server_sessions` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Temporary view structure for view `v_active_server_sessions`
+--
+
+DROP TABLE IF EXISTS `v_active_server_sessions`;
+/*!50001 DROP VIEW IF EXISTS `v_active_server_sessions`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_active_server_sessions` AS SELECT 
+ 1 AS `session_uuid`,
+ 1 AS `session_key`,
+ 1 AS `account_uuid`,
+ 1 AS `account_name`,
+ 1 AS `character_uuid`,
+ 1 AS `character_key`,
+ 1 AS `character_name`,
+ 1 AS `realm_uuid`,
+ 1 AS `realm_key`,
+ 1 AS `world_instance_uuid`,
+ 1 AS `world_instance_key`,
+ 1 AS `client_name`,
+ 1 AS `remote_addr`,
+ 1 AS `lifecycle_state`,
+ 1 AS `started_at`,
+ 1 AS `last_seen_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_character_inventory`
+--
+
+DROP TABLE IF EXISTS `v_character_inventory`;
+/*!50001 DROP VIEW IF EXISTS `v_character_inventory`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_character_inventory` AS SELECT 
+ 1 AS `character_id`,
+ 1 AS `character_name`,
+ 1 AS `item_instance_id`,
+ 1 AS `item_instance_key`,
+ 1 AS `item_template_key`,
+ 1 AS `item_display_name`,
+ 1 AS `classification`,
+ 1 AS `stack_policy`,
+ 1 AS `bag_index`,
+ 1 AS `amount`,
+ 1 AS `quantity`,
+ 1 AS `lifecycle_state`,
+ 1 AS `updated_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_character_latest_checkpoint`
+--
+
+DROP TABLE IF EXISTS `v_character_latest_checkpoint`;
+/*!50001 DROP VIEW IF EXISTS `v_character_latest_checkpoint`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_character_latest_checkpoint` AS SELECT 
+ 1 AS `checkpoint_uuid`,
+ 1 AS `session_uuid`,
+ 1 AS `character_uuid`,
+ 1 AS `character_key`,
+ 1 AS `world_instance_uuid`,
+ 1 AS `server_tick`,
+ 1 AS `pos_x`,
+ 1 AS `pos_y`,
+ 1 AS `pos_z`,
+ 1 AS `rotation_yaw`,
+ 1 AS `current_waypoint_key`,
+ 1 AS `created_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_character_sheet`
+--
+
+DROP TABLE IF EXISTS `v_character_sheet`;
+/*!50001 DROP VIEW IF EXISTS `v_character_sheet`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_character_sheet` AS SELECT 
+ 1 AS `character_id`,
+ 1 AS `character_key`,
+ 1 AS `character_name`,
+ 1 AS `lifecycle_state`,
+ 1 AS `realm_key`,
+ 1 AS `world_instance_key`,
+ 1 AS `pos_x`,
+ 1 AS `pos_y`,
+ 1 AS `pos_z`,
+ 1 AS `rotation_yaw`,
+ 1 AS `level`,
+ 1 AS `experience`,
+ 1 AS `experience_next`,
+ 1 AS `learning_points`,
+ 1 AS `health_current`,
+ 1 AS `health_max`,
+ 1 AS `mana_current`,
+ 1 AS `mana_max`,
+ 1 AS `strength`,
+ 1 AS `dexterity`,
+ 1 AS `last_login_at`,
+ 1 AS `last_logout_at`,
+ 1 AS `updated_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_import_runs`
+--
+
+DROP TABLE IF EXISTS `v_mmo_import_runs`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_import_runs`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_import_runs` AS SELECT 
+ 1 AS `import_run_id`,
+ 1 AS `source_system`,
+ 1 AS `source_path`,
+ 1 AS `source_fingerprint`,
+ 1 AS `source_schema_name`,
+ 1 AS `source_schema_version`,
+ 1 AS `import_mode`,
+ 1 AS `game_code`,
+ 1 AS `content_revision_key`,
+ 1 AS `status`,
+ 1 AS `counters`,
+ 1 AS `started_at`,
+ 1 AS `finished_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_import_validation_errors`
+--
+
+DROP TABLE IF EXISTS `v_mmo_import_validation_errors`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_import_validation_errors`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_import_validation_errors` AS SELECT 
+ 1 AS `import_run_id`,
+ 1 AS `validation_key`,
+ 1 AS `severity`,
+ 1 AS `status`,
+ 1 AS `expected_value`,
+ 1 AS `actual_value`,
+ 1 AS `details`,
+ 1 AS `created_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
 -- Temporary view structure for view `v_mmo_latest_save_checkpoint_manifests`
 --
 
@@ -2289,13 +2440,12 @@ DROP TABLE IF EXISTS `v_mmo_latest_save_checkpoint_manifests`;
 SET @saved_cs_client     = @@character_set_client;
 /*!50503 SET character_set_client = utf8mb4 */;
 /*!50001 CREATE VIEW `v_mmo_latest_save_checkpoint_manifests` AS SELECT 
- 1 AS `manifest_id`,
  1 AS `manifest_uuid`,
- 1 AS `event_id`,
- 1 AS `realm_id`,
- 1 AS `world_instance_id`,
- 1 AS `character_id`,
+ 1 AS `event_uuid`,
  1 AS `character_key`,
+ 1 AS `character_name`,
+ 1 AS `world_name`,
+ 1 AS `world_instance_key`,
  1 AS `manifest_key`,
  1 AS `save_slot_key`,
  1 AS `native_save_path`,
@@ -2317,60 +2467,11 @@ SET @saved_cs_client     = @@character_set_client;
  1 AS `interactive_rows`,
  1 AS `npc_lifecycle_rows`,
  1 AS `mover_rows`,
- 1 AS `metadata`,
- 1 AS `idempotency_key`,
  1 AS `row_version`,
  1 AS `created_at`,
  1 AS `updated_at`,
+ 1 AS `save_slot_rank`,
  1 AS `character_rank`*/;
-SET character_set_client = @saved_cs_client;
-
---
--- Temporary view structure for view `v_mmo_latest_save_checkpoint_restore_readiness`
---
-
-DROP TABLE IF EXISTS `v_mmo_latest_save_checkpoint_restore_readiness`;
-/*!50001 DROP VIEW IF EXISTS `v_mmo_latest_save_checkpoint_restore_readiness`*/;
-SET @saved_cs_client     = @@character_set_client;
-/*!50503 SET character_set_client = utf8mb4 */;
-/*!50001 CREATE VIEW `v_mmo_latest_save_checkpoint_restore_readiness` AS SELECT 
- 1 AS `manifest_id`,
- 1 AS `manifest_uuid`,
- 1 AS `character_id`,
- 1 AS `character_key`,
- 1 AS `world_instance_id`,
- 1 AS `manifest_key`,
- 1 AS `save_key`,
- 1 AS `save_slot_key`,
- 1 AS `native_save_path`,
- 1 AS `display_name`,
- 1 AS `client_world_name`,
- 1 AS `native_save_present`,
- 1 AS `checkpoint_kind`,
- 1 AS `reason`,
- 1 AS `server_tick`,
- 1 AS `latest_checkpoint_tick`,
- 1 AS `recent_event_seq`,
- 1 AS `row_version`,
- 1 AS `created_at`,
- 1 AS `updated_at`,
- 1 AS `character_rows`,
- 1 AS `inventory_rows`,
- 1 AS `equipment_rows`,
- 1 AS `quest_rows`,
- 1 AS `known_dialog_rows`,
- 1 AS `script_state_rows`,
- 1 AS `world_entity_rows`,
- 1 AS `world_item_rows`,
- 1 AS `world_item_active_rows`,
- 1 AS `world_item_removed_rows`,
- 1 AS `interactive_rows`,
- 1 AS `npc_lifecycle_rows`,
- 1 AS `npc_lifecycle_non_active_rows`,
- 1 AS `world_inventory_rows`,
- 1 AS `world_clock_rows`,
- 1 AS `mover_rows`,
- 1 AS `exported_bootstrap_bytes`*/;
 SET character_set_client = @saved_cs_client;
 
 --
@@ -2382,8 +2483,8 @@ DROP TABLE IF EXISTS `v_mmo_latest_save_checkpoint_strict_restore`;
 SET @saved_cs_client     = @@character_set_client;
 /*!50503 SET character_set_client = utf8mb4 */;
 /*!50001 CREATE VIEW `v_mmo_latest_save_checkpoint_strict_restore` AS SELECT 
- 1 AS `session_key`,
  1 AS `session_uuid`,
+ 1 AS `session_key`,
  1 AS `character_key`,
  1 AS `world_instance_key`,
  1 AS `manifest_uuid`,
@@ -2391,7 +2492,7 @@ SET @saved_cs_client     = @@character_set_client;
  1 AS `display_name`,
  1 AS `client_world_name`,
  1 AS `native_save_present`,
- 1 AS `reason`,
+ 1 AS `created_at`,
  1 AS `character_rows`,
  1 AS `inventory_rows`,
  1 AS `equipment_rows`,
@@ -2404,8 +2505,7 @@ SET @saved_cs_client     = @@character_set_client;
  1 AS `mover_rows`,
  1 AS `exported_bootstrap_bytes`,
  1 AS `snapshot_source`,
- 1 AS `strict_restore_ok`,
- 1 AS `created_at`*/;
+ 1 AS `strict_restore_ok`*/;
 SET character_set_client = @saved_cs_client;
 
 --
@@ -2417,26 +2517,11 @@ DROP TABLE IF EXISTS `v_mmo_save_checkpoint_snapshot_domain_counts`;
 SET @saved_cs_client     = @@character_set_client;
 /*!50503 SET character_set_client = utf8mb4 */;
 /*!50001 CREATE VIEW `v_mmo_save_checkpoint_snapshot_domain_counts` AS SELECT 
- 1 AS `manifest_id`,
  1 AS `manifest_uuid`,
- 1 AS `character_id`,
  1 AS `character_key`,
- 1 AS `world_instance_id`,
- 1 AS `manifest_key`,
  1 AS `save_key`,
- 1 AS `save_slot_key`,
- 1 AS `native_save_path`,
  1 AS `display_name`,
- 1 AS `client_world_name`,
- 1 AS `native_save_present`,
- 1 AS `checkpoint_kind`,
- 1 AS `reason`,
- 1 AS `server_tick`,
- 1 AS `latest_checkpoint_tick`,
- 1 AS `recent_event_seq`,
- 1 AS `row_version`,
  1 AS `created_at`,
- 1 AS `updated_at`,
  1 AS `character_rows`,
  1 AS `inventory_rows`,
  1 AS `equipment_rows`,
@@ -2444,15 +2529,98 @@ SET @saved_cs_client     = @@character_set_client;
  1 AS `known_dialog_rows`,
  1 AS `script_state_rows`,
  1 AS `world_entity_rows`,
- 1 AS `world_item_rows`,
- 1 AS `world_item_active_rows`,
- 1 AS `world_item_removed_rows`,
- 1 AS `interactive_rows`,
- 1 AS `npc_lifecycle_rows`,
- 1 AS `npc_lifecycle_non_active_rows`,
  1 AS `world_inventory_rows`,
- 1 AS `world_clock_rows`,
  1 AS `mover_rows`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_pending_server_actions`
+--
+
+DROP TABLE IF EXISTS `v_pending_server_actions`;
+/*!50001 DROP VIEW IF EXISTS `v_pending_server_actions`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_pending_server_actions` AS SELECT 
+ 1 AS `action_uuid`,
+ 1 AS `session_uuid`,
+ 1 AS `session_key`,
+ 1 AS `action_kind`,
+ 1 AS `target_key`,
+ 1 AS `idempotency_key`,
+ 1 AS `priority`,
+ 1 AS `max_attempts`,
+ 1 AS `attempt_count`,
+ 1 AS `status`,
+ 1 AS `requested_at`,
+ 1 AS `locked_at`,
+ 1 AS `applied_at`,
+ 1 AS `failed_at`,
+ 1 AS `completed_at`,
+ 1 AS `last_error_code`,
+ 1 AS `last_error_message`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_server_action_outbox`
+--
+
+DROP TABLE IF EXISTS `v_server_action_outbox`;
+/*!50001 DROP VIEW IF EXISTS `v_server_action_outbox`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_server_action_outbox` AS SELECT 
+ 1 AS `action_uuid`,
+ 1 AS `session_uuid`,
+ 1 AS `session_key`,
+ 1 AS `action_kind`,
+ 1 AS `target_key`,
+ 1 AS `idempotency_key`,
+ 1 AS `priority`,
+ 1 AS `max_attempts`,
+ 1 AS `attempt_count`,
+ 1 AS `status`,
+ 1 AS `requested_at`,
+ 1 AS `locked_at`,
+ 1 AS `applied_at`,
+ 1 AS `failed_at`,
+ 1 AS `completed_at`,
+ 1 AS `last_error_code`,
+ 1 AS `last_error_message`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_world_dead_entities`
+--
+
+DROP TABLE IF EXISTS `v_world_dead_entities`;
+/*!50001 DROP VIEW IF EXISTS `v_world_dead_entities`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_world_dead_entities` AS SELECT 
+ 1 AS `world_instance_id`,
+ 1 AS `entity_key`,
+ 1 AS `entity_kind`,
+ 1 AS `health_current`,
+ 1 AS `health_max`,
+ 1 AS `updated_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_world_event_counts`
+--
+
+DROP TABLE IF EXISTS `v_world_event_counts`;
+/*!50001 DROP VIEW IF EXISTS `v_world_event_counts`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_world_event_counts` AS SELECT 
+ 1 AS `world_instance_id`,
+ 1 AS `event_class`,
+ 1 AS `event_type`,
+ 1 AS `event_count`,
+ 1 AS `max_event_seq`,
+ 1 AS `last_event_at`*/;
 SET character_set_client = @saved_cs_client;
 
 --
@@ -2535,7 +2703,7 @@ CREATE TABLE `world_event_journal` (
   CONSTRAINT `world_event_journal_schema_version_ck` CHECK ((`schema_version` > 0)),
   CONSTRAINT `world_event_journal_source_ck` CHECK ((`source` in (_utf8mb4'server',_utf8mb4'import',_utf8mb4'runtime_sqlite',_utf8mb4'admin',_utf8mb4'test'))),
   CONSTRAINT `world_event_journal_tick_ck` CHECK ((`server_tick` >= 0))
-) ENGINE=InnoDB AUTO_INCREMENT=279 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2561,7 +2729,7 @@ CREATE TABLE `world_interactive_audit` (
   UNIQUE KEY `ux_world_interactive_audit_idempotency` (`idempotency_key`),
   KEY `ix_world_interactive_audit_entity` (`world_instance_id`,`entity_key`),
   KEY `ix_world_interactive_audit_event` (`event_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -3809,7 +3977,7 @@ BEGIN
   END IF;
   IF v_target_world_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='mmo_change_world_or_teleport_character: target world not found'; END IF;
   SET v_payload = JSON_MERGE_PATCH(COALESCE(p_metadata, JSON_OBJECT()), JSON_OBJECT('target_world_instance_key',p_target_world_instance_key,'pos_x',p_pos_x,'pos_y',p_pos_y,'pos_z',p_pos_z,'rotation_yaw',p_rotation_yaw,'reason',p_reason));
-  CALL mmo_append_world_event(v_realm_id, v_target_world_id, v_character_id, 'character_teleported_or_world_changed', 'movement', COALESCE(p_server_tick,0), NULL, p_reason, v_payload, p_idempotency_key, 'server', NULL, NULL, p_event_id);
+  CALL mmo_append_world_event(v_realm_id, v_target_world_id, v_character_id, 'character_teleported_or_world_changed', 'character', COALESCE(p_server_tick,0), NULL, p_reason, v_payload, p_idempotency_key, 'server', NULL, NULL, p_event_id);
   UPDATE characters SET current_world_instance_id=v_target_world_id, updated_at=CURRENT_TIMESTAMP(6) WHERE character_id=v_character_id;
   INSERT INTO character_positions(character_id, world_instance_id, pos_x, pos_y, pos_z, rotation_yaw, current_waypoint_key, server_tick, row_version)
   VALUES(v_character_id, v_target_world_id, p_pos_x, p_pos_y, p_pos_z, COALESCE(p_rotation_yaw,0), NULL, COALESCE(p_server_tick,0), 1)
@@ -6694,7 +6862,7 @@ BEGIN
     FROM server_sessions WHERE session_id=p_session_id LIMIT 1;
   IF v_world_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='mmo_record_world_time_changed: invalid session'; END IF;
   SET v_payload = JSON_MERGE_PATCH(COALESCE(p_metadata, JSON_OBJECT()), JSON_OBJECT('world_time_before_ms',p_world_time_before_ms,'world_time_after_ms',p_world_time_after_ms,'world_day_before',p_world_day_before,'world_day_after',p_world_day_after));
-  CALL mmo_append_world_event(v_realm_id, v_world_id, v_character_id, 'world_time_changed', 'world', COALESCE(p_server_tick,0), NULL, NULL, v_payload, p_idempotency_key, 'server', NULL, NULL, p_event_id);
+  CALL mmo_append_world_event(v_realm_id, v_world_id, v_character_id, 'world_time_changed', 'system', COALESCE(p_server_tick,0), NULL, NULL, v_payload, p_idempotency_key, 'server', NULL, NULL, p_event_id);
   INSERT INTO mmo_world_clock_state_history(event_id, world_instance_id, world_day_before, world_day_after, world_time_before_ms, world_time_after_ms, server_tick, state_payload, idempotency_key)
   VALUES(p_event_id, v_world_id, p_world_day_before, p_world_day_after, p_world_time_before_ms, p_world_time_after_ms, COALESCE(p_server_tick,0), v_payload, p_idempotency_key)
   ON DUPLICATE KEY UPDATE event_id=VALUES(event_id), state_payload=VALUES(state_payload);
@@ -7919,6 +8087,114 @@ DELIMITER ;
 USE `gothic_mmo_ch1_clean`;
 
 --
+-- Final view structure for view `v_active_server_sessions`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_active_server_sessions`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_active_server_sessions` AS select bin_to_uuid(`s`.`session_id`,1) AS `session_uuid`,`s`.`session_key` AS `session_key`,bin_to_uuid(`s`.`account_id`,1) AS `account_uuid`,`a`.`account_name` AS `account_name`,bin_to_uuid(`s`.`character_id`,1) AS `character_uuid`,`c`.`character_key` AS `character_key`,`c`.`character_name` AS `character_name`,bin_to_uuid(`s`.`realm_id`,1) AS `realm_uuid`,`r`.`realm_key` AS `realm_key`,bin_to_uuid(`s`.`world_instance_id`,1) AS `world_instance_uuid`,`wi`.`world_instance_key` AS `world_instance_key`,`s`.`client_name` AS `client_name`,`s`.`remote_addr` AS `remote_addr`,`s`.`lifecycle_state` AS `lifecycle_state`,`s`.`started_at` AS `started_at`,`s`.`last_seen_at` AS `last_seen_at` from ((((`server_sessions` `s` join `account_accounts` `a` on((`a`.`account_id` = `s`.`account_id`))) join `characters` `c` on((`c`.`character_id` = `s`.`character_id`))) join `realm_realms` `r` on((`r`.`realm_id` = `s`.`realm_id`))) join `realm_world_instances` `wi` on((`wi`.`world_instance_id` = `s`.`world_instance_id`))) where (`s`.`lifecycle_state` = 'active') */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_character_inventory`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_character_inventory`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_character_inventory` AS select bin_to_uuid(`c`.`character_id`,1) AS `character_id`,`c`.`character_name` AS `character_name`,bin_to_uuid(`ii`.`item_instance_id`,1) AS `item_instance_id`,`ii`.`item_instance_key` AS `item_instance_key`,`it`.`item_template_key` AS `item_template_key`,`it`.`display_name` AS `item_display_name`,`it`.`classification` AS `classification`,`it`.`stack_policy` AS `stack_policy`,`ci`.`bag_index` AS `bag_index`,`ci`.`amount` AS `amount`,`ii`.`quantity` AS `quantity`,`ii`.`lifecycle_state` AS `lifecycle_state`,`ci`.`updated_at` AS `updated_at` from (((`character_inventory` `ci` join `characters` `c` on((`c`.`character_id` = `ci`.`character_id`))) join `item_instances` `ii` on((`ii`.`item_instance_id` = `ci`.`item_instance_id`))) join `content_item_templates` `it` on((`it`.`item_template_id` = `ii`.`item_template_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_character_latest_checkpoint`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_character_latest_checkpoint`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_character_latest_checkpoint` AS select bin_to_uuid(`a`.`checkpoint_id`,1) AS `checkpoint_uuid`,bin_to_uuid(`a`.`session_id`,1) AS `session_uuid`,bin_to_uuid(`a`.`character_id`,1) AS `character_uuid`,`c`.`character_key` AS `character_key`,bin_to_uuid(`a`.`world_instance_id`,1) AS `world_instance_uuid`,`a`.`server_tick` AS `server_tick`,`a`.`pos_x` AS `pos_x`,`a`.`pos_y` AS `pos_y`,`a`.`pos_z` AS `pos_z`,`a`.`rotation_yaw` AS `rotation_yaw`,`a`.`current_waypoint_key` AS `current_waypoint_key`,`a`.`created_at` AS `created_at` from ((`character_checkpoint_audit` `a` join `characters` `c` on((`c`.`character_id` = `a`.`character_id`))) join (select `character_checkpoint_audit`.`character_id` AS `character_id`,max(`character_checkpoint_audit`.`created_at`) AS `max_created_at` from `character_checkpoint_audit` group by `character_checkpoint_audit`.`character_id`) `latest` on(((`latest`.`character_id` = `a`.`character_id`) and (`latest`.`max_created_at` = `a`.`created_at`)))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_character_sheet`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_character_sheet`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_character_sheet` AS select bin_to_uuid(`c`.`character_id`,1) AS `character_id`,`c`.`character_key` AS `character_key`,`c`.`character_name` AS `character_name`,`c`.`lifecycle_state` AS `lifecycle_state`,`r`.`realm_key` AS `realm_key`,`w`.`world_instance_key` AS `world_instance_key`,`p`.`pos_x` AS `pos_x`,`p`.`pos_y` AS `pos_y`,`p`.`pos_z` AS `pos_z`,`p`.`rotation_yaw` AS `rotation_yaw`,`s`.`level` AS `level`,`s`.`experience` AS `experience`,`s`.`experience_next` AS `experience_next`,`s`.`learning_points` AS `learning_points`,`s`.`health_current` AS `health_current`,`s`.`health_max` AS `health_max`,`s`.`mana_current` AS `mana_current`,`s`.`mana_max` AS `mana_max`,`s`.`strength` AS `strength`,`s`.`dexterity` AS `dexterity`,`c`.`last_login_at` AS `last_login_at`,`c`.`last_logout_at` AS `last_logout_at`,`c`.`updated_at` AS `updated_at` from ((((`characters` `c` join `realm_realms` `r` on((`r`.`realm_id` = `c`.`realm_id`))) left join `realm_world_instances` `w` on((`w`.`world_instance_id` = `c`.`current_world_instance_id`))) left join `character_positions` `p` on((`p`.`character_id` = `c`.`character_id`))) left join `character_stats` `s` on((`s`.`character_id` = `c`.`character_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_import_runs`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_import_runs`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_import_runs` AS select bin_to_uuid(`ir`.`import_run_id`,1) AS `import_run_id`,`ir`.`source_system` AS `source_system`,`ir`.`source_path` AS `source_path`,`ir`.`source_fingerprint` AS `source_fingerprint`,`ir`.`source_schema_name` AS `source_schema_name`,`ir`.`source_schema_version` AS `source_schema_version`,`ir`.`import_mode` AS `import_mode`,`ir`.`game_code` AS `game_code`,`cr`.`content_revision_key` AS `content_revision_key`,`ir`.`status` AS `status`,`ir`.`counters` AS `counters`,`ir`.`started_at` AS `started_at`,`ir`.`finished_at` AS `finished_at` from (`mmo_import_runs` `ir` left join `content_revisions` `cr` on((`cr`.`content_revision_id` = `ir`.`content_revision_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_import_validation_errors`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_import_validation_errors`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_import_validation_errors` AS select bin_to_uuid(`mmo_import_validation_results`.`import_run_id`,1) AS `import_run_id`,`mmo_import_validation_results`.`validation_key` AS `validation_key`,`mmo_import_validation_results`.`severity` AS `severity`,`mmo_import_validation_results`.`status` AS `status`,`mmo_import_validation_results`.`expected_value` AS `expected_value`,`mmo_import_validation_results`.`actual_value` AS `actual_value`,`mmo_import_validation_results`.`details` AS `details`,`mmo_import_validation_results`.`created_at` AS `created_at` from `mmo_import_validation_results` where ((`mmo_import_validation_results`.`severity` = 'error') or (`mmo_import_validation_results`.`status` = 'fail')) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
 -- Final view structure for view `v_mmo_latest_save_checkpoint_manifests`
 --
 
@@ -7931,25 +8207,7 @@ USE `gothic_mmo_ch1_clean`;
 /*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
-/*!50001 VIEW `v_mmo_latest_save_checkpoint_manifests` AS select `ranked`.`manifest_id` AS `manifest_id`,`ranked`.`manifest_uuid` AS `manifest_uuid`,`ranked`.`event_id` AS `event_id`,`ranked`.`realm_id` AS `realm_id`,`ranked`.`world_instance_id` AS `world_instance_id`,`ranked`.`character_id` AS `character_id`,`ranked`.`character_key` AS `character_key`,`ranked`.`manifest_key` AS `manifest_key`,`ranked`.`save_slot_key` AS `save_slot_key`,`ranked`.`native_save_path` AS `native_save_path`,`ranked`.`display_name` AS `display_name`,`ranked`.`client_world_name` AS `client_world_name`,`ranked`.`native_save_present` AS `native_save_present`,`ranked`.`checkpoint_kind` AS `checkpoint_kind`,`ranked`.`reason` AS `reason`,`ranked`.`server_tick` AS `server_tick`,`ranked`.`latest_checkpoint_tick` AS `latest_checkpoint_tick`,`ranked`.`recent_event_seq` AS `recent_event_seq`,`ranked`.`inventory_rows` AS `inventory_rows`,`ranked`.`equipment_rows` AS `equipment_rows`,`ranked`.`quest_rows` AS `quest_rows`,`ranked`.`known_dialog_rows` AS `known_dialog_rows`,`ranked`.`script_state_rows` AS `script_state_rows`,`ranked`.`world_item_rows` AS `world_item_rows`,`ranked`.`world_inventory_rows` AS `world_inventory_rows`,`ranked`.`interactive_rows` AS `interactive_rows`,`ranked`.`npc_lifecycle_rows` AS `npc_lifecycle_rows`,`ranked`.`mover_rows` AS `mover_rows`,`ranked`.`metadata` AS `metadata`,`ranked`.`idempotency_key` AS `idempotency_key`,`ranked`.`row_version` AS `row_version`,`ranked`.`created_at` AS `created_at`,`ranked`.`updated_at` AS `updated_at`,`ranked`.`character_rank` AS `character_rank` from (select `sm`.`manifest_id` AS `manifest_id`,bin_to_uuid(`sm`.`manifest_id`,1) AS `manifest_uuid`,`sm`.`event_id` AS `event_id`,`sm`.`realm_id` AS `realm_id`,`sm`.`world_instance_id` AS `world_instance_id`,`sm`.`character_id` AS `character_id`,`c`.`character_key` AS `character_key`,`sm`.`manifest_key` AS `manifest_key`,`sm`.`save_slot_key` AS `save_slot_key`,`sm`.`native_save_path` AS `native_save_path`,`sm`.`display_name` AS `display_name`,`sm`.`client_world_name` AS `client_world_name`,`sm`.`native_save_present` AS `native_save_present`,`sm`.`checkpoint_kind` AS `checkpoint_kind`,`sm`.`reason` AS `reason`,`sm`.`server_tick` AS `server_tick`,`sm`.`latest_checkpoint_tick` AS `latest_checkpoint_tick`,`sm`.`recent_event_seq` AS `recent_event_seq`,`sm`.`inventory_rows` AS `inventory_rows`,`sm`.`equipment_rows` AS `equipment_rows`,`sm`.`quest_rows` AS `quest_rows`,`sm`.`known_dialog_rows` AS `known_dialog_rows`,`sm`.`script_state_rows` AS `script_state_rows`,`sm`.`world_item_rows` AS `world_item_rows`,`sm`.`world_inventory_rows` AS `world_inventory_rows`,`sm`.`interactive_rows` AS `interactive_rows`,`sm`.`npc_lifecycle_rows` AS `npc_lifecycle_rows`,`sm`.`mover_rows` AS `mover_rows`,`sm`.`metadata` AS `metadata`,`sm`.`idempotency_key` AS `idempotency_key`,`sm`.`row_version` AS `row_version`,`sm`.`created_at` AS `created_at`,`sm`.`updated_at` AS `updated_at`,row_number() OVER (PARTITION BY `sm`.`character_id`,coalesce(`sm`.`save_slot_key`,`sm`.`native_save_path`,`sm`.`manifest_key`) ORDER BY `sm`.`created_at` desc,`sm`.`row_version` desc,`sm`.`manifest_id` desc )  AS `character_rank` from (`mmo_save_checkpoint_manifests` `sm` join `characters` `c` on((`c`.`character_id` = `sm`.`character_id`)))) `ranked` where (`ranked`.`character_rank` = 1) */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
-
---
--- Final view structure for view `v_mmo_latest_save_checkpoint_restore_readiness`
---
-
-/*!50001 DROP VIEW IF EXISTS `v_mmo_latest_save_checkpoint_restore_readiness`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
-/*!50001 VIEW `v_mmo_latest_save_checkpoint_restore_readiness` AS select `dc`.`manifest_id` AS `manifest_id`,`dc`.`manifest_uuid` AS `manifest_uuid`,`dc`.`character_id` AS `character_id`,`dc`.`character_key` AS `character_key`,`dc`.`world_instance_id` AS `world_instance_id`,`dc`.`manifest_key` AS `manifest_key`,`dc`.`save_key` AS `save_key`,`dc`.`save_slot_key` AS `save_slot_key`,`dc`.`native_save_path` AS `native_save_path`,`dc`.`display_name` AS `display_name`,`dc`.`client_world_name` AS `client_world_name`,`dc`.`native_save_present` AS `native_save_present`,`dc`.`checkpoint_kind` AS `checkpoint_kind`,`dc`.`reason` AS `reason`,`dc`.`server_tick` AS `server_tick`,`dc`.`latest_checkpoint_tick` AS `latest_checkpoint_tick`,`dc`.`recent_event_seq` AS `recent_event_seq`,`dc`.`row_version` AS `row_version`,`dc`.`created_at` AS `created_at`,`dc`.`updated_at` AS `updated_at`,`dc`.`character_rows` AS `character_rows`,`dc`.`inventory_rows` AS `inventory_rows`,`dc`.`equipment_rows` AS `equipment_rows`,`dc`.`quest_rows` AS `quest_rows`,`dc`.`known_dialog_rows` AS `known_dialog_rows`,`dc`.`script_state_rows` AS `script_state_rows`,`dc`.`world_entity_rows` AS `world_entity_rows`,`dc`.`world_item_rows` AS `world_item_rows`,`dc`.`world_item_active_rows` AS `world_item_active_rows`,`dc`.`world_item_removed_rows` AS `world_item_removed_rows`,`dc`.`interactive_rows` AS `interactive_rows`,`dc`.`npc_lifecycle_rows` AS `npc_lifecycle_rows`,`dc`.`npc_lifecycle_non_active_rows` AS `npc_lifecycle_non_active_rows`,`dc`.`world_inventory_rows` AS `world_inventory_rows`,`dc`.`world_clock_rows` AS `world_clock_rows`,`dc`.`mover_rows` AS `mover_rows`,0 AS `exported_bootstrap_bytes` from (`v_mmo_save_checkpoint_snapshot_domain_counts` `dc` join `server_sessions` `ss` on(((`ss`.`character_id` = `dc`.`character_id`) and (`ss`.`world_instance_id` = `dc`.`world_instance_id`)))) where exists(select 1 from `mmo_save_checkpoint_manifests` `newer` where ((`newer`.`character_id` = `dc`.`character_id`) and (`newer`.`world_instance_id` = `dc`.`world_instance_id`) and ((`newer`.`created_at` > `dc`.`created_at`) or ((`newer`.`created_at` = `dc`.`created_at`) and (`newer`.`row_version` > `dc`.`row_version`)) or ((`newer`.`created_at` = `dc`.`created_at`) and (`newer`.`row_version` = `dc`.`row_version`) and (`newer`.`manifest_id` > `dc`.`manifest_id`))))) is false */;
+/*!50001 VIEW `v_mmo_latest_save_checkpoint_manifests` AS select `ranked`.`manifest_uuid` AS `manifest_uuid`,`ranked`.`event_uuid` AS `event_uuid`,`ranked`.`character_key` AS `character_key`,`ranked`.`character_name` AS `character_name`,`ranked`.`world_name` AS `world_name`,`ranked`.`world_instance_key` AS `world_instance_key`,`ranked`.`manifest_key` AS `manifest_key`,`ranked`.`save_slot_key` AS `save_slot_key`,`ranked`.`native_save_path` AS `native_save_path`,`ranked`.`display_name` AS `display_name`,`ranked`.`client_world_name` AS `client_world_name`,`ranked`.`native_save_present` AS `native_save_present`,`ranked`.`checkpoint_kind` AS `checkpoint_kind`,`ranked`.`reason` AS `reason`,`ranked`.`server_tick` AS `server_tick`,`ranked`.`latest_checkpoint_tick` AS `latest_checkpoint_tick`,`ranked`.`recent_event_seq` AS `recent_event_seq`,`ranked`.`inventory_rows` AS `inventory_rows`,`ranked`.`equipment_rows` AS `equipment_rows`,`ranked`.`quest_rows` AS `quest_rows`,`ranked`.`known_dialog_rows` AS `known_dialog_rows`,`ranked`.`script_state_rows` AS `script_state_rows`,`ranked`.`world_item_rows` AS `world_item_rows`,`ranked`.`world_inventory_rows` AS `world_inventory_rows`,`ranked`.`interactive_rows` AS `interactive_rows`,`ranked`.`npc_lifecycle_rows` AS `npc_lifecycle_rows`,`ranked`.`mover_rows` AS `mover_rows`,`ranked`.`row_version` AS `row_version`,`ranked`.`created_at` AS `created_at`,`ranked`.`updated_at` AS `updated_at`,`ranked`.`save_slot_rank` AS `save_slot_rank`,`ranked`.`character_rank` AS `character_rank` from (select bin_to_uuid(`sm`.`manifest_id`,1) AS `manifest_uuid`,bin_to_uuid(`sm`.`event_id`,1) AS `event_uuid`,`c`.`character_key` AS `character_key`,`c`.`character_name` AS `character_name`,`cwt`.`world_name` AS `world_name`,`rwi`.`world_instance_key` AS `world_instance_key`,`sm`.`manifest_key` AS `manifest_key`,`sm`.`save_slot_key` AS `save_slot_key`,`sm`.`native_save_path` AS `native_save_path`,`sm`.`display_name` AS `display_name`,`sm`.`client_world_name` AS `client_world_name`,`sm`.`native_save_present` AS `native_save_present`,`sm`.`checkpoint_kind` AS `checkpoint_kind`,`sm`.`reason` AS `reason`,`sm`.`server_tick` AS `server_tick`,`sm`.`latest_checkpoint_tick` AS `latest_checkpoint_tick`,`sm`.`recent_event_seq` AS `recent_event_seq`,`sm`.`inventory_rows` AS `inventory_rows`,`sm`.`equipment_rows` AS `equipment_rows`,`sm`.`quest_rows` AS `quest_rows`,`sm`.`known_dialog_rows` AS `known_dialog_rows`,`sm`.`script_state_rows` AS `script_state_rows`,`sm`.`world_item_rows` AS `world_item_rows`,`sm`.`world_inventory_rows` AS `world_inventory_rows`,`sm`.`interactive_rows` AS `interactive_rows`,`sm`.`npc_lifecycle_rows` AS `npc_lifecycle_rows`,`sm`.`mover_rows` AS `mover_rows`,`sm`.`row_version` AS `row_version`,`sm`.`created_at` AS `created_at`,`sm`.`updated_at` AS `updated_at`,row_number() OVER (PARTITION BY `sm`.`character_id`,coalesce(`sm`.`save_slot_key`,`sm`.`manifest_key`) ORDER BY `sm`.`created_at` desc,`sm`.`row_version` desc )  AS `save_slot_rank`,row_number() OVER (PARTITION BY `sm`.`character_id` ORDER BY `sm`.`created_at` desc,`sm`.`row_version` desc )  AS `character_rank` from (((`mmo_save_checkpoint_manifests` `sm` join `characters` `c` on((`c`.`character_id` = `sm`.`character_id`))) join `realm_world_instances` `rwi` on((`rwi`.`world_instance_id` = `sm`.`world_instance_id`))) left join `content_world_templates` `cwt` on((`cwt`.`world_template_id` = `rwi`.`world_template_id`)))) `ranked` where (`ranked`.`save_slot_rank` = 1) */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -7967,7 +8225,7 @@ USE `gothic_mmo_ch1_clean`;
 /*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
-/*!50001 VIEW `v_mmo_latest_save_checkpoint_strict_restore` AS select `ss`.`session_key` AS `session_key`,bin_to_uuid(`ss`.`session_id`,1) AS `session_uuid`,`dc`.`character_key` AS `character_key`,`rwi`.`world_instance_key` AS `world_instance_key`,`dc`.`manifest_uuid` AS `manifest_uuid`,`dc`.`save_key` AS `save_key`,`dc`.`display_name` AS `display_name`,`dc`.`client_world_name` AS `client_world_name`,`dc`.`native_save_present` AS `native_save_present`,`dc`.`reason` AS `reason`,`dc`.`character_rows` AS `character_rows`,`dc`.`inventory_rows` AS `inventory_rows`,`dc`.`equipment_rows` AS `equipment_rows`,`dc`.`quest_rows` AS `quest_rows`,`dc`.`known_dialog_rows` AS `known_dialog_rows`,`dc`.`script_state_rows` AS `script_state_rows`,`dc`.`world_entity_rows` AS `world_entity_rows`,`dc`.`world_inventory_rows` AS `world_inventory_rows`,`dc`.`world_clock_rows` AS `world_clock_rows`,`dc`.`mover_rows` AS `mover_rows`,0 AS `exported_bootstrap_bytes`,'fallback_missing_export_function' AS `snapshot_source`,0 AS `strict_restore_ok`,`dc`.`created_at` AS `created_at` from ((`v_mmo_save_checkpoint_snapshot_domain_counts` `dc` join `server_sessions` `ss` on(((`ss`.`character_id` = `dc`.`character_id`) and (`ss`.`world_instance_id` = `dc`.`world_instance_id`)))) join `realm_world_instances` `rwi` on((`rwi`.`world_instance_id` = `dc`.`world_instance_id`))) where exists(select 1 from `mmo_save_checkpoint_manifests` `newer` where ((`newer`.`character_id` = `dc`.`character_id`) and (`newer`.`world_instance_id` = `dc`.`world_instance_id`) and ((`newer`.`created_at` > `dc`.`created_at`) or ((`newer`.`created_at` = `dc`.`created_at`) and (`newer`.`row_version` > `dc`.`row_version`)) or ((`newer`.`created_at` = `dc`.`created_at`) and (`newer`.`row_version` = `dc`.`row_version`) and (`newer`.`manifest_id` > `dc`.`manifest_id`))))) is false */;
+/*!50001 VIEW `v_mmo_latest_save_checkpoint_strict_restore` AS select bin_to_uuid(`ss`.`session_id`,1) AS `session_uuid`,`ss`.`session_key` AS `session_key`,`c`.`character_key` AS `character_key`,`rwi`.`world_instance_key` AS `world_instance_key`,bin_to_uuid(`sm`.`manifest_id`,1) AS `manifest_uuid`,coalesce(`sm`.`save_slot_key`,`sm`.`manifest_key`) AS `save_key`,`sm`.`display_name` AS `display_name`,`sm`.`client_world_name` AS `client_world_name`,`sm`.`native_save_present` AS `native_save_present`,`sm`.`created_at` AS `created_at`,(select count(0) from `mmo_save_checkpoint_character_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `character_rows`,(select count(0) from `mmo_save_checkpoint_inventory_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `inventory_rows`,(select count(0) from `mmo_save_checkpoint_equipment_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `equipment_rows`,(select count(0) from `mmo_save_checkpoint_quest_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `quest_rows`,(select count(0) from `mmo_save_checkpoint_known_dialog_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `known_dialog_rows`,(select count(0) from `mmo_save_checkpoint_script_state_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `script_state_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `world_entity_rows`,(select count(0) from `mmo_save_checkpoint_world_inventory_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `world_inventory_rows`,(select count(0) from `mmo_save_checkpoint_world_clock_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `world_clock_rows`,(select count(0) from `mmo_save_checkpoint_mover_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `mover_rows`,cast(NULL as unsigned) AS `exported_bootstrap_bytes`,cast(NULL as char(96) charset utf8mb4) AS `snapshot_source`,(case when ((select count(0) from `mmo_save_checkpoint_character_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) = 1) then 1 else 0 end) AS `strict_restore_ok` from (((`server_sessions` `ss` join `characters` `c` on((`c`.`character_id` = `ss`.`character_id`))) join `realm_world_instances` `rwi` on((`rwi`.`world_instance_id` = `ss`.`world_instance_id`))) join `mmo_save_checkpoint_manifests` `sm` on(((`sm`.`character_id` = `ss`.`character_id`) and (`sm`.`world_instance_id` = `ss`.`world_instance_id`)))) where (`sm`.`manifest_id` = (select `sm2`.`manifest_id` from `mmo_save_checkpoint_manifests` `sm2` where ((`sm2`.`character_id` = `ss`.`character_id`) and (`sm2`.`world_instance_id` = `ss`.`world_instance_id`)) order by `sm2`.`created_at` desc,`sm2`.`row_version` desc limit 1)) */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -7985,7 +8243,79 @@ USE `gothic_mmo_ch1_clean`;
 /*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
-/*!50001 VIEW `v_mmo_save_checkpoint_snapshot_domain_counts` AS select `sm`.`manifest_id` AS `manifest_id`,bin_to_uuid(`sm`.`manifest_id`,1) AS `manifest_uuid`,`sm`.`character_id` AS `character_id`,`c`.`character_key` AS `character_key`,`sm`.`world_instance_id` AS `world_instance_id`,`sm`.`manifest_key` AS `manifest_key`,coalesce(`sm`.`save_slot_key`,`sm`.`manifest_key`) AS `save_key`,`sm`.`save_slot_key` AS `save_slot_key`,`sm`.`native_save_path` AS `native_save_path`,`sm`.`display_name` AS `display_name`,`sm`.`client_world_name` AS `client_world_name`,`sm`.`native_save_present` AS `native_save_present`,`sm`.`checkpoint_kind` AS `checkpoint_kind`,`sm`.`reason` AS `reason`,`sm`.`server_tick` AS `server_tick`,`sm`.`latest_checkpoint_tick` AS `latest_checkpoint_tick`,`sm`.`recent_event_seq` AS `recent_event_seq`,`sm`.`row_version` AS `row_version`,`sm`.`created_at` AS `created_at`,`sm`.`updated_at` AS `updated_at`,(select count(0) from `mmo_save_checkpoint_character_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `character_rows`,(select count(0) from `mmo_save_checkpoint_inventory_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `inventory_rows`,(select count(0) from `mmo_save_checkpoint_equipment_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `equipment_rows`,(select count(0) from `mmo_save_checkpoint_quest_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `quest_rows`,(select count(0) from `mmo_save_checkpoint_known_dialog_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `known_dialog_rows`,(select count(0) from `mmo_save_checkpoint_script_state_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `script_state_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `world_entity_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` = 'item'))) AS `world_item_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` = 'item') and (`s`.`lifecycle_state` = 'active'))) AS `world_item_active_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` = 'item') and (`s`.`lifecycle_state` <> 'active'))) AS `world_item_removed_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` = 'interactive'))) AS `interactive_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` in ('npc','creature')))) AS `npc_lifecycle_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` in ('npc','creature')) and (`s`.`lifecycle_state` <> 'active'))) AS `npc_lifecycle_non_active_rows`,(select count(0) from `mmo_save_checkpoint_world_inventory_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `world_inventory_rows`,(select count(0) from `mmo_save_checkpoint_world_clock_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `world_clock_rows`,(select count(0) from `mmo_save_checkpoint_mover_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `mover_rows` from (`mmo_save_checkpoint_manifests` `sm` join `characters` `c` on((`c`.`character_id` = `sm`.`character_id`))) */;
+/*!50001 VIEW `v_mmo_save_checkpoint_snapshot_domain_counts` AS select bin_to_uuid(`sm`.`manifest_id`,1) AS `manifest_uuid`,`c`.`character_key` AS `character_key`,coalesce(`sm`.`save_slot_key`,`sm`.`manifest_key`) AS `save_key`,`sm`.`display_name` AS `display_name`,`sm`.`created_at` AS `created_at`,(select count(0) from `mmo_save_checkpoint_character_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `character_rows`,(select count(0) from `mmo_save_checkpoint_inventory_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `inventory_rows`,(select count(0) from `mmo_save_checkpoint_equipment_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `equipment_rows`,(select count(0) from `mmo_save_checkpoint_quest_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `quest_rows`,(select count(0) from `mmo_save_checkpoint_known_dialog_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `known_dialog_rows`,(select count(0) from `mmo_save_checkpoint_script_state_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `script_state_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `world_entity_rows`,(select count(0) from `mmo_save_checkpoint_world_inventory_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `world_inventory_rows`,(select count(0) from `mmo_save_checkpoint_mover_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `mover_rows` from (`mmo_save_checkpoint_manifests` `sm` join `characters` `c` on((`c`.`character_id` = `sm`.`character_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_pending_server_actions`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_pending_server_actions`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_pending_server_actions` AS select `v_server_action_outbox`.`action_uuid` AS `action_uuid`,`v_server_action_outbox`.`session_uuid` AS `session_uuid`,`v_server_action_outbox`.`session_key` AS `session_key`,`v_server_action_outbox`.`action_kind` AS `action_kind`,`v_server_action_outbox`.`target_key` AS `target_key`,`v_server_action_outbox`.`idempotency_key` AS `idempotency_key`,`v_server_action_outbox`.`priority` AS `priority`,`v_server_action_outbox`.`max_attempts` AS `max_attempts`,`v_server_action_outbox`.`attempt_count` AS `attempt_count`,`v_server_action_outbox`.`status` AS `status`,`v_server_action_outbox`.`requested_at` AS `requested_at`,`v_server_action_outbox`.`locked_at` AS `locked_at`,`v_server_action_outbox`.`applied_at` AS `applied_at`,`v_server_action_outbox`.`failed_at` AS `failed_at`,`v_server_action_outbox`.`completed_at` AS `completed_at`,`v_server_action_outbox`.`last_error_code` AS `last_error_code`,`v_server_action_outbox`.`last_error_message` AS `last_error_message` from `v_server_action_outbox` where (`v_server_action_outbox`.`status` in ('pending','claimed','failed','dead_letter')) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_server_action_outbox`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_server_action_outbox`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_server_action_outbox` AS select bin_to_uuid(`o`.`action_id`,1) AS `action_uuid`,bin_to_uuid(`o`.`session_id`,1) AS `session_uuid`,`s`.`session_key` AS `session_key`,`o`.`action_kind` AS `action_kind`,`o`.`target_key` AS `target_key`,`o`.`idempotency_key` AS `idempotency_key`,`o`.`priority` AS `priority`,`o`.`max_attempts` AS `max_attempts`,`o`.`attempt_count` AS `attempt_count`,`o`.`status` AS `status`,`o`.`requested_at` AS `requested_at`,`o`.`locked_at` AS `locked_at`,`o`.`applied_at` AS `applied_at`,`o`.`failed_at` AS `failed_at`,`o`.`completed_at` AS `completed_at`,`o`.`last_error_code` AS `last_error_code`,`o`.`last_error_message` AS `last_error_message` from (`mmo_server_action_outbox` `o` left join `server_sessions` `s` on((`s`.`session_id` = `o`.`session_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_world_dead_entities`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_world_dead_entities`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_world_dead_entities` AS select bin_to_uuid(`wes`.`world_instance_id`,1) AS `world_instance_id`,`wes`.`entity_key` AS `entity_key`,`wes`.`entity_kind` AS `entity_kind`,`wes`.`health_current` AS `health_current`,`wes`.`health_max` AS `health_max`,`wes`.`updated_at` AS `updated_at` from `world_entity_state` `wes` where (`wes`.`lifecycle_state` = 'dead') */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_world_event_counts`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_world_event_counts`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_world_event_counts` AS select bin_to_uuid(`world_event_journal`.`world_instance_id`,1) AS `world_instance_id`,`world_event_journal`.`event_class` AS `event_class`,`world_event_journal`.`event_type` AS `event_type`,count(0) AS `event_count`,max(`world_event_journal`.`event_seq`) AS `max_event_seq`,max(`world_event_journal`.`occurred_at`) AS `last_event_at` from `world_event_journal` group by `world_event_journal`.`world_instance_id`,`world_event_journal`.`event_class`,`world_event_journal`.`event_type` */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -7999,4 +8329,4 @@ USE `gothic_mmo_ch1_clean`;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-07-04 12:50:14
+-- Dump completed on 2026-07-04 16:06:09

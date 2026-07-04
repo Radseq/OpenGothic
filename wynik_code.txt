@@ -1,5 +1,5 @@
 # OpenGothic C/C++ source snapshot
-# Generated: 2026-07-04T12:49:56
+# Generated: 2026-07-04T16:05:50
 # Project root: C:\Users\admin\Desktop\OpenGothic
 # MAX_BYTES per file: 1500000
 
@@ -3983,6 +3983,16 @@ CommandLine::CommandLine(int argc, const char** argv) {
       if(i<argc)
         mmoActionSession = argv[i];
       }
+    else if(arg=="-mmo-character-key") {
+      ++i;
+      if(i<argc && argv[i][0] != '\0')
+        mmoCharacterKeyValue = argv[i];
+      }
+    else if(arg=="-mmo-character-name" || arg=="-mmo-character-display-name") {
+      ++i;
+      if(i<argc && argv[i][0] != '\0')
+        mmoCharacterDisplayNameValue = argv[i];
+      }
     else if(arg=="-mmo-action-queue-capacity") {
       ++i;
       if(i<argc) {
@@ -4250,6 +4260,15 @@ const CommandLine& CommandLine::inst() {
   return *instance;
   }
 
+void CommandLine::setMmoCharacterIdentity(std::string_view key, std::string_view displayName) const {
+  if(!key.empty())
+    mmoCharacterKeyValue = key;
+  if(!displayName.empty())
+    mmoCharacterDisplayNameValue = displayName;
+  else if(!key.empty())
+    mmoCharacterDisplayNameValue = key;
+}
+
 CommandLine::GraphicBackend CommandLine::graphicsApi() const {
   return graphics;
   }
@@ -4291,6 +4310,8 @@ bool CommandLine::validateGothicPath() const {
     return false;
   return true;
   }
+
+
 
 
 ===== game\commandline.h =====
@@ -4368,6 +4389,9 @@ class CommandLine {
     bool                mmoRequireDbSaveCheckpointRestore() const { return mmoRequireDbSaveCheckpointRestoreState; }
     std::string_view    mmoDbBootstrapWorld() const { return mmoDbBootstrapWorldValue; }
     std::string_view    mmoActionSessionKey() const { return mmoActionSession; }
+    std::string_view    mmoCharacterKey() const { return mmoCharacterKeyValue; }
+    std::string_view    mmoCharacterDisplayName() const { return mmoCharacterDisplayNameValue; }
+    void                setMmoCharacterIdentity(std::string_view key, std::string_view displayName) const;
     uint64_t            mmoActionQueueCapacity() const { return mmoActionQueueCap; }
     bool                mmoActionStrictOverflow() const { return mmoActionStrictOverflowState; }
     uint64_t            mmoActionCheckpointIntervalMs() const { return mmoActionCheckpointInterval; }
@@ -4405,13 +4429,15 @@ class CommandLine {
     bool                mmoDbContinueWithoutNativeSaveState = false;
     bool                mmoRequireDbSaveCheckpointRestoreState = false;
     std::string         mmoDbBootstrapWorldValue;
-    std::string         mmoActionSession = "local-dev";
+    std::string         mmoActionSession = "local-dev-PC_HERO_TEST";
+    mutable std::string mmoCharacterKeyValue = "PC_HERO";
+    mutable std::string mmoCharacterDisplayNameValue = "Ja";
     uint64_t            mmoActionQueueCap = 4096;
     bool                mmoActionStrictOverflowState = false;
-    uint64_t            mmoActionCheckpointInterval = 0;
-    float               mmoActionCheckpointMinDistanceWorld = 0.f;
-    float               mmoActionCheckpointMinYaw = 0.f;
-    uint64_t            mmoActionCheckpointForceInterval = 0;
+    uint64_t            mmoActionCheckpointInterval = 5000;
+    float               mmoActionCheckpointMinDistanceWorld = 50.f;
+    float               mmoActionCheckpointMinYaw = 5.f;
+    uint64_t            mmoActionCheckpointForceInterval = 30000;
     uint64_t            mmoActionMovementProposalInterval = 0;
     float               mmoActionMovementProposalMinDistanceWorld = 0.f;
     float               mmoActionMovementProposalMinYaw = 0.f;
@@ -4436,6 +4462,8 @@ class CommandLine {
     bool                forceG2NR    = false;
     uint32_t            aaPresetId = 0;
   };
+
+
 
 
 ===== game\dmusic\band.cpp =====
@@ -18383,7 +18411,7 @@ bool canReuseMmoDbContinuePreWorldSnapshot() noexcept {
   if(!std::filesystem::is_regular_file(path, ec))
     return false;
 
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, "PC_HERO");
+  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO DB continue pre-world snapshot reuse rejected: ", result.message,
            " path=", std::string(pathView));
@@ -18413,7 +18441,7 @@ bool loadMmoDbContinuePreWorldClock(gtime& out) noexcept {
   if(pathView.empty())
     return false;
 
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, "PC_HERO");
+  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO DB continue pre-world clock rejected: ", result.message,
            " path=", std::string(pathView));
@@ -19111,7 +19139,7 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
     wrld->triggerOnStart(false);
     const auto resumedNpcRoutines = wrld->resumeNpcRoutinesAfterServerRestore();
     Log::i("MMO DB continue startup NPC routines resumed: count=", resumedNpcRoutines);
-    if(auto snapshot = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(CommandLine::inst().mmoServerSnapshotJson(), "PC_HERO"); snapshot.ok) {
+    if(auto snapshot = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(CommandLine::inst().mmoServerSnapshotJson(), CommandLine::inst().mmoCharacterKey()); snapshot.ok) {
       const auto npcAuthority = applyMmoNpcRoutineAuthorityState(*wrld, snapshot);
       Log::i("MMO DB continue startup NPC authority applied: routine_applied=", npcAuthority.applied,
              " routine_fallback=", npcAuthority.fallback,
@@ -19417,7 +19445,7 @@ bool GameSession::tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept {
     return false;
     }
 
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, "PC_HERO");
+  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO server snapshot restore rejected: ", result.message,
            " reason=", state.reason,
@@ -19706,7 +19734,7 @@ bool GameSession::tryApplyMmoServerWorldSnapshotRefresh() noexcept {
     return false;
 
   const auto pathView = cmd.mmoServerSnapshotJson();
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, "PC_HERO");
+  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO server live world snapshot rejected: snapshot_id=", snapshotId,
            " message=", result.message,
@@ -20084,7 +20112,7 @@ void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
     return;
     }
 
-  const auto result = Mmo::RestoreSnapshot::loadAndValidate(path, "PC_HERO", cmd.mmoActionSessionKey());
+  const auto result = Mmo::RestoreSnapshot::loadAndValidate(path, cmd.mmoCharacterKey(), cmd.mmoActionSessionKey());
   if(!result.ok) {
     Log::e("MMO restore snapshot rejected: ", result.message,
            " reason=", reason,
@@ -20120,6 +20148,7 @@ void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
          " reason=", reason,
          " path=", std::string(path));
   }
+
 
 
 
@@ -24226,7 +24255,7 @@ inline Result loadAndValidateBootstrapSnapshot(std::string_view path,
     return result;
     }
   if(!result.characterMatches) {
-    Detail::fail(result, "snapshot character_key does not match PC_HERO");
+    Detail::fail(result, "snapshot character_key does not match expected MMO character key");
     return result;
     }
   if(!result.serverReady) {
@@ -24267,7 +24296,7 @@ inline Result loadAndValidate(std::string_view path,
     return result;
     }
   if(!result.characterMatches) {
-    Detail::fail(result, "snapshot character_key does not match PC_HERO");
+    Detail::fail(result, "snapshot character_key does not match expected MMO character key");
     return result;
     }
   if(!result.sessionMatches) {
@@ -24285,6 +24314,7 @@ inline Result loadAndValidate(std::string_view path,
 }
 
 } // namespace Mmo::RestoreSnapshot
+
 
 
 
@@ -33670,9 +33700,25 @@ void appendEscaped(std::string& out, std::string_view v) {
   out.push_back('"');
 }
 
+std::string_view characterKey() noexcept {
+  return CommandLine::inst().mmoCharacterKey();
+}
+
+std::string characterEntityKey() {
+  std::string out = "character:";
+  out.append(characterKey());
+  return out;
+}
+
+std::string characterTargetKey(std::string_view suffix) {
+  auto out = characterEntityKey();
+  out.push_back(':');
+  out.append(suffix);
+  return out;
+}
 
 std::string actorKey(const Npc& npc) {
-  std::string out = npc.isPlayer() ? "character:PC_HERO" : "npc:";
+  std::string out = npc.isPlayer() ? characterEntityKey() : "npc:";
   if(!npc.isPlayer())
     appendUInt(out, npc.persistentId());
   out.append(":sym:");
@@ -33683,7 +33729,7 @@ std::string actorKey(const Npc& npc) {
 std::string playerOrDefaultKey(const World& world) {
   if(const auto* player = world.player())
     return actorKey(*player);
-  return "character:PC_HERO";
+  return characterEntityKey();
 }
 
 std::string worldItemKey(std::string_view worldName, std::uint32_t persistentId, std::size_t symbol) {
@@ -34346,7 +34392,10 @@ void onClientBootstrapRequest(World& world,
   payload.reserve(384);
   payload.append("{\"actor_key\":");
   payload.append(jsonEscape(target));
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"character_key\":");
+  payload.append(jsonEscape(characterKey()));
+  payload.append(",\"display_name\":");
+  payload.append(jsonEscape(CommandLine::inst().mmoCharacterDisplayName()));
   payload.append(",\"world\":");
   payload.append(jsonEscape(world.name()));
   payload.append(",\"server_tick\":");
@@ -34431,7 +34480,7 @@ void onCharacterMovementProposal(Npc& actor,
     return;
 
   auto& world = actor.world();
-  auto target = std::string("character:PC_HERO:movement-proposal");
+  auto target = characterTargetKey("movement-proposal");
   const auto pos = actor.position();
   const auto* wp = actor.currentWayPoint();
   const auto& cmd = CommandLine::inst();
@@ -34442,7 +34491,7 @@ void onCharacterMovementProposal(Npc& actor,
   payload.reserve(1536);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
   payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
   payload.append(",\"target_key\":"); appendEscaped(payload, target);
   payload.append(",\"proposal_version\":1");
   payload.append(",\"input_model\":\"checkpoint_delta_v1\"");
@@ -34514,7 +34563,7 @@ void onCharacterCheckpoint(Npc& actor,
     return;
 
   auto& world = actor.world();
-  auto target = std::string("character:PC_HERO:checkpoint");
+  auto target = characterTargetKey("checkpoint");
   const auto pos = actor.position();
   const auto* wp = actor.currentWayPoint();
 
@@ -34522,7 +34571,7 @@ void onCharacterCheckpoint(Npc& actor,
   payload.reserve(1152);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
   payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
   payload.append(",\"target_key\":"); appendEscaped(payload, target);
   payload.append(",\"pos_x\":"); appendFloat(payload, pos.x);
   payload.append(",\"pos_y\":"); appendFloat(payload, pos.y);
@@ -34566,13 +34615,13 @@ void onSaveCheckpointManifest(World& world,
   if(!isLiveWorldTick(world))
     return;
 
-  const std::string target = "character:PC_HERO:save-checkpoint";
+  const std::string target = characterTargetKey("save-checkpoint");
 
   std::string payload;
   payload.reserve(1280);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation != nullptr ? std::string_view(sourceLocation) : std::string_view("unknown"));
-  payload.append(",\"actor_key\":\"character:PC_HERO\"");
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"actor_key\":"); appendEscaped(payload, characterEntityKey());
+  payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
   payload.append(",\"target_key\":"); appendEscaped(payload, target);
   payload.append(",\"manifest_key\":"); appendEscaped(payload, target);
   payload.append(",\"checkpoint_kind\":\"native_save\"");
@@ -35176,12 +35225,12 @@ void onCharacterAttributeChanged(Npc& actor,
 
   if(delta > 0) {
     if(actor.isPlayer() && (attribute == ATR_HITPOINTS || attribute == ATR_MANA)) {
-      std::string target = attribute == ATR_HITPOINTS ? "character:PC_HERO:hitpoints" : "character:PC_HERO:mana";
+      std::string target = attribute == ATR_HITPOINTS ? characterTargetKey("hitpoints") : characterTargetKey("mana");
       std::string payload;
       payload.reserve(640);
       payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
       payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
-      payload.append(",\"character_key\":\"PC_HERO\"");
+      payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
       payload.append(",\"target_key\":"); appendEscaped(payload, target);
       payload.append(",\"resource_key\":"); appendEscaped(payload, attrName);
       payload.append(",\"delta_amount\":"); appendInt(payload, delta);
@@ -35203,12 +35252,12 @@ void onCharacterAttributeChanged(Npc& actor,
   const auto amount = -delta;
 
   if(actor.isPlayer() && attribute == ATR_MANA) {
-    std::string target = "character:PC_HERO:mana";
+    std::string target = characterTargetKey("mana");
     std::string payload;
     payload.reserve(512);
     payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
     payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
-    payload.append(",\"character_key\":\"PC_HERO\"");
+    payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
     payload.append(",\"resource_key\":\"mana\"");
     payload.append(",\"mana_amount\":"); appendInt(payload, amount);
     payload.append(",\"value_before\":"); appendInt(payload, valueBefore);
@@ -35226,12 +35275,12 @@ void onCharacterAttributeChanged(Npc& actor,
     return;
 
   if(actor.isPlayer()) {
-    std::string target = "character:PC_HERO:hitpoints";
+    std::string target = characterTargetKey("hitpoints");
     std::string payload;
     payload.reserve(640);
     payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
-    payload.append(",\"target_character_key\":\"PC_HERO\"");
-    payload.append(",\"target_key\":\"character:PC_HERO\"");
+    payload.append(",\"target_character_key\":"); appendEscaped(payload, characterKey());
+    payload.append(",\"target_key\":"); appendEscaped(payload, characterEntityKey());
     if(sourceActor != nullptr)
       appendNpcIdentity(payload, "source_actor", *sourceActor);
     payload.append(",\"damage_amount\":"); appendInt(payload, amount);
@@ -35436,13 +35485,13 @@ void onCharacterProgressionChanged(Npc& actor,
     return;
 
   auto& world = actor.world();
-  std::string target = "character:PC_HERO:progression";
+  std::string target = characterTargetKey("progression");
 
   std::string payload;
   payload.reserve(768);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
   payload.append(",\"actor_key\":"); appendEscaped(payload, actorKey(actor));
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append(",\"character_key\":"); appendEscaped(payload, characterKey());
   appendScriptContext(payload, scriptFunctionSymbol, scriptFunctionName);
   payload.append(",\"level_before\":"); appendInt(payload, static_cast<std::int64_t>(levelBefore));
   payload.append(",\"level_after\":"); appendInt(payload, static_cast<std::int64_t>(levelAfter));
@@ -35529,6 +35578,7 @@ void onQuestChanged(Npc& actor,
 }
 
 } // namespace Mmo::Hooks
+
 
 
 
@@ -41352,10 +41402,19 @@ void Gothic::updateAnimation(uint64_t dt) {
   }
 
 void Gothic::quickSave() {
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    Log::i("MMO quick save ignored: server owns persistence");
+    return;
+    }
   save("save_slot_0.sav","Quick save");
   }
 
 void Gothic::quickLoad() {
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    Log::i("MMO quick load redirected to DB character continue");
+    load(CommandLine::inst().mmoDbContinueSyntheticSlot());
+    return;
+    }
   load("save_slot_0.sav");
   }
 
@@ -41975,6 +42034,7 @@ void Gothic::printdebuginstch(int ch, std::string_view msg) {
   if(version().game==2)
     Log::d("[zspy,",ch,"]: ",msg);
   }
+
 
 
 
@@ -61135,12 +61195,20 @@ bool requestMmoPreWorldDbContinueSnapshot(std::string_view slot) noexcept {
     return false;
 
   const auto seq = Mmo::nextSemanticActionSequence();
-  std::string target = "character:PC_HERO:db-continue-pre-world";
+  const auto characterKey = CommandLine::inst().mmoCharacterKey();
+  std::string characterEntity = "character:";
+  characterEntity.append(characterKey);
+  std::string target = characterEntity;
+  target.append(":db-continue-pre-world");
 
   std::string payload;
   payload.reserve(512 + slot.size());
-  payload.append("{\"actor_key\":\"character:PC_HERO\"");
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append("{\"actor_key\":");
+  payload.append(Mmo::jsonEscape(characterEntity));
+  payload.append(",\"character_key\":");
+  payload.append(Mmo::jsonEscape(characterKey));
+  payload.append(",\"display_name\":");
+  payload.append(Mmo::jsonEscape(CommandLine::inst().mmoCharacterDisplayName()));
   payload.append(",\"world\":");
   payload.append(Mmo::jsonEscape(CommandLine::inst().mmoDbBootstrapWorld()));
   payload.append(",\"server_tick\":0");
@@ -61194,7 +61262,7 @@ std::optional<std::string> mmoDbContinueWorldFromServerSnapshot(std::string_view
   while(std::chrono::steady_clock::now() < deadline) {
     std::error_code ec;
     if(std::filesystem::is_regular_file(snapshotPath, ec)) {
-      auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(snapshotPath, "PC_HERO");
+      auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(snapshotPath, cmd.mmoCharacterKey());
       if(!result.ok) {
         Log::e("MMO DB continue pre-world snapshot rejected: ", result.message);
         return std::nullopt;
@@ -62229,7 +62297,9 @@ void MainWindow::startGame(std::string_view slot) {
   // gothic.emitGlobalSound(gothic.loadSoundFx("NEWGAME"));
   const bool mmoServerFreshNewGame = CommandLine::inst().mmoClientUsesServer();
   if(mmoServerFreshNewGame)
-    Log::i("MMO menu New Game: starting fresh server-bound client baseline without DB Continue restore");
+    Log::i("MMO menu New Game: starting fresh server-bound client baseline without DB Continue restore",
+           " character_key=", CommandLine::inst().mmoCharacterKey(),
+           " display_name=", CommandLine::inst().mmoCharacterDisplayName());
 
   if(Gothic::inst().checkLoading()==Gothic::LoadState::Idle){
     setGameImpl(nullptr);
@@ -62280,6 +62350,12 @@ void MainWindow::loadGame(std::string_view slot) {
   }
 
 void MainWindow::saveGame(std::string_view slot, std::string_view name) {
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    Log::i("MMO menu Save ignored: server-bound mode persists through DB actions/checkpoints",
+           " slot=", slot,
+           " name=", name);
+    return;
+    }
   if(dialogs.isActive())
     return;
   if(auto w = Gothic::inst().world(); w!=nullptr && w->currentCs()!=nullptr)
@@ -68975,7 +69051,13 @@ class DocumentMenu : public Tempest::Widget {
 #include <Tempest/Dialog>
 
 #include <algorithm>
+#include <chrono>
+#include <fstream>
+#include <iterator>
+#include <optional>
 #include <string_view>
+#include <thread>
+#include <vector>
 
 #include "utils/string_frm.h"
 #include "world/objects/npc.h"
@@ -68985,6 +69067,8 @@ class DocumentMenu : public Tempest::Widget {
 #include "utils/fileutil.h"
 #include "utils/keycodec.h"
 #include "game/definitions/musicdefinitions.h"
+#include "game/mmosemanticactionsink.h"
+#include "game/mmosemanticevents.h"
 #include "game/serialize.h"
 #include "game/savegameheader.h"
 #include "commandline.h"
@@ -68998,17 +69082,284 @@ static const float scriptDiv=8192.0f;
 
 namespace {
 
+struct MmoMenuCharacter final {
+  std::string key;
+  std::string name;
+  std::string world;
+  std::string updatedAt;
+};
+
 bool shouldMmoMenuActionLoadDbCharacter(std::string_view action) noexcept {
   if(!CommandLine::inst().mmoClientUsesServer())
     return false;
-  if(action == "MENU_SAVEGAME")
-    return true;
-  return action.find("LOAD") != std::string_view::npos;
+  return action == "CONTINUE";
 }
 
 void loadMmoDbCharacterFromMenu() {
-  Log::i("MMO menu Continue: loading server DB character without native save slot");
+  Log::i("MMO menu Continue: loading server DB character without native save slot",
+         " character_key=", CommandLine::inst().mmoCharacterKey(),
+         " display_name=", CommandLine::inst().mmoCharacterDisplayName());
   Gothic::inst().load(CommandLine::inst().mmoDbContinueSyntheticSlot());
+}
+
+bool isSaveMenuAction(const std::shared_ptr<zenkit::IMenuItem>& item) noexcept {
+  if(item == nullptr)
+    return false;
+  if(item->on_sel_action_s[0] == "MENU_SAVEGAME" ||
+     item->on_sel_action_s[1] == "MENU_SAVEGAME")
+    return true;
+  return item->on_sel_action_s[0] == "SAVEGAME_SAVE" ||
+         item->on_sel_action_s[1] == "SAVEGAME_SAVE";
+}
+
+std::string readTextFile(std::string_view path) {
+  std::ifstream in{std::string(path), std::ios::binary};
+  if(!in)
+    return {};
+  return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+std::optional<std::size_t> matchingJsonEnd(std::string_view text, std::size_t openPos, char openCh, char closeCh) noexcept {
+  if(openPos >= text.size() || text[openPos] != openCh)
+    return std::nullopt;
+  std::size_t depth = 0;
+  bool inString = false;
+  bool escape = false;
+  for(std::size_t i = openPos; i < text.size(); ++i) {
+    const char c = text[i];
+    if(inString) {
+      if(escape) {
+        escape = false;
+        continue;
+        }
+      if(c == '\\') {
+        escape = true;
+        continue;
+        }
+      if(c == '"')
+        inString = false;
+      continue;
+      }
+    if(c == '"') {
+      inString = true;
+      continue;
+      }
+    if(c == openCh)
+      ++depth;
+    else if(c == closeCh) {
+      if(depth == 0)
+        return std::nullopt;
+      --depth;
+      if(depth == 0)
+        return i;
+      }
+    }
+  return std::nullopt;
+}
+
+std::string_view jsonArrayForKey(std::string_view text, std::string_view key) noexcept {
+  const std::string needle = "\"" + std::string(key) + "\"";
+  const auto keyPos = text.find(needle);
+  if(keyPos == std::string_view::npos)
+    return {};
+  const auto colon = text.find(':', keyPos + needle.size());
+  if(colon == std::string_view::npos)
+    return {};
+  auto pos = colon + 1;
+  while(pos < text.size() && static_cast<unsigned char>(text[pos]) <= ' ')
+    ++pos;
+  if(pos >= text.size() || text[pos] != '[')
+    return {};
+  const auto end = matchingJsonEnd(text, pos, '[', ']');
+  if(!end)
+    return {};
+  return text.substr(pos, *end - pos + 1);
+}
+
+std::vector<std::string_view> jsonObjectsInArray(std::string_view array) {
+  std::vector<std::string_view> out;
+  for(std::size_t pos = 0; pos < array.size();) {
+    const auto open = array.find('{', pos);
+    if(open == std::string_view::npos)
+      break;
+    const auto end = matchingJsonEnd(array, open, '{', '}');
+    if(!end)
+      break;
+    out.push_back(array.substr(open, *end - open + 1));
+    pos = *end + 1;
+    }
+  return out;
+}
+
+std::string jsonStringForKey(std::string_view object, std::string_view key) {
+  const std::string needle = "\"" + std::string(key) + "\"";
+  const auto keyPos = object.find(needle);
+  if(keyPos == std::string_view::npos)
+    return {};
+  const auto colon = object.find(':', keyPos + needle.size());
+  if(colon == std::string_view::npos)
+    return {};
+  auto pos = colon + 1;
+  while(pos < object.size() && static_cast<unsigned char>(object[pos]) <= ' ')
+    ++pos;
+  if(pos >= object.size() || object[pos] != '"')
+    return {};
+  ++pos;
+  std::string out;
+  bool escape = false;
+  for(; pos < object.size(); ++pos) {
+    const char c = object[pos];
+    if(escape) {
+      switch(c) {
+        case '"': out.push_back('"'); break;
+        case '\\': out.push_back('\\'); break;
+        case '/': out.push_back('/'); break;
+        case 'n': out.push_back('\n'); break;
+        case 'r': out.push_back('\r'); break;
+        case 't': out.push_back('\t'); break;
+        default: out.push_back(c); break;
+        }
+      escape = false;
+      continue;
+      }
+    if(c == '\\') {
+      escape = true;
+      continue;
+      }
+    if(c == '"')
+      break;
+    out.push_back(c);
+    }
+  return out;
+}
+
+std::vector<MmoMenuCharacter> parseMmoCharacterList(std::string_view snapshotJson) {
+  std::vector<MmoMenuCharacter> out;
+  const auto array = jsonArrayForKey(snapshotJson, "character_list");
+  for(auto object : jsonObjectsInArray(array)) {
+    MmoMenuCharacter ch;
+    ch.key = jsonStringForKey(object, "character_key");
+    ch.name = jsonStringForKey(object, "display_name");
+    ch.world = jsonStringForKey(object, "world_name");
+    ch.updatedAt = jsonStringForKey(object, "updated_at");
+    if(!ch.key.empty()) {
+      if(ch.name.empty())
+        ch.name = ch.key;
+      out.push_back(std::move(ch));
+      }
+    }
+  return out;
+}
+
+void requestMmoBootstrapSnapshot(std::string_view reason, std::string_view sourceLocation) {
+  if(!Mmo::isServerBoundClientModeEnabled() || !Mmo::isSemanticActionCaptureEnabled())
+    return;
+
+  const auto& cmd = CommandLine::inst();
+  const auto seq = Mmo::nextSemanticActionSequence();
+  const std::string characterKey(cmd.mmoCharacterKey());
+  std::string characterEntity = "character:";
+  characterEntity.append(characterKey);
+
+  std::string target = characterEntity;
+  target.append(":character-list");
+
+  std::string payload;
+  payload.reserve(512);
+  payload.append("{\"actor_key\":");
+  payload.append(Mmo::jsonEscape(characterEntity));
+  payload.append(",\"character_key\":");
+  payload.append(Mmo::jsonEscape(characterKey));
+  payload.append(",\"display_name\":");
+  payload.append(Mmo::jsonEscape(cmd.mmoCharacterDisplayName()));
+  payload.append(",\"world\":");
+  payload.append(Mmo::jsonEscape(Gothic::inst().defaultWorld()));
+  payload.append(",\"server_tick\":0");
+  payload.append(",\"server_bound_client_mode\":true");
+  payload.append(",\"server_endpoint\":");
+  payload.append(Mmo::jsonEscape(cmd.mmoServerEndpoint()));
+  payload.append(",\"reason\":");
+  payload.append(Mmo::jsonEscape(reason));
+  payload.append(",\"source_location\":");
+  payload.append(Mmo::jsonEscape(sourceLocation.empty() ? std::string_view("GameMenu") : sourceLocation));
+  payload.push_back('}');
+
+  Mmo::SemanticActionEnvelope env;
+  env.kind = Mmo::SemanticActionKind::ClientBootstrapRequest;
+  env.targetKey = std::move(target);
+  env.localSequence = seq;
+  env.clientTick = 0;
+  env.idempotencyKey = Mmo::makeIdempotencyKey(Mmo::semanticActionSessionKey(), seq, env.kind, env.targetKey);
+  env.payloadJson = std::move(payload);
+  (void)Mmo::submitSemanticAction(env);
+}
+
+void requestMmoCharacterListSnapshot() {
+  requestMmoBootstrapSnapshot("character_list_request", "GameMenu::updateSavTitle");
+}
+
+std::string makeMmoNewCharacterKey() {
+  const auto now = std::chrono::system_clock::now().time_since_epoch();
+  const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+  std::string out = "PC_HERO_";
+  out.append(std::to_string(millis));
+  return out;
+}
+
+void startMmoNewCharacterFromMenu() {
+  const auto key = makeMmoNewCharacterKey();
+  std::string name = "Nowa postac ";
+  name.append(key.substr(std::string("PC_HERO_").size()));
+  CommandLine::inst().setMmoCharacterIdentity(key, name);
+  requestMmoBootstrapSnapshot("new_character_request", "GameMenu::execSingle(NEW_GAME)");
+  const std::string marker = "\"character_key\":\"" + key + "\"";
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+  do {
+    if(readTextFile(CommandLine::inst().mmoServerSnapshotJson()).find(marker) != std::string::npos)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while(std::chrono::steady_clock::now() < deadline);
+  Log::i("MMO menu New Game: requested DB character creation",
+         " character_key=", CommandLine::inst().mmoCharacterKey(),
+         " display_name=", CommandLine::inst().mmoCharacterDisplayName());
+  Gothic::inst().onStartGame(Gothic::inst().defaultWorld());
+}
+
+const std::vector<MmoMenuCharacter>& mmoMenuCharacters() {
+  static std::vector<MmoMenuCharacter> cache;
+  static bool loaded = false;
+  if(loaded)
+    return cache;
+  loaded = true;
+
+  const auto& cmd = CommandLine::inst();
+  const std::string snapshotPath(cmd.mmoServerSnapshotJson());
+  requestMmoCharacterListSnapshot();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(900);
+  do {
+    cache = parseMmoCharacterList(readTextFile(snapshotPath));
+    if(!cache.empty())
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while(std::chrono::steady_clock::now() < deadline);
+
+  if(cache.empty()) {
+    MmoMenuCharacter fallback;
+    fallback.key = std::string(cmd.mmoCharacterKey());
+    fallback.name = std::string(cmd.mmoCharacterDisplayName());
+    if(fallback.name.empty())
+      fallback.name = fallback.key;
+    cache.push_back(std::move(fallback));
+    }
+  return cache;
+}
+
+const MmoMenuCharacter* mmoMenuCharacterForSlot(size_t slotId) {
+  const auto& chars = mmoMenuCharacters();
+  const size_t index = slotId == 0 ? 0 : slotId - 1;
+  if(index >= chars.size())
+    return nullptr;
+  return &chars[index];
 }
 
 }
@@ -69738,6 +70089,8 @@ bool GameMenu::isHorSelectable(const std::shared_ptr<zenkit::IMenuItem>& item) {
 bool GameMenu::isEnabled(const std::shared_ptr<zenkit::IMenuItem>& item) {
   if(item==nullptr)
     return false;
+  if(CommandLine::inst().mmoClientUsesServer() && isSaveMenuAction(item))
+    return false;
   if((item->flags & zenkit::MenuItemFlag::ONLY_INGAME) && !Gothic::inst().isInGameAndAlive())
     return false;
   if((item->flags & zenkit::MenuItemFlag::ONLY_OUTGAME) && Gothic::inst().isInGameAndAlive())
@@ -69846,7 +70199,10 @@ void GameMenu::execSingle(Item &it, int slideDx, KeyCodec::Action hint) {
           loadMmoDbCharacterFromMenu();
           }
         else if(onSelAction_S[i]=="NEW_GAME") {
-          Gothic::inst().onStartGame(Gothic::inst().defaultWorld());
+          if(CommandLine::inst().mmoClientUsesServer())
+            startMmoNewCharacterFromMenu();
+          else
+            Gothic::inst().onStartGame(Gothic::inst().defaultWorld());
           }
         else if(onSelAction_S[i]=="LEAVE_GAME") {
           Log::i("Exiting, by item action (`LEAVE_GAME`)");
@@ -69910,6 +70266,10 @@ void GameMenu::execChgOption(Item &item, int slideDx) {
   }
 
 void GameMenu::execSaveGame(const GameMenu::Item& item) {
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    Log::i("MMO menu Save ignored: local .sav slots are disabled in server-bound mode");
+    return;
+    }
   const size_t id = saveSlotId(item);
   if(id==size_t(-1))
     return;
@@ -69924,6 +70284,10 @@ bool GameMenu::execLoadGame(const GameMenu::Item &item) {
     return false;
 
   if(CommandLine::inst().mmoClientUsesServer()) {
+    const auto* character = mmoMenuCharacterForSlot(id);
+    if(character == nullptr)
+      return false;
+    CommandLine::inst().setMmoCharacterIdentity(character->key, character->name);
     loadMmoDbCharacterFromMenu();
     return true;
     }
@@ -69991,6 +70355,23 @@ void GameMenu::updateSavTitle(GameMenu::Item& sel) {
   if(id==size_t(-1))
     return;
 
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    if(sel.handle->on_sel_action_s[0]=="SAVEGAME_LOAD") {
+      const auto* character = mmoMenuCharacterForSlot(id);
+      if(character == nullptr) {
+        sel.handle->text[0] = "---";
+        return;
+        }
+      std::string label = "DB: ";
+      label.append(character->name.empty() ? character->key : character->name);
+      sel.handle->text[0] = std::move(label);
+      }
+    else {
+      sel.handle->text[0] = "---";
+      }
+    return;
+    }
+
   char fname[64]={};
   std::snprintf(fname,sizeof(fname)-1,"save_slot_%d.sav",int(id));
 
@@ -70052,6 +70433,9 @@ void GameMenu::setDefaultKeys(std::string_view preset) {
   }
 
 bool GameMenu::implUpdateSavThumb(GameMenu::Item& sel) {
+  if(CommandLine::inst().mmoClientUsesServer())
+    return false;
+
   const size_t id = saveSlotId(sel);
   if(id==size_t(-1))
     return false;
@@ -70259,8 +70643,6 @@ void GameMenu::setPlayer(const Npc &pl) {
     set(string_frm("MENU_ITEM_TALENT_",i),          string_frm(val,"%"));
     }
   }
-
-
 
 
 ===== game\ui\gamemenu.h =====
@@ -92223,6 +92605,22 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
 
   const std::string sessionSql = sqlLiteral(sessionUuid);
   const std::string worldSql = sqlLiteral(worldName);
+  const std::string characterSql = sqlLiteral(characterKey);
+
+  std::string characterListQuery;
+  characterListQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+  characterListQuery += "SELECT JSON_OBJECT('character_key',c.character_key,'display_name',c.character_name,";
+  characterListQuery += "'world_name',COALESCE(cwt.world_name,rwi.world_instance_key,''),";
+  characterListQuery += "'lifecycle_state',c.lifecycle_state,'selected',JSON_EXTRACT(IF(c.character_key=" + characterSql + ",'true','false'),'$'),";
+  characterListQuery += "'updated_at',DATE_FORMAT(c.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+  characterListQuery += "FROM server_sessions ss JOIN characters active_c ON active_c.character_id=ss.character_id ";
+  characterListQuery += "JOIN characters c ON c.account_id=active_c.account_id AND c.realm_id=active_c.realm_id ";
+  characterListQuery += "LEFT JOIN realm_world_instances rwi ON rwi.world_instance_id=c.current_world_instance_id ";
+  characterListQuery += "LEFT JOIN content_world_templates cwt ON cwt.world_template_id=rwi.world_template_id ";
+  characterListQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) AND c.lifecycle_state IN ('creating','active') ";
+  characterListQuery += "ORDER BY CASE WHEN c.character_key=" + characterSql + " THEN 0 ELSE 1 END,c.updated_at DESC,c.character_name LIMIT 20";
+  characterListQuery += ") rows_json), JSON_ARRAY());";
+  const auto characterList = mysqlJsonOrWithDiagnostic(target, characterListQuery, "[]", "bootstrap_character_list");
 
   std::string characterQuery;
   characterQuery += "SELECT COALESCE((SELECT JSON_OBJECT(";
@@ -92650,7 +93048,7 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
               interactivesSample.size() + npcLifecycle.size() + recentEvents.size() +
               moverState.size() + npcRoutineState.size() + npcAiState.size() + npcPathState.size() +
               npcFightState.size() + triggerQueue.size() + worldTransitionState.size() +
-              clientCorrections.size() + checkpointManifest.size() + 2048);
+              clientCorrections.size() + checkpointManifest.size() + characterList.size() + 2048);
   out.push_back('{');
   out += "\"schema\":";
   out += jsonEscape(Mmo::Server::BootstrapSnapshotSchema);
@@ -92668,6 +93066,7 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
   appendJsonNumberField(out, "interactive_count", readiness.interactiveRows);
   appendJsonNumberField(out, "script_int_count", readiness.scriptIntRows);
   appendJsonRawField(out, "script_state_truncated", readiness.scriptIntRows > Mmo::Server::MaxBootstrapScriptStateRows ? "true" : "false");
+  appendJsonRawField(out, "character_list", characterList);
   appendJsonRawField(out, "character", character);
   appendJsonRawField(out, "inventory", inventory);
   appendJsonRawField(out, "equipment", equipment);
@@ -93105,16 +93504,50 @@ void sendServerDiagnostic(asio::ip::udp::socket& socket,
   }
 }
 
+[[nodiscard]] std::string dbSessionKeyForCharacter(const Options& opt) {
+  std::string out = opt.sessionKey;
+  out.push_back(':');
+  out.append(opt.characterKey);
+  return out;
+}
+
+void ensureCharacterExistsFromTemplate(const MySqlTarget& target, const Options& opt) {
+  std::string sql;
+  const auto accountSql = sqlLiteral(opt.accountName);
+  const auto characterSql = sqlLiteral(opt.characterKey);
+  const auto nameSql = sqlLiteral(opt.characterKey);
+  sql += "SET @account_id=(SELECT account_id FROM account_accounts WHERE account_name=" + accountSql + " LIMIT 1);";
+  sql += "SET @template_character_id=(SELECT character_id FROM characters WHERE account_id=@account_id AND character_key='PC_HERO' LIMIT 1);";
+  sql += "SET @existing_character_id=(SELECT character_id FROM characters WHERE account_id=@account_id AND character_key=" + characterSql + " LIMIT 1);";
+  sql += "INSERT INTO characters(account_id,realm_id,current_world_instance_id,character_key,character_name,lifecycle_state,metadata) ";
+  sql += "SELECT tpl.account_id,tpl.realm_id,COALESCE(tpl.current_world_instance_id,cp.world_instance_id),";
+  sql += characterSql + "," + nameSql + ",'active',";
+  sql += "JSON_OBJECT('created_by','mmo_udp_server_cpp','template_character_key','PC_HERO') ";
+  sql += "FROM characters tpl LEFT JOIN character_positions cp ON cp.character_id=tpl.character_id ";
+  sql += "WHERE tpl.character_id=@template_character_id AND @existing_character_id IS NULL;";
+  sql += "SET @new_character_id=(SELECT character_id FROM characters WHERE account_id=@account_id AND character_key=" + characterSql + " LIMIT 1);";
+  sql += "INSERT IGNORE INTO character_positions(character_id,world_instance_id,pos_x,pos_y,pos_z,rotation_yaw,current_waypoint_key,server_tick,row_version) ";
+  sql += "SELECT @new_character_id,world_instance_id,pos_x,pos_y,pos_z,rotation_yaw,current_waypoint_key,0,0 FROM character_positions WHERE character_id=@template_character_id AND @new_character_id<>@template_character_id;";
+  sql += "INSERT IGNORE INTO character_stats(character_id,level,experience,experience_next,learning_points,health_current,health_max,mana_current,mana_max,strength,dexterity,guild,true_guild,permanent_attitude,temporary_attitude,raw_stats,row_version) ";
+  sql += "SELECT @new_character_id,0,0,experience_next,0,health_max,health_max,mana_max,mana_max,strength,dexterity,guild,true_guild,permanent_attitude,temporary_attitude,";
+  sql += "JSON_SET(COALESCE(raw_stats,JSON_OBJECT()),'$.created_from_template','PC_HERO'),0 FROM character_stats WHERE character_id=@template_character_id AND @new_character_id<>@template_character_id;";
+  sql += "INSERT IGNORE INTO character_script_state(character_id,script_key,symbol_index,value_type,value_index,value_int,value_real,value_text) ";
+  sql += "SELECT @new_character_id,script_key,symbol_index,value_type,value_index,value_int,value_real,value_text FROM character_script_state WHERE character_id=@template_character_id AND @new_character_id<>@template_character_id;";
+  (void)runMysql(target, sql);
+}
+
 [[nodiscard]] std::string dbLogin(const MySqlTarget& target, const Options& opt) {
+  ensureCharacterExistsFromTemplate(target, opt);
+  const auto dbSessionKey = dbSessionKeyForCharacter(opt);
   std::string sql;
   sql += "SET @session_id = NULL;";
   sql += "CALL mmo_login_character(";
   sql += sqlLiteral(opt.accountName) + ",";
   sql += sqlLiteral(opt.characterKey) + ",";
-  sql += sqlLiteral(opt.sessionKey) + ",";
+  sql += sqlLiteral(dbSessionKey) + ",";
   sql += sqlLiteral("mmo_udp_server_cpp") + ",";
   sql += sqlLiteral("asio-udp-server") + ",";
-  sql += "JSON_OBJECT('tool','mmo_udp_server_cpp','db_bridge_version'," + std::to_string(DbBridgeVersion) + "),";
+  sql += "JSON_OBJECT('tool','mmo_udp_server_cpp','db_bridge_version'," + std::to_string(DbBridgeVersion) + ",'client_session_key'," + sqlLiteral(opt.sessionKey) + "),";
   sql += "@session_id);";
   sql += "SELECT BIN_TO_UUID(@session_id, 1);";
   const auto raw = runMysql(target, sql);
@@ -94799,6 +95232,7 @@ Options parseArgs(int argc, char** argv) {
 int main(int argc, char** argv) {
   try {
     const Options opt = parseArgs(argc, argv);
+    Options activeOpt = opt;
     std::optional<MySqlTarget> mysql;
     std::string sessionUuid = opt.dbSessionUuid;
     if(opt.directDb || opt.enqueueOutbox) {
@@ -94806,9 +95240,9 @@ int main(int argc, char** argv) {
         throw std::runtime_error("--mysql-url is required when direct DB or outbox mode is enabled");
       mysql = parseMysqlUrl(opt.mysqlUrl);
       if(sessionUuid.empty())
-        sessionUuid = dbLogin(*mysql, opt);
+        sessionUuid = dbLogin(*mysql, activeOpt);
       else
-        (void)ensureActiveDbSession(*mysql, opt, sessionUuid, "startup");
+        (void)ensureActiveDbSession(*mysql, activeOpt, sessionUuid, "startup");
       std::cout << "db_session=" << sessionUuid
                 << " direct_db=" << (opt.directDb ? "on" : "off")
                 << " enqueue_outbox=" << (opt.enqueueOutbox ? "on" : "off")
@@ -94900,11 +95334,19 @@ int main(int argc, char** argv) {
       const std::string_view actionName = def ? def->actionKind : std::string_view("unknown");
       if(isBootstrap) {
         BootstrapReadiness readiness;
-        const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(opt.characterKey);
+        const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(activeOpt.characterKey);
         std::string worldName = jsonStringField(packet.payloadJson, "world").value_or("UNKNOWN");
         if(mysql) {
           try {
-            if(ensureActiveDbSession(*mysql, opt, sessionUuid, "bootstrap")) {
+            if(characterKey != activeOpt.characterKey) {
+              activeOpt.characterKey = characterKey;
+              sessionUuid = dbLogin(*mysql, activeOpt);
+              seen.clear();
+              seen.insert(packet.idempotencyKey);
+              std::cout << "[db_session_character_selected]"
+                        << " character=" << activeOpt.characterKey
+                        << " session=" << sessionUuid << "\n";
+            } else if(ensureActiveDbSession(*mysql, activeOpt, sessionUuid, "bootstrap")) {
               seen.clear();
               seen.insert(packet.idempotencyKey);
             }
@@ -94948,7 +95390,7 @@ int main(int argc, char** argv) {
       if(mysql && opt.directDb && !isBootstrap) {
         try {
           if(!isActiveDbSession(*mysql, sessionUuid)) {
-            (void)ensureActiveDbSession(*mysql, opt, sessionUuid, "direct_db");
+            (void)ensureActiveDbSession(*mysql, activeOpt, sessionUuid, "direct_db");
             seen.clear();
             seen.insert(packet.idempotencyKey);
           }
@@ -94992,7 +95434,7 @@ int main(int argc, char** argv) {
       if(mysql && opt.directDb && direct.handled && !direct.accepted) {
         try {
           recordClientActionCorrection(*mysql, sessionUuid, packet, actionName, direct.label, dbPayload);
-          const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(opt.characterKey);
+          const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(activeOpt.characterKey);
           std::string worldName = jsonStringField(packet.payloadJson, "world").value_or("UNKNOWN");
           auto readiness = readBootstrapReadinessWithFallback(*mysql, characterKey, worldName, sessionUuid, worldName);
           if(readiness.ready) {
@@ -95013,7 +95455,7 @@ int main(int argc, char** argv) {
 
       if(mysql && opt.directDb && shouldSendLiveWorldSnapshot(liveWorldSnapshotState, packet, packetAccepted, direct)) {
         try {
-          const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(opt.characterKey);
+          const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(activeOpt.characterKey);
           std::string worldName = jsonStringField(packet.payloadJson, "world").value_or("UNKNOWN");
           auto readiness = readBootstrapReadinessWithFallback(*mysql, characterKey, worldName, sessionUuid, worldName);
           if(readiness.ready) {
@@ -95105,8 +95547,6 @@ int main(int argc, char** argv) {
     return 2;
   }
 }
-
-
 
 
 

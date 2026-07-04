@@ -18,7 +18,8 @@ if not exist "%SERVER_EXE%" (
 
 "%SERVER_EXE%" ^
   --bind 127.0.0.1:29777 ^
-  --mysql-url "%MYSQL_URL%" ^
-  --session-key "%SESSION_KEY%" ^
-  --character-key "%CHARACTER_KEY%"
+  --mysql-url "%MYSQL_URL%"
+rem Defaults are supplied by the server:
+rem   --session-key "%SESSION_KEY%"
+rem   --character-key "%CHARACTER_KEY%"
 exit /b %errorlevel%

@@ -20,9 +20,6 @@ MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 Switching music provider to 'OpenGothic'
 MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
@@ -159,131 +156,16 @@ MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
-MMO menu Continue: loading server DB character without native save slot
-MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO server ACK kind=2 accepted=1 ready=1 seq=1
+MMO server ACK summary accepted=1 rejected=0 bootstrap=1 movement=0 generic=0 diagnostics=0 snapshot_chunks=0 snapshot_bytes=0 last_seq=1
+MMO server bootstrap snapshot receiving: id=3 bytes=409491 chunks=50
+MMO server bootstrap snapshot progress: id=3 chunks=1/50 bytes=8192/409491
+MMO server bootstrap snapshot progress: id=3 chunks=16/50 bytes=131072/409491
+MMO server bootstrap snapshot progress: id=3 chunks=32/50 bytes=262144/409491
+MMO server bootstrap snapshot progress: id=3 chunks=48/50 bytes=393216/409491
+MMO server bootstrap snapshot progress: id=3 chunks=50/50 bytes=409491/409491
+MMO server bootstrap snapshot received: bytes=409491 chunks=50 path=runtime/mmo_server_bootstrap_snapshot.json
+MMO menu Continue: loading server DB character without native save slot character_key=PC_HERO_1783175702534 display_name=Nowa postac 1783175702534
 MMO DB continue pre-world snapshot timed out, falling back to configured/default world
 MMO DB continue: native save is missing, bootstrapping baseline world newworld.zen and applying server snapshot for slot mmo_db_continue.sav
 MMO DB continue pre-world clock rejected: snapshot file is not readable path=runtime/mmo_server_bootstrap_snapshot.json
@@ -333,59 +215,45 @@ addNpc: 11071 (MIL_303_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
 MMO DB continue: suppressed startup video INTRO.BIK
 MMO DB continue: suppressed startup video Addon_Title.BIK
 MMO server snapshot restore scheduled: server_bound=1 inventory=1 position=1 stats=1 story=1 world=1 strict_db_checkpoint=0 reuse_existing_snapshot=0 reason=db_continue_baseline_loaded path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server ACK kind=2 accepted=1 ready=1 seq=1
-MMO server ACK summary accepted=1 rejected=0 bootstrap=1 movement=0 generic=0 diagnostics=0 snapshot_chunks=0 snapshot_bytes=0 last_seq=1
-MMO server bootstrap snapshot receiving: id=1 bytes=417255 chunks=51
-MMO server bootstrap snapshot progress: id=1 chunks=1/51 bytes=8192/417255
-MMO server bootstrap snapshot progress: id=1 chunks=16/51 bytes=131072/417255
-MMO server bootstrap snapshot progress: id=1 chunks=32/51 bytes=262144/417255
-MMO server bootstrap snapshot progress: id=1 chunks=48/51 bytes=393216/417255
-MMO server bootstrap snapshot progress: id=1 chunks=51/51 bytes=417255/417255
-MMO server bootstrap snapshot received: bytes=417255 chunks=51 path=runtime/mmo_server_bootstrap_snapshot.json
+MMO server ACK kind=2 accepted=1 ready=1 seq=2
+MMO server ACK summary accepted=2 rejected=0 bootstrap=2 movement=0 generic=0 diagnostics=0 snapshot_chunks=50 snapshot_bytes=409491 last_seq=2
+MMO server bootstrap snapshot receiving: id=4 bytes=419888 chunks=52
+MMO server bootstrap snapshot progress: id=4 chunks=1/52 bytes=8192/419888
+MMO server bootstrap snapshot progress: id=4 chunks=16/52 bytes=131072/419888
+MMO server bootstrap snapshot progress: id=4 chunks=32/52 bytes=262144/419888
+MMO server bootstrap snapshot progress: id=4 chunks=48/52 bytes=393216/419888
+MMO server bootstrap snapshot progress: id=4 chunks=52/52 bytes=419888/419888
+MMO server bootstrap snapshot received: bytes=419888 chunks=52 path=runtime/mmo_server_bootstrap_snapshot.json
 MMO server snapshot restore source: source=mmo_udp_server_cpp_live_mysql snapshot_source=current_projections_v1 db_checkpoint=0 manifest_uuid=
 MMO server snapshot world clock applied: world_time_ms=28800000 hour=8 minute=0 tick=0 world=newworld.zen
-MMO server snapshot stats applied: level=0 exp=0 lp=0 hp=40/40 mana=10/10
-MMO server snapshot inventory applied: inventory=0 equipment=0 restore_items=0 reason=db_continue_baseline_loaded path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server snapshot position applied: x=29912.934000 y=5148.189000 z=-15710.026000 yaw=0.000000 tick=10038
-MMO server snapshot story applied: mode=replace_from_server quests=1 restore_quests=1 known_dialogs=3 restore_known_dialogs=3 script_ints=7 restore_script_ints=7 script_truncated=0
-MMO server snapshot world state applied: world_item_deltas=0 parsed_world_deltas=0 removed_world_items=0 already_absent_world_items=0 skipped_world_item_deltas=0 active_world_items=203 spawned_world_items=0 updated_world_items=203 skipped_active_world_ite
-ms=0 authoritative_window=1 authoritative_radius=12000.000000 local_items_in_window=203 preserved_local_items=203 removed_local_items_not_in_db=0 skipped_authoritative_window=0 nearby_npcs=0 parsed_nearby_npcs=0 nearby_npc_known_dialogs=0 parsed_nearby_np
-c_known_dialogs=0 nearby_waypoints=0 parsed_nearby_waypoints=0 recent_actions=64 parsed_recent_actions=64 mover_state=0 parsed_mover_state=0 npc_routine_state=14 npc_ai_state=13 npc_path_state=12 npc_fight_state=11 trigger_queue=0 world_transition_state=0
+MMO server snapshot stats applied: level=0 exp=25 lp=0 hp=40/40 mana=10/10
+MMO server snapshot inventory applied: inventory=1 equipment=0 restore_items=1 reason=db_continue_baseline_loaded path=runtime/mmo_server_bootstrap_snapshot.json
+MMO server snapshot position applied: x=29719.105000 y=5148.253400 z=-15277.840000 yaw=0.000000 tick=22056
+MMO server snapshot story applied: mode=replace_from_server quests=1 restore_quests=1 known_dialogs=2 restore_known_dialogs=2 script_ints=5 restore_script_ints=5 script_truncated=0
+MMO server snapshot world state applied: world_item_deltas=1 parsed_world_deltas=1 removed_world_items=0 already_absent_world_items=1 skipped_world_item_deltas=0 active_world_items=211 spawned_world_items=0 updated_world_items=211 skipped_active_world_ite
+ms=0 authoritative_window=1 authoritative_radius=12000.000000 local_items_in_window=212 preserved_local_items=211 removed_local_items_not_in_db=1 skipped_authoritative_window=0 nearby_npcs=0 parsed_nearby_npcs=0 nearby_npc_known_dialogs=0 parsed_nearby_np
+c_known_dialogs=0 nearby_waypoints=0 parsed_nearby_waypoints=0 recent_actions=53 parsed_recent_actions=53 mover_state=0 parsed_mover_state=0 npc_routine_state=12 npc_ai_state=11 npc_path_state=11 npc_fight_state=10 trigger_queue=0 world_transition_state=0
  client_corrections=0 parsed_client_corrections=0 applied_movers=0 missing_movers=0 skipped_movers=0 checkpoint_manifest=0 checkpoint_latest_tick=0 checkpoint_recent_event_seq=0 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interactiv
 e_state=996 parsed_interactives=996 applied_interactives=996 missing_interactives=0 npc_lifecycle_state=0 parsed_npc_lifecycle=0 applied_npc_lifecycle=0 missing_npc_lifecycle=0 skipped_npc_lifecycle=0
-MMO server DB restore NPC routines resumed: count=325 db_checkpoint=0 reason=db_continue_baseline_loaded npc_routine_state=14 npc_ai_state=13 npc_path_state=12 npc_fight_state=11 authority_applied=14 authority_fallback=0 authority_missing_npc=0 authority_
+MMO server DB restore NPC routines resumed: count=325 db_checkpoint=0 reason=db_continue_baseline_loaded npc_routine_state=12 npc_ai_state=11 npc_path_state=11 npc_fight_state=10 authority_applied=12 authority_fallback=0 authority_missing_npc=0 authority_
 skipped=0
 MMO DB continue baseline loaded: running existing-world startup trigger
 MMO DB continue startup NPC routines resumed: count=325
-MMO DB continue startup NPC authority applied: routine_applied=14 routine_fallback=0 missing_npc=0 skipped=0 records=14 snapshot_source=current_projections_v1
-unxepected perc acton
+MMO DB continue startup NPC authority applied: routine_applied=12 routine_fallback=0 missing_npc=0 skipped=0 records=12 snapshot_source=current_projections_v1
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
 not implemented call [mdl_applyrandomani]
 not implemented call [mdl_applyrandomanifreq]
-[zenkit] Accessing member "C_NPC.AIVAR" without an instance set
-MMO server ACK kind=2 accepted=1 ready=1 seq=2
-MMO server ACK summary accepted=2 rejected=0 bootstrap=2 movement=0 generic=0 diagnostics=0 snapshot_chunks=51 snapshot_bytes=417255 last_seq=2
-MMO server bootstrap snapshot receiving: id=2 bytes=417267 chunks=51
-MMO server bootstrap snapshot progress: id=2 chunks=1/51 bytes=8192/417267
-MMO server bootstrap snapshot progress: id=2 chunks=16/51 bytes=131072/417267
-MMO server bootstrap snapshot progress: id=2 chunks=32/51 bytes=262144/417267
-MMO server bootstrap snapshot progress: id=2 chunks=48/51 bytes=393216/417267
-MMO server bootstrap snapshot progress: id=2 chunks=51/51 bytes=417267/417267
-MMO server bootstrap snapshot received: bytes=417267 chunks=51 path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server live world clock applied: snapshot_id=2 world_time_ms=28800000 hour=8 minute=0 tick=0 world=newworld.zen
-MMO server live world snapshot applied: snapshot_id=2 source=mmo_udp_server_cpp_live_mysql snapshot_source=current_projections_v1 active_world_items=203 spawned_world_items=1 updated_world_items=202 removed_local_items_not_in_db=0 authoritative_window=1 a
-uthoritative_radius=12000.000000 nearby_npcs=0 nearby_npc_known_dialogs=0 nearby_waypoints=0 recent_actions=64 mover_state=0 npc_routine_state=14 npc_ai_state=13 npc_path_state=12 npc_fight_state=11 trigger_queue=0 world_transition_state=0 client_correcti
-ons=0 applied_client_corrections=0 applied_movers=0 missing_movers=0 skipped_movers=0 checkpoint_manifest=0 checkpoint_latest_tick=0 checkpoint_recent_event_seq=0 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interactive_state=996 npc
-_lifecycle_state=0
-MMO server ACK summary accepted=14 rejected=0 bootstrap=2 movement=0 generic=12 diagnostics=0 snapshot_chunks=102 snapshot_bytes=834522 last_seq=14
-MMO server ACK summary accepted=25 rejected=0 bootstrap=2 movement=0 generic=23 diagnostics=0 snapshot_chunks=102 snapshot_bytes=834522 last_seq=25
-MMO server ACK summary accepted=36 rejected=0 bootstrap=2 movement=1 generic=33 diagnostics=0 snapshot_chunks=102 snapshot_bytes=834522 last_seq=36
-MMO server ACK summary accepted=46 rejected=0 bootstrap=2 movement=1 generic=43 diagnostics=0 snapshot_chunks=102 snapshot_bytes=834522 last_seq=46
-MMO server ACK summary accepted=56 rejected=0 bootstrap=2 movement=10 generic=44 diagnostics=0 snapshot_chunks=102 snapshot_bytes=834522 last_seq=56
-MMO server ACK summary accepted=58 rejected=0 bootstrap=2 movement=11 generic=45 diagnostics=0 snapshot_chunks=102 snapshot_bytes=834522 last_seq=58
-MMO server ACK summary accepted=68 rejected=0 bootstrap=2 movement=12 generic=54 diagnostics=0 snapshot_chunks=102 snapshot_bytes=834522 last_seq=166
-MMO server ACK summary accepted=78 rejected=0 bootstrap=2 movement=12 generic=64 diagnostics=0 snapshot_chunks=102 snapshot_bytes=834522 last_seq=203
+not implemented call [wld_israining]
+MMO server ACK kind=2 accepted=1 ready=1 seq=3
+MMO server ACK summary accepted=3 rejected=0 bootstrap=3 movement=0 generic=0 diagnostics=0 snapshot_chunks=102 snapshot_bytes=829379 last_seq=3
+MMO server bootstrap snapshot receiving: id=5 bytes=419900 chunks=52
+MMO server bootstrap snapshot progress: id=5 chunks=1/52 bytes=8192/419900
+MMO server bootstrap snapshot progress: id=5 chunks=16/52 bytes=131072/419900
+MMO server bootstrap snapshot progress: id=5 chunks=32/52 bytes=262144/419900
+MMO server bootstrap snapshot progress: id=5 chunks=48/52 bytes=393216/419900
+MMO server bootstrap snapshot progress: id=5 chunks=52/52 bytes=419900/419900
+MMO server bootstrap snapshot received: bytes=419900 chunks=52 path=runtime/mmo_server_bootstrap_snapshot.json
 Exiting, by item action (`LEAVE_GAME`)
-MMO server ACK summary accepted=82 rejected=0 bootstrap=2 movement=13 generic=67 diagnostics=0 snapshot_chunks=102 snapshot_bytes=834522 last_seq=233
+MMO server ACK summary accepted=8 rejected=0 bootstrap=3 movement=0 generic=5 diagnostics=0 snapshot_chunks=154 snapshot_bytes=1249279 last_seq=8

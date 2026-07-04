@@ -77,12 +77,20 @@ bool requestMmoPreWorldDbContinueSnapshot(std::string_view slot) noexcept {
     return false;
 
   const auto seq = Mmo::nextSemanticActionSequence();
-  std::string target = "character:PC_HERO:db-continue-pre-world";
+  const auto characterKey = CommandLine::inst().mmoCharacterKey();
+  std::string characterEntity = "character:";
+  characterEntity.append(characterKey);
+  std::string target = characterEntity;
+  target.append(":db-continue-pre-world");
 
   std::string payload;
   payload.reserve(512 + slot.size());
-  payload.append("{\"actor_key\":\"character:PC_HERO\"");
-  payload.append(",\"character_key\":\"PC_HERO\"");
+  payload.append("{\"actor_key\":");
+  payload.append(Mmo::jsonEscape(characterEntity));
+  payload.append(",\"character_key\":");
+  payload.append(Mmo::jsonEscape(characterKey));
+  payload.append(",\"display_name\":");
+  payload.append(Mmo::jsonEscape(CommandLine::inst().mmoCharacterDisplayName()));
   payload.append(",\"world\":");
   payload.append(Mmo::jsonEscape(CommandLine::inst().mmoDbBootstrapWorld()));
   payload.append(",\"server_tick\":0");
@@ -136,7 +144,7 @@ std::optional<std::string> mmoDbContinueWorldFromServerSnapshot(std::string_view
   while(std::chrono::steady_clock::now() < deadline) {
     std::error_code ec;
     if(std::filesystem::is_regular_file(snapshotPath, ec)) {
-      auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(snapshotPath, "PC_HERO");
+      auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(snapshotPath, cmd.mmoCharacterKey());
       if(!result.ok) {
         Log::e("MMO DB continue pre-world snapshot rejected: ", result.message);
         return std::nullopt;
@@ -1171,7 +1179,9 @@ void MainWindow::startGame(std::string_view slot) {
   // gothic.emitGlobalSound(gothic.loadSoundFx("NEWGAME"));
   const bool mmoServerFreshNewGame = CommandLine::inst().mmoClientUsesServer();
   if(mmoServerFreshNewGame)
-    Log::i("MMO menu New Game: starting fresh server-bound client baseline without DB Continue restore");
+    Log::i("MMO menu New Game: starting fresh server-bound client baseline without DB Continue restore",
+           " character_key=", CommandLine::inst().mmoCharacterKey(),
+           " display_name=", CommandLine::inst().mmoCharacterDisplayName());
 
   if(Gothic::inst().checkLoading()==Gothic::LoadState::Idle){
     setGameImpl(nullptr);
@@ -1222,6 +1232,12 @@ void MainWindow::loadGame(std::string_view slot) {
   }
 
 void MainWindow::saveGame(std::string_view slot, std::string_view name) {
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    Log::i("MMO menu Save ignored: server-bound mode persists through DB actions/checkpoints",
+           " slot=", slot,
+           " name=", name);
+    return;
+    }
   if(dialogs.isActive())
     return;
   if(auto w = Gothic::inst().world(); w!=nullptr && w->currentCs()!=nullptr)

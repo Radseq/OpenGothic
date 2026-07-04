@@ -17,6 +17,7 @@ if not exist "%CLIENT_EXE%" (
 "%CLIENT_EXE%" ^
   -g "%GOTHIC2_DIR%" ^
   -g2 ^
-  -mmo-client-server 127.0.0.1:29777 ^
-  -mmo-action-session-key "%SESSION_KEY%"
+  -mmo-client-server 127.0.0.1:29777
+rem Default is supplied by the client:
+rem   -mmo-action-session-key "%SESSION_KEY%"
 exit /b %errorlevel%

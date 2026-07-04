@@ -32,7 +32,7 @@
       "dry_run": false,
       "returncode": 0,
       "stderr_tail": "",
-      "stdout_tail": "Step54 Chapter 1 clean-start baseline captured\nbaseline=runtime/baselines/g2notr_chapter1_before_xardas.sqlite\nmanifest=runtime/baselines/g2notr_chapter1_before_xardas.manifest.json\nschema_version=25\nchapter_number_detected=1\nxardas_dialog_selection_rows=0\nsha256=f199402c0bf03a831c497f31dcc751fd48eecc6bf213b4646b3b0ff0d39fb4a9\nstatus=passed\n"
+      "stdout_tail": "Step54 Chapter 1 clean-start baseline captured\nbaseline=runtime/baselines/g2notr_chapter1_before_xardas.sqlite\nmanifest=runtime/baselines/g2notr_chapter1_before_xardas.manifest.json\nschema_version=25\nchapter_number_detected=1\nxardas_dialog_selection_rows=0\nsha256=eda7709f86c33a87a595dde351b03a4e2124f313cfbf4a68809d741a0dfe36a1\nstatus=passed\n"
     },
     {
       "cmd": [
@@ -81,11 +81,11 @@
       "stdout_tail": "status=passed\nready_for_live_loop=true\noutput=C:\\Users\\admin\\Desktop\\OpenGothic\\runtime\\pc_hero_test_live\\clean_live_readiness.json\nwarnings=collation_mismatch\n"
     }
   ],
-  "finished_at": "2026-07-04T11:07:36.130289+00:00",
+  "finished_at": "2026-07-04T14:03:32.228732+00:00",
   "mysql_database": "gothic_mmo_ch1_clean",
   "mysql_url_redacted": "mysql://gothic:***@192.168.195.94:3306/gothic_mmo_ch1_clean",
   "sqlite_source": "runtime/g2notr_ch1_pre_xardas.sqlite",
-  "started_at": "2026-07-04T11:04:22.169241+00:00",
+  "started_at": "2026-07-04T14:00:05.251921+00:00",
   "status": "passed",
   "step": "55b_clean_mysql_from_pre_xardas"
 }

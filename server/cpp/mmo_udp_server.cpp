@@ -1048,6 +1048,22 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
 
   const std::string sessionSql = sqlLiteral(sessionUuid);
   const std::string worldSql = sqlLiteral(worldName);
+  const std::string characterSql = sqlLiteral(characterKey);
+
+  std::string characterListQuery;
+  characterListQuery += "SELECT COALESCE((SELECT JSON_ARRAYAGG(row_json) FROM (";
+  characterListQuery += "SELECT JSON_OBJECT('character_key',c.character_key,'display_name',c.character_name,";
+  characterListQuery += "'world_name',COALESCE(cwt.world_name,rwi.world_instance_key,''),";
+  characterListQuery += "'lifecycle_state',c.lifecycle_state,'selected',JSON_EXTRACT(IF(c.character_key=" + characterSql + ",'true','false'),'$'),";
+  characterListQuery += "'updated_at',DATE_FORMAT(c.updated_at,'%Y-%m-%dT%H:%i:%s.%fZ')) AS row_json ";
+  characterListQuery += "FROM server_sessions ss JOIN characters active_c ON active_c.character_id=ss.character_id ";
+  characterListQuery += "JOIN characters c ON c.account_id=active_c.account_id AND c.realm_id=active_c.realm_id ";
+  characterListQuery += "LEFT JOIN realm_world_instances rwi ON rwi.world_instance_id=c.current_world_instance_id ";
+  characterListQuery += "LEFT JOIN content_world_templates cwt ON cwt.world_template_id=rwi.world_template_id ";
+  characterListQuery += "WHERE ss.session_id=UUID_TO_BIN(" + sessionSql + ",1) AND c.lifecycle_state IN ('creating','active') ";
+  characterListQuery += "ORDER BY CASE WHEN c.character_key=" + characterSql + " THEN 0 ELSE 1 END,c.updated_at DESC,c.character_name LIMIT 20";
+  characterListQuery += ") rows_json), JSON_ARRAY());";
+  const auto characterList = mysqlJsonOrWithDiagnostic(target, characterListQuery, "[]", "bootstrap_character_list");
 
   std::string characterQuery;
   characterQuery += "SELECT COALESCE((SELECT JSON_OBJECT(";
@@ -1475,7 +1491,7 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
               interactivesSample.size() + npcLifecycle.size() + recentEvents.size() +
               moverState.size() + npcRoutineState.size() + npcAiState.size() + npcPathState.size() +
               npcFightState.size() + triggerQueue.size() + worldTransitionState.size() +
-              clientCorrections.size() + checkpointManifest.size() + 2048);
+              clientCorrections.size() + checkpointManifest.size() + characterList.size() + 2048);
   out.push_back('{');
   out += "\"schema\":";
   out += jsonEscape(Mmo::Server::BootstrapSnapshotSchema);
@@ -1493,6 +1509,7 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
   appendJsonNumberField(out, "interactive_count", readiness.interactiveRows);
   appendJsonNumberField(out, "script_int_count", readiness.scriptIntRows);
   appendJsonRawField(out, "script_state_truncated", readiness.scriptIntRows > Mmo::Server::MaxBootstrapScriptStateRows ? "true" : "false");
+  appendJsonRawField(out, "character_list", characterList);
   appendJsonRawField(out, "character", character);
   appendJsonRawField(out, "inventory", inventory);
   appendJsonRawField(out, "equipment", equipment);
@@ -1930,16 +1947,51 @@ void sendServerDiagnostic(asio::ip::udp::socket& socket,
   }
 }
 
+[[nodiscard]] std::string dbSessionKeyForCharacter(const Options& opt) {
+  std::string out = opt.sessionKey;
+  out.push_back(':');
+  out.append(opt.characterKey);
+  return out;
+}
+
+void ensureCharacterExistsFromTemplate(const MySqlTarget& target, const Options& opt) {
+  std::string sql;
+  const auto accountSql = sqlLiteral(opt.accountName);
+  const auto characterSql = sqlLiteral(opt.characterKey);
+  const auto displayName = opt.characterDisplayName.empty() ? opt.characterKey : opt.characterDisplayName;
+  const auto nameSql = sqlLiteral(displayName);
+  sql += "SET @account_id=(SELECT account_id FROM account_accounts WHERE account_name=" + accountSql + " LIMIT 1);";
+  sql += "SET @template_character_id=(SELECT character_id FROM characters WHERE account_id=@account_id AND character_key='PC_HERO' LIMIT 1);";
+  sql += "SET @existing_character_id=(SELECT character_id FROM characters WHERE account_id=@account_id AND character_key=" + characterSql + " LIMIT 1);";
+  sql += "INSERT INTO characters(account_id,realm_id,current_world_instance_id,character_key,character_name,lifecycle_state,metadata) ";
+  sql += "SELECT tpl.account_id,tpl.realm_id,COALESCE(tpl.current_world_instance_id,cp.world_instance_id),";
+  sql += characterSql + "," + nameSql + ",'active',";
+  sql += "JSON_OBJECT('created_by','mmo_udp_server_cpp','template_character_key','PC_HERO') ";
+  sql += "FROM characters tpl LEFT JOIN character_positions cp ON cp.character_id=tpl.character_id ";
+  sql += "WHERE tpl.character_id=@template_character_id AND @existing_character_id IS NULL;";
+  sql += "SET @new_character_id=(SELECT character_id FROM characters WHERE account_id=@account_id AND character_key=" + characterSql + " LIMIT 1);";
+  sql += "INSERT IGNORE INTO character_positions(character_id,world_instance_id,pos_x,pos_y,pos_z,rotation_yaw,current_waypoint_key,server_tick,row_version) ";
+  sql += "SELECT @new_character_id,world_instance_id,pos_x,pos_y,pos_z,rotation_yaw,current_waypoint_key,0,0 FROM character_positions WHERE character_id=@template_character_id AND @new_character_id<>@template_character_id;";
+  sql += "INSERT IGNORE INTO character_stats(character_id,level,experience,experience_next,learning_points,health_current,health_max,mana_current,mana_max,strength,dexterity,guild,true_guild,permanent_attitude,temporary_attitude,raw_stats,row_version) ";
+  sql += "SELECT @new_character_id,0,0,experience_next,0,health_max,health_max,mana_max,mana_max,strength,dexterity,guild,true_guild,permanent_attitude,temporary_attitude,";
+  sql += "JSON_SET(COALESCE(raw_stats,JSON_OBJECT()),'$.created_from_template','PC_HERO'),0 FROM character_stats WHERE character_id=@template_character_id AND @new_character_id<>@template_character_id;";
+  sql += "INSERT IGNORE INTO character_script_state(character_id,script_key,symbol_index,value_type,value_index,value_int,value_real,value_text) ";
+  sql += "SELECT @new_character_id,script_key,symbol_index,value_type,value_index,value_int,value_real,value_text FROM character_script_state WHERE character_id=@template_character_id AND @new_character_id<>@template_character_id;";
+  (void)runMysql(target, sql);
+}
+
 [[nodiscard]] std::string dbLogin(const MySqlTarget& target, const Options& opt) {
+  ensureCharacterExistsFromTemplate(target, opt);
+  const auto dbSessionKey = dbSessionKeyForCharacter(opt);
   std::string sql;
   sql += "SET @session_id = NULL;";
   sql += "CALL mmo_login_character(";
   sql += sqlLiteral(opt.accountName) + ",";
   sql += sqlLiteral(opt.characterKey) + ",";
-  sql += sqlLiteral(opt.sessionKey) + ",";
+  sql += sqlLiteral(dbSessionKey) + ",";
   sql += sqlLiteral("mmo_udp_server_cpp") + ",";
   sql += sqlLiteral("asio-udp-server") + ",";
-  sql += "JSON_OBJECT('tool','mmo_udp_server_cpp','db_bridge_version'," + std::to_string(DbBridgeVersion) + "),";
+  sql += "JSON_OBJECT('tool','mmo_udp_server_cpp','db_bridge_version'," + std::to_string(DbBridgeVersion) + ",'client_session_key'," + sqlLiteral(opt.sessionKey) + "),";
   sql += "@session_id);";
   sql += "SELECT BIN_TO_UUID(@session_id, 1);";
   const auto raw = runMysql(target, sql);
@@ -3597,6 +3649,7 @@ Options parseArgs(int argc, char** argv) {
     else if(arg == "--mysql-url" || arg == "--url") opt.mysqlUrl = need(i, arg);
     else if(arg == "--account-name") opt.accountName = need(i, arg);
     else if(arg == "--character-key") opt.characterKey = need(i, arg);
+    else if(arg == "--character-name" || arg == "--character-display-name") opt.characterDisplayName = need(i, arg);
     else if(arg == "--session-key") opt.sessionKey = need(i, arg);
     else if(arg == "--db-session-uuid") opt.dbSessionUuid = need(i, arg);
     else if(arg == "--outbox-priority") opt.outboxPriority = parseInt(need(i, arg)).value_or(opt.outboxPriority);
@@ -3624,6 +3677,7 @@ Options parseArgs(int argc, char** argv) {
 int main(int argc, char** argv) {
   try {
     const Options opt = parseArgs(argc, argv);
+    Options activeOpt = opt;
     std::optional<MySqlTarget> mysql;
     std::string sessionUuid = opt.dbSessionUuid;
     if(opt.directDb || opt.enqueueOutbox) {
@@ -3631,9 +3685,9 @@ int main(int argc, char** argv) {
         throw std::runtime_error("--mysql-url is required when direct DB or outbox mode is enabled");
       mysql = parseMysqlUrl(opt.mysqlUrl);
       if(sessionUuid.empty())
-        sessionUuid = dbLogin(*mysql, opt);
+        sessionUuid = dbLogin(*mysql, activeOpt);
       else
-        (void)ensureActiveDbSession(*mysql, opt, sessionUuid, "startup");
+        (void)ensureActiveDbSession(*mysql, activeOpt, sessionUuid, "startup");
       std::cout << "db_session=" << sessionUuid
                 << " direct_db=" << (opt.directDb ? "on" : "off")
                 << " enqueue_outbox=" << (opt.enqueueOutbox ? "on" : "off")
@@ -3678,6 +3732,10 @@ int main(int argc, char** argv) {
       if(ec) {
         if(ec == asio::error::would_block || ec == asio::error::try_again) {
           std::this_thread::sleep_for(std::chrono::milliseconds(20));
+          continue;
+        }
+        if(ec == asio::error::connection_reset) {
+          std::cout << "[udp_receive_ignored] error=connection_reset message=" << ec.message() << "\n";
           continue;
         }
         throw std::runtime_error("receive_from failed: " + ec.message());
@@ -3725,11 +3783,21 @@ int main(int argc, char** argv) {
       const std::string_view actionName = def ? def->actionKind : std::string_view("unknown");
       if(isBootstrap) {
         BootstrapReadiness readiness;
-        const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(opt.characterKey);
+        const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(activeOpt.characterKey);
+        const std::string displayName = jsonStringField(packet.payloadJson, "display_name").value_or(characterKey);
         std::string worldName = jsonStringField(packet.payloadJson, "world").value_or("UNKNOWN");
         if(mysql) {
           try {
-            if(ensureActiveDbSession(*mysql, opt, sessionUuid, "bootstrap")) {
+            if(characterKey != activeOpt.characterKey) {
+              activeOpt.characterKey = characterKey;
+              activeOpt.characterDisplayName = displayName.empty() ? characterKey : displayName;
+              sessionUuid = dbLogin(*mysql, activeOpt);
+              seen.clear();
+              seen.insert(packet.idempotencyKey);
+              std::cout << "[db_session_character_selected]"
+                        << " character=" << activeOpt.characterKey
+                        << " session=" << sessionUuid << "\n";
+            } else if(ensureActiveDbSession(*mysql, activeOpt, sessionUuid, "bootstrap")) {
               seen.clear();
               seen.insert(packet.idempotencyKey);
             }
@@ -3773,7 +3841,7 @@ int main(int argc, char** argv) {
       if(mysql && opt.directDb && !isBootstrap) {
         try {
           if(!isActiveDbSession(*mysql, sessionUuid)) {
-            (void)ensureActiveDbSession(*mysql, opt, sessionUuid, "direct_db");
+            (void)ensureActiveDbSession(*mysql, activeOpt, sessionUuid, "direct_db");
             seen.clear();
             seen.insert(packet.idempotencyKey);
           }
@@ -3817,7 +3885,7 @@ int main(int argc, char** argv) {
       if(mysql && opt.directDb && direct.handled && !direct.accepted) {
         try {
           recordClientActionCorrection(*mysql, sessionUuid, packet, actionName, direct.label, dbPayload);
-          const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(opt.characterKey);
+          const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(activeOpt.characterKey);
           std::string worldName = jsonStringField(packet.payloadJson, "world").value_or("UNKNOWN");
           auto readiness = readBootstrapReadinessWithFallback(*mysql, characterKey, worldName, sessionUuid, worldName);
           if(readiness.ready) {
@@ -3838,7 +3906,7 @@ int main(int argc, char** argv) {
 
       if(mysql && opt.directDb && shouldSendLiveWorldSnapshot(liveWorldSnapshotState, packet, packetAccepted, direct)) {
         try {
-          const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(opt.characterKey);
+          const std::string characterKey = jsonStringField(packet.payloadJson, "character_key").value_or(activeOpt.characterKey);
           std::string worldName = jsonStringField(packet.payloadJson, "world").value_or("UNKNOWN");
           auto readiness = readBootstrapReadinessWithFallback(*mysql, characterKey, worldName, sessionUuid, worldName);
           if(readiness.ready) {
@@ -3930,10 +3998,6 @@ int main(int argc, char** argv) {
     return 2;
   }
 }
-
-
-
-
 
 
 

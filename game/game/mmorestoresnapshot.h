@@ -1543,7 +1543,7 @@ inline Result loadAndValidateBootstrapSnapshot(std::string_view path,
     return result;
     }
   if(!result.characterMatches) {
-    Detail::fail(result, "snapshot character_key does not match PC_HERO");
+    Detail::fail(result, "snapshot character_key does not match expected MMO character key");
     return result;
     }
   if(!result.serverReady) {
@@ -1584,7 +1584,7 @@ inline Result loadAndValidate(std::string_view path,
     return result;
     }
   if(!result.characterMatches) {
-    Detail::fail(result, "snapshot character_key does not match PC_HERO");
+    Detail::fail(result, "snapshot character_key does not match expected MMO character key");
     return result;
     }
   if(!result.sessionMatches) {
@@ -1602,6 +1602,7 @@ inline Result loadAndValidate(std::string_view path,
 }
 
 } // namespace Mmo::RestoreSnapshot
+
 
 
 

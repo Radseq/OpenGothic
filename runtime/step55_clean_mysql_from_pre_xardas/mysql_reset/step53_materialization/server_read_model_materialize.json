@@ -95,7 +95,7 @@
     "mmo_server_waypoint_read_model",
     "mmo_server_waypoint_edge_read_model"
   ],
-  "sql": "/home/radseq/Desktop/OpenGothic/server/sql/step53_server_read_model_v1.sql",
+  "sql": "C:\\Users\\admin\\Desktop\\OpenGothic\\server\\sql\\step53_server_read_model_v1.sql",
   "status": "materialized",
   "step": 53
 }

@@ -72,6 +72,9 @@ class CommandLine {
     bool                mmoRequireDbSaveCheckpointRestore() const { return mmoRequireDbSaveCheckpointRestoreState; }
     std::string_view    mmoDbBootstrapWorld() const { return mmoDbBootstrapWorldValue; }
     std::string_view    mmoActionSessionKey() const { return mmoActionSession; }
+    std::string_view    mmoCharacterKey() const { return mmoCharacterKeyValue; }
+    std::string_view    mmoCharacterDisplayName() const { return mmoCharacterDisplayNameValue; }
+    void                setMmoCharacterIdentity(std::string_view key, std::string_view displayName) const;
     uint64_t            mmoActionQueueCapacity() const { return mmoActionQueueCap; }
     bool                mmoActionStrictOverflow() const { return mmoActionStrictOverflowState; }
     uint64_t            mmoActionCheckpointIntervalMs() const { return mmoActionCheckpointInterval; }
@@ -109,13 +112,15 @@ class CommandLine {
     bool                mmoDbContinueWithoutNativeSaveState = false;
     bool                mmoRequireDbSaveCheckpointRestoreState = false;
     std::string         mmoDbBootstrapWorldValue;
-    std::string         mmoActionSession = "local-dev";
+    std::string         mmoActionSession = "local-dev-PC_HERO_TEST";
+    mutable std::string mmoCharacterKeyValue = "PC_HERO";
+    mutable std::string mmoCharacterDisplayNameValue = "Ja";
     uint64_t            mmoActionQueueCap = 4096;
     bool                mmoActionStrictOverflowState = false;
-    uint64_t            mmoActionCheckpointInterval = 0;
-    float               mmoActionCheckpointMinDistanceWorld = 0.f;
-    float               mmoActionCheckpointMinYaw = 0.f;
-    uint64_t            mmoActionCheckpointForceInterval = 0;
+    uint64_t            mmoActionCheckpointInterval = 5000;
+    float               mmoActionCheckpointMinDistanceWorld = 50.f;
+    float               mmoActionCheckpointMinYaw = 5.f;
+    uint64_t            mmoActionCheckpointForceInterval = 30000;
     uint64_t            mmoActionMovementProposalInterval = 0;
     float               mmoActionMovementProposalMinDistanceWorld = 0.f;
     float               mmoActionMovementProposalMinYaw = 0.f;
@@ -140,3 +145,5 @@ class CommandLine {
     bool                forceG2NR    = false;
     uint32_t            aaPresetId = 0;
   };
+
+
