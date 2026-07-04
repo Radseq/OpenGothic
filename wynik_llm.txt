@@ -1,5 +1,5 @@
 # OpenGothic docs/llm snapshot
-# Generated: 2026-07-04T16:05:50
+# Generated: 2026-07-04T19:43:39
 # Project root: C:\Users\admin\Desktop\OpenGothic
 # MAX_BYTES per file: 1500000
 
@@ -3099,6 +3099,698 @@ Minimal server command:
 ```
 
 
+===== docs\llm\ai\37-mmo-server-authority-roadmap-step126.md =====
+# Step126 - MMO server authority roadmap and engineering rules
+
+Purpose: preserve the current architectural decision before starting the real
+MMO server work. The client is being reduced to renderer, input, UI,
+prediction, interpolation and snapshot/delta materialization. The server must
+become the gameplay authority.
+
+Durable engineering rules:
+- Use C++23.
+- Prefer `constexpr` for constants and pure compile-time helpers when it
+  improves correctness or performance without making the code obscure.
+- Runtime performance is a first-class goal. Treat server tick, validation,
+  replication and DB-bound write paths as hot or latency-sensitive until proven
+  otherwise.
+- Keep code safe, explicit, readable and production-shaped.
+- Favor small functions, narrow modules and separation of concerns.
+- Design server domains so one implementation can later be replaced without
+  rewriting unrelated systems.
+- Preserve native single-player behavior unless an explicit MMO/server mode is
+  active.
+- Treat the current database as a temporary bridge. It is allowed to support
+  development authority and restore parity, but it is not the final MMO
+  persistence design and must be isolated behind replaceable server modules.
+
+Authority boundary:
+- Client keeps camera, audio, particles, render state, focus/highlight, UI,
+  local prediction, animation pose and snapshot materialization.
+- Server owns gameplay decisions, validation, accepted mutations, world time,
+  routine scheduling, movement authority, item ownership, combat resolution,
+  dialog/quest/script effects, interactive/mobsi effects, triggers, movers,
+  spawn/despawn and replication deltas.
+- DB stores durable facts, event journal, current projections and checkpoints.
+  It is not a dump of transient client engine state.
+
+Do not promote these client internals into production MMO truth:
+- raw pointers;
+- raw `AiQueue`, fight queues or move algorithm internals;
+- animation frame/pose;
+- audio, render, camera, particles, focus or menu state;
+- local physics internals beyond data needed for server validation;
+- debug SQLite captures.
+
+Primary gameplay logic to move server-side:
+1. World clock, sleep/rest effects, delayed timers and routine scheduling.
+2. NPC AI, routines, waypoint/freepoint resolution and pathing.
+3. Perception, detection, aggro, crime reaction and target selection.
+4. Movement validation, authoritative correction and reconciliation.
+5. Inventory, equipment, containers, trade and item ownership.
+6. Combat, spells, damage, death, XP and loot.
+7. Dialog, quest, script-state mutations and one-shot rewards.
+8. Interactives/mobsi, bookstands, locks, doors, beds and workbenches.
+9. Triggers, movers, delayed trigger queues and mechanism state.
+10. World item lifecycle, respawn, spawn/despawn and interest streaming.
+11. Chapter overlays, teleport and world transitions.
+
+Near-term priority:
+- Close existing authority gaps before adding large AI systems:
+  client rollback/correction after NACK, movement correction,
+  inventory/equipment ACK deltas, container authority, interactive NACK
+  rollback and combat/resource correction.
+- Replace JSON snapshot hot paths with typed live deltas:
+  `ItemSpawnDelta`, `ItemRemoveDelta`, `NpcTransformDelta`, `NpcStateDelta`,
+  `InteractiveStateDelta`, `MoverStateDelta`, `CharacterStatsDelta`,
+  `InventoryDelta` and `QuestDialogDelta`.
+- Continue the Xardas/DB Continue line by making server-owned world clock,
+  routine bootstrap, current waypoint/target waypoint and NPC transform/routine
+  deltas reliable before attempting full combat AI.
+
+Suggested server module direction:
+- `world_clock`: authoritative time, sleep/rest, scheduled world timers.
+- `entity_identity`: stable IDs for characters, NPCs, VOBs, items and worlds.
+- `movement_authority`: proposal validation, correction generation and
+  reconciliation metadata.
+- `inventory_authority`: owner-aware item transactions and equipment rules.
+- `npc_runtime`: routine, navigation, perception and combat state in RAM.
+- `routine_engine`: time-based TA/routine resolution without raw client queues.
+- `navigation`: waypoint/freepoint graph loading and path following.
+- `interactive_authority`: mobsi/container/door/bookstand validation and
+  effects.
+- `trigger_scheduler`: delayed trigger queue and mover state changes.
+- `combat_authority`: hit validation, resource consumption, damage, death, XP
+  and loot.
+- `replication`: interest windows and typed deltas.
+- `persistence`: event journal, projections, checkpoints and idempotency.
+  The current DB implementation is intentionally bridge-shaped and should be
+  replaceable when the production schema/write model is redesigned.
+
+Important design principle:
+- If a piece of data is needed only to continue an animation or local feel, it
+  belongs on the client.
+- If it decides who owns an item, whether an NPC reacts, whether damage happens,
+  whether a script flag changes, or whether the world state mutates, it belongs
+  on the server and must have a durable event/projection path.
+
+Immediate next implementation candidates:
+1. Add a small C++ server module skeleton for authoritative world tick and
+   domain services, keeping the current UDP server entry point thin.
+2. Introduce typed movement correction and inventory/equipment delta packets on
+   the live path, using existing DB correction/projection rows as bridge data.
+3. Add server-owned NPC routine target reconstruction from world time plus
+   waypoint/freepoint identity, without persisting raw `AiQueue`.
+4. Start extracting validation code into narrow services so future server ticks
+   do not grow inside `mmo_udp_server.cpp`.
+
+
+===== docs\llm\ai\38-mmo-server-world-clock-module-step127.md =====
+# Step127 - MMO server world clock module
+
+Goal: start turning the monolithic C++ UDP server into server-authoritative
+domain modules without changing protocol behavior.
+
+Implemented:
+- Added `server/cpp/mmo_server_world_clock.h`.
+- Added `server/cpp/mmo_server_world_clock.cpp`.
+- Registered the new source file in `server/cpp/CMakeLists.txt`.
+- Moved world-clock bootstrap snapshot SQL construction out of
+  `mmo_udp_server.cpp` into `Mmo::Server::buildWorldClockSnapshotQuery`.
+- Added small C++23-friendly world-clock primitives:
+  `WorldClockMinuteMs`, `WorldClockHourMs`, `WorldClockDayMs`,
+  `WorldClockTime` and `advanceWorldClock`.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- No runtime authority change yet.
+- Bootstrap snapshots still expose the same `world_clock` JSON object.
+
+Why this matters:
+- `world_clock` is the first server gameplay domain with its own module.
+- Future work can attach authoritative tick, sleep/rest effects, delayed timers
+  and routine scheduling here instead of growing `mmo_udp_server.cpp`.
+- This follows the production direction: small modules, clear ownership and
+  replaceable domain services.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds.
+- `RelWithDebInfo` compilation reached link, but the final executable was locked
+  by a running `mmo_udp_server.exe` process.
+
+
+===== docs\llm\ai\39-mmo-server-movement-authority-module-step128.md =====
+# Step128 - MMO server movement authority module
+
+Goal: continue splitting the C++ UDP server into narrow authority modules by
+moving movement proposal validation out of `mmo_udp_server.cpp`.
+
+Implemented:
+- Added `server/cpp/mmo_server_movement_authority.h`.
+- Added `server/cpp/mmo_server_movement_authority.cpp`.
+- Registered the new source file in `server/cpp/CMakeLists.txt`.
+- Moved movement validation thresholds and pure validation math into
+  `Mmo::Server::validateMovementProposal`.
+- Kept DB checkpoint writes, packet parsing, correction recording and ACK/NACK
+  wiring in `mmo_udp_server.cpp`.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- Accepted/rejected movement decisions use the same thresholds as before:
+  coordinate bounds, delta window, max step distance, horizontal speed, vertical
+  speed and fall tolerance.
+- Rejection and stale-small-delta logs preserve the same fields.
+
+Why this matters:
+- Movement authority is now a reusable server domain service instead of inline
+  UDP handler code.
+- Future correction/reconciliation work can expand this module without growing
+  the packet loop.
+- This is the natural home for later world-bounds checks, simplified collision,
+  anti-teleport policy and typed movement correction deltas.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds.
+
+
+===== docs\llm\ai\40-mmo-server-persistence-bridge-module-step129.md =====
+# Step129 - MMO server persistence bridge module
+
+Goal: acknowledge that the current database layer is not the final MMO
+persistence design and start isolating it behind a replaceable server module.
+
+Important rule:
+- The current MySQL schema, stored procedures and read-model bridge are
+  development authority infrastructure. They are useful for current parity work,
+  but they are not the final production MMO database.
+- Future work should avoid binding gameplay authority modules directly to this
+  schema shape.
+
+Implemented:
+- Added `server/cpp/mmo_server_persistence.h`.
+- Added `server/cpp/mmo_server_persistence.cpp`.
+- Registered the new source file in `server/cpp/CMakeLists.txt`.
+- Moved DB bridge constants out of `mmo_udp_server.cpp`:
+  `DbBridgeVersion` and `MysqlSessionPreamble`.
+- Moved basic SQL formatting helpers out of `mmo_udp_server.cpp`:
+  `sqlLiteral`, `sqlJson` and `sqlBool`.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- No stored procedure change.
+- Existing direct-DB bridge behavior is preserved.
+
+Why this matters:
+- The server now has an explicit persistence boundary.
+- When the database is redesigned, gameplay modules such as `world_clock` and
+  `movement_authority` should not need to be rewritten around old bridge SQL.
+- Future extraction should continue in this direction: SQL/procedure calls and
+  read-model quirks belong in persistence adapters, while domain modules should
+  expose typed requests/results.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds.
+
+
+===== docs\llm\ai\41-mmo-server-persistence-cli-adapter-step130.md =====
+# Step130 - MMO server persistence CLI adapter
+
+Goal: move MySQL CLI execution details out of the UDP server and deeper into
+the replaceable persistence bridge.
+
+Implemented:
+- `mmo_server_persistence` now owns:
+  - MySQL URL parsing via `parseMysqlUrl`;
+  - MySQL command construction;
+  - shell quoting;
+  - `MYSQL_PWD` environment setup;
+  - process pipe execution;
+  - `runMysql`.
+- `mmo_udp_server.cpp` no longer knows how to invoke the `mysql` executable.
+  It still calls `runMysql` while the current direct-DB bridge exists.
+- Windows environment lookup now uses `_dupenv_s` inside the persistence module,
+  removing the previous MSVC `getenv` warning.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- No stored procedure change.
+- The server still uses the current MySQL bridge, but the bridge is now more
+  isolated from gameplay and packet handling code.
+
+Why this matters:
+- The current database is temporary and expected to be redesigned. This step
+  reduces the amount of server code coupled to MySQL CLI mechanics.
+- Future persistence work should continue moving direct SQL/procedure calls into
+  adapter functions with typed request/result structs.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds without the previous `getenv` warning.
+
+
+===== docs\llm\ai\42-mmo-server-persistence-result-adapter-step131.md =====
+# Step131 - MMO server persistence result adapter
+
+Goal: keep moving MySQL bridge mechanics out of `mmo_udp_server.cpp` so future
+database replacement can happen behind a narrower adapter boundary.
+
+Implemented:
+- `mmo_server_persistence` now owns:
+  - `splitMysqlLastRow`;
+  - `mysqlSingleField`;
+  - `mysqlSingleFieldWithDiagnostic`;
+  - `mysqlJsonOr`;
+  - `mysqlJsonOrWithDiagnostic`;
+  - `concatenateJsonArrays`.
+- `mmo_udp_server.cpp` still builds many bridge SQL statements, but no longer
+  parses raw MySQL CLI rows or applies JSON fallback behavior locally.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- No stored procedure change.
+- Snapshot JSON output should remain unchanged.
+
+Why this matters:
+- MySQL CLI output shape is now persistence-adapter knowledge, not packet-loop
+  knowledge.
+- The next persistence extraction should move whole procedure/query operations
+  into typed functions instead of only helper utilities.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds.
+
+
+===== docs\llm\ai\43-mmo-server-persistence-session-adapter-step132.md =====
+# Step132 - MMO server persistence session adapter
+
+Goal: move the first full DB operation group out of `mmo_udp_server.cpp` and
+behind the persistence bridge.
+
+Implemented:
+- `mmo_server_persistence` now owns:
+  - `dbLogin`;
+  - `isActiveDbSession`;
+  - `ensureActiveDbSession`;
+  - the temporary bridge helper that auto-creates a missing DB character from
+    the `PC_HERO` template.
+- `mmo_udp_server.cpp` now asks persistence for login/session recovery instead
+  of building those SQL statements locally.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- The same bridge behavior remains: missing selected characters can be created
+  from the `PC_HERO` template for local MMO dev flow.
+
+Why this matters:
+- Session lifecycle is now a persistence adapter responsibility.
+- This is the first extraction of a whole DB operation group, not just generic
+  SQL/string helpers.
+- Future DB redesign should replace this implementation behind the same server
+  boundary rather than spreading new session SQL through packet handling.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds.
+
+
+===== docs\llm\ai\44-mmo-server-persistence-authority-ops-step133.md =====
+# Step133 - MMO server persistence authority operations
+
+Goal: move larger DB operation groups out of `mmo_udp_server.cpp`, using typed
+request structs so the current temporary database remains behind the persistence
+adapter.
+
+Implemented:
+- Added typed persistence records:
+  - `OutboxActionRecord`;
+  - `CharacterCheckpointRecord`;
+  - `SaveCheckpointManifestRecord`;
+  - `ClientActionCorrectionRecord`.
+- Added persistence operations:
+  - `enqueueOutboxAction`;
+  - `recordCharacterCheckpoint`;
+  - `createSaveCheckpointManifest`;
+  - `recordClientActionCorrection`;
+  - `readBootstrapReadinessWithFallback`.
+- Moved bootstrap readiness/read-model counting and live table fallback out of
+  `mmo_udp_server.cpp`.
+- Moved SQL/procedure construction for outbox enqueue, character checkpoints,
+  save checkpoint manifests and client action corrections out of
+  `mmo_udp_server.cpp`.
+- Removed stale local UDP helpers that became unused after the extraction.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- Existing MySQL procedures and read-model bridge remain in use.
+- Packet parsing still lives in the UDP server, but SQL construction for these
+  operations now belongs to persistence.
+
+Why this matters:
+- This is a larger move from "helper extraction" to actual operation-boundary
+  extraction.
+- The current database is expected to be rewritten. These typed records are a
+  stepping stone toward replacing MySQL procedure calls with a production
+  persistence API without touching movement/world-clock/domain code.
+- Future work should continue with high-value operation groups: bootstrap
+  snapshot building, world/NPC identity resolution, item transactions and
+  script/quest/combat write paths.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds.
+
+
+===== docs\llm\ai\45-mmo-server-persistence-direct-ops-step134.md =====
+# Step134 - MMO server persistence direct operation expansion
+
+Goal: continue the larger persistence extraction so `mmo_udp_server.cpp` routes
+packets while the temporary MySQL bridge owns DB operation details.
+
+Implemented:
+- Added typed persistence records for direct authority writes:
+  - `OutboxActionRecord`;
+  - `CharacterCheckpointRecord`;
+  - `SaveCheckpointManifestRecord`;
+  - `ClientActionCorrectionRecord`.
+- Added persistence operation functions:
+  - `enqueueOutboxAction`;
+  - `recordCharacterCheckpoint`;
+  - `createSaveCheckpointManifest`;
+  - `recordClientActionCorrection`.
+- Moved bootstrap readiness read-model counting and live table fallback into
+  `readBootstrapReadinessWithFallback`.
+- `mmo_udp_server.cpp` no longer constructs SQL for:
+  - outbox enqueue;
+  - character checkpoint;
+  - movement checkpoint;
+  - save checkpoint manifest;
+  - client correction;
+  - bootstrap readiness checks.
+- Added explicit `<initializer_list>` include for the persistence header.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- Existing MySQL procedures are still used.
+- UDP packet parsing and semantic routing remain in `mmo_udp_server.cpp`.
+
+Why this matters:
+- This is a larger extraction of whole DB operation groups, not just helper
+  movement.
+- The current DB remains a temporary bridge. More SQL is now isolated behind
+  typed persistence functions, making the eventual DB rewrite less invasive.
+
+Next strong candidates:
+- Move bootstrap snapshot building into a typed persistence snapshot builder.
+- Split world/NPC identity resolution from the UDP packet loop.
+- Move item transaction SQL behind owner-aware persistence/domain records.
+- Move script/quest/combat direct write paths behind typed persistence records.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds.
+
+
+===== docs\llm\ai\46-mmo-server-persistence-bootstrap-slices-step135.md =====
+# Step135 - MMO server persistence bootstrap slice extraction
+
+Goal: continue isolating the temporary MySQL bridge from the UDP server before
+the eventual database rewrite.
+
+Implemented:
+- Moved DB-save-checkpoint bootstrap snapshot restore into
+  `buildSaveCheckpointBootstrapSnapshotJson`.
+- Added `NpcAuthoritySnapshotSlices` as a typed persistence DTO for bootstrap
+  NPC authority slices:
+  - routine state;
+  - AI state;
+  - path state;
+  - fight state.
+- Added `readNpcAuthoritySnapshotSlices` so live bootstrap and checkpoint
+  restore use the same persistence boundary for NPC authority reads.
+- Added private persistence JSON field helpers needed to patch checkpoint
+  snapshots without depending on UDP-local JSON helpers.
+- Removed duplicated NPC authority SQL construction from `mmo_udp_server.cpp`.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- Existing MySQL procedures and current tables are still used.
+- `mmo_udp_server.cpp` still builds most of the live bootstrap envelope, but
+  save-checkpoint restore and NPC authority slices now come from persistence.
+
+Why this matters:
+- Bootstrap state is one of the heaviest places where the server was coupled to
+  the current database shape.
+- The code now has a small typed contract for NPC authority bootstrap slices.
+  A future persistence backend can keep this contract while replacing MySQL SQL.
+- This follows the rule that the current database is temporary and should not
+  spread deeper into server-authoritative gameplay code.
+
+Next strong candidates:
+- Move the remaining live bootstrap snapshot sections behind a persistence
+  snapshot builder.
+- Split item/world state bootstrap reads into typed slice records.
+- Move quest/script direct writes behind typed persistence operations.
+- Extract identity/session/world lookup from direct apply paths.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds.
+
+
+===== docs\llm\ai\47-mmo-server-persistence-bootstrap-character-world-slices-step136.md =====
+# Step136 - MMO server persistence bootstrap character and world slices
+
+Goal: keep shrinking `mmo_udp_server.cpp` into transport/orchestration code
+while the temporary MySQL bridge owns bootstrap read details.
+
+Implemented:
+- Added `CharacterBootstrapSnapshotSlices` for character-owned bootstrap data:
+  - character list;
+  - selected character;
+  - inventory;
+  - equipment;
+  - known dialogs;
+  - quests;
+  - script integer state.
+- Added `WorldBootstrapSnapshotSlices` for simple world/session bootstrap data:
+  - world item deltas;
+  - world clock;
+  - interactive state;
+  - NPC lifecycle state;
+  - recent events;
+  - mover state;
+  - trigger queue;
+  - world transition state;
+  - client corrections;
+  - save checkpoint manifest.
+- Added persistence readers:
+  - `readCharacterBootstrapSnapshotSlices`;
+  - `readWorldBootstrapSnapshotSlices`.
+- Removed the corresponding SQL construction blocks from `mmo_udp_server.cpp`.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- Bootstrap envelope assembly still happens in `mmo_udp_server.cpp`.
+- The biggest remaining bootstrap SQL in UDP is position-centered state:
+  active world items and nearby NPC/dialog/waypoint windows.
+
+Why this matters:
+- Character and simple world snapshot reads now sit behind typed persistence
+  DTOs. Future DB replacement can preserve these contracts while replacing SQL.
+- This keeps the current database explicitly temporary and prevents it from
+  becoming the shape of future server-authoritative gameplay modules.
+
+Next strong candidates:
+- Extract active world item bootstrap as a typed persistence/domain slice.
+- Extract nearby NPC/dialog/waypoint bootstrap as a typed persistence/domain
+  slice with explicit center/radius input.
+- Start moving one gameplay authority from client to server, preferably item
+  pickup/drop or interactive use, because those already have persistence paths.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds.
+
+
+===== docs\llm\ai\48-mmo-server-persistence-positioned-bootstrap-slices-step137.md =====
+# Step137 - MMO server persistence positioned bootstrap slices
+
+Goal: remove the last large position-centered bootstrap SQL block from
+`mmo_udp_server.cpp` and keep current MySQL details behind persistence.
+
+Implemented:
+- Added `PositionedBootstrapSnapshotSlices`:
+  - active world items;
+  - nearby NPCs;
+  - nearby NPC known dialogs;
+  - nearby waypoints.
+- Added `readPositionedBootstrapSnapshotSlices`.
+- Moved active world item source merging from UDP to persistence:
+  - `world_inventory`;
+  - `world_entity_state`;
+  - world inventory read model.
+- Moved nearby NPC/dialog/waypoint window queries from UDP to persistence.
+- Moved diagnostic logging for active item and nearby NPC bootstrap windows into
+  persistence.
+- Added private persistence helpers for:
+  - active hero bootstrap subquery;
+  - ordered JSON array wrapping for source queries.
+- Removed now-unused JSON/MySQL helper imports from `mmo_udp_server.cpp`.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- Bootstrap still sends the same snapshot sections.
+- `mmo_udp_server.cpp` now asks persistence for character, world, positioned,
+  and NPC authority slices, then only assembles the outbound snapshot envelope.
+
+Why this matters:
+- The largest bootstrap SQL coupling is now outside the UDP transport layer.
+- Future DB replacement can preserve typed slice functions and rewrite only the
+  persistence implementation.
+- This keeps the current database as an adapter instead of letting its table
+  layout define server gameplay code.
+
+Next strong candidates:
+- Move remaining direct DB helper paths in `mmo_udp_server.cpp` behind typed
+  persistence operations.
+- Start server-authoritative gameplay migration with item pickup/drop or
+  interactive use.
+- Split persistence implementation into smaller files once the API stabilizes:
+  session, bootstrap, authority writes, direct apply.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds.
+
+
+===== docs\llm\ai\49-mmo-server-persistence-direct-apply-simple-ops-step138.md =====
+# Step138 - MMO server persistence direct apply simple operations
+
+Goal: continue shrinking `mmo_udp_server.cpp` by moving direct DB procedure
+calls that do not need item/NPC resolver materialization behind typed
+persistence records.
+
+Implemented:
+- Added typed persistence records and functions for:
+  - script int updates;
+  - quest updates;
+  - known dialog updates;
+  - progression adjustment;
+  - experience reward;
+  - character damage;
+  - character resource deltas;
+  - trigger events;
+  - mover state;
+  - NPC routine state;
+  - NPC AI state;
+  - NPC path state;
+  - NPC fight state;
+  - trigger queue state;
+  - world transition state;
+  - client correction acknowledgements;
+  - interactive use;
+  - interactive state updates;
+  - NPC weapon state.
+- `mmo_udp_server.cpp` now parses packet payloads into typed records for those
+  actions and calls persistence instead of assembling `CALL ...` SQL directly.
+- Added persistence-side SQL formatting for nullable doubles used by NPC path
+  state positions.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- Existing stored procedures are still used.
+- Item/inventory direct apply and observed NPC/world item materialization remain
+  in `mmo_udp_server.cpp` for now because they depend on resolver and fallback
+  materialization logic.
+
+Why this matters:
+- A large part of direct apply is now a typed persistence boundary.
+- This makes the current database easier to replace later without touching UDP
+  packet handling for script/story/progression/world-state observations.
+- The remaining direct DB work is now clearer: item transactions, entity
+  identity resolution, materialization, and combat writes with resolver fallback.
+
+Next strong candidates:
+- Extract item transaction operations behind typed persistence records:
+  pickup, remove, equip, unequip, drop, loot, grant fallback.
+- Extract world NPC/item identity resolution and observed materialization into
+  a domain/persistence adapter.
+- Start first true server-authoritative gameplay migration around item pickup
+  once item resolution is behind a stable API.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds.
+
+
+===== docs\llm\ai\50-mmo-server-persistence-item-ops-step139.md =====
+# Step139 - MMO server persistence item operation extraction
+
+Goal: move item/inventory direct apply stored procedure calls out of
+`mmo_udp_server.cpp` while leaving resolver/materialization logic untouched for
+a later domain extraction.
+
+Implemented:
+- Added typed persistence records and functions for:
+  - `transferCharacterItem`;
+  - `lootWorldInventoryItem`;
+  - `grantCharacterItemBySymbol`;
+  - `pickupWorldItem`;
+  - `removeWorldItem`;
+  - `equipCharacterItem`;
+  - `unequipCharacterItem`;
+  - `dropCharacterItem`.
+- Added typed persistence records and functions for resolved combat mutations:
+  - `applyWorldEntityDamage`;
+  - `markNpcDead`.
+- Moved item operation `CALL mmo_*` SQL formatting from `mmo_udp_server.cpp`
+  into `mmo_server_persistence.cpp`.
+- Added typed nullable drop position fields using `std::optional<double>`.
+- Removed the now-dead final `runMysql(sql)` path from `applyDirectDb`; direct
+  apply branches now return after calling typed persistence operations.
+
+Current behavior:
+- No protocol change.
+- No DB schema change.
+- Existing MySQL stored procedures remain the bridge.
+- `mmo_udp_server.cpp` still owns item/NPC resolver and observed materialization
+  SQL. That logic is coupled to payload parsing and fallback behavior and should
+  be extracted as a separate domain adapter.
+
+Why this matters:
+- Normal item mutations are now behind a typed persistence boundary.
+- UDP transport is much closer to orchestration only.
+- The remaining SQL in UDP is now mostly identity/materialization support, not
+  direct gameplay mutation calls.
+
+Next strong candidates:
+- Extract observed NPC/world item materialization into a persistence/domain
+  adapter.
+- Extract item and NPC resolver queries behind stable APIs.
+- Start the first true server-authoritative item pickup/drop validation once
+  resolver/materialization is behind a clean boundary.
+
+Verification:
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+  succeeds without warnings.
+
+
 ===== docs\llm\README.md =====
 # OpenGothic MMO AI Context
 
@@ -3117,12 +3809,45 @@ Read these files by default, in order:
 11. `ai/25-mmo-menu-in-session-db-continue-step113.md`
 12. `ai/26-mmo-db-mover-materialization-step114.md`
 13. `ai/27-mmo-db-world-clock-routine-bootstrap-step115.md`
+14. `ai/28-mmo-db-server-ai-authority-foundation-step116.md`
+15. `ai/29-mmo-observed-npc-authority-feed-step117.md`
+16. `ai/30-mmo-server-bound-fresh-new-game-step118.md`
+17. `ai/31-mmo-db-continue-npc-routine-wakeup-step119.md`
+18. `ai/32-mmo-db-continue-npc-authority-apply-step120.md`
+19. `ai/33-mmo-server-parity-state-bridge-step121.md`
+20. `ai/33-mmo-npc-observation-failopen-item-refresh-guard-step122.md`
+21. `ai/34-mmo-clean-script-applies-step122-step123.md`
+22. `ai/35-mmo-menu-db-character-identity-step124.md`
+23. `ai/36-mmo-default-character-menu-step125.md`
+24. `ai/37-mmo-server-authority-roadmap-step126.md`
+25. `ai/38-mmo-server-world-clock-module-step127.md`
+26. `ai/39-mmo-server-movement-authority-module-step128.md`
+27. `ai/40-mmo-server-persistence-bridge-module-step129.md`
+28. `ai/41-mmo-server-persistence-cli-adapter-step130.md`
+29. `ai/42-mmo-server-persistence-result-adapter-step131.md`
+30. `ai/43-mmo-server-persistence-session-adapter-step132.md`
+31. `ai/44-mmo-server-persistence-authority-ops-step133.md`
+32. `ai/45-mmo-server-persistence-direct-ops-step134.md`
+33. `ai/46-mmo-server-persistence-bootstrap-slices-step135.md`
+34. `ai/47-mmo-server-persistence-bootstrap-character-world-slices-step136.md`
+35. `ai/48-mmo-server-persistence-positioned-bootstrap-slices-step137.md`
+36. `ai/49-mmo-server-persistence-direct-apply-simple-ops-step138.md`
+37. `ai/50-mmo-server-persistence-item-ops-step139.md`
 
 Do not load old numbered step files during normal work. They are archaeology.
 Keep their hard facts only when they became durable project rules below.
 
-Target: Gothic II NotR first, later Gothic 1/Gothic 2 vanilla. C++23. Prefer
-safe, explicit, high-performance code. Old single-player behavior must remain
-unchanged unless an explicit MMO/server flag is passed.
+Target: Gothic II NotR first, later Gothic 1/Gothic 2 vanilla.
+
+Durable engineering requirements:
+- C++23.
+- Use `constexpr` where it is meaningful and keeps code clear.
+- Maximum runtime performance is a priority, especially on server hot paths.
+- Code must be safe, explicit, readable and production-shaped.
+- Build a solid base for a future Gothic MMO and server-authoritative gameplay.
+- Write senior-level C++: relatively small functions, clear module boundaries,
+  separation of concerns and replaceable components.
+- Old single-player behavior must remain unchanged unless an explicit
+  MMO/server flag is passed.
 
 

@@ -4,6 +4,9 @@ project(OpenGothicMmoServerCpp LANGUAGES CXX)
 
 add_executable(mmo_udp_server
   mmo_udp_server.cpp
+  mmo_server_movement_authority.cpp
+  mmo_server_persistence.cpp
+  mmo_server_world_clock.cpp
 )
 
 target_compile_features(mmo_udp_server PRIVATE cxx_std_23)

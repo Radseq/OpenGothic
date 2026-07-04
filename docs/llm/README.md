@@ -15,10 +15,43 @@ Read these files by default, in order:
 11. `ai/25-mmo-menu-in-session-db-continue-step113.md`
 12. `ai/26-mmo-db-mover-materialization-step114.md`
 13. `ai/27-mmo-db-world-clock-routine-bootstrap-step115.md`
+14. `ai/28-mmo-db-server-ai-authority-foundation-step116.md`
+15. `ai/29-mmo-observed-npc-authority-feed-step117.md`
+16. `ai/30-mmo-server-bound-fresh-new-game-step118.md`
+17. `ai/31-mmo-db-continue-npc-routine-wakeup-step119.md`
+18. `ai/32-mmo-db-continue-npc-authority-apply-step120.md`
+19. `ai/33-mmo-server-parity-state-bridge-step121.md`
+20. `ai/33-mmo-npc-observation-failopen-item-refresh-guard-step122.md`
+21. `ai/34-mmo-clean-script-applies-step122-step123.md`
+22. `ai/35-mmo-menu-db-character-identity-step124.md`
+23. `ai/36-mmo-default-character-menu-step125.md`
+24. `ai/37-mmo-server-authority-roadmap-step126.md`
+25. `ai/38-mmo-server-world-clock-module-step127.md`
+26. `ai/39-mmo-server-movement-authority-module-step128.md`
+27. `ai/40-mmo-server-persistence-bridge-module-step129.md`
+28. `ai/41-mmo-server-persistence-cli-adapter-step130.md`
+29. `ai/42-mmo-server-persistence-result-adapter-step131.md`
+30. `ai/43-mmo-server-persistence-session-adapter-step132.md`
+31. `ai/44-mmo-server-persistence-authority-ops-step133.md`
+32. `ai/45-mmo-server-persistence-direct-ops-step134.md`
+33. `ai/46-mmo-server-persistence-bootstrap-slices-step135.md`
+34. `ai/47-mmo-server-persistence-bootstrap-character-world-slices-step136.md`
+35. `ai/48-mmo-server-persistence-positioned-bootstrap-slices-step137.md`
+36. `ai/49-mmo-server-persistence-direct-apply-simple-ops-step138.md`
+37. `ai/50-mmo-server-persistence-item-ops-step139.md`
 
 Do not load old numbered step files during normal work. They are archaeology.
 Keep their hard facts only when they became durable project rules below.
 
-Target: Gothic II NotR first, later Gothic 1/Gothic 2 vanilla. C++23. Prefer
-safe, explicit, high-performance code. Old single-player behavior must remain
-unchanged unless an explicit MMO/server flag is passed.
+Target: Gothic II NotR first, later Gothic 1/Gothic 2 vanilla.
+
+Durable engineering requirements:
+- C++23.
+- Use `constexpr` where it is meaningful and keeps code clear.
+- Maximum runtime performance is a priority, especially on server hot paths.
+- Code must be safe, explicit, readable and production-shaped.
+- Build a solid base for a future Gothic MMO and server-authoritative gameplay.
+- Write senior-level C++: relatively small functions, clear module boundaries,
+  separation of concerns and replaceable components.
+- Old single-player behavior must remain unchanged unless an explicit
+  MMO/server flag is passed.
