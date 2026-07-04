@@ -3315,6 +3315,9 @@ constexpr std::int64_t InvalidGothicPersistentId = 4294967295LL;
     sql += "CALL mmo_ack_client_action_correction(UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1),";
     sql += sqlLiteral(actionKind) + "," + std::to_string(localSequence) + ",";
     sql += std::to_string(tick) + "," + sqlJson(dbPayload) + "," + sqlLiteral(packet.idempotencyKey) + ",@row_after);";
+  } else if(packet.kind == Mmo::SemanticActionKind::SplitItemStack ||
+            packet.kind == Mmo::SemanticActionKind::MergeItemStack) {
+    return {true, true, false, "stack_layout_noop"};
   } else if(packet.kind == Mmo::SemanticActionKind::TransferCharacterItem) {
     const auto targetCharacter = optionalJsonString(payload, "target_character_key");
     const auto sourceActor = optionalJsonString(payload, "source_actor_key");

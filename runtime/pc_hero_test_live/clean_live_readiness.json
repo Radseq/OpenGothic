@@ -2,13 +2,13 @@
   "character": {
     "character_key": "PC_HERO",
     "character_name": "Ja",
-    "character_uuid": "e4e619a2-7588-11f1-b6fd-30560f155bba",
+    "character_uuid": "f0271df4-770b-11f1-8d6a-30560f155bba",
     "equipment_count": 0,
     "found": true,
     "inventory_count": 0
   },
   "character_key": "PC_HERO",
-  "checked_at": "2026-07-01T20:10:31.825697+00:00",
+  "checked_at": "2026-07-03T18:21:06.559474+00:00",
   "collation": {
     "mismatch_count": 1,
     "mismatches_sample": [
@@ -31,20 +31,20 @@
       "  -mmo-action-queue-capacity 8192"
     ],
     "receiver": [
-      "python3 tools/run_mmo_pc_hero_test_receiver.py",
-      "  --url \"mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean\""
+      "python3 tools/production/run_mmo_pc_hero_test_receiver.py",
+      "  --url \"mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean\""
     ],
     "roundtrip_check_after_actions": [
-      "python3 tools/check_mmo_step69_pc_hero_test_inventory_roundtrip.py",
-      "  --url \"mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean\"",
+      "python3 tools/validation/check_mmo_step69_pc_hero_test_inventory_roundtrip.py",
+      "  --url \"mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean\"",
       "  --session-key local-dev-PC_HERO_TEST",
       "  --character-key PC_HERO",
       "  --snapshot runtime/live_resolved_worker/local-dev-PC_HERO_TEST/mysql_restore_snapshot.json",
       "  --output runtime/live_resolved_worker/local-dev-PC_HERO_TEST/inventory_roundtrip_check_manual.json"
     ],
     "worker": [
-      "python3 tools/run_mmo_live_resolved_worker.py",
-      "  --url \"mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean\"",
+      "python3 tools/production/run_mmo_live_resolved_worker.py",
+      "  --url \"mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean\"",
       "  --max-actions 500",
       "  --reset-matching-failed"
     ]

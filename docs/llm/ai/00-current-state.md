@@ -42,6 +42,9 @@ Important status:
   before Xardas/start-trigger side effects. Do not remove this reset path.
 - `run_mmo_step55_clean_mysql_from_pre_xardas.py` remains the destructive clean
   MySQL rebuild path for starting a new game/server test.
+- `tools/apply_current_mmo_db_state.py` is the non-destructive current-state
+  updater for an existing MySQL DB. StepXX SQL files are migration history, not
+  the normal manual workflow.
 - The C++ UDP server must tolerate repeated clean DB rebuilds during local
   development. It validates its cached `server_sessions.session_id` and calls
   `mmo_login_character` again when the DB was dropped/recreated.
@@ -73,6 +76,10 @@ Domains with meaningful server/DB path:
   item calls;
 - direct C++ ready/holster weapon calls;
 - direct C++ combat/lifecycle calls for character damage, NPC/world entity damage and NPC death.
+- direct C++ NPC routine/AI/path/fight observation recorder calls and bootstrap
+  snapshot sections backed by the Step120 clean-DB bridge;
+- direct C++ trigger queue, world transition/visited-world and client correction
+  recorder/ack calls backed by the Step121 clean-DB bridge.
 
 Step75 notes:
 - A ready bootstrap ACK does not prove snapshot delivery. The server must also
@@ -92,16 +99,18 @@ Outbox status:
   behavior or debugging an unhandled domain.
 
 Incomplete authority:
-- client consumes and logs live ACK/NACK responses but does not yet rollback or
-  correct local state after a rejected action;
+- client correction rows exist for rejected authoritative actions and pending
+  corrections are carried in snapshots, but correction is still snapshot-driven
+  and needs typed live packets plus broader pickup/drop rollback evidence;
 - server snapshot restore is now automatic in server-bound mode, but still load-time
   materialization rather than real-time replication;
-- server-produced bootstrap snapshot applies HERO stats/resources, inventory/equipment, position, quest log, known dialogs, safe full character script ints, world item tombstones, active server-owned world items, interactive/mobsi state and NPC lifecycle state after load; NPC movement/routines/world-inventory samples remain downloaded-only;
+- server-produced bootstrap snapshot applies HERO stats/resources, inventory/equipment, position, quest log, known dialogs, safe full character script ints, world item tombstones, active server-owned world items, interactive/mobsi state and NPC lifecycle state after load; NPC routine authority rows can be applied for DB Continue, but NPC movement/full AI/world-inventory samples remain bridge materialization work;
 - NPC AI/pathing/live movement replication is future work; the server does not yet simulate or broadcast routine NPC movement;
 - teleport/world transition/chapter transition must be separate events, not
   movement bypasses;
 - trigger/mover/world-time/resource/training/respawn/NPC reaction procedures
-  exist as contract/proof but still need end-to-end gameplay evidence.
+  exist as contract/proof; Step121 adds durable trigger queue/current state, but
+  full event-timer execution still needs server tick evidence.
 - `loot_npc_inventory` has direct C++ owner-aware resolution for canonical NPC/world inventory keys; container put/trade remain future work.
 
 Hard rules:

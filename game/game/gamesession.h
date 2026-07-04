@@ -174,6 +174,8 @@ class GameSession final {
       std::unordered_map<std::string, MmoNpcAuthoritySampleRecord> observed;
       };
 
+    void        emitMmoNpcAuthoritySamples(Npc& hero, uint64_t now, const char* reason, bool force,
+                                           float radius, size_t maxPerSweep) noexcept;
     void        tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept;
 
     struct MmoServerSnapshotRestoreState final {
@@ -200,6 +202,7 @@ class GameSession final {
     MmoActionMovementProposalState lastMmoActionMovementProposal;
     MmoNpcAuthoritySampleState     mmoNpcAuthoritySamples;
     MmoServerSnapshotRestoreState  mmoServerSnapshotRestore;
+    bool                           mmoServerFreshNewGameSession = false;
     uint64_t                       timeMul = 1000, timeMulFract = 0;
     gtime                          wrldTime;
 

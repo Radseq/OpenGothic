@@ -5,7 +5,7 @@
     {
       "cmd": [
         "/usr/bin/python3",
-        "/home/radseq/Desktop/OpenGothic/tools/audit_runtime_sqlite.py",
+        "/home/radseq/Desktop/OpenGothic/tools/validation/audit_runtime_sqlite.py",
         "--db",
         "/home/radseq/Desktop/OpenGothic/runtime/g2notr_ch1_pre_xardas.sqlite"
       ],
@@ -17,7 +17,7 @@
     {
       "cmd": [
         "/usr/bin/python3",
-        "/home/radseq/Desktop/OpenGothic/tools/capture_mmo_chapter1_start_sqlite_baseline.py",
+        "/home/radseq/Desktop/OpenGothic/tools/bootstrap/capture_mmo_chapter1_start_sqlite_baseline.py",
         "--source",
         "/home/radseq/Desktop/OpenGothic/runtime/g2notr_ch1_pre_xardas.sqlite",
         "--output",
@@ -32,14 +32,14 @@
       "dry_run": false,
       "returncode": 0,
       "stderr_tail": "",
-      "stdout_tail": "Step54 Chapter 1 clean-start baseline captured\nbaseline=runtime/baselines/g2notr_chapter1_before_xardas.sqlite\nmanifest=runtime/baselines/g2notr_chapter1_before_xardas.manifest.json\nschema_version=25\nchapter_number_detected=1\nxardas_dialog_selection_rows=0\nsha256=e21d0e47e6797b92cd775343177c3b2ebd3fa702d5911e4c8ad83f4d7e8f01bd\nstatus=passed\n"
+      "stdout_tail": "Step54 Chapter 1 clean-start baseline captured\nbaseline=runtime/baselines/g2notr_chapter1_before_xardas.sqlite\nmanifest=runtime/baselines/g2notr_chapter1_before_xardas.manifest.json\nschema_version=25\nchapter_number_detected=1\nxardas_dialog_selection_rows=0\nsha256=4a9ad8fb2fb020ef3401ec6bfa3204637e345ca10a25fe6ff5f304960088b20e\nstatus=passed\n"
     },
     {
       "cmd": [
         "/usr/bin/python3",
-        "/home/radseq/Desktop/OpenGothic/tools/reset_mmo_mysql_from_chapter1_start.py",
+        "/home/radseq/Desktop/OpenGothic/tools/bootstrap/reset_mmo_mysql_from_chapter1_start.py",
         "--mysql-url",
-        "mysql://gothic:***@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "mysql://gothic:***@localhost:3306/gothic_mmo_ch1_clean",
         "--baseline",
         "/home/radseq/Desktop/OpenGothic/runtime/baselines/g2notr_chapter1_before_xardas.sqlite",
         "--output-dir",
@@ -62,9 +62,9 @@
     {
       "cmd": [
         "/usr/bin/python3",
-        "/home/radseq/Desktop/OpenGothic/tools/check_mmo_step70_clean_live_readiness.py",
+        "/home/radseq/Desktop/OpenGothic/tools/validation/check_mmo_step70_clean_live_readiness.py",
         "--url",
-        "mysql://gothic:***@127.0.0.1:3306/gothic_mmo_ch1_clean",
+        "mysql://gothic:***@localhost:3306/gothic_mmo_ch1_clean",
         "--sqlite",
         "/home/radseq/Desktop/OpenGothic/runtime/g2notr_ch1_pre_xardas.sqlite",
         "--session-key",
@@ -81,11 +81,11 @@
       "stdout_tail": "status=passed\nready_for_live_loop=true\noutput=/home/radseq/Desktop/OpenGothic/runtime/pc_hero_test_live/clean_live_readiness.json\nwarnings=collation_mismatch\n"
     }
   ],
-  "finished_at": "2026-07-01T20:10:31.898257+00:00",
+  "finished_at": "2026-07-03T18:21:06.615740+00:00",
   "mysql_database": "gothic_mmo_ch1_clean",
-  "mysql_url_redacted": "mysql://gothic:***@127.0.0.1:3306/gothic_mmo_ch1_clean",
+  "mysql_url_redacted": "mysql://gothic:***@localhost:3306/gothic_mmo_ch1_clean",
   "sqlite_source": "runtime/g2notr_ch1_pre_xardas.sqlite",
-  "started_at": "2026-07-01T20:10:16.015048+00:00",
+  "started_at": "2026-07-03T18:20:52.260717+00:00",
   "status": "passed",
   "step": "55b_clean_mysql_from_pre_xardas"
 }

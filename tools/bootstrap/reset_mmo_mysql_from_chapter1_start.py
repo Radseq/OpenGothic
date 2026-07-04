@@ -7,9 +7,10 @@ from the captured SQLite baseline, then optionally reapplies Step51 and Step53 h
 surfaces if those files/tools exist in the checkout. It also applies the
 Step56b clean-DB progress bridge, the Step59 item/interactive/progress bridge,
 the Step60 equipment bridge, the Step67 interactive-use bridge, the Step68
-drop/loot bridge, the Step83 combat/lifecycle bridge, the Step84 world identity/lifecycle bridge, and normalizes MySQL
-collations so destructive rebuilds do not reintroduce the live-worker failures found
-during live tests.
+drop/loot bridge, the Step83 combat/lifecycle bridge, the Step84 world
+identity/lifecycle bridge, the Step120 NPC authority bridge and the Step121
+server parity state bridge. It also normalizes MySQL collations so destructive
+rebuilds do not reintroduce the live-worker failures found during live tests.
 """
 from __future__ import annotations
 
@@ -54,6 +55,8 @@ STEP98_STRICT_DB_CONTINUE_RESTORE_SQL = ROOT / "server" / "sql" / "step98_strict
 STEP103_DB_CHECKPOINT_EXPORT_COVERAGE_SQL = ROOT / "server" / "sql" / "step103_db_checkpoint_export_coverage.sql"
 STEP104_DB_CHECKPOINT_SCRIPT_STATE_FULL_EXPORT_SQL = ROOT / "server" / "sql" / "step104_db_checkpoint_script_state_full_export.sql"
 STEP108_DB_CHECKPOINT_WORLD_CLOCK_FOUNDATION_SQL = ROOT / "server" / "sql" / "step108_db_checkpoint_world_clock_foundation.sql"
+STEP120_NPC_AUTHORITY_RESTORE_BRIDGE_SQL = ROOT / "server" / "sql" / "step120_npc_authority_restore_bridge.sql"
+STEP121_SERVER_PARITY_STATE_BRIDGE_SQL = ROOT / "server" / "sql" / "step121_server_parity_state_bridge.sql"
 
 
 @dataclass(frozen=True)
@@ -130,11 +133,39 @@ def run(cmd: list[str], *, input_text: str | None = None, dry_run: bool = False,
     return {"cmd": cmd, "returncode": proc.returncode, "dry_run": False, "stdout": proc.stdout, "stderr": proc.stderr}
 
 
+def mysql_connection_hint(target: Target, stderr: str) -> str:
+    lower = stderr.lower()
+    if "can't connect to mysql server" not in lower and "error 2003" not in lower:
+        return ""
+    if target.host in {"127.0.0.1", "::1"}:
+        return (
+            "HINT: MySQL refused TCP on loopback. This happens when mysqld is bound "
+            "to another interface or local socket only. Try a URL with host "
+            "'localhost' to use the Unix socket, or use the actual TCP bind address "
+            "reported by `ss -ltn`."
+        )
+    if target.host == "localhost":
+        return (
+            "HINT: MySQL refused the local connection. Verify that mysqld is running "
+            "and that the mysql CLI can connect through the configured Unix socket."
+        )
+    return (
+        "HINT: MySQL refused the TCP connection before authentication. Verify "
+        "mysqld bind-address/port and that the host in --mysql-url is an address "
+        "where the server actually listens."
+    )
+
+
 def apply_sql(target: Target, path: Path, *, dry_run: bool) -> dict[str, object]:
     if not path.exists():
         return {"path": rel(path), "status": "missing_skipped"}
     result = run(mysql_cmd(target, include_db=True), input_text=path.read_text(encoding="utf-8"), dry_run=dry_run)
     status = "applied" if result["returncode"] == 0 else "failed"
+    if status == "failed":
+        hint = mysql_connection_hint(target, str(result.get("stderr") or ""))
+        if hint:
+            print(hint, file=sys.stderr)
+            result["connection_hint"] = hint
     return {"path": rel(path), "status": status, "result": result}
 
 
@@ -165,6 +196,8 @@ def main() -> int:
     ap.add_argument("--with-step98-strict-db-continue-restore", action=argparse.BooleanOptionalAction, default=True, help="Install strict DB-native Continue/restore validation bridge")
     ap.add_argument("--with-step103-db-checkpoint-export-coverage", action=argparse.BooleanOptionalAction, default=True, help="Install DB checkpoint export coverage/world-clock fallback bridge")
     ap.add_argument("--with-step104-db-checkpoint-script-state-full-export", action=argparse.BooleanOptionalAction, default=True, help="Install DB checkpoint full script-state export bridge")
+    ap.add_argument("--with-step120-npc-authority-restore-bridge", action=argparse.BooleanOptionalAction, default=True, help="Install NPC authority restore current/history tables and recorder procedures")
+    ap.add_argument("--with-step121-server-parity-state-bridge", action=argparse.BooleanOptionalAction, default=True, help="Install trigger queue, world transition and client correction current/history tables and recorder procedures")
     ap.add_argument("--normalize-collation", action=argparse.BooleanOptionalAction, default=True, help="Normalize base table collations to utf8mb4_0900_ai_ci after optional SQL surfaces are installed")
     ap.add_argument("--activate-content", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
@@ -206,6 +239,10 @@ def main() -> int:
     reset_result = run(mysql_cmd(target, include_db=False), input_text=create_sql, dry_run=args.dry_run)
     manifest["commands"].append(reset_result)
     if reset_result["returncode"] != 0:
+        hint = mysql_connection_hint(target, str(reset_result.get("stderr") or ""))
+        if hint:
+            print(hint, file=sys.stderr)
+            reset_result["connection_hint"] = hint
         manifest["status"] = "failed_drop_create"
     else:
         for migration in BASE_MIGRATIONS:
@@ -416,6 +453,22 @@ def main() -> int:
                     elif step108_finalize["status"] == "missing_skipped":
                         manifest["status"] = "failed_missing_step108_db_checkpoint_world_clock_foundation_sql"
 
+                if manifest["status"] == "running" and args.with_step120_npc_authority_restore_bridge:
+                    step120_bridge = apply_sql(target, STEP120_NPC_AUTHORITY_RESTORE_BRIDGE_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step120_bridge)
+                    if step120_bridge["status"] == "failed":
+                        manifest["status"] = "failed_step120_npc_authority_restore_bridge"
+                    elif step120_bridge["status"] == "missing_skipped":
+                        manifest["status"] = "failed_missing_step120_npc_authority_restore_bridge_sql"
+
+                if manifest["status"] == "running" and args.with_step121_server_parity_state_bridge:
+                    step121_bridge = apply_sql(target, STEP121_SERVER_PARITY_STATE_BRIDGE_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step121_bridge)
+                    if step121_bridge["status"] == "failed":
+                        manifest["status"] = "failed_step121_server_parity_state_bridge"
+                    elif step121_bridge["status"] == "missing_skipped":
+                        manifest["status"] = "failed_missing_step121_server_parity_state_bridge_sql"
+
                 if manifest["status"] == "running" and args.normalize_collation:
                     normalize_tool = ROOT / "tools" / "bootstrap" / "normalize_mmo_mysql_collation.py"
                     if normalize_tool.exists():
@@ -613,6 +666,19 @@ def main() -> int:
                         manifest["commands"].append(check_step98_result)
                         if check_step98_result["returncode"] != 0:
                             manifest["status"] = "failed_step98_strict_db_continue_restore_check"
+
+                if manifest["status"] == "passed" and args.with_step121_server_parity_state_bridge:
+                    step121_check = ROOT / "tools" / "validation" / "check_mmo_step121_server_parity_state_bridge.py"
+                    if step121_check.exists():
+                        check_step121_cmd = [
+                            sys.executable,
+                            str(step121_check),
+                            "--url", mysql_url_for_database(args.mysql_url, target.database),
+                        ]
+                        check_step121_result = run(check_step121_cmd, dry_run=args.dry_run)
+                        manifest["commands"].append(check_step121_result)
+                        if check_step121_result["returncode"] != 0:
+                            manifest["status"] = "failed_step121_server_parity_state_bridge_check"
 
     manifest["finished_at"] = datetime.now(timezone.utc).isoformat()
     manifest_path = output_dir / "mysql_reset_manifest.json"

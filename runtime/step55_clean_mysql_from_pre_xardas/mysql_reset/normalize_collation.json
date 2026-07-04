@@ -63,7 +63,7 @@
   "database": "gothic_mmo_ch1_clean",
   "errors": [],
   "remaining_tables": [],
-  "started_at": "2026-07-01T20:10:30.866088+00:00",
+  "started_at": "2026-07-03T18:21:05.651388+00:00",
   "status": "passed",
   "target_charset": "utf8mb4",
   "target_collation": "utf8mb4_0900_ai_ci",

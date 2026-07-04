@@ -22,6 +22,7 @@
 #include <limits>
 #include <iterator>
 #include <functional>
+#include <optional>
 
 #include "utils/string_frm.h"
 #include "worldstatestorage.h"
@@ -61,6 +62,8 @@ constexpr uint64_t MmoNpcAuthoritySampleStaleInterval = 10000;
 constexpr uint64_t MmoNpcAuthoritySamplePruneInterval = 60000;
 constexpr float    MmoNpcAuthoritySampleRadius = 12000.f;
 constexpr size_t   MmoNpcAuthoritySampleMaxPerSweep = 8;
+constexpr float    MmoNpcAuthoritySaveSampleRadius = 60000.f;
+constexpr size_t   MmoNpcAuthoritySaveSampleMaxPerSweep = 512;
 
 void hashCombine(std::uint64_t& seed, std::uint64_t value) noexcept {
   seed ^= value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2);
@@ -125,6 +128,123 @@ std::uint64_t mmoNpcAuthoritySignature(Npc& npc) noexcept {
     hashCombine(out, victim->instanceSymbol());
     }
   return out;
+}
+
+struct MmoNpcIdentity final {
+  bool        valid = false;
+  std::string world;
+  std::size_t persistentId = std::size_t(-1);
+  std::size_t symbolIndex = std::size_t(-1);
+};
+
+struct MmoNpcRoutineAuthorityApplyStats final {
+  std::size_t applied = 0;
+  std::size_t fallback = 0;
+  std::size_t missingNpc = 0;
+  std::size_t skipped = 0;
+};
+
+std::optional<std::size_t> parseSizeToken(std::string_view text) noexcept {
+  if(text.empty())
+    return std::nullopt;
+  std::size_t value = 0;
+  auto r = std::from_chars(text.data(), text.data() + text.size(), value);
+  if(r.ec != std::errc{} || r.ptr != text.data() + text.size())
+    return std::nullopt;
+  return value;
+}
+
+MmoNpcIdentity parseMmoNpcEntityKey(std::string_view key) {
+  MmoNpcIdentity out;
+  constexpr std::string_view prefix = "npc:";
+  if(key.substr(0, prefix.size()) != prefix)
+    return out;
+  auto rest = key.substr(prefix.size());
+  auto marker = rest.find(":pid:");
+  if(marker == std::string_view::npos)
+    return out;
+  out.world = std::string(rest.substr(0, marker));
+  rest.remove_prefix(marker + 5);
+  marker = rest.find(":sym:");
+  if(marker == std::string_view::npos)
+    return out;
+  auto pid = parseSizeToken(rest.substr(0, marker));
+  rest.remove_prefix(marker + 5);
+  auto sym = parseSizeToken(rest);
+  if(!pid || !sym)
+    return out;
+  out.persistentId = *pid;
+  out.symbolIndex = *sym;
+  out.valid = true;
+  return out;
+}
+
+std::optional<std::size_t> parseScriptFunctionKey(std::string_view key) noexcept {
+  constexpr std::string_view prefix = "script-fn:";
+  if(key.substr(0, prefix.size()) != prefix)
+    return std::nullopt;
+  return parseSizeToken(key.substr(prefix.size()));
+}
+
+std::string waypointNameFromAuthorityKey(std::string_view key) {
+  constexpr std::string_view prefix = "waypoint:";
+  if(key.empty())
+    return {};
+  if(key.substr(0, prefix.size()) != prefix)
+    return std::string(key);
+  const auto tail = key.substr(prefix.size());
+  const auto sep = tail.rfind(':');
+  if(sep == std::string_view::npos)
+    return {};
+  return std::string(tail.substr(sep + 1));
+}
+
+Npc* findNpcByAuthorityKey(World& world, std::string_view key) {
+  const auto identity = parseMmoNpcEntityKey(key);
+  if(!identity.valid)
+    return nullptr;
+
+  for(uint32_t i = 0, count = world.npcCount(); i < count; ++i) {
+    auto* npc = world.npcById(i);
+    if(npc == nullptr || npc->isPlayer())
+      continue;
+    if(npc->persistentId() == identity.persistentId && npc->instanceSymbol() == identity.symbolIndex)
+      return npc;
+    }
+  return nullptr;
+}
+
+MmoNpcRoutineAuthorityApplyStats applyMmoNpcRoutineAuthorityState(World& world,
+                                                                  const Mmo::RestoreSnapshot::Result& snapshot) {
+  MmoNpcRoutineAuthorityApplyStats stats;
+  for(const auto& row : snapshot.npcRoutineStates) {
+    auto* npc = findNpcByAuthorityKey(world, row.npcEntityKey);
+    if(npc == nullptr) {
+      ++stats.missingNpc;
+      continue;
+      }
+    if(npc->isPlayer() || npc->isDead() || npc->isDown() || npc->isUnconscious()) {
+      ++stats.skipped;
+      continue;
+      }
+
+    const auto fn = parseScriptFunctionKey(row.scheduleKey);
+    std::string waypoint = waypointNameFromAuthorityKey(row.currentWaypointKey);
+    if(waypoint.empty())
+      waypoint = waypointNameFromAuthorityKey(row.targetWaypointKey);
+
+    if(fn && *fn != 0) {
+      const bool started = npc->startState(ScriptFn(*fn), waypoint, gtime::endOfTime(), false);
+      if(started) {
+        ++stats.applied;
+        continue;
+        }
+      }
+
+    npc->resumeAiRoutine();
+    ++stats.fallback;
+    }
+  return stats;
 }
 
 std::filesystem::path snapshotTmpPath(std::string_view path) {
@@ -706,20 +826,21 @@ void GameSession::tickMmoMovementProposal(Npc& npc, uint64_t now) noexcept {
     }
 }
 
-void GameSession::tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept {
+void GameSession::emitMmoNpcAuthoritySamples(Npc& hero, uint64_t now, const char* reason, bool force,
+                                             float radius, size_t maxPerSweep) noexcept {
   const auto& cmd = CommandLine::inst();
   if(!cmd.mmoClientUsesServer() || wrld == nullptr)
     return;
 
   auto& state = mmoNpcAuthoritySamples;
-  if(state.lastSweepTick != 0 && now - state.lastSweepTick < MmoNpcAuthoritySampleInterval)
+  if(!force && state.lastSweepTick != 0 && now - state.lastSweepTick < MmoNpcAuthoritySampleInterval)
     return;
   state.lastSweepTick = now;
 
   const auto center = hero.position();
   size_t emitted = 0;
-  wrld->detectNpc(center, MmoNpcAuthoritySampleRadius, [&](Npc& npc) {
-    if(emitted >= MmoNpcAuthoritySampleMaxPerSweep || npc.isPlayer())
+  wrld->detectNpc(center, radius, [&](Npc& npc) {
+    if(emitted >= maxPerSweep || npc.isPlayer())
       return;
 
     const auto key = mmoNpcAuthorityCacheKey(npc);
@@ -727,11 +848,12 @@ void GameSession::tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept {
     auto& cached = state.observed[key];
     const bool changed = cached.lastEmitTick == 0 || cached.signature != signature;
     const bool stale = cached.lastEmitTick == 0 || now - cached.lastEmitTick >= MmoNpcAuthoritySampleStaleInterval;
-    if(!changed && !stale)
+    if(!force && !changed && !stale)
       return;
 
-    Mmo::Hooks::onObservedNpcAuthorityState(npc, "GameSession::tickMmoNpcAuthoritySamples",
-                                            changed ? "observed_npc_authority_changed" : "observed_npc_authority_refresh");
+    Mmo::Hooks::onObservedNpcAuthorityState(npc, "GameSession::emitMmoNpcAuthoritySamples",
+                                            reason != nullptr ? reason :
+                                            (changed ? "observed_npc_authority_changed" : "observed_npc_authority_refresh"));
     cached.lastEmitTick = now;
     cached.signature = signature;
     ++emitted;
@@ -745,6 +867,12 @@ void GameSession::tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept {
         ++it;
       }
     }
+}
+
+void GameSession::tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept {
+  emitMmoNpcAuthoritySamples(hero, now, nullptr, false,
+                             MmoNpcAuthoritySampleRadius,
+                             MmoNpcAuthoritySampleMaxPerSweep);
 }
 
 void GameSession::HeroStorage::save(Npc& npc) {
@@ -798,6 +926,7 @@ GameSession::GameSession(std::string file) : GameSession(std::move(file), Startu
 GameSession::GameSession(std::string file, StartupMode startupMode) {
   const bool dbContinueRequested = startupMode == StartupMode::MmoDbContinue && CommandLine::inst().mmoClientUsesServer();
   const bool mmoServerFreshNewGame = startupMode == StartupMode::MmoServerFreshNewGame && CommandLine::inst().mmoClientUsesServer();
+  mmoServerFreshNewGameSession = mmoServerFreshNewGame;
   const ScopedMmoDbContinueVideoSuppression suppressStartupVideos(dbContinueRequested);
 
   cam.reset(new Camera());
@@ -895,6 +1024,15 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
     wrld->triggerOnStart(false);
     const auto resumedNpcRoutines = wrld->resumeNpcRoutinesAfterServerRestore();
     Log::i("MMO DB continue startup NPC routines resumed: count=", resumedNpcRoutines);
+    if(auto snapshot = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(CommandLine::inst().mmoServerSnapshotJson(), "PC_HERO"); snapshot.ok) {
+      const auto npcAuthority = applyMmoNpcRoutineAuthorityState(*wrld, snapshot);
+      Log::i("MMO DB continue startup NPC authority applied: routine_applied=", npcAuthority.applied,
+             " routine_fallback=", npcAuthority.fallback,
+             " missing_npc=", npcAuthority.missingNpc,
+             " skipped=", npcAuthority.skipped,
+             " records=", snapshot.npcRoutineStates.size(),
+             " snapshot_source=", snapshot.snapshotSource);
+      }
   } else {
     wrld->triggerOnStart(true);
   }
@@ -1040,8 +1178,12 @@ void GameSession::save(Serialize &fout, std::string_view name, const Pixmap& scr
   Gothic::inst().setLoadingProgress(80);
 
   if(wrld != nullptr && CommandLine::inst().mmoClientUsesServer()) {
-    if(auto* hero = wrld->player())
+    if(auto* hero = wrld->player()) {
+      emitMmoNpcAuthoritySamples(*hero, ticks, "native_save_pre_manifest_npc_authority", true,
+                                 MmoNpcAuthoritySaveSampleRadius,
+                                 MmoNpcAuthoritySaveSampleMaxPerSweep);
       Mmo::Hooks::onCharacterCheckpoint(*hero, "GameSession::save", "native_save_pre_manifest_checkpoint");
+      }
     }
   }
 
@@ -1049,12 +1191,17 @@ void GameSession::recordMmoSaveSlot(std::string_view slotPath, std::string_view 
   if(mmoSqlite!=nullptr)
     mmoSqlite->recordSaveSlot(*this, slotPath, displayName);
 
-  if(wrld != nullptr && CommandLine::inst().mmoClientUsesServer())
+  if(wrld != nullptr && CommandLine::inst().mmoClientUsesServer()) {
+    if(auto* hero = wrld->player())
+      emitMmoNpcAuthoritySamples(*hero, ticks, "native_save_slot_recorded_npc_authority", true,
+                                 MmoNpcAuthoritySaveSampleRadius,
+                                 MmoNpcAuthoritySaveSampleMaxPerSweep);
     Mmo::Hooks::onSaveCheckpointManifest(*wrld,
                                          slotPath,
                                          displayName,
                                          "GameSession::recordMmoSaveSlot",
                                          "native_save_slot_recorded");
+    }
   }
 
 void GameSession::setupSettings() {
@@ -1413,13 +1560,18 @@ bool GameSession::tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept {
   if(restoredFromDbSaveCheckpoint || state.reason == "db_continue_baseline_loaded") {
     wrld->resetPositionToTA();
     const auto resumedNpcRoutines = wrld->resumeNpcRoutinesAfterServerRestore();
+    const auto npcAuthority = applyMmoNpcRoutineAuthorityState(*wrld, result);
     Log::i("MMO server DB restore NPC routines resumed: count=", resumedNpcRoutines,
            " db_checkpoint=", restoredFromDbSaveCheckpoint ? 1 : 0,
            " reason=", state.reason,
            " npc_routine_state=", result.npcRoutineStateCount,
            " npc_ai_state=", result.npcAiStateCount,
            " npc_path_state=", result.npcPathStateCount,
-           " npc_fight_state=", result.npcFightStateCount);
+           " npc_fight_state=", result.npcFightStateCount,
+           " authority_applied=", npcAuthority.applied,
+           " authority_fallback=", npcAuthority.fallback,
+           " authority_missing_npc=", npcAuthority.missingNpc,
+           " authority_skipped=", npcAuthority.skipped);
     }
 
   if(const auto snapshotId = readMmoSnapshotManifestId())
@@ -1451,6 +1603,8 @@ void GameSession::pollMmoServerSnapshotRestore() noexcept {
 bool GameSession::tryApplyMmoServerWorldSnapshotRefresh() noexcept {
   const auto& cmd = CommandLine::inst();
   if(!cmd.mmoClientUsesServer() || !cmd.mmoServerSnapshotApplyWorldState())
+    return false;
+  if(mmoServerFreshNewGameSession)
     return false;
 
   auto& state = mmoServerSnapshotRestore;
@@ -1879,7 +2033,4 @@ void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
          " reason=", reason,
          " path=", std::string(path));
   }
-
-
-
 

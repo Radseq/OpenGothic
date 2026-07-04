@@ -7,8 +7,28 @@ cd ~/Desktop/OpenGothic
 
 python3 tools/run_mmo_step55_clean_mysql_from_pre_xardas.py \
   --sqlite runtime/g2notr_ch1_pre_xardas.sqlite \
-  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --mysql-url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --i-understand-this-drops-database
+```
+
+Use `localhost` for the local dev database unless MySQL is explicitly listening
+on loopback TCP. The mysql CLI resolves `localhost` through the local Unix
+socket, while `127.0.0.1` forces TCP and fails when mysqld is bound only to a LAN
+interface such as `192.168.195.x`.
+
+The clean rebuild also installs Step120 NPC authority restore and Step121 server
+parity state bridges by default, so manual post-clean commands for
+`server/sql/step120_npc_authority_restore_bridge.sql` and
+`server/sql/step121_server_parity_state_bridge.sql` are no longer needed.
+
+Do not grow the normal local workflow by asking for more manual StepXX SQL
+commands. StepXX files are migration history. For an existing DB that needs to
+catch up to the current server contract, use the current-state entrypoint:
+
+```bash
+python3 tools/apply_current_mmo_db_state.py \
+  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
+  --output runtime/current_mmo_db_state/apply.json
 ```
 
 If the C++ UDP server is already running, wait for the clean rebuild command to
@@ -30,7 +50,7 @@ cd ~/Desktop/OpenGothic
 
 ./build/mmo_cpp_server/mmo_udp_server \
   --bind 127.0.0.1:29777 \
-  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --mysql-url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --session-key local-dev-PC_HERO_TEST \
   --character-key PC_HERO
 ```
@@ -99,7 +119,7 @@ Optional fallback/debug only:
 ```bash
 ./build/mmo_cpp_server/mmo_udp_server \
   --bind 127.0.0.1:29777 \
-  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --mysql-url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --session-key local-dev-PC_HERO_TEST \
   --character-key PC_HERO \
   --enqueue-outbox
@@ -264,7 +284,7 @@ events use one of the allowed classes: `character`, `inventory`, `equipment`,
 
 ```bash
 python3 tools/apply_mmo_step83_combat_lifecycle_bridge.py \
-  --url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --output runtime/step83_combat_lifecycle_bridge/apply.json
 ```
 
@@ -292,7 +312,7 @@ For an already-created DB that predates Step84, install the bridge once before t
 
 ```bash
 python3 tools/apply_mmo_step84_world_identity_lifecycle_bridge.py \
-  --url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --output runtime/step84_world_identity_lifecycle_bridge/apply.json
 ```
 
@@ -417,7 +437,7 @@ Install readable admin identity views after a clean DB rebuild when inspecting B
 
 ```bash
 python3 tools/apply_mmo_step92_identity_admin_views.py \
-  --url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --output runtime/step92_identity_admin_views/apply.json
 ```
 
@@ -432,7 +452,7 @@ SELECT * FROM v_mmo_admin_world_entities_readable WHERE entity_kind IN ('npc','c
 Next large slice after Step92:
 1. Move item/NPC/window SQL out of `mmo_udp_server.cpp` into a focused snapshot/read-model module.
 2. Replace reused full JSON snapshot refresh with typed binary interest-window deltas.
-3. Start client correction for rejected movement/pickup instead of only logging ACK/NACK.
+3. Harden client correction evidence for rejected movement/pickup/drop and stop relying on full snapshot refresh as the correction carrier.
 
 
 Step93 save-to-server roadmap notes:
@@ -440,4 +460,3 @@ Step93 save-to-server roadmap notes:
 - Native `.sav` currently stores much more than HERO stats/inventory: session/world time, visited worlds, current world, camera, quests/dialogs, Daedalus globals, portal guilds, NPC arrays, invalid NPCs, world items, mobsi/interactives, trigger queues, routines, mover state and per-NPC AI/movement/fight internals.
 - DB-only play should not copy raw save internals 1:1. Persist durable facts and server projections; keep camera/render/audio/particles and raw AI/fight queues out of production authority.
 - Immediate next blockers for DB-only work are: UTF-8/idempotency fix for non-ASCII quest/dialog keys, save/checkpoint manifest, baseline+DB load without `.sav`, mover materialization, waypoint import/read-model and then server-side NPC routine prototype.
-

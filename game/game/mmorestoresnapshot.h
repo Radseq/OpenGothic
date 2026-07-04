@@ -182,6 +182,16 @@ struct MoverState final {
   std::size_t lastServerTick = 0;
   };
 
+struct NpcRoutineState final {
+  std::string npcEntityKey;
+  std::string routineState;
+  std::string scheduleKey;
+  std::string currentWaypointKey;
+  std::string targetWaypointKey;
+  std::size_t rowVersion = 0;
+  std::size_t lastServerTick = 0;
+  };
+
 struct ServerCheckpointManifest final {
   bool        present = false;
   std::string manifestUuid;
@@ -305,6 +315,7 @@ struct Result final {
   std::vector<NearbyNpcKnownDialog> nearbyNpcKnownDialogs;
   std::vector<NearbyWaypoint> nearbyWaypoints;
   std::vector<MoverState> moverStates;
+  std::vector<NpcRoutineState> npcRoutineStates;
   std::vector<RecentAction> recentActions;
   std::vector<ClientCorrection> clientCorrections;
   ServerCheckpointManifest serverCheckpointManifest;
@@ -1172,6 +1183,23 @@ inline std::vector<MoverState> restoreMoverStates(std::string_view moverArray) {
   return out;
 }
 
+inline std::vector<NpcRoutineState> restoreNpcRoutineStates(std::string_view routineArray) {
+  std::vector<NpcRoutineState> out;
+  for(auto object : objectSpansInArray(routineArray)) {
+    NpcRoutineState state;
+    state.npcEntityKey = stringValueForKey(object, "npc_entity_key");
+    state.routineState = stringValueForKey(object, "routine_state");
+    state.scheduleKey = stringValueForKey(object, "schedule_key");
+    state.currentWaypointKey = stringValueForKey(object, "current_waypoint_key");
+    state.targetWaypointKey = stringValueForKey(object, "target_waypoint_key");
+    state.lastServerTick = sizeValueForKey(object, "last_server_tick");
+    state.rowVersion = sizeValueForKey(object, "row_version");
+    if(!state.npcEntityKey.empty())
+      out.push_back(std::move(state));
+    }
+  return out;
+}
+
 inline ServerCheckpointManifest restoreServerCheckpointManifest(std::string_view manifestObject) {
   ServerCheckpointManifest out;
   if(manifestObject.empty())
@@ -1475,6 +1503,7 @@ inline Result loadAndValidateBootstrapSnapshot(std::string_view path,
   result.nearbyNpcKnownDialogs = Detail::restoreNearbyNpcKnownDialogs(nearbyNpcKnownDialogs);
   result.nearbyWaypoints = Detail::restoreNearbyWaypoints(nearbyWaypoints);
   result.moverStates = Detail::restoreMoverStates(moverState);
+  result.npcRoutineStates = Detail::restoreNpcRoutineStates(npcRoutineState);
   result.worldClock = Detail::restoreWorldClock(worldClock);
   result.recentActions = Detail::restoreRecentActions(recentActions);
   result.clientCorrections = Detail::restoreClientCorrections(clientCorrections);

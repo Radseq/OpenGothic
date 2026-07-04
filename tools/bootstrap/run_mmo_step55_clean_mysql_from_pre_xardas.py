@@ -8,7 +8,7 @@ This wrapper is intentionally boring and explicit:
 4. leave only logs/manifests under runtime/;
 5. install the live receiver bridge, Step56b progress bridge, Step59 item/interactive/progress bridge,
    Step60 equipment bridge, Step67 interactive-use bridge, Step68 drop/loot bridge,
-   Step83 combat/lifecycle bridge, and normalize collations by default;
+   Step83 combat/lifecycle bridge, Step120/Step121 server parity bridges, and normalize collations by default;
 6. write a Step70 PC_HERO_TEST live-loop readiness manifest.
 
 It does not make SQLite the server database. The live server path remains:
@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -33,7 +34,10 @@ DEFAULT_SQLITE_SOURCE = ROOT / "runtime" / "g2notr_ch1_pre_xardas.sqlite"
 DEFAULT_BASELINE = ROOT / "runtime" / "baselines" / "g2notr_chapter1_before_xardas.sqlite"
 DEFAULT_BASELINE_MANIFEST = ROOT / "runtime" / "baselines" / "g2notr_chapter1_before_xardas.manifest.json"
 DEFAULT_OUTPUT_DIR = ROOT / "runtime" / "step55_clean_mysql_from_pre_xardas"
-DEFAULT_MYSQL_URL = "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean"
+DEFAULT_MYSQL_URL = os.environ.get(
+    "GOTHIC_MMO_MYSQL_URL",
+    os.environ.get("MYSQL_URL", "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean"),
+)
 
 
 def rel(path: Path) -> str:
@@ -148,7 +152,11 @@ def mysql_database_name(mysql_url: str) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Build clean MySQL dev DB from runtime/g2notr_ch1_pre_xardas.sqlite.")
     ap.add_argument("--sqlite", default=str(DEFAULT_SQLITE_SOURCE), help="Pre-Xardas SQLite capture file. Default: runtime/g2notr_ch1_pre_xardas.sqlite")
-    ap.add_argument("--mysql-url", default=DEFAULT_MYSQL_URL, help="Target MySQL database URL. The database is dropped/recreated.")
+    ap.add_argument(
+        "--mysql-url",
+        default=DEFAULT_MYSQL_URL,
+        help="Target MySQL database URL. Defaults to GOTHIC_MMO_MYSQL_URL, MYSQL_URL, then local socket via localhost. The database is dropped/recreated.",
+    )
     ap.add_argument("--baseline", default=str(DEFAULT_BASELINE), help="Canonical local baseline copy path.")
     ap.add_argument("--manifest", default=str(DEFAULT_BASELINE_MANIFEST), help="Canonical local baseline manifest path.")
     ap.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Local report/log artifact directory.")
@@ -175,6 +183,8 @@ def main() -> int:
     ap.add_argument("--skip-step98-strict-db-continue-restore", action="store_true", help="Do not install strict DB-native Continue/restore validation bridge.")
     ap.add_argument("--skip-step103-db-checkpoint-export-coverage", action="store_true", help="Do not install DB checkpoint export coverage/world-clock fallback bridge.")
     ap.add_argument("--skip-step104-db-checkpoint-script-state-full-export", action="store_true", help="Do not install DB checkpoint full script-state export bridge.")
+    ap.add_argument("--skip-step120-npc-authority-restore-bridge", action="store_true", help="Do not install NPC authority restore current/history tables and recorder procedures.")
+    ap.add_argument("--skip-step121-server-parity-state-bridge", action="store_true", help="Do not install trigger queue, world transition and client correction current/history tables and recorder procedures.")
     ap.add_argument("--skip-step70-live-readiness", action="store_true", help="Do not run the clean live-loop readiness checker after a successful rebuild.")
     ap.add_argument("--skip-collation-normalize", action="store_true", help="Do not normalize MySQL table collations after the clean import and additive SQL surfaces.")
     ap.add_argument("--no-strict-baseline", action="store_true", help="Do not require zero dialog selections in the SQLite capture.")
@@ -282,6 +292,10 @@ def main() -> int:
                 reset_args.append("--no-with-step103-db-checkpoint-export-coverage")
             if args.skip_step104_db_checkpoint_script_state_full_export:
                 reset_args.append("--no-with-step104-db-checkpoint-script-state-full-export")
+            if args.skip_step120_npc_authority_restore_bridge:
+                reset_args.append("--no-with-step120-npc-authority-restore-bridge")
+            if args.skip_step121_server_parity_state_bridge:
+                reset_args.append("--no-with-step121-server-parity-state-bridge")
             if args.skip_collation_normalize:
                 reset_args.append("--no-normalize-collation")
             if args.dry_run:
@@ -335,9 +349,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
 
 
 
