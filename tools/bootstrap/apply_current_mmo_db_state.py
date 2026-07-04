@@ -23,6 +23,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -90,7 +96,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable not found in PATH")
     cmd = [
@@ -122,7 +128,7 @@ def run_mysql_file(target: Target, path: Path, *, dry_run: bool) -> dict[str, ob
     print("[RUN] " + " ".join(shown))
     if dry_run:
         return {"cmd": shown, "returncode": 0, "dry_run": True, "stdout": "", "stderr": ""}
-    proc = subprocess.run(mysql_cmd(target), input=path.read_text(encoding="utf-8"), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(ROOT))
+    proc = subprocess.run(mysql_cmd(target), input=path.read_text(encoding="utf-8"), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(ROOT))
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:

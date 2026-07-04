@@ -1,8 +1,8 @@
 {
   "artifacts": {
-    "inspect": "/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_read_model_inspect.json",
-    "materialize": "/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_read_model_materialize.json",
-    "server_materialization_manifest": "/home/radseq/Desktop/OpenGothic/runtime/step55_clean_mysql_from_pre_xardas/mysql_reset/step53_materialization/server_materialization_manifest.json"
+    "inspect": "C:\\Users\\admin\\Desktop\\OpenGothic\\runtime\\step55_clean_mysql_from_pre_xardas\\mysql_reset\\step53_materialization\\server_read_model_inspect.json",
+    "materialize": "C:\\Users\\admin\\Desktop\\OpenGothic\\runtime\\step55_clean_mysql_from_pre_xardas\\mysql_reset\\step53_materialization\\server_read_model_materialize.json",
+    "server_materialization_manifest": "C:\\Users\\admin\\Desktop\\OpenGothic\\runtime\\step55_clean_mysql_from_pre_xardas\\mysql_reset\\step53_materialization\\server_materialization_manifest.json"
   },
   "export_counts": {
     "mmo_server_character_inventory_read_model": 0,
@@ -184,11 +184,11 @@
     "step": 53
   },
   "return_codes": {
-    "export": 0,
-    "inspect": 0,
-    "materialize": 0
+    "export": 1,
+    "inspect": 1,
+    "materialize": 1
   },
-  "status": "passed",
+  "status": "failed",
   "step": 53,
   "tool": "run_mmo_step53_server_materialization_followup.py"
 }

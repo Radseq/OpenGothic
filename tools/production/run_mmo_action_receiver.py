@@ -24,6 +24,12 @@ import signal
 import socket
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -106,7 +112,7 @@ def parse_mysql_url(url: str) -> MySqlTarget:
 
 
 def mysql_cmd(target: MySqlTarget) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [

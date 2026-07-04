@@ -20,6 +20,7 @@ import argparse
 import importlib.util
 import json
 import os
+import platform
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -34,9 +35,11 @@ DEFAULT_SQLITE_SOURCE = ROOT / "runtime" / "g2notr_ch1_pre_xardas.sqlite"
 DEFAULT_BASELINE = ROOT / "runtime" / "baselines" / "g2notr_chapter1_before_xardas.sqlite"
 DEFAULT_BASELINE_MANIFEST = ROOT / "runtime" / "baselines" / "g2notr_chapter1_before_xardas.manifest.json"
 DEFAULT_OUTPUT_DIR = ROOT / "runtime" / "step55_clean_mysql_from_pre_xardas"
+DEFAULT_MYSQL_HOST = "192.168.195.94" if platform.system().lower() == "windows" else "127.0.0.1"
+PLATFORM_DEFAULT_MYSQL_URL = f"mysql://gothic:gothic_dev_password@{DEFAULT_MYSQL_HOST}:3306/gothic_mmo_ch1_clean"
 DEFAULT_MYSQL_URL = os.environ.get(
     "GOTHIC_MMO_MYSQL_URL",
-    os.environ.get("MYSQL_URL", "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean"),
+    os.environ.get("MYSQL_URL", PLATFORM_DEFAULT_MYSQL_URL),
 )
 
 
@@ -85,7 +88,15 @@ def run(cmd: list[str], *, dry_run: bool = False) -> dict[str, object]:
     print("[RUN] " + " ".join(shown))
     if dry_run:
         return {"cmd": shown, "returncode": 0, "dry_run": True, "stdout_tail": "", "stderr_tail": ""}
-    proc = subprocess.run(cmd, cwd=str(ROOT), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(
+        cmd,
+        cwd=str(ROOT),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:

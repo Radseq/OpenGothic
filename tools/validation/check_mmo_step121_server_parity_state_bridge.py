@@ -14,6 +14,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_TABLES = (
     "mmo_world_trigger_queue_current",
@@ -57,7 +63,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -81,7 +87,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -121,7 +127,14 @@ def inspect(target: Target) -> dict[str, object]:
 def smoke(target: Target) -> dict[str, object]:
     idem_prefix = "step121-smoke"
     sql = f"""
-    SET @sid=(SELECT session_id FROM server_sessions ORDER BY started_at DESC LIMIT 1);
+    SET @sid=(
+      SELECT session_id
+        FROM server_sessions
+       WHERE character_id IS NOT NULL
+         AND world_instance_id IS NOT NULL
+       ORDER BY started_at DESC
+       LIMIT 1
+    );
     SET @world_key=(SELECT rwi.world_instance_key FROM server_sessions ss JOIN realm_world_instances rwi ON rwi.world_instance_id=ss.world_instance_id WHERE ss.session_id=@sid LIMIT 1);
 
     SET @trigger_event_id=NULL; SET @trigger_row=NULL;

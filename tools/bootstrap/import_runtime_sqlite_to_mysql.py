@@ -507,10 +507,41 @@ def parse_mysql_url(url: str) -> MySqlTarget:
     )
 
 
+def resolve_mysql_exe() -> str:
+    for env_name in ("GOTHIC_MMO_MYSQL_EXE", "MYSQL_EXE"):
+        value = os.environ.get(env_name)
+        if value:
+            path = Path(value)
+            if path.exists():
+                return str(path)
+            found = shutil.which(value)
+            if found is not None:
+                return found
+            fail(f"{env_name} points to missing mysql executable: {value}")
+
+    found = shutil.which("mysql")
+    if found is not None:
+        return found
+
+    if os.name == "nt":
+        candidates = [
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "MySQL",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "MySQL",
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "MariaDB",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "MariaDB",
+        ]
+        matches: list[Path] = []
+        for root in candidates:
+            if root.exists():
+                matches.extend(root.glob("**/mysql.exe"))
+        if matches:
+            return str(sorted(matches, key=lambda p: (len(p.parts), str(p)))[0])
+
+    fail("mysql command not found; install mysql-client, add mysql.exe to PATH, set MYSQL_EXE, or use --dry-run-sql")
+
+
 def mysql_cmd(target: MySqlTarget) -> list[str]:
-    exe = shutil.which("mysql")
-    if not exe:
-        fail("mysql command not found; install mysql-client or use --dry-run-sql")
+    exe = resolve_mysql_exe()
     cmd = [
         exe,
         f"--host={target.host}",
@@ -807,6 +838,8 @@ def run_mysql(target: MySqlTarget, sql: str) -> None:
         mysql_cmd(target),
         input=sql,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,

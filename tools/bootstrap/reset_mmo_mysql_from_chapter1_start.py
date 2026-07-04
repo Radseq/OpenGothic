@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,7 @@ BASE_MIGRATIONS = (
     ROOT / "db" / "migrations" / "mysql" / "production" / "001_gothic_mmo_production_schema.sql",
     ROOT / "db" / "migrations" / "mysql" / "production" / "002_bootstrap_import_pipeline.sql",
 )
+SCHEMA_DUMP_FALLBACK = ROOT / "wynik_gothic_mmo_ch1_clean_schema.txt"
 STEP51_SQL = ROOT / "server" / "sql" / "step51_authority_gap_procedures.sql"
 STEP53_SQL = ROOT / "server" / "sql" / "step53_server_read_model_v1.sql"
 STEP55_LIVE_BRIDGE_SQL = ROOT / "server" / "sql" / "step55_live_receiver_bridge.sql"
@@ -96,10 +98,52 @@ def mysql_url_for_database(url: str, database: str) -> str:
     return urlunparse((p.scheme, p.netloc, "/" + database, "", "", ""))
 
 
+def base_migrations() -> tuple[Path, ...]:
+    if all(path.exists() for path in BASE_MIGRATIONS):
+        return BASE_MIGRATIONS
+    if SCHEMA_DUMP_FALLBACK.exists():
+        return (SCHEMA_DUMP_FALLBACK,)
+    return BASE_MIGRATIONS
+
+
+def resolve_mysql_exe() -> str:
+    for env_name in ("GOTHIC_MMO_MYSQL_EXE", "MYSQL_EXE"):
+        value = os.environ.get(env_name)
+        if value:
+            path = Path(value)
+            if path.exists():
+                return str(path)
+            found = shutil.which(value)
+            if found is not None:
+                return found
+            raise RuntimeError(f"{env_name} points to missing mysql executable: {value}")
+
+    found = shutil.which("mysql")
+    if found is not None:
+        return found
+
+    if os.name == "nt":
+        candidates = [
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "MySQL",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "MySQL",
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "MariaDB",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "MariaDB",
+        ]
+        matches: list[Path] = []
+        for root in candidates:
+            if root.exists():
+                matches.extend(root.glob("**/mysql.exe"))
+        if matches:
+            return str(sorted(matches, key=lambda p: (len(p.parts), str(p)))[0])
+
+    raise RuntimeError(
+        "mysql executable not found. Install MySQL client tools, add mysql.exe to PATH, "
+        "or set MYSQL_EXE to the full mysql.exe path."
+    )
+
+
 def mysql_cmd(target: Target, *, include_db: bool) -> list[str]:
-    exe = shutil.which("mysql")
-    if exe is None:
-        raise RuntimeError("mysql executable not found in PATH")
+    exe = resolve_mysql_exe()
     cmd = [
         exe,
         "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
@@ -125,7 +169,16 @@ def run(cmd: list[str], *, input_text: str | None = None, dry_run: bool = False,
     print(f"[RUN] {printable}")
     if dry_run:
         return {"cmd": cmd, "returncode": 0, "dry_run": True, "stdout": "", "stderr": ""}
-    proc = subprocess.run(cmd, input=input_text, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd))
+    proc = subprocess.run(
+        cmd,
+        input=input_text,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(cwd),
+    )
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -159,7 +212,10 @@ def mysql_connection_hint(target: Target, stderr: str) -> str:
 def apply_sql(target: Target, path: Path, *, dry_run: bool) -> dict[str, object]:
     if not path.exists():
         return {"path": rel(path), "status": "missing_skipped"}
-    result = run(mysql_cmd(target, include_db=True), input_text=path.read_text(encoding="utf-8"), dry_run=dry_run)
+    sql = path.read_text(encoding="utf-8")
+    if path.resolve() == SCHEMA_DUMP_FALLBACK.resolve():
+        sql = re.sub(r"CREATE\s+DEFINER=`[^`]+`@`[^`]+`\s+", "CREATE ", sql)
+    result = run(mysql_cmd(target, include_db=True), input_text=sql, dry_run=dry_run)
     status = "applied" if result["returncode"] == 0 else "failed"
     if status == "failed":
         hint = mysql_connection_hint(target, str(result.get("stderr") or ""))
@@ -167,6 +223,178 @@ def apply_sql(target: Target, path: Path, *, dry_run: bool) -> dict[str, object]
             print(hint, file=sys.stderr)
             result["connection_hint"] = hint
     return {"path": rel(path), "status": status, "result": result}
+
+
+def apply_schema_markers_for_fallback_dump(target: Target, *, dry_run: bool) -> dict[str, object]:
+    sql = """
+    INSERT INTO mmo_schema_versions(migration_key, schema_contract, notes)
+    VALUES
+      ('production/mysql/001_gothic_mmo_production_schema', 'production/mysql', 'compat marker: schema loaded from wynik_gothic_mmo_ch1_clean_schema.txt fallback dump'),
+      ('production/mysql/002_bootstrap_import_pipeline', 'production/mysql', 'compat marker: bootstrap import pipeline loaded from wynik_gothic_mmo_ch1_clean_schema.txt fallback dump')
+    ON DUPLICATE KEY UPDATE
+      schema_contract=VALUES(schema_contract),
+      notes=VALUES(notes);
+    """
+    result = run(mysql_cmd(target, include_db=True), input_text=sql, dry_run=dry_run)
+    status = "applied" if result["returncode"] == 0 else "failed"
+    return {"path": rel(SCHEMA_DUMP_FALLBACK), "status": status, "purpose": "fallback_schema_version_markers", "result": result}
+
+
+def apply_fallback_views(target: Target, *, dry_run: bool) -> dict[str, object]:
+    sql = """
+    CREATE OR REPLACE VIEW v_mmo_latest_save_checkpoint_manifests AS
+    SELECT *
+      FROM (
+        SELECT
+          sm.manifest_id,
+          BIN_TO_UUID(sm.manifest_id, 1) AS manifest_uuid,
+          sm.event_id,
+          sm.realm_id,
+          sm.world_instance_id,
+          sm.character_id,
+          c.character_key,
+          sm.manifest_key,
+          sm.save_slot_key,
+          sm.native_save_path,
+          sm.display_name,
+          sm.client_world_name,
+          sm.native_save_present,
+          sm.checkpoint_kind,
+          sm.reason,
+          sm.server_tick,
+          sm.latest_checkpoint_tick,
+          sm.recent_event_seq,
+          sm.inventory_rows,
+          sm.equipment_rows,
+          sm.quest_rows,
+          sm.known_dialog_rows,
+          sm.script_state_rows,
+          sm.world_item_rows,
+          sm.world_inventory_rows,
+          sm.interactive_rows,
+          sm.npc_lifecycle_rows,
+          sm.mover_rows,
+          sm.metadata,
+          sm.idempotency_key,
+          sm.row_version,
+          sm.created_at,
+          sm.updated_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY sm.character_id, COALESCE(sm.save_slot_key, sm.native_save_path, sm.manifest_key)
+            ORDER BY sm.created_at DESC, sm.row_version DESC, sm.manifest_id DESC
+          ) AS character_rank
+        FROM mmo_save_checkpoint_manifests sm
+        JOIN characters c ON c.character_id = sm.character_id
+      ) ranked
+     WHERE character_rank = 1;
+
+    CREATE OR REPLACE VIEW v_mmo_save_checkpoint_snapshot_domain_counts AS
+    SELECT
+      sm.manifest_id,
+      BIN_TO_UUID(sm.manifest_id, 1) AS manifest_uuid,
+      sm.character_id,
+      c.character_key,
+      sm.world_instance_id,
+      sm.manifest_key,
+      COALESCE(sm.save_slot_key, sm.manifest_key) AS save_key,
+      sm.save_slot_key,
+      sm.native_save_path,
+      sm.display_name,
+      sm.client_world_name,
+      sm.native_save_present,
+      sm.checkpoint_kind,
+      sm.reason,
+      sm.server_tick,
+      sm.latest_checkpoint_tick,
+      sm.recent_event_seq,
+      sm.row_version,
+      sm.created_at,
+      sm.updated_at,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_character_snapshot s WHERE s.manifest_id = sm.manifest_id) AS character_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_inventory_snapshot s WHERE s.manifest_id = sm.manifest_id) AS inventory_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_equipment_snapshot s WHERE s.manifest_id = sm.manifest_id) AS equipment_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_quest_snapshot s WHERE s.manifest_id = sm.manifest_id) AS quest_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_known_dialog_snapshot s WHERE s.manifest_id = sm.manifest_id) AS known_dialog_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_script_state_snapshot s WHERE s.manifest_id = sm.manifest_id) AS script_state_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id) AS world_entity_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind = 'item') AS world_item_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind = 'item' AND s.lifecycle_state = 'active') AS world_item_active_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind = 'item' AND s.lifecycle_state <> 'active') AS world_item_removed_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind = 'interactive') AS interactive_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind IN ('npc', 'creature')) AS npc_lifecycle_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind IN ('npc', 'creature') AND s.lifecycle_state <> 'active') AS npc_lifecycle_non_active_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_inventory_snapshot s WHERE s.manifest_id = sm.manifest_id) AS world_inventory_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_clock_snapshot s WHERE s.manifest_id = sm.manifest_id) AS world_clock_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_mover_snapshot s WHERE s.manifest_id = sm.manifest_id) AS mover_rows
+    FROM mmo_save_checkpoint_manifests sm
+    JOIN characters c ON c.character_id = sm.character_id;
+
+    CREATE OR REPLACE VIEW v_mmo_latest_save_checkpoint_restore_readiness AS
+    SELECT
+      dc.*,
+      0 AS exported_bootstrap_bytes
+    FROM v_mmo_save_checkpoint_snapshot_domain_counts dc
+    JOIN server_sessions ss
+      ON ss.character_id = dc.character_id
+     AND ss.world_instance_id = dc.world_instance_id
+    WHERE NOT EXISTS (
+      SELECT 1
+        FROM mmo_save_checkpoint_manifests newer
+       WHERE newer.character_id = dc.character_id
+         AND newer.world_instance_id = dc.world_instance_id
+         AND (
+           newer.created_at > dc.created_at
+           OR (newer.created_at = dc.created_at AND newer.row_version > dc.row_version)
+           OR (newer.created_at = dc.created_at AND newer.row_version = dc.row_version AND newer.manifest_id > dc.manifest_id)
+         )
+    );
+
+    CREATE OR REPLACE VIEW v_mmo_latest_save_checkpoint_strict_restore AS
+    SELECT
+      ss.session_key,
+      BIN_TO_UUID(ss.session_id, 1) AS session_uuid,
+      dc.character_key,
+      rwi.world_instance_key,
+      dc.manifest_uuid,
+      dc.save_key,
+      dc.display_name,
+      dc.client_world_name,
+      dc.native_save_present,
+      dc.reason,
+      dc.character_rows,
+      dc.inventory_rows,
+      dc.equipment_rows,
+      dc.quest_rows,
+      dc.known_dialog_rows,
+      dc.script_state_rows,
+      dc.world_entity_rows,
+      dc.world_inventory_rows,
+      dc.world_clock_rows,
+      dc.mover_rows,
+      0 AS exported_bootstrap_bytes,
+      'fallback_missing_export_function' AS snapshot_source,
+      0 AS strict_restore_ok,
+      dc.created_at
+    FROM v_mmo_save_checkpoint_snapshot_domain_counts dc
+    JOIN server_sessions ss
+      ON ss.character_id = dc.character_id
+     AND ss.world_instance_id = dc.world_instance_id
+    JOIN realm_world_instances rwi ON rwi.world_instance_id = dc.world_instance_id
+    WHERE NOT EXISTS (
+      SELECT 1
+        FROM mmo_save_checkpoint_manifests newer
+       WHERE newer.character_id = dc.character_id
+         AND newer.world_instance_id = dc.world_instance_id
+         AND (
+           newer.created_at > dc.created_at
+           OR (newer.created_at = dc.created_at AND newer.row_version > dc.row_version)
+           OR (newer.created_at = dc.created_at AND newer.row_version = dc.row_version AND newer.manifest_id > dc.manifest_id)
+         )
+    );
+    """
+    result = run(mysql_cmd(target, include_db=True), input_text=sql, dry_run=dry_run)
+    status = "applied" if result["returncode"] == 0 else "failed"
+    return {"path": rel(SCHEMA_DUMP_FALLBACK), "status": status, "purpose": "fallback_views", "result": result}
 
 
 def main() -> int:
@@ -245,12 +473,26 @@ def main() -> int:
             reset_result["connection_hint"] = hint
         manifest["status"] = "failed_drop_create"
     else:
-        for migration in BASE_MIGRATIONS:
+        for migration in base_migrations():
             entry = apply_sql(target, migration, dry_run=args.dry_run)
             manifest["applied_sql"].append(entry)
             if entry["status"] == "failed":
                 manifest["status"] = "failed_base_migration"
                 break
+            if entry["status"] == "missing_skipped":
+                manifest["status"] = "failed_missing_base_migration"
+                break
+            if migration.resolve() == SCHEMA_DUMP_FALLBACK.resolve():
+                marker_entry = apply_schema_markers_for_fallback_dump(target, dry_run=args.dry_run)
+                manifest["applied_sql"].append(marker_entry)
+                if marker_entry["status"] == "failed":
+                    manifest["status"] = "failed_fallback_schema_markers"
+                    break
+                view_entry = apply_fallback_views(target, dry_run=args.dry_run)
+                manifest["applied_sql"].append(view_entry)
+                if view_entry["status"] == "failed":
+                    manifest["status"] = "failed_fallback_views"
+                    break
         else:
             import_cmd = [
                 sys.executable,
@@ -277,7 +519,13 @@ def main() -> int:
                 if manifest["status"] == "running" and args.with_step53:
                     # Create/materialize Step53 read models through its wrapper when available; otherwise apply SQL only.
                     step53_wrapper = ROOT / "tools" / "migration" / "run_mmo_step53_server_materialization_followup.py"
-                    if step53_wrapper.exists():
+                    if not STEP53_SQL.exists():
+                        manifest["applied_sql"].append({
+                            "path": rel(STEP53_SQL),
+                            "status": "skipped_missing_optional_step53_sql",
+                            "reason": "Step53 SQL is absent in this checkout; fallback schema dump already provides any exported read-model tables.",
+                        })
+                    elif step53_wrapper.exists():
                         step53_cmd = [
                             sys.executable,
                             str(step53_wrapper),
@@ -300,96 +548,72 @@ def main() -> int:
                     manifest["applied_sql"].append(step55_live_bridge)
                     if step55_live_bridge["status"] == "failed":
                         manifest["status"] = "failed_step55_live_bridge"
-                    elif step55_live_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step55_live_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step56b_progress_bridge:
                     step56b_progress_bridge = apply_sql(target, STEP56B_PROGRESS_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step56b_progress_bridge)
                     if step56b_progress_bridge["status"] == "failed":
                         manifest["status"] = "failed_step56b_progress_bridge"
-                    elif step56b_progress_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step56b_progress_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step59_item_interactive_progress_bridge:
                     step59_bridge = apply_sql(target, STEP59_ITEM_INTERACTIVE_PROGRESS_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step59_bridge)
                     if step59_bridge["status"] == "failed":
                         manifest["status"] = "failed_step59_item_interactive_progress_bridge"
-                    elif step59_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step59_item_interactive_progress_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step60_equipment_bridge:
                     step60_bridge = apply_sql(target, STEP60_EQUIPMENT_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step60_bridge)
                     if step60_bridge["status"] == "failed":
                         manifest["status"] = "failed_step60_equipment_bridge"
-                    elif step60_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step60_equipment_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step67_interactive_use_bridge:
                     step67_bridge = apply_sql(target, STEP67_INTERACTIVE_USE_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step67_bridge)
                     if step67_bridge["status"] == "failed":
                         manifest["status"] = "failed_step67_interactive_use_bridge"
-                    elif step67_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step67_interactive_use_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step68_drop_loot_bridge:
                     step68_bridge = apply_sql(target, STEP68_DROP_LOOT_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step68_bridge)
                     if step68_bridge["status"] == "failed":
                         manifest["status"] = "failed_step68_drop_loot_bridge"
-                    elif step68_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step68_drop_loot_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step83_combat_lifecycle_bridge:
                     step83_bridge = apply_sql(target, STEP83_COMBAT_LIFECYCLE_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step83_bridge)
                     if step83_bridge["status"] == "failed":
                         manifest["status"] = "failed_step83_combat_lifecycle_bridge"
-                    elif step83_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step83_combat_lifecycle_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step84_world_identity_lifecycle_bridge:
                     step84_bridge = apply_sql(target, STEP84_WORLD_IDENTITY_LIFECYCLE_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step84_bridge)
                     if step84_bridge["status"] == "failed":
                         manifest["status"] = "failed_step84_world_identity_lifecycle_bridge"
-                    elif step84_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step84_world_identity_lifecycle_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step93_save_checkpoint_quest_utf8_bridge:
                     step93_bridge = apply_sql(target, STEP93_SAVE_CHECKPOINT_QUEST_UTF8_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step93_bridge)
                     if step93_bridge["status"] == "failed":
                         manifest["status"] = "failed_step93_save_checkpoint_quest_utf8_bridge"
-                    elif step93_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step93_save_checkpoint_quest_utf8_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step94_server_save_checkpoint_manifest:
                     step94_manifest = apply_sql(target, STEP94_SERVER_SAVE_CHECKPOINT_MANIFEST_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step94_manifest)
                     if step94_manifest["status"] == "failed":
                         manifest["status"] = "failed_step94_server_save_checkpoint_manifest"
-                    elif step94_manifest["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step94_server_save_checkpoint_manifest_sql"
 
                 if manifest["status"] == "running" and args.with_step95_save_slot_catalog_db_continue_bridge:
                     step95_bridge = apply_sql(target, STEP95_SAVE_SLOT_CATALOG_DB_CONTINUE_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step95_bridge)
                     if step95_bridge["status"] == "failed":
                         manifest["status"] = "failed_step95_save_slot_catalog_db_continue_bridge"
-                    elif step95_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step95_save_slot_catalog_db_continue_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step96_db_save_checkpoint_snapshots:
                     step96_bridge = apply_sql(target, STEP96_DB_SAVE_CHECKPOINT_SNAPSHOTS_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step96_bridge)
                     if step96_bridge["status"] == "failed":
                         manifest["status"] = "failed_step96_db_save_checkpoint_snapshots"
-                    elif step96_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step96_db_save_checkpoint_snapshots_sql"
 
                 if manifest["status"] == "running" and step104_procedure_export_enabled:
                     step108_foundation = apply_sql(target, STEP108_DB_CHECKPOINT_WORLD_CLOCK_FOUNDATION_SQL, dry_run=args.dry_run)
@@ -397,8 +621,6 @@ def main() -> int:
                     manifest["applied_sql"].append(step108_foundation)
                     if step108_foundation["status"] == "failed":
                         manifest["status"] = "failed_step108_db_checkpoint_world_clock_foundation"
-                    elif step108_foundation["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step108_db_checkpoint_world_clock_foundation_sql"
 
                 if manifest["status"] == "running" and args.with_step97_db_save_checkpoint_restore_bridge and not legacy_step97_restore_enabled:
                     manifest["applied_sql"].append({
@@ -411,8 +633,6 @@ def main() -> int:
                     manifest["applied_sql"].append(step97_bridge)
                     if step97_bridge["status"] == "failed":
                         manifest["status"] = "failed_step97_db_save_checkpoint_restore_bridge"
-                    elif step97_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step97_db_save_checkpoint_restore_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step98_strict_db_continue_restore and not legacy_step98_strict_enabled:
                     manifest["applied_sql"].append({
@@ -425,24 +645,18 @@ def main() -> int:
                     manifest["applied_sql"].append(step98_bridge)
                     if step98_bridge["status"] == "failed":
                         manifest["status"] = "failed_step98_strict_db_continue_restore"
-                    elif step98_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step98_strict_db_continue_restore_sql"
 
                 if manifest["status"] == "running" and args.with_step103_db_checkpoint_export_coverage:
                     step103_bridge = apply_sql(target, STEP103_DB_CHECKPOINT_EXPORT_COVERAGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step103_bridge)
                     if step103_bridge["status"] == "failed":
                         manifest["status"] = "failed_step103_db_checkpoint_export_coverage"
-                    elif step103_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step103_db_checkpoint_export_coverage_sql"
 
                 if manifest["status"] == "running" and args.with_step104_db_checkpoint_script_state_full_export:
                     step104_bridge = apply_sql(target, STEP104_DB_CHECKPOINT_SCRIPT_STATE_FULL_EXPORT_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step104_bridge)
                     if step104_bridge["status"] == "failed":
                         manifest["status"] = "failed_step104_db_checkpoint_script_state_full_export"
-                    elif step104_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step104_db_checkpoint_script_state_full_export_sql"
 
                 if manifest["status"] == "running" and step104_procedure_export_enabled:
                     step108_finalize = apply_sql(target, STEP108_DB_CHECKPOINT_WORLD_CLOCK_FOUNDATION_SQL, dry_run=args.dry_run)
@@ -450,24 +664,18 @@ def main() -> int:
                     manifest["applied_sql"].append(step108_finalize)
                     if step108_finalize["status"] == "failed":
                         manifest["status"] = "failed_step108_db_checkpoint_world_clock_foundation_finalize"
-                    elif step108_finalize["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step108_db_checkpoint_world_clock_foundation_sql"
 
                 if manifest["status"] == "running" and args.with_step120_npc_authority_restore_bridge:
                     step120_bridge = apply_sql(target, STEP120_NPC_AUTHORITY_RESTORE_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step120_bridge)
                     if step120_bridge["status"] == "failed":
                         manifest["status"] = "failed_step120_npc_authority_restore_bridge"
-                    elif step120_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step120_npc_authority_restore_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step121_server_parity_state_bridge:
                     step121_bridge = apply_sql(target, STEP121_SERVER_PARITY_STATE_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step121_bridge)
                     if step121_bridge["status"] == "failed":
                         manifest["status"] = "failed_step121_server_parity_state_bridge"
-                    elif step121_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step121_server_parity_state_bridge_sql"
 
                 if manifest["status"] == "running" and args.normalize_collation:
                     normalize_tool = ROOT / "tools" / "bootstrap" / "normalize_mmo_mysql_collation.py"

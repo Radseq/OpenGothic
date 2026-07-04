@@ -16,9 +16,9 @@
 --   v_world_dead_entities
 --   v_world_event_counts
 
--- MySQL dump 10.13  Distrib 8.4.10, for Linux (x86_64)
+-- MySQL dump 10.13  Distrib 8.0.36, for Win64 (x86_64)
 --
--- Host: 127.0.0.1    Database: gothic_mmo_ch1_clean
+-- Host: 192.168.195.94    Database: gothic_mmo_ch1_clean
 -- ------------------------------------------------------
 -- Server version	8.4.10-0ubuntu0.26.04.1
 
@@ -285,7 +285,7 @@ CREATE TABLE `character_progress_audit` (
   UNIQUE KEY `ux_character_progress_audit_idempotency` (`idempotency_key`),
   KEY `ix_character_progress_audit_character` (`character_id`),
   KEY `ix_character_progress_audit_event` (`event_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1941,7 +1941,7 @@ CREATE TABLE `world_event_journal` (
   CONSTRAINT `world_event_journal_schema_version_ck` CHECK ((`schema_version` > 0)),
   CONSTRAINT `world_event_journal_source_ck` CHECK ((`source` in (_utf8mb4'server',_utf8mb4'import',_utf8mb4'runtime_sqlite',_utf8mb4'admin',_utf8mb4'test'))),
   CONSTRAINT `world_event_journal_tick_ck` CHECK ((`server_tick` >= 0))
-) ENGINE=InnoDB AUTO_INCREMENT=264 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=123 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1967,7 +1967,7 @@ CREATE TABLE `world_interactive_audit` (
   UNIQUE KEY `ux_world_interactive_audit_idempotency` (`idempotency_key`),
   KEY `ix_world_interactive_audit_entity` (`world_instance_id`,`entity_key`),
   KEY `ix_world_interactive_audit_event` (`event_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2017,7 +2017,7 @@ CREATE TABLE `world_item_audit` (
   UNIQUE KEY `ux_world_item_audit_idempotency` (`idempotency_key`),
   KEY `ix_world_item_audit_entity` (`world_instance_id`,`entity_key`),
   KEY `ix_world_item_audit_event` (`event_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -6812,4 +6812,4 @@ DELIMITER ;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-07-01 22:09:42
+-- Dump completed on 2026-07-03 19:33:14

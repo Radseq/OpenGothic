@@ -8,6 +8,9 @@ add_executable(mmo_udp_server
 
 target_compile_features(mmo_udp_server PRIVATE cxx_std_23)
 target_compile_definitions(mmo_udp_server PRIVATE ASIO_STANDALONE)
+if(WIN32)
+  target_compile_definitions(mmo_udp_server PRIVATE _WIN32_WINNT=0x0601)
+endif()
 target_include_directories(mmo_udp_server SYSTEM PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../../thirdparty/asio/include
 )

@@ -14,6 +14,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SQLITE = ROOT / "runtime" / "g2notr_ch1_pre_xardas.sqlite"
@@ -85,7 +91,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -116,7 +122,7 @@ def sql_literal(value: object) -> str:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")

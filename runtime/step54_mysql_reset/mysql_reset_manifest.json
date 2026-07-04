@@ -1,0 +1,375 @@
+{
+  "applied_sql": [
+    {
+      "path": "wynik_gothic_mmo_ch1_clean_schema.txt",
+      "result": {
+        "cmd": [
+          "C:\\Program Files\\MySQL\\MySQL Workbench 8.0 CE\\mysql.exe",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "192.168.195.94",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": true,
+        "returncode": 0,
+        "stderr": "",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step51_authority_gap_procedures.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step55_live_receiver_bridge.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step56b_clean_db_progress_bridge.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step59_clean_db_item_interactive_progress_bridge.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step60_clean_db_equipment_bridge.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step67_interactive_use_bridge.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step68_drop_loot_inventory_bridge.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step83_combat_lifecycle_bridge.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step84_world_identity_lifecycle_bridge.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step93_save_checkpoint_quest_utf8_bridge.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step94_server_save_checkpoint_manifest.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step95_save_slot_catalog_db_continue_bridge.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step96_db_save_checkpoint_snapshots.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step108_db_checkpoint_world_clock_foundation.sql",
+      "phase": "before_step103_step104",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step97_db_save_checkpoint_restore_bridge.sql",
+      "status": "skipped_replaced_by_step104_procedure_export"
+    },
+    {
+      "path": "server/sql/step98_strict_db_continue_restore.sql",
+      "status": "skipped_replaced_by_step104_procedure_export"
+    },
+    {
+      "path": "server/sql/step103_db_checkpoint_export_coverage.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step104_db_checkpoint_script_state_full_export.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step108_db_checkpoint_world_clock_foundation.sql",
+      "phase": "after_step104",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step120_npc_authority_restore_bridge.sql",
+      "status": "missing_skipped"
+    },
+    {
+      "path": "server/sql/step121_server_parity_state_bridge.sql",
+      "status": "missing_skipped"
+    }
+  ],
+  "baseline": "runtime/baselines/g2notr_chapter1_before_xardas.sqlite",
+  "commands": [
+    {
+      "cmd": [
+        "C:\\Program Files\\MySQL\\MySQL Workbench 8.0 CE\\mysql.exe",
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "-h",
+        "192.168.195.94",
+        "-P",
+        "3306",
+        "-u",
+        "gothic",
+        "-pgothic_dev_password"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\bootstrap\\import_runtime_sqlite_to_mysql.py",
+        "--sqlite",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\runtime\\baselines\\g2notr_chapter1_before_xardas.sqlite",
+        "--mysql-url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean",
+        "--realm-key",
+        "local-dev",
+        "--realm-display-name",
+        "Local Dev Realm",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\migration\\run_mmo_step53_server_materialization_followup.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean",
+        "--output-dir",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\runtime\\step54_mysql_reset\\step53_materialization",
+        "--limit",
+        "80",
+        "--sample-limit",
+        "25"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\bootstrap\\normalize_mmo_mysql_collation.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean",
+        "--output",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\runtime\\step54_mysql_reset\\normalize_collation.json",
+        "--dry-run"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mysql_bootstrap_import.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean",
+        "--realm-key",
+        "local-dev",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mmo_step55_live_receiver_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mmo_step56b_clean_db_progress_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mmo_step59_clean_db_item_interactive_progress_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mmo_step60_clean_db_equipment_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mmo_step67_interactive_use_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mmo_step68_drop_loot_inventory_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean",
+        "--account-name",
+        "local-import",
+        "--character-key",
+        "PC_HERO"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mmo_step93_save_checkpoint_quest_utf8_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mmo_step94_server_save_checkpoint_manifest.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mmo_step95_save_slot_catalog_db_continue_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mmo_step96_db_save_checkpoint_snapshots.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "cmd": [
+        "C:\\Program Files\\Python313\\python.exe",
+        "C:\\Users\\admin\\Desktop\\OpenGothic\\tools\\validation\\check_mmo_step121_server_parity_state_bridge.py",
+        "--url",
+        "mysql://gothic:gothic_dev_password@192.168.195.94:3306/gothic_mmo_ch1_clean"
+      ],
+      "dry_run": true,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    }
+  ],
+  "compatibility": {
+    "legacy_step97_restore_enabled": false,
+    "legacy_step98_strict_enabled": false,
+    "step104_procedure_export_enabled": true
+  },
+  "database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-07-04T08:25:55.700925+00:00",
+  "started_at": "2026-07-04T08:25:55.667046+00:00",
+  "status": "passed",
+  "step": 54
+}

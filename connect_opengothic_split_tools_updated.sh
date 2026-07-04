@@ -334,7 +334,7 @@ export_mysql_schema() {
     local mysql_user="${MYSQL_USER:-gothic}"
     local mysql_password="${MYSQL_PWD:-gothic_dev_password}"
     local mysql_database="${MYSQL_DATABASE:-gothic_mmo_ch1_clean}"
-    local mysql_include_views="${MYSQL_SCHEMA_INCLUDE_VIEWS:-0}"
+    local mysql_include_views="${MYSQL_SCHEMA_INCLUDE_VIEWS:-1}"
     local tmp_output="${SCHEMA_OUTPUT_ABS}.tmp.$$"
 
     local dump_args=(

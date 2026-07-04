@@ -8,6 +8,12 @@ import os
 import shutil
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 from dataclasses import dataclass
 from typing import Sequence
 from urllib.parse import urlparse, unquote
@@ -49,7 +55,7 @@ def parse_url(url: str) -> MySqlTarget:
 
 
 def mysql_cmd(target: MySqlTarget) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if not exe:
         fail("mysql command not found")
     cmd = [
@@ -72,6 +78,8 @@ def run_mysql(target: MySqlTarget, sql: str) -> str:
     proc = subprocess.run(
         mysql_cmd(target) + ["--execute", sql],
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
@@ -89,6 +97,18 @@ def count(target: MySqlTarget, sql: str) -> int:
         return int(raw.splitlines()[-1] if raw else "0")
     except ValueError:
         return 0
+
+
+def relation_exists(target: MySqlTarget, name: str) -> bool:
+    return count(
+        target,
+        f"""
+        SELECT COUNT(*)
+          FROM information_schema.tables
+         WHERE table_schema=DATABASE()
+           AND table_name={quote(name)};
+        """,
+    ) >= 1
 
 
 def exists_count_check(target: MySqlTarget, name: str, sql: str, minimum: int = 1) -> Check:
@@ -141,7 +161,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not ok:
         return 1
 
-    summary = run_mysql(target, "SELECT import_run_id, source_schema_version, game_code, status, counters FROM v_mmo_import_runs ORDER BY started_at DESC LIMIT 1;")
+    if relation_exists(target, "v_mmo_import_runs"):
+        summary_sql = "SELECT import_run_id, source_schema_version, game_code, status, counters FROM v_mmo_import_runs ORDER BY started_at DESC LIMIT 1;"
+    else:
+        summary_sql = "SELECT BIN_TO_UUID(import_run_id,1), source_schema_version, game_code, status, counters FROM mmo_import_runs ORDER BY started_at DESC LIMIT 1;"
+    summary = run_mysql(target, summary_sql)
     if summary:
         print("latest import:")
         print(summary)

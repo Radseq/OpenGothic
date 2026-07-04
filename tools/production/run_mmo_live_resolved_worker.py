@@ -8,6 +8,12 @@ import re
 import shutil
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,7 +52,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -70,7 +76,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target) + ["--execute", sql], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target) + ["--execute", sql], text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -200,7 +206,7 @@ def inventory_evidence_summary(target: Target, session_key: str) -> dict[str, ob
 
 
 def run_capture(cmd: list[str]) -> dict[str, object]:
-    proc = subprocess.run(cmd, cwd=str(ROOT), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(cmd, cwd=str(ROOT), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -307,7 +313,7 @@ def latest_active_session_key(target: Target) -> tuple[str, dict[str, int]]:
 
 
 def worker_supported_flags() -> set[str]:
-    proc = subprocess.run([sys.executable, str(WORKER), "--help"], cwd=str(ROOT), text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    proc = subprocess.run([sys.executable, str(WORKER), "--help"], cwd=str(ROOT), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     help_text = proc.stdout
     return set(re.findall(r"(--[a-zA-Z0-9][a-zA-Z0-9-]*)", help_text))
 

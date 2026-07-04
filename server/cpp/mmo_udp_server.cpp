@@ -58,6 +58,22 @@ constexpr std::string_view MysqlSessionPreamble =
     "SET SESSION max_execution_time=0; ";
 std::atomic_bool gRunning {true};
 
+[[nodiscard]] FILE* openProcessPipe(const std::string& cmd) {
+#if defined(_WIN32)
+  return ::_popen(cmd.c_str(), "r");
+#else
+  return ::popen(cmd.c_str(), "r");
+#endif
+}
+
+int closeProcessPipe(FILE* pipe) {
+#if defined(_WIN32)
+  return ::_pclose(pipe);
+#else
+  return ::pclose(pipe);
+#endif
+}
+
 struct ServerPacketLogState final {
   std::uint64_t suppressedMovementLines = 0;
   std::uint64_t nextMovementSummaryAt = 100;
@@ -172,6 +188,33 @@ void stopHandler(int) {
 }
 
 [[nodiscard]] std::string shellQuote(std::string_view text) {
+#if defined(_WIN32)
+  std::string out;
+  out.reserve(text.size() + 8);
+  out.push_back('"');
+  std::size_t backslashes = 0;
+  for(char ch : text) {
+    if(ch == '\\') {
+      ++backslashes;
+      continue;
+    }
+    if(ch == '"') {
+      out.append(backslashes * 2 + 1, '\\');
+      out.push_back('"');
+      backslashes = 0;
+      continue;
+    }
+    out.append(backslashes, '\\');
+    backslashes = 0;
+    if(ch == '%')
+      out += "%%";
+    else
+      out.push_back(ch);
+  }
+  out.append(backslashes * 2, '\\');
+  out.push_back('"');
+  return out;
+#else
   std::string out;
   out.reserve(text.size() + 8);
   out.push_back('\'');
@@ -183,7 +226,32 @@ void stopHandler(int) {
   }
   out.push_back('\'');
   return out;
+#endif
 }
+
+[[nodiscard]] std::string mysqlExecutable() {
+#if defined(_WIN32)
+  if(const char* exe = std::getenv("GOTHIC_MMO_MYSQL_EXE"); exe != nullptr && *exe != '\0')
+    return exe;
+  if(const char* exe = std::getenv("MYSQL_EXE"); exe != nullptr && *exe != '\0')
+    return exe;
+#endif
+  return "mysql";
+}
+
+#if defined(_WIN32)
+[[nodiscard]] std::string cmdSetEnvPrefix(std::string_view name, std::string_view value) {
+  std::string out = "set \"" + std::string(name) + "=";
+  for(char ch : value) {
+    if(ch == '%')
+      out += "%%";
+    else
+      out.push_back(ch);
+  }
+  out += "\" && ";
+  return out;
+}
+#endif
 
 [[nodiscard]] std::string sqlLiteral(std::string_view text) {
   std::string out;
@@ -707,12 +775,12 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
 [[nodiscard]] std::string runCommand(std::string_view cmd) {
   std::array<char, 4096> buffer {};
   std::string output;
-  FILE* pipe = ::popen(std::string(cmd).c_str(), "r");
+  FILE* pipe = openProcessPipe(std::string(cmd));
   if(pipe == nullptr)
     throw std::runtime_error("popen failed");
   while(std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr)
     output += buffer.data();
-  const int rc = ::pclose(pipe);
+  const int rc = closeProcessPipe(pipe);
   if(rc != 0)
     throw std::runtime_error("command failed");
   return trim(output);
@@ -755,14 +823,19 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
 }
 
 [[nodiscard]] std::string mysqlBaseCommand(const MySqlTarget& target) {
-  std::string cmd = "mysql --default-character-set=utf8mb4 ";
+  std::string cmd = shellQuote(mysqlExecutable()) + " --default-character-set=utf8mb4 ";
   cmd += "--init-command=" + shellQuote("SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci") + " ";
   cmd += "--batch --raw --skip-column-names ";
   cmd += "--host=" + shellQuote(target.host) + " ";
   cmd += "--port=" + shellQuote(std::to_string(target.port)) + " ";
   cmd += "--user=" + shellQuote(target.user) + " ";
-  if(!target.password.empty())
+  if(!target.password.empty()) {
+#if defined(_WIN32)
+    cmd = cmdSetEnvPrefix("MYSQL_PWD", target.password) + cmd;
+#else
     cmd = "MYSQL_PWD=" + shellQuote(target.password) + " " + cmd;
+#endif
+  }
   cmd += shellQuote(target.database);
   return cmd;
 }

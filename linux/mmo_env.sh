@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+# Shared Linux MMO dev defaults.
+# Linux normally talks to the MySQL server on the same machine.
+
+: "${GOTHIC_MMO_MYSQL_HOST:=127.0.0.1}"
+: "${GOTHIC_MMO_MYSQL_PORT:=3306}"
+: "${GOTHIC_MMO_MYSQL_USER:=gothic}"
+: "${GOTHIC_MMO_MYSQL_PASSWORD:=gothic_dev_password}"
+: "${GOTHIC_MMO_MYSQL_DATABASE:=gothic_mmo_ch1_clean}"
+
+: "${GOTHIC_MMO_MYSQL_URL:=mysql://${GOTHIC_MMO_MYSQL_USER}:${GOTHIC_MMO_MYSQL_PASSWORD}@${GOTHIC_MMO_MYSQL_HOST}:${GOTHIC_MMO_MYSQL_PORT}/${GOTHIC_MMO_MYSQL_DATABASE}}"
+: "${MYSQL_URL:=${GOTHIC_MMO_MYSQL_URL}}"
+
+export GOTHIC_MMO_MYSQL_HOST
+export GOTHIC_MMO_MYSQL_PORT
+export GOTHIC_MMO_MYSQL_USER
+export GOTHIC_MMO_MYSQL_PASSWORD
+export GOTHIC_MMO_MYSQL_DATABASE
+export GOTHIC_MMO_MYSQL_URL
+export MYSQL_URL

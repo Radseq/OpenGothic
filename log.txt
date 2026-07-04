@@ -3,143 +3,697 @@ MMO server-bound client mode enabled: 127.0.0.1:29777
 MMO DB continue without native save enabled by server-bound mode
 MMO semantic action ASIO UDP transport enabled: 127.0.0.1:29777
 MMO semantic action sink is in server-bound binary UDP mode
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 Switching music provider to 'OpenGothic'
-GPU = NVIDIA GeForce RTX 5070 Ti
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+GPU = Intel(R) Iris(R) Xe Graphics
 Depth format = Depth32F Shadow format = Depth16
-swapchain is outdated - reset renderer
-MMO menu Continue: loading server DB character without native save slot
-MMO server ACK kind=2 accepted=1 ready=1 seq=1
-MMO server bootstrap snapshot receiving: id=1 bytes=1577439 chunks=193
-MMO server bootstrap snapshot progress: id=1 chunks=1/193 bytes=8192/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=16/193 bytes=131072/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=32/193 bytes=262144/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=48/193 bytes=393216/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=64/193 bytes=524288/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=80/193 bytes=655360/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=96/193 bytes=786432/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=112/193 bytes=917504/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=128/193 bytes=1048576/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=144/193 bytes=1179648/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=160/193 bytes=1310720/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=176/193 bytes=1441792/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=192/193 bytes=1572864/1577439
-MMO server bootstrap snapshot progress: id=1 chunks=193/193 bytes=1577439/1577439
-MMO server bootstrap snapshot received: bytes=1577439 chunks=193 path=runtime/mmo_server_bootstrap_snapshot.json
-MMO DB continue pre-world snapshot selected world=newworld.zen snapshot_source=db_save_checkpoint_v1 manifest=02534959-7589-11f1-b6fd-30560f155bba
-MMO DB continue: native save is missing, bootstrapping baseline world newworld.zen and applying server snapshot for slot mmo_db_continue.sav
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO menu New Game: starting fresh server-bound client baseline without DB Continue restore
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] Parsing object [MeshAndBsp % 0 0]
 [zenkit] Parsing chunk c000
 [zenkit] Parsing chunk c010
 [zenkit] Parsing chunk c040
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] Parsing chunk c045
 [zenkit] Parsing chunk c050
 [zenkit] Parsing chunk c0ff
 [zenkit] 1 bytes remaining in section b020
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] Parsing object [VobTree % 0 0]
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] Parsing object [WayNet % 0 0]
 [zenkit] Parsing object [EndMarker % 0 0]
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 invalid particle system: "INVISIBLE_VOBBOX.3DS"
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 unable to load sound fx: ENV_NIGHT_TONSOFINSECTS
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 unable to load sound fx: OW_BIRD11
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+[zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+[zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+[zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
 [zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 addNpc: 11069 (MIL_302_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
 addNpc: 11071 (MIL_303_TORWACHE) has invalid spawnpoint (NW_CITY_ENTRANCE_01)
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] Unexpected value for MdsEventType: "		"
 [zenkit] 4 bytes remaining in section f5a3
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+[zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+[zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+[zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-[zenkit] 1 bytes overflowed in section f590
-MMO DB continue: suppressed startup video INTRO.BIK
-MMO DB continue: suppressed startup video Addon_Title.BIK
-MMO DB continue pre-world snapshot reuse enabled world=newworld.zen manifest=02534959-7589-11f1-b6fd-30560f155bba path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server snapshot restore scheduled: server_bound=1 inventory=1 position=1 stats=1 story=1 world=1 strict_db_checkpoint=0 reuse_existing_snapshot=1 reason=db_continue_baseline_loaded path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server snapshot restore reusing pre-world DB continue snapshot
-MMO server snapshot restore source: source=mmo_udp_server_cpp_db_save_checkpoint snapshot_source=db_save_checkpoint_v1 db_checkpoint=1 manifest_uuid=02534959-7589-11f1-b6fd-30560f155bba
-MMO server snapshot stats applied: level=0 exp=0 lp=0 hp=40/40 mana=10/10
-MMO server snapshot inventory applied: inventory=0 equipment=0 restore_items=0 reason=db_continue_baseline_loaded path=runtime/mmo_server_bootstrap_snapshot.json
-MMO server snapshot position applied: x=29912.934000 y=5148.189000 z=-15710.026000 yaw=0.000000 tick=20041
-MMO server snapshot story applied: mode=replace_from_server quests=1 restore_quests=1 known_dialogs=3 restore_known_dialogs=3 script_ints=5 restore_script_ints=5 script_truncated=0
-MMO server snapshot world state applied: world_item_deltas=0 parsed_world_deltas=0 removed_world_items=0 already_absent_world_items=0 skipped_world_item_deltas=0 active_world_items=203 spawned_world_items=0 updated_world_items=203 skipped_active_world_ite
-ms=0 authoritative_window=1 authoritative_radius=12000.000000 local_items_in_window=203 preserved_local_items=203 removed_local_items_not_in_db=0 skipped_authoritative_window=0 nearby_npcs=0 parsed_nearby_npcs=0 nearby_npc_known_dialogs=0 parsed_nearby_np
-c_known_dialogs=0 nearby_waypoints=0 parsed_nearby_waypoints=0 recent_actions=64 parsed_recent_actions=64 mover_state=0 parsed_mover_state=0 npc_routine_state=0 npc_ai_state=0 npc_path_state=0 npc_fight_state=0 trigger_queue=0 world_transition_state=0 cli
-ent_corrections=0 parsed_client_corrections=0 applied_movers=0 missing_movers=0 skipped_movers=0 checkpoint_manifest=1 checkpoint_latest_tick=20041 checkpoint_recent_event_seq=99 nearby_npc_radius=12000.000000 nearby_waypoint_radius=12000.000000 interacti
-ve_state=996 parsed_interactives=996 applied_interactives=996 missing_interactives=0 npc_lifecycle_state=0 parsed_npc_lifecycle=0 applied_npc_lifecycle=0 missing_npc_lifecycle=0 skipped_npc_lifecycle=0
-MMO server DB restore NPC routines resumed: count=325 db_checkpoint=1 reason=db_continue_baseline_loaded npc_routine_state=0 npc_ai_state=0 npc_path_state=0 npc_fight_state=0
-MMO DB continue baseline loaded: running existing-world startup trigger
-MMO DB continue startup NPC routines resumed: count=325
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO server-bound New Game: starting fresh local baseline without DB bootstrap snapshot
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 [zenkit] Accessing member "C_NPC.AIVAR" without an instance set
+MMO ASIO UDP sink: receive failed: An invalid argument was supplied.
 not implemented call [mdl_applyrandomani]
 not implemented call [mdl_applyrandomanifreq]
+MMO server ACK kind=1 accepted=0 ready=0 seq=1
+MMO server ACK summary accepted=0 rejected=1 bootstrap=0 movement=0 generic=1 diagnostics=0 snapshot_chunks=0 snapshot_bytes=0 last_seq=1
+MMO server diagnostic severity=2 action=record_npc_routine_state reason=direct_db_failed seq=1 message=command failed
 MMO server ACK kind=1 accepted=0 ready=0 seq=2
-MMO server ACK summary accepted=1 rejected=1 bootstrap=1 movement=0 generic=1 diagnostics=0 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=2
-MMO server diagnostic severity=2 action=split_item_stack reason=direct_db_unhandled seq=2 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
+MMO server ACK summary accepted=0 rejected=2 bootstrap=0 movement=0 generic=2 diagnostics=1 snapshot_chunks=0 snapshot_bytes=0 last_seq=2
+MMO server diagnostic severity=2 action=record_npc_ai_state reason=direct_db_failed seq=2 message=command failed
 MMO server ACK kind=1 accepted=0 ready=0 seq=3
-MMO server ACK summary accepted=1 rejected=2 bootstrap=1 movement=0 generic=2 diagnostics=1 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=3
-MMO server diagnostic severity=2 action=merge_item_stack reason=direct_db_unhandled seq=3 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=6
-MMO server ACK summary accepted=2 rejected=3 bootstrap=1 movement=0 generic=4 diagnostics=2 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=6
-MMO server diagnostic severity=2 action=split_item_stack reason=direct_db_unhandled seq=6 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=7
-MMO server ACK summary accepted=2 rejected=4 bootstrap=1 movement=0 generic=5 diagnostics=3 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=7
-MMO server diagnostic severity=2 action=merge_item_stack reason=direct_db_unhandled seq=7 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=10
-MMO server ACK summary accepted=3 rejected=5 bootstrap=1 movement=0 generic=7 diagnostics=4 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=10
-MMO server diagnostic severity=2 action=split_item_stack reason=direct_db_unhandled seq=10 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=11
-MMO server ACK summary accepted=3 rejected=6 bootstrap=1 movement=0 generic=8 diagnostics=5 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=11
-MMO server diagnostic severity=2 action=merge_item_stack reason=direct_db_unhandled seq=11 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=14
-MMO server ACK summary accepted=4 rejected=7 bootstrap=1 movement=0 generic=10 diagnostics=6 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=14
-MMO server diagnostic severity=2 action=split_item_stack reason=direct_db_unhandled seq=14 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=15
-MMO server ACK summary accepted=4 rejected=8 bootstrap=1 movement=0 generic=11 diagnostics=7 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=15
-MMO server diagnostic severity=2 action=merge_item_stack reason=direct_db_unhandled seq=15 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=18
-MMO server ACK summary accepted=5 rejected=9 bootstrap=1 movement=0 generic=13 diagnostics=8 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=18
-MMO server diagnostic severity=2 action=split_item_stack reason=direct_db_unhandled seq=18 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=19
-MMO server ACK summary accepted=5 rejected=10 bootstrap=1 movement=0 generic=14 diagnostics=9 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=19
-MMO server diagnostic severity=2 action=merge_item_stack reason=direct_db_unhandled seq=19 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=22
-MMO server ACK summary accepted=6 rejected=11 bootstrap=1 movement=0 generic=16 diagnostics=10 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=22
-MMO server diagnostic severity=2 action=split_item_stack reason=direct_db_unhandled seq=22 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=23
-MMO server ACK summary accepted=6 rejected=12 bootstrap=1 movement=0 generic=17 diagnostics=11 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=23
-MMO server diagnostic severity=2 action=merge_item_stack reason=direct_db_unhandled seq=23 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=26
-MMO server ACK summary accepted=7 rejected=13 bootstrap=1 movement=0 generic=19 diagnostics=12 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=26
-MMO server diagnostic severity=2 action=split_item_stack reason=direct_db_unhandled seq=26 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=27
-MMO server ACK summary accepted=7 rejected=14 bootstrap=1 movement=0 generic=20 diagnostics=13 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=27
-MMO server diagnostic severity=2 action=merge_item_stack reason=direct_db_unhandled seq=27 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=30
-MMO server ACK summary accepted=8 rejected=15 bootstrap=1 movement=0 generic=22 diagnostics=14 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=30
-MMO server diagnostic severity=2 action=split_item_stack reason=direct_db_unhandled seq=30 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-MMO server ACK kind=1 accepted=0 ready=0 seq=31
-MMO server ACK summary accepted=8 rejected=16 bootstrap=1 movement=0 generic=23 diagnostics=15 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=31
-MMO server diagnostic severity=2 action=merge_item_stack reason=direct_db_unhandled seq=31 message=semantic action has no direct C++ DB handler and outbox fallback is disabled
-Exiting, by item action (`LEAVE_GAME`)
-MMO server ACK summary accepted=22 rejected=16 bootstrap=1 movement=1 generic=36 diagnostics=16 snapshot_chunks=193 snapshot_bytes=1577439 last_seq=46
+MMO server ACK summary accepted=0 rejected=3 bootstrap=0 movement=0 generic=3 diagnostics=2 snapshot_chunks=0 snapshot_bytes=0 last_seq=3
+MMO server diagnostic severity=2 action=record_npc_path_state reason=direct_db_failed seq=3 message=command failed
+MMO server ACK summary accepted=0 rejected=3 bootstrap=0 movement=0 generic=3 diagnostics=3 snapshot_chunks=0 snapshot_bytes=0 last_seq=3

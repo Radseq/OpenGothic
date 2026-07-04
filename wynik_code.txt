@@ -1,9 +1,9 @@
 # OpenGothic C/C++ source snapshot
-# Generated: 2026-07-01T22:09:40+02:00
-# Project root: /home/radseq/Desktop/OpenGothic
+# Generated: 2026-07-03T19:33:02
+# Project root: C:\Users\admin\Desktop\OpenGothic
 # MAX_BYTES per file: 1500000
 
-===== game/bink/frame.cpp =====
+===== game\bink\frame.cpp =====
 #include "frame.h"
 
 #include <cstring>
@@ -83,7 +83,7 @@ void Frame::setAudioChannels(uint8_t count) {
   }
 
 
-===== game/bink/frame.h =====
+===== game\bink\frame.h =====
 #pragma once
 
 #include <vector>
@@ -150,7 +150,7 @@ class Frame final {
 
 
 
-===== game/bink/video.cpp =====
+===== game\bink\video.cpp =====
 #include "video.h"
 
 #ifdef __GNUC__
@@ -2282,7 +2282,7 @@ void Video::fftCalc(const AudioCtx& aud, FFTComplex* z) {
   }
 
 
-===== game/bink/video.h =====
+===== game\bink\video.h =====
 #pragma once
 
 #include <cstdint>
@@ -2525,13 +2525,13 @@ class Video final {
 }
 
 
-===== game/build.h =====
+===== game\build.h =====
 #pragma once
 
 static const char* appBuild = "OpenGothic v1.0 dev";
 
 
-===== game/camera.cpp =====
+===== game\camera.cpp =====
 #include "camera.h"
 
 #include <Tempest/Application>
@@ -3571,7 +3571,7 @@ Matrix4x4 Camera::viewProjLwc() const {
   }
 
 
-===== game/camera.h =====
+===== game\camera.h =====
 #pragma once
 
 #include <Tempest/Event>
@@ -3769,7 +3769,7 @@ class Camera final {
   };
 
 
-===== game/commandline.cpp =====
+===== game\commandline.cpp =====
 #include "commandline.h"
 
 #include <Tempest/Log>
@@ -4293,7 +4293,7 @@ bool CommandLine::validateGothicPath() const {
   }
 
 
-===== game/commandline.h =====
+===== game\commandline.h =====
 #pragma once
 
 #include <Tempest/Platform>
@@ -4438,7 +4438,7 @@ class CommandLine {
   };
 
 
-===== game/dmusic/band.cpp =====
+===== game\dmusic\band.cpp =====
 #include "band.h"
 
 #include <Tempest/Log>
@@ -4483,7 +4483,7 @@ void Band::implRead(Riff &input) {
   }
 
 
-===== game/dmusic/band.h =====
+===== game\dmusic\band.h =====
 #pragma once
 
 #include "info.h"
@@ -4518,7 +4518,7 @@ class Band final {
 }
 
 
-===== game/dmusic/directmusic.cpp =====
+===== game\dmusic\directmusic.cpp =====
 #include "directmusic.h"
 
 #include <stdexcept>
@@ -4606,7 +4606,7 @@ Tempest::RFile DirectMusic::implOpen(const char16_t *file) {
   }
 
 
-===== game/dmusic/directmusic.h =====
+===== game\dmusic\directmusic.h =====
 #pragma once
 
 #include "dlscollection.h"
@@ -4652,7 +4652,7 @@ class DirectMusic final {
 }
 
 
-===== game/dmusic/dlscollection.cpp =====
+===== game\dmusic\dlscollection.cpp =====
 #include "dlscollection.h"
 
 #include <Tempest/Log>
@@ -4804,7 +4804,7 @@ const Wave* DlsCollection::findWave(uint8_t note) const {
   }
 
 
-===== game/dmusic/dlscollection.h =====
+===== game\dmusic\dlscollection.h =====
 #pragma once
 
 #include "riff.h"
@@ -4926,7 +4926,7 @@ class DlsCollection final {
 }
 
 
-===== game/dmusic/hydra.cpp =====
+===== game\dmusic\hydra.cpp =====
 #include "hydra.h"
 
 #include "dlscollection.h"
@@ -5359,7 +5359,7 @@ bool Hydra::validate(const tsf_hydra &tsf) const {
   }
 
 
-===== game/dmusic/hydra.h =====
+===== game\dmusic\hydra.h =====
 #pragma once
 
 #include <vector>
@@ -5459,7 +5459,7 @@ class Hydra {
 
 
 
-===== game/dmusic/info.cpp =====
+===== game\dmusic\info.cpp =====
 #include "info.h"
 
 #include <stdexcept>
@@ -5496,7 +5496,7 @@ void Unfo::implRead(Riff &input) {
   }
 
 
-===== game/dmusic/info.h =====
+===== game\dmusic\info.h =====
 #pragma once
 
 #include "riff.h"
@@ -5528,7 +5528,7 @@ class Unfo final {
 }
 
 
-===== game/dmusic/mixer.cpp =====
+===== game\dmusic\mixer.cpp =====
 #include "mixer.h"
 
 #include <Tempest/Application>
@@ -5980,7 +5980,7 @@ bool Mixer::checkVariation(const T& item) const {
   }
 
 
-===== game/dmusic/mixer.h =====
+===== game\dmusic\mixer.h =====
 #pragma once
 
 #include <Tempest/SoundDevice>
@@ -6075,7 +6075,7 @@ class Mixer final {
 }
 
 
-===== game/dmusic/music.cpp =====
+===== game\dmusic\music.cpp =====
 #include "music.h"
 
 using namespace Dx8;
@@ -6107,7 +6107,7 @@ void Music::setVolume(float v) {
 
 
 
-===== game/dmusic/music.h =====
+===== game\dmusic\music.h =====
 #pragma once
 
 #include <cstdint>
@@ -6152,7 +6152,7 @@ class Music final {
 }
 
 
-===== game/dmusic/pattern.cpp =====
+===== game\dmusic\pattern.cpp =====
 #include "pattern.h"
 
 #include <stdexcept>
@@ -6195,7 +6195,7 @@ void Pattern::implRead(Riff &input) {
 
 
 
-===== game/dmusic/pattern.h =====
+===== game\dmusic\pattern.h =====
 #pragma once
 
 #include "info.h"
@@ -6227,7 +6227,7 @@ class Pattern final {
 }
 
 
-===== game/dmusic/patternlist.cpp =====
+===== game\dmusic\patternlist.cpp =====
 #include "music.h"
 
 #include <Tempest/Log>
@@ -6557,7 +6557,7 @@ void PatternList::dbgDump(const Style& stl,const Dx8::Pattern::PartRef& pref,con
   }
 
 
-===== game/dmusic/patternlist.h =====
+===== game\dmusic\patternlist.h =====
 #pragma once
 
 #include <Tempest/Sound>
@@ -6679,7 +6679,7 @@ class PatternList final {
 }
 
 
-===== game/dmusic/reference.cpp =====
+===== game\dmusic\reference.cpp =====
 #include "reference.h"
 
 using namespace Dx8;
@@ -6702,7 +6702,7 @@ Reference::Reference(Riff &input) {
   }
 
 
-===== game/dmusic/reference.h =====
+===== game\dmusic\reference.h =====
 #pragma once
 
 #include "riff.h"
@@ -6723,7 +6723,7 @@ struct Reference final {
 }
 
 
-===== game/dmusic/riff.cpp =====
+===== game\dmusic\riff.cpp =====
 #include "riff.h"
 
 #include <algorithm>
@@ -6810,7 +6810,7 @@ void Riff::onError(const char *msg) {
   }
 
 
-===== game/dmusic/riff.h =====
+===== game\dmusic\riff.h =====
 #pragma once
 
 #include <cstdlib>
@@ -6895,7 +6895,7 @@ class Riff final {
 }
 
 
-===== game/dmusic/segment.cpp =====
+===== game\dmusic\segment.cpp =====
 #include "segment.h"
 
 #include <stdexcept>
@@ -6925,7 +6925,7 @@ void Segment::implReadList(Riff& input) {
   }
 
 
-===== game/dmusic/segment.h =====
+===== game\dmusic\segment.h =====
 #pragma once
 
 #include <vector>
@@ -6948,7 +6948,7 @@ class Segment final {
 }
 
 
-===== game/dmusic/soundfont.cpp =====
+===== game\dmusic\soundfont.cpp =====
 #include "soundfont.h"
 
 #include <Tempest/Log>
@@ -7239,7 +7239,7 @@ void SoundFont::noteOff(SoundFont::Ticket &t) {
 
 
 
-===== game/dmusic/soundfont.h =====
+===== game\dmusic\soundfont.h =====
 #pragma once
 
 #include <memory>
@@ -7297,7 +7297,7 @@ class SoundFont final {
 }
 
 
-===== game/dmusic/structs.h =====
+===== game\dmusic\structs.h =====
 #pragma once
 
 #include <cstdint>
@@ -7555,7 +7555,7 @@ struct DMUS_IO_STYLECURVE final {
 }
 
 
-===== game/dmusic/style.cpp =====
+===== game\dmusic\style.cpp =====
 #include "mixer.h"
 #include "style.h"
 
@@ -7612,7 +7612,7 @@ const Style::Part* Style::findPart(const GUID &guid) const {
   }
 
 
-===== game/dmusic/style.h =====
+===== game\dmusic\style.h =====
 #pragma once
 
 #include "band.h"
@@ -7654,7 +7654,7 @@ class Style final {
 }
 
 
-===== game/dmusic/track.cpp =====
+===== game\dmusic\track.cpp =====
 #include "track.h"
 
 #include <stdexcept>
@@ -7762,7 +7762,7 @@ void Track::implReadList(Riff& input) {
   }
 
 
-===== game/dmusic/track.h =====
+===== game\dmusic\track.h =====
 #pragma once
 
 #include <memory>
@@ -7820,7 +7820,7 @@ class Track final {
 }
 
 
-===== game/dmusic/wave.cpp =====
+===== game\dmusic\wave.cpp =====
 #include "soundfont.h"
 #include "wave.h"
 
@@ -8130,7 +8130,7 @@ void Wave::save(const char *path) const {
   }
 
 
-===== game/dmusic/wave.h =====
+===== game\dmusic\wave.h =====
 #pragma once
 
 #include "info.h"
@@ -8238,11 +8238,11 @@ class Wave final {
 }
 
 
-===== game/game/aiouputpipe.cpp =====
+===== game\game\aiouputpipe.cpp =====
 #include "aiouputpipe.h"
 
 
-===== game/game/aiouputpipe.h =====
+===== game\game\aiouputpipe.h =====
 #pragma once
 #include <string_view>
 
@@ -8262,7 +8262,7 @@ class AiOuputPipe {
   };
 
 
-===== game/game/aistate.cpp =====
+===== game\game\aistate.cpp =====
 #include "aistate.h"
 
 #include "game/gamescript.h"
@@ -8285,7 +8285,7 @@ AiState::AiState(GameScript& owner,size_t id) {
   }
 
 
-===== game/game/aistate.h =====
+===== game\game\aistate.h =====
 #pragma once
 
 #include <cstdlib>
@@ -8306,7 +8306,7 @@ class AiState final {
   };
 
 
-===== game/game/compatibility/cpu32.cpp =====
+===== game\game\compatibility\cpu32.cpp =====
 #include "cpu32.h"
 
 #include <Tempest/Log>
@@ -8579,7 +8579,7 @@ std::string Cpu32::popString() {
   }
 
 
-===== game/game/compatibility/cpu32.h =====
+===== game\game\compatibility\cpu32.h =====
 #pragma once
 
 #include <cstdint>
@@ -8703,7 +8703,7 @@ inline std::string Cpu32::pop<std::string>() {
   }
 
 
-===== game/game/compatibility/directmemory.cpp =====
+===== game\game\compatibility\directmemory.cpp =====
 #include "directmemory.h"
 
 #include <zenkit/DaedalusScript.hh>
@@ -10512,7 +10512,7 @@ void DirectMemory::setupWorldFunctions() {
   }
 
 
-===== game/game/compatibility/directmemory.h =====
+===== game\game\compatibility\directmemory.h =====
 #pragma once
 
 #include <zenkit/DaedalusScript.hh>
@@ -10689,7 +10689,7 @@ class DirectMemory {
   };
 
 
-===== game/game/compatibility/mem32.cpp =====
+===== game\game\compatibility\mem32.cpp =====
 #include "mem32.h"
 
 #include <Tempest/Log>
@@ -11170,7 +11170,7 @@ void Mem32::memSyncWrite(Callback& cb, const Region& rgn, ptr32_t address, uint3
   }
 
 
-===== game/game/compatibility/mem32.h =====
+===== game\game\compatibility\mem32.h =====
 #pragma once
 
 #include <vector>
@@ -11297,12 +11297,12 @@ class Mem32 {
 
 
 
-===== game/game/compatibility/mem32instances.cpp =====
+===== game\game\compatibility\mem32instances.cpp =====
 #include "mem32instances.h"
 
 
 
-===== game/game/compatibility/mem32instances.h =====
+===== game\game\compatibility\mem32instances.h =====
 #pragma once
 
 #include <cstdint>
@@ -11734,7 +11734,7 @@ struct zCFontMan {
 }
 
 
-===== game/game/compatibility/phoenix.cpp =====
+===== game\game\compatibility\phoenix.cpp =====
 #include "phoenix.h"
 
 #include <limits>
@@ -11840,7 +11840,7 @@ phoenix_compat::PackedSkeletalMesh phoenix_compat::pack_softskin_mesh(const zenk
 }
 
 
-===== game/game/compatibility/phoenix.h =====
+===== game\game\compatibility\phoenix.h =====
 #pragma once
 
 #include <Tempest/Vec>
@@ -11880,7 +11880,7 @@ namespace phoenix_compat {
 }
 
 
-===== game/game/constants.h =====
+===== game\game\constants.h =====
 #pragma once
 
 #include <cstdint>
@@ -12425,7 +12425,7 @@ enum class Benchmark : uint8_t {
   };
 
 
-===== game/game/damagecalculator.cpp =====
+===== game\game\damagecalculator.cpp =====
 #include "damagecalculator.h"
 
 #include "world/objects/npc.h"
@@ -12654,7 +12654,7 @@ DamageCalculator::Damage DamageCalculator::rangeDamageValue(Npc& src) {
   }
 
 
-===== game/game/damagecalculator.h =====
+===== game\game\damagecalculator.h =====
 #pragma once
 
 #include <zenkit/addon/daedalus.hh>
@@ -12702,7 +12702,7 @@ class DamageCalculator {
 
 
 
-===== game/game/definitions/cameradefinitions.cpp =====
+===== game\game\definitions\cameradefinitions.cpp =====
 #include "cameradefinitions.h"
 
 #include <Tempest/Log>
@@ -12793,7 +12793,7 @@ const zenkit::ICamera* CameraDefinitions::find(std::string_view name) const {
   }
 
 
-===== game/game/definitions/cameradefinitions.h =====
+===== game\game\definitions\cameradefinitions.h =====
 #pragma once
 
 #include <zenkit/addon/daedalus.hh>
@@ -12828,7 +12828,7 @@ class CameraDefinitions final {
   };
 
 
-===== game/game/definitions/fightaidefinitions.cpp =====
+===== game\game\definitions\fightaidefinitions.cpp =====
 #include "fightaidefinitions.h"
 
 #include "gothic.h"
@@ -12936,7 +12936,7 @@ FightAi::FA FightAi::loadAi(zenkit::DaedalusVm &vm, size_t id) {
   }
 
 
-===== game/game/definitions/fightaidefinitions.h =====
+===== game\game\definitions\fightaidefinitions.h =====
 #pragma once
 
 #include <zenkit/DaedalusVm.hh>
@@ -12984,7 +12984,7 @@ class FightAi final {
   };
 
 
-===== game/game/definitions/musicdefinitions.cpp =====
+===== game\game\definitions\musicdefinitions.cpp =====
 #include "musicdefinitions.h"
 
 #include <Tempest/Log>
@@ -13020,7 +13020,7 @@ const zenkit::IMusicTheme* MusicDefinitions::operator [](std::string_view name) 
   }
 
 
-===== game/game/definitions/musicdefinitions.h =====
+===== game\game\definitions\musicdefinitions.h =====
 #pragma once
 
 #include <zenkit/DaedalusVm.hh>
@@ -13041,7 +13041,7 @@ class MusicDefinitions final {
   };
 
 
-===== game/game/definitions/particlesdefinitions.cpp =====
+===== game\game\definitions\particlesdefinitions.cpp =====
 #include "particlesdefinitions.h"
 
 #include <Tempest/Log>
@@ -13120,7 +13120,7 @@ std::shared_ptr<zenkit::IParticleEffect> ParticlesDefinitions::implGetDirect(std
   }
 
 
-===== game/game/definitions/particlesdefinitions.h =====
+===== game\game\definitions\particlesdefinitions.h =====
 #pragma once
 
 #include <zenkit/DaedalusVm.hh>
@@ -13156,7 +13156,7 @@ class ParticlesDefinitions final {
   };
 
 
-===== game/game/definitions/sounddefinitions.cpp =====
+===== game\game\definitions\sounddefinitions.cpp =====
 #include "sounddefinitions.h"
 
 #include <Tempest/Log>
@@ -13188,7 +13188,7 @@ const zenkit::ISoundEffect& SoundDefinitions::operator[](std::string_view name) 
 
 
 
-===== game/game/definitions/sounddefinitions.h =====
+===== game\game\definitions\sounddefinitions.h =====
 #pragma once
 
 #include <zenkit/addon/daedalus.hh>
@@ -13207,7 +13207,7 @@ class SoundDefinitions final {
 
 
 
-===== game/game/definitions/spelldefinitions.cpp =====
+===== game\game\definitions\spelldefinitions.cpp =====
 #include "spelldefinitions.h"
 #include "utils/string_frm.h"
 
@@ -13241,7 +13241,7 @@ const zenkit::ISpell& SpellDefinitions::find(std::string_view instanceName) cons
   }
 
 
-===== game/game/definitions/spelldefinitions.h =====
+===== game\game\definitions\spelldefinitions.h =====
 #pragma once
 
 #include <zenkit/DaedalusVm.hh>
@@ -13260,7 +13260,7 @@ class SpellDefinitions final {
   };
 
 
-===== game/game/definitions/svmdefinitions.cpp =====
+===== game\game\definitions\svmdefinitions.cpp =====
 #include "svmdefinitions.h"
 #include "utils/string_frm.h"
 
@@ -13298,7 +13298,7 @@ std::string_view SvmDefinitions::find(std::string_view speech, int intId) {
   }
 
 
-===== game/game/definitions/svmdefinitions.h =====
+===== game\game\definitions\svmdefinitions.h =====
 #pragma once
 
 #include <zenkit/DaedalusVm.hh>
@@ -13320,7 +13320,7 @@ class SvmDefinitions final {
 
 
 
-===== game/game/definitions/visualfxdefinitions.cpp =====
+===== game\game\definitions\visualfxdefinitions.cpp =====
 #include "visualfxdefinitions.h"
 
 #include <Tempest/Log>
@@ -13375,7 +13375,7 @@ std::shared_ptr<zenkit::IEffectBase> VisualFxDefinitions::implGet(std::string_vi
   }
 
 
-===== game/game/definitions/visualfxdefinitions.h =====
+===== game\game\definitions\visualfxdefinitions.h =====
 #pragma once
 
 #include <zenkit/DaedalusVm.hh>
@@ -13401,7 +13401,7 @@ class VisualFxDefinitions final {
   };
 
 
-===== game/game/fightalgo.cpp =====
+===== game\game\fightalgo.cpp =====
 #include "fightalgo.h"
 
 #include <Tempest/Log>
@@ -13768,7 +13768,7 @@ float FightAlgo::weaponRange(GameScript &owner, const Npc &npc) {
 
 
 
-===== game/game/fightalgo.h =====
+===== game\game\fightalgo.h =====
 #pragma once
 
 #include <cstdint>
@@ -13843,7 +13843,7 @@ class FightAlgo final {
   };
 
 
-===== game/game/gamescript.cpp =====
+===== game\game\gamescript.cpp =====
 #include "gamescript.h"
 
 #include <cstdint>
@@ -17562,7 +17562,7 @@ bool GameScript::doesNpcKnowInfo(const zenkit::INpc& npc, size_t infoInstance) c
 
 
 
-===== game/game/gamescript.h =====
+===== game\game\gamescript.h =====
 #pragma once
 
 #include <zenkit/DaedalusVm.hh>
@@ -18084,7 +18084,7 @@ class GameScript final {
 
 
 
-===== game/game/gamesession.cpp =====
+===== game\game\gamesession.cpp =====
 #include "gamesession.h"
 #include "savegameheader.h"
 #include "mmoruntimesqlite.h"
@@ -19972,7 +19972,7 @@ void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
 
 
 
-===== game/game/gamesession.h =====
+===== game\game\gamesession.h =====
 #pragma once
 
 #include <Tempest/Sound>
@@ -20198,7 +20198,7 @@ class GameSession final {
 
 
 
-===== game/game/gametime.h =====
+===== game\game\gametime.h =====
 #pragma once
 
 #include <cstdint>
@@ -20255,7 +20255,7 @@ inline bool operator <=(gtime a,gtime b){
   }
 
 
-===== game/game/globaleffects.cpp =====
+===== game\game\globaleffects.cpp =====
 #include "globaleffects.h"
 
 #include <Tempest/Log>
@@ -20551,7 +20551,7 @@ void GlobalEffects::Effect::stop() {
   }
 
 
-===== game/game/globaleffects.h =====
+===== game\game\globaleffects.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -20644,7 +20644,7 @@ class GlobalEffects {
 
 
 
-===== game/game/inventory.cpp =====
+===== game\game\inventory.cpp =====
 #include "inventory.h"
 
 #include <Tempest/Log>
@@ -21852,7 +21852,7 @@ Item *Inventory::readPtr(Serialize &fin) {
 
 
 
-===== game/game/inventory.h =====
+===== game\game\inventory.h =====
 #pragma once
 
 #include <vector>
@@ -22034,7 +22034,7 @@ class Inventory final {
   };
 
 
-===== game/game/mmonetprotocol.h =====
+===== game\game\mmonetprotocol.h =====
 #pragma once
 
 #include <cstddef>
@@ -22526,7 +22526,7 @@ inline const char* decodeErrorName(DecodeError error) noexcept {
 
 
 
-===== game/game/mmorestoresnapshot.h =====
+===== game\game\mmorestoresnapshot.h =====
 #pragma once
 
 #include <cerrno>
@@ -24127,7 +24127,7 @@ inline Result loadAndValidate(std::string_view path,
 
 
 
-===== game/game/mmoruntimesqlite.cpp =====
+===== game\game\mmoruntimesqlite.cpp =====
 #include "mmoruntimesqlite.h"
 
 #include <Tempest/Log>
@@ -32327,7 +32327,7 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
 
 
 
-===== game/game/mmoruntimesqlite.h =====
+===== game\game\mmoruntimesqlite.h =====
 #pragma once
 
 #include <cstdint>
@@ -32371,7 +32371,7 @@ class MmoRuntimeSqlite final {
   };
 
 
-===== game/game/mmosemanticactionsink.cpp =====
+===== game\game\mmosemanticactionsink.cpp =====
 #include "mmosemanticactionsink.h"
 
 #include <Tempest/Log>
@@ -32992,7 +32992,7 @@ void shutdownSemanticActionSink() noexcept {
 
 
 
-===== game/game/mmosemanticactionsink.h =====
+===== game\game\mmosemanticactionsink.h =====
 #pragma once
 
 #include <atomic>
@@ -33067,7 +33067,7 @@ void shutdownSemanticActionSink() noexcept;
 
 
 
-===== game/game/mmosemanticevents.cpp =====
+===== game\game\mmosemanticevents.cpp =====
 #include "mmosemanticevents.h"
 
 #include <charconv>
@@ -33174,7 +33174,7 @@ std::string toJsonLine(const SemanticActionEnvelope& envelope) {
 
 
 
-===== game/game/mmosemanticevents.h =====
+===== game\game\mmosemanticevents.h =====
 #pragma once
 
 #include <array>
@@ -33369,7 +33369,7 @@ struct SemanticActionEnvelope final {
 
 
 
-===== game/game/mmosemantichooks.cpp =====
+===== game\game\mmosemantichooks.cpp =====
 #include "mmosemantichooks.h"
 
 #include <array>
@@ -35345,7 +35345,7 @@ void onQuestChanged(Npc& actor,
 
 
 
-===== game/game/mmosemantichooks.h =====
+===== game\game\mmosemantichooks.h =====
 #pragma once
 
 #include <cstddef>
@@ -35633,7 +35633,7 @@ void onQuestChanged(Npc& actor,
 
 
 
-===== game/game/movealgo.cpp =====
+===== game\game\movealgo.cpp =====
 #include "movealgo.h"
 
 #include <Tempest/Log>
@@ -36720,7 +36720,7 @@ std::string_view MoveAlgo::formerPortalName() {
 
 
 
-===== game/game/movealgo.h =====
+===== game\game\movealgo.h =====
 #pragma once
 
 #include <cstdint>
@@ -36889,7 +36889,7 @@ class MoveAlgo final {
   };
 
 
-===== game/game/perceptionmsg.h =====
+===== game\game\perceptionmsg.h =====
 #pragma once
 
 #include <Tempest/Point>
@@ -36908,7 +36908,7 @@ class PerceptionMsg final {
   };
 
 
-===== game/game/playercontrol.cpp =====
+===== game\game\playercontrol.cpp =====
 #include "playercontrol.h"
 
 #include <cmath>
@@ -38014,7 +38014,7 @@ void PlayerControl::processAutoRotate(Npc& pl, float& rot, uint64_t dt) {
   }
 
 
-===== game/game/playercontrol.h =====
+===== game\game\playercontrol.h =====
 #pragma once
 
 #include "world/focus.h"
@@ -38228,7 +38228,7 @@ class PlayerControl final {
   };
 
 
-===== game/game/questlog.cpp =====
+===== game\game\questlog.cpp =====
 #include "questlog.h"
 #include "serialize.h"
 
@@ -38317,7 +38317,7 @@ void QuestLog::load(Serialize &fin) {
 
 
 
-===== game/game/questlog.h =====
+===== game\game\questlog.h =====
 #pragma once
 
 #include <vector>
@@ -38374,7 +38374,7 @@ class QuestLog final {
 
 
 
-===== game/game/savegameheader.cpp =====
+===== game\game\savegameheader.cpp =====
 #include "savegameheader.h"
 #include "serialize.h"
 
@@ -38447,7 +38447,7 @@ void SaveGameHeader::save(Serialize &fout) const {
   }
 
 
-===== game/game/savegameheader.h =====
+===== game\game\savegameheader.h =====
 #pragma once
 
 #include <Tempest/Pixmap>
@@ -38478,7 +38478,7 @@ class SaveGameHeader final {
 
 
 
-===== game/game/serialize.cpp =====
+===== game\game\serialize.cpp =====
 #include "serialize.h"
 
 #include <cstring>
@@ -38831,7 +38831,7 @@ void Serialize::implRead(zenkit::AnimationSample& i) {
   }
 
 
-===== game/game/serialize.h =====
+===== game\game\serialize.h =====
 #pragma once
 
 #include <Tempest/IDevice>
@@ -39135,7 +39135,7 @@ class Serialize {
 
 
 
-===== game/game/worldstateexporter.cpp =====
+===== game\game\worldstateexporter.cpp =====
 #include "worldstateexporter.h"
 
 #include <Tempest/Log>
@@ -39945,7 +39945,7 @@ bool WorldStateExporter::exportSaveState(GameSession& game, std::string_view dir
   }
 
 
-===== game/game/worldstateexporter.h =====
+===== game\game\worldstateexporter.h =====
 #pragma once
 
 #include <string_view>
@@ -39959,7 +39959,7 @@ class WorldStateExporter final {
   };
 
 
-===== game/game/worldstatestorage.cpp =====
+===== game\game\worldstatestorage.cpp =====
 #include "worldstatestorage.h"
 
 #include <Tempest/MemWriter>
@@ -39999,7 +39999,7 @@ bool WorldStateStorage::compareName(std::string_view n) const {
   }
 
 
-===== game/game/worldstatestorage.h =====
+===== game\game\worldstatestorage.h =====
 #pragma once
 
 #include <Tempest/ODevice>
@@ -40032,7 +40032,7 @@ class WorldStateStorage final {
   };
 
 
-===== game/gamemusic.cpp =====
+===== game\gamemusic.cpp =====
 #include "gamemusic.h"
 #include "gothic.h"
 
@@ -40448,7 +40448,7 @@ void GameMusic::setupSettings() {
   }
 
 
-===== game/gamemusic.h =====
+===== game\gamemusic.h =====
 #pragma once
 
 #include <zenkit/addon/daedalus.hh>
@@ -40506,7 +40506,7 @@ class GameMusic final {
   };
 
 
-===== game/gothic.cpp =====
+===== game\gothic.cpp =====
 #include "gothic.h"
 
 #include <Tempest/Log>
@@ -41767,7 +41767,7 @@ void Gothic::printdebuginstch(int ch, std::string_view msg) {
 
 
 
-===== game/gothic.h =====
+===== game\gothic.h =====
 #pragma once
 
 #include <string>
@@ -42089,7 +42089,7 @@ class Gothic final {
 
 
 
-===== game/graphics/bounds.cpp =====
+===== game\graphics\bounds.cpp =====
 #include "bounds.h"
 
 #include <Tempest/Log>
@@ -42184,7 +42184,7 @@ void Bounds::calcR() {
   }
 
 
-===== game/graphics/bounds.h =====
+===== game\graphics\bounds.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -42214,7 +42214,7 @@ class Bounds final {
 
 
 
-===== game/graphics/drawbuckets.cpp =====
+===== game\graphics\drawbuckets.cpp =====
 #include "drawbuckets.h"
 
 #include <Tempest/Vec>
@@ -42376,7 +42376,7 @@ bool DrawBuckets::commit(Encoder<CommandBuffer>& cmd, uint8_t fId) {
   }
 
 
-===== game/graphics/drawbuckets.h =====
+===== game\graphics\drawbuckets.h =====
 #pragma once
 
 #include <Tempest/DescriptorArray>
@@ -42469,7 +42469,7 @@ class DrawBuckets {
   };
 
 
-===== game/graphics/drawclusters.cpp =====
+===== game\graphics\drawclusters.cpp =====
 #include "drawclusters.h"
 #include "shaders.h"
 
@@ -42663,7 +42663,7 @@ void DrawClusters::markClusters(size_t id, size_t count) {
   }
 
 
-===== game/graphics/drawclusters.h =====
+===== game\graphics\drawclusters.h =====
 #pragma once
 
 #include <Tempest/StorageBuffer>
@@ -42734,7 +42734,7 @@ class DrawClusters {
   };
 
 
-===== game/graphics/drawcommands.cpp =====
+===== game\graphics\drawcommands.cpp =====
 #include "drawcommands.h"
 
 #include <Tempest/Log>
@@ -43219,7 +43219,7 @@ void DrawCommands::drawCommon(Tempest::Encoder<Tempest::CommandBuffer>& cmd, Sce
   }
 
 
-===== game/graphics/drawcommands.h =====
+===== game\graphics\drawcommands.h =====
 #pragma once
 
 #include <Tempest/RenderPipeline>
@@ -43354,7 +43354,7 @@ class DrawCommands {
   };
 
 
-===== game/graphics/dynamic/frustrum.cpp =====
+===== game\graphics\dynamic\frustrum.cpp =====
 #include "frustrum.h"
 
 using namespace Tempest;
@@ -43512,7 +43512,7 @@ Frustrum::Ret Frustrum::testBbox(const Tempest::Vec3& min, const Tempest::Vec3& 
   }
 
 
-===== game/graphics/dynamic/frustrum.h =====
+===== game\graphics\dynamic\frustrum.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -43542,7 +43542,7 @@ class Frustrum {
 
 
 
-===== game/graphics/effect.cpp =====
+===== game\graphics\effect.cpp =====
 #include "effect.h"
 
 #include <Tempest/Log>
@@ -43917,7 +43917,7 @@ void Effect::setupCollision(World& owner) {
   }
 
 
-===== game/graphics/effect.h =====
+===== game\graphics\effect.h =====
 #pragma once
 
 #include "world/objects/pfxemitter.h"
@@ -44011,7 +44011,7 @@ class Effect final {
 
 
 
-===== game/graphics/instancestorage.cpp =====
+===== game\graphics\instancestorage.cpp =====
 #include "instancestorage.h"
 #include "shaders.h"
 #include "utils/workers.h"
@@ -44333,7 +44333,7 @@ void InstanceStorage::uploadMain() {
   }
 
 
-===== game/graphics/instancestorage.h =====
+===== game\graphics\instancestorage.h =====
 #pragma once
 
 #include <Tempest/Device>
@@ -44419,7 +44419,7 @@ class InstanceStorage {
   };
 
 
-===== game/graphics/inventoryrenderer.cpp =====
+===== game\graphics\inventoryrenderer.cpp =====
 #include "inventoryrenderer.h"
 
 #include "world/objects/item.h"
@@ -44587,7 +44587,7 @@ void InventoryRenderer::drawItem(int x, int y, int w, int h, const ::Item& item)
   }
 
 
-===== game/graphics/inventoryrenderer.h =====
+===== game\graphics\inventoryrenderer.h =====
 #pragma once
 
 #include <Tempest/Device>
@@ -44627,7 +44627,7 @@ class InventoryRenderer {
 
 
 
-===== game/graphics/lightgroup.cpp =====
+===== game\graphics\lightgroup.cpp =====
 #include "lightgroup.h"
 
 #include <Tempest/Dir>
@@ -45030,7 +45030,7 @@ void LightGroup::prepareGlobals(Tempest::Encoder<Tempest::CommandBuffer>& cmd, u
   }
 
 
-===== game/graphics/lightgroup.h =====
+===== game\graphics\lightgroup.h =====
 #pragma once
 
 #include <Tempest/CommandBuffer>
@@ -45132,7 +45132,7 @@ class LightGroup final {
 
 
 
-===== game/graphics/lightsource.cpp =====
+===== game\graphics\lightsource.cpp =====
 #include "lightsource.h"
 
 #include <cstring>
@@ -45306,7 +45306,7 @@ std::string_view LightSource::debugName() const {
   }
 
 
-===== game/graphics/lightsource.h =====
+===== game\graphics\lightsource.h =====
 #pragma once
 
 #include <Tempest/Point>
@@ -45378,7 +45378,7 @@ class LightSource final {
 
 
 
-===== game/graphics/material.cpp =====
+===== game\graphics\material.cpp =====
 #include "material.h"
 
 #include "utils/parser.h"
@@ -45553,7 +45553,7 @@ void Material::loadFrames(const std::string_view fr, float fps) {
   }
 
 
-===== game/graphics/material.h =====
+===== game\graphics\material.h =====
 #pragma once
 
 #include <Tempest/Texture2d>
@@ -45618,7 +45618,7 @@ class Material final {
 
 
 
-===== game/graphics/mdlvisual.cpp =====
+===== game\graphics\mdlvisual.cpp =====
 #include "mdlvisual.h"
 
 #include "graphics/mesh/skeleton.h"
@@ -46596,7 +46596,7 @@ void MdlVisual::stopDlgAnim(Npc& npc) {
   }
 
 
-===== game/graphics/mdlvisual.h =====
+===== game\graphics\mdlvisual.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -46776,7 +46776,7 @@ class MdlVisual final {
 
 
 
-===== game/graphics/mesh/animation.cpp =====
+===== game\graphics\mesh\animation.cpp =====
 #include "animation.h"
 
 #include <Tempest/Log>
@@ -47417,7 +47417,7 @@ void Animation::AnimData::setupEvents(float fpsRate) {
   }
 
 
-===== game/graphics/mesh/animation.h =====
+===== game\graphics\mesh\animation.h =====
 #pragma once
 
 #include <zenkit/ModelScript.hh>
@@ -47561,7 +47561,7 @@ class Animation final {
   };
 
 
-===== game/graphics/mesh/animationsolver.cpp =====
+===== game\graphics\mesh\animationsolver.cpp =====
 #include "animationsolver.h"
 
 #include "world/objects/interactive.h"
@@ -48091,7 +48091,7 @@ const Animation::Sequence *AnimationSolver::solveFrm(std::string_view name) cons
   }
 
 
-===== game/graphics/mesh/animationsolver.h =====
+===== game\graphics\mesh\animationsolver.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -48212,7 +48212,7 @@ class AnimationSolver final {
   };
 
 
-===== game/graphics/mesh/animmath.cpp =====
+===== game\graphics\mesh\animmath.cpp =====
 #include "animmath.h"
 
 #include <cmath>
@@ -48294,7 +48294,7 @@ Tempest::Matrix4x4 mkMatrix(const zenkit::AnimationSample& s) {
   }
 
 
-===== game/graphics/mesh/animmath.h =====
+===== game\graphics\mesh\animmath.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -48307,7 +48307,7 @@ zenkit::Quat            slerp(const zenkit::Quat& x, const zenkit::Quat& y, floa
 Tempest::Matrix4x4      mkMatrix(const zenkit::AnimationSample& s);
 
 
-===== game/graphics/mesh/attachbinder.cpp =====
+===== game\graphics\mesh\attachbinder.cpp =====
 #include "attachbinder.h"
 
 #include "protomesh.h"
@@ -48323,7 +48323,7 @@ AttachBinder::AttachBinder(const Skeleton &s, const ProtoMesh &m) {
   }
 
 
-===== game/graphics/mesh/attachbinder.h =====
+===== game\graphics\mesh\attachbinder.h =====
 #pragma once
 
 #include <cstdlib>
@@ -48342,7 +48342,7 @@ class AttachBinder final {
   };
 
 
-===== game/graphics/mesh/landscape.cpp =====
+===== game\graphics\mesh\landscape.cpp =====
 #include "landscape.h"
 
 #include <Tempest/Log>
@@ -48383,7 +48383,7 @@ Landscape::Landscape(VisualObjects& visual, const PackedMesh &packed)
   }
 
 
-===== game/graphics/mesh/landscape.h =====
+===== game\graphics\mesh\landscape.h =====
 #pragma once
 
 #include <Tempest/Device>
@@ -48416,7 +48416,7 @@ class Landscape final {
   };
 
 
-===== game/graphics/mesh/pose.cpp =====
+===== game\graphics\mesh\pose.cpp =====
 #include "pose.h"
 
 #include <Tempest/Log>
@@ -49350,7 +49350,7 @@ void Pose::removeIf(T &t, F f) {
   }
 
 
-===== game/graphics/mesh/pose.h =====
+===== game\graphics\mesh\pose.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -49509,7 +49509,7 @@ class Pose final {
   };
 
 
-===== game/graphics/mesh/protomesh.cpp =====
+===== game\graphics\mesh\protomesh.cpp =====
 #include "protomesh.h"
 
 #include <Tempest/Log>
@@ -49899,7 +49899,7 @@ ProtoMesh::Morph ProtoMesh::mkAnimation(const zenkit::MorphAnimation& a) {
   }
 
 
-===== game/graphics/mesh/protomesh.h =====
+===== game\graphics\mesh\protomesh.h =====
 #pragma once
 
 #include <Tempest/VertexBuffer>
@@ -50006,7 +50006,7 @@ class ProtoMesh {
   };
 
 
-===== game/graphics/mesh/skeleton.cpp =====
+===== game\graphics\mesh\skeleton.cpp =====
 #include "skeleton.h"
 
 #include <cassert>
@@ -50115,7 +50115,7 @@ void Skeleton::mkSkeleton(const Tempest::Matrix4x4 &mt, size_t parent) {
   }
 
 
-===== game/graphics/mesh/skeleton.h =====
+===== game\graphics\mesh\skeleton.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -50168,7 +50168,7 @@ class Skeleton final {
   };
 
 
-===== game/graphics/mesh/submesh/animmesh.cpp =====
+===== game\graphics\mesh\submesh\animmesh.cpp =====
 #include "animmesh.h"
 #include "packedmesh.h"
 
@@ -50221,7 +50221,7 @@ AnimMesh::AnimMesh(const PackedMesh& mesh)
   }
 
 
-===== game/graphics/mesh/submesh/animmesh.h =====
+===== game\graphics\mesh\submesh\animmesh.h =====
 #pragma once
 
 #include <Tempest/VertexBuffer>
@@ -50254,7 +50254,7 @@ class AnimMesh {
   };
 
 
-===== game/graphics/mesh/submesh/packedmesh.cpp =====
+===== game\graphics\mesh\submesh\packedmesh.cpp =====
 #include "packedmesh.h"
 
 #include <Tempest/Application>
@@ -51778,7 +51778,7 @@ void PackedMesh::dbgMeshlets(const zenkit::Mesh& mesh, const std::vector<Meshlet
   }
 
 
-===== game/graphics/mesh/submesh/packedmesh.h =====
+===== game\graphics\mesh\submesh\packedmesh.h =====
 #pragma once
 
 #include <zenkit/Mesh.hh>
@@ -52000,7 +52000,7 @@ class PackedMesh {
 
 
 
-===== game/graphics/mesh/submesh/pfxemittermesh.cpp =====
+===== game\graphics\mesh\submesh\pfxemittermesh.cpp =====
 #include "pfxemittermesh.h"
 
 #include "game/compatibility/phoenix.h"
@@ -52153,7 +52153,7 @@ void PfxEmitterMesh::mkIndex() {
   }
 
 
-===== game/graphics/mesh/submesh/pfxemittermesh.h =====
+===== game\graphics\mesh\submesh\pfxemittermesh.h =====
 #pragma once
 
 #include <cstdint>
@@ -52198,7 +52198,7 @@ class PfxEmitterMesh {
 
 
 
-===== game/graphics/mesh/submesh/staticmesh.cpp =====
+===== game\graphics\mesh\submesh\staticmesh.cpp =====
 #include "staticmesh.h"
 
 #include <cassert>
@@ -52277,7 +52277,7 @@ StaticMesh::StaticMesh(const Material& mat, std::vector<Resources::Vertex> cvbo,
   }
 
 
-===== game/graphics/mesh/submesh/staticmesh.h =====
+===== game\graphics\mesh\submesh\staticmesh.h =====
 #pragma once
 
 #include <Tempest/VertexBuffer>
@@ -52337,7 +52337,7 @@ class StaticMesh {
   };
 
 
-===== game/graphics/meshobjects.cpp =====
+===== game\graphics\meshobjects.cpp =====
 #include "meshobjects.h"
 
 #include <Tempest/Log>
@@ -52559,7 +52559,7 @@ std::pair<uint32_t, uint32_t> MeshObjects::Node::meshSlice() const {
   }
 
 
-===== game/graphics/meshobjects.h =====
+===== game\graphics\meshobjects.h =====
 #pragma once
 
 #include <Tempest/Texture2d>
@@ -52655,7 +52655,7 @@ class MeshObjects final {
   };
 
 
-===== game/graphics/objvisual.cpp =====
+===== game\graphics\objvisual.cpp =====
 #include "objvisual.h"
 
 #include <Tempest/Log>
@@ -52963,7 +52963,7 @@ const Tempest::Matrix4x4& ObjVisual::bone(size_t i) const {
   }
 
 
-===== game/graphics/objvisual.h =====
+===== game\graphics\objvisual.h =====
 #pragma once
 
 #include "world/objects/pfxemitter.h"
@@ -53037,7 +53037,7 @@ class ObjVisual {
 
 
 
-===== game/graphics/pfx/particlefx.cpp =====
+===== game\graphics\pfx\particlefx.cpp =====
 #include "particlefx.h"
 
 #include "utils/parser.h"
@@ -53355,7 +53355,7 @@ float ParticleFx::fetchScaleKey(uint64_t time, const KeyList& keys, float fps, b
   }
 
 
-===== game/graphics/pfx/particlefx.h =====
+===== game\graphics\pfx\particlefx.h =====
 #pragma once
 
 #include <Tempest/RenderState>
@@ -53511,7 +53511,7 @@ class ParticleFx final {
 
 
 
-===== game/graphics/pfx/pfxbucket.cpp =====
+===== game\graphics\pfx\pfxbucket.cpp =====
 #include "pfxbucket.h"
 
 #include <cassert>
@@ -54298,7 +54298,7 @@ void PfxBucket::drawCommon(Tempest::Encoder<Tempest::CommandBuffer>& cmd, const 
   }
 
 
-===== game/graphics/pfx/pfxbucket.h =====
+===== game\graphics\pfx\pfxbucket.h =====
 #pragma once
 
 #include <Tempest/VertexBuffer>
@@ -54473,7 +54473,7 @@ class PfxBucket {
 
 
 
-===== game/graphics/pfx/pfxobjects.cpp =====
+===== game\graphics\pfx\pfxobjects.cpp =====
 #include "pfxobjects.h"
 
 #include <Tempest/Log>
@@ -54589,7 +54589,7 @@ PfxBucket& PfxObjects::getBucket(const Material& mat, const zenkit::VirtualObjec
 
 
 
-===== game/graphics/pfx/pfxobjects.h =====
+===== game\graphics\pfx\pfxobjects.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -54652,7 +54652,7 @@ class PfxObjects final {
   };
 
 
-===== game/graphics/renderer.cpp =====
+===== game\graphics\renderer.cpp =====
 #include "renderer.h"
 
 #include <Tempest/Color>
@@ -56967,7 +56967,7 @@ Size Renderer::internalResolution() const {
 
 
 
-===== game/graphics/renderer.h =====
+===== game\graphics\renderer.h =====
 #pragma once
 
 #include <Tempest/RenderPipeline>
@@ -57234,7 +57234,7 @@ class Renderer final {
   };
 
 
-===== game/graphics/rtscene.cpp =====
+===== game\graphics\rtscene.cpp =====
 #include "rtscene.h"
 
 #include <Tempest/Log>
@@ -57372,7 +57372,7 @@ void RtScene::buildTlas() {
 
 
 
-===== game/graphics/rtscene.h =====
+===== game\graphics\rtscene.h =====
 #pragma once
 
 #include <Tempest/AccelerationStructure>
@@ -57453,7 +57453,7 @@ class RtScene {
 
 
 
-===== game/graphics/sceneglobals.cpp =====
+===== game\graphics\sceneglobals.cpp =====
 #include "sceneglobals.h"
 
 #include "graphics/shaders.h"
@@ -57746,7 +57746,7 @@ const Tempest::Matrix4x4 SceneGlobals::viewProjectLwcInv() const {
   }
 
 
-===== game/graphics/sceneglobals.h =====
+===== game\graphics\sceneglobals.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -57890,7 +57890,7 @@ class SceneGlobals final {
 
 
 
-===== game/graphics/shaders.cpp =====
+===== game\graphics\shaders.cpp =====
 #include "shaders.h"
 
 #include <Tempest/Application>
@@ -58573,7 +58573,7 @@ RenderPipeline Shaders::ambientLightShader(std::string_view name) {
   }
 
 
-===== game/graphics/shaders.h =====
+===== game\graphics\shaders.h =====
 #pragma once
 
 #include <Tempest/RenderPipeline>
@@ -58734,7 +58734,7 @@ class Shaders {
   };
 
 
-===== game/graphics/sky/sky.cpp =====
+===== game\graphics\sky\sky.cpp =====
 #include "sky.h"
 
 #include <Tempest/Application>
@@ -58927,7 +58927,7 @@ const Texture2d* Sky::implSkyTexture(std::string_view name, bool day, size_t id)
   }
 
 
-===== game/graphics/sky/sky.h =====
+===== game\graphics\sky\sky.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -58981,7 +58981,7 @@ class Sky final {
   };
 
 
-===== game/graphics/visualfx.cpp =====
+===== game\graphics\visualfx.cpp =====
 #include "visualfx.h"
 
 #include <Tempest/Log>
@@ -59242,7 +59242,7 @@ VisualFx::Collision VisualFx::strToColision(std::string_view sv) {
   }
 
 
-===== game/graphics/visualfx.h =====
+===== game\graphics\visualfx.h =====
 #pragma once
 
 #include <zenkit/DaedalusVm.hh>
@@ -59417,7 +59417,7 @@ class VisualFx final {
 
 
 
-===== game/graphics/visualobjects.cpp =====
+===== game\graphics\visualobjects.cpp =====
 #include "visualobjects.h"
 
 #include <Tempest/Log>
@@ -60160,7 +60160,7 @@ void VisualObjects::dbgDrawBBox(Tempest::Painter& p, Tempest::Vec2 wsz, const Ca
 
 
 
-===== game/graphics/visualobjects.h =====
+===== game\graphics\visualobjects.h =====
 #pragma once
 
 #include "drawbuckets.h"
@@ -60324,7 +60324,7 @@ class VisualObjects final {
 
 
 
-===== game/graphics/worldview.cpp =====
+===== game\graphics\worldview.cpp =====
 #include "worldview.h"
 
 #include <Tempest/Application>
@@ -60577,7 +60577,7 @@ void WorldView::postFrameupdate() {
   }
 
 
-===== game/graphics/worldview.h =====
+===== game\graphics\worldview.h =====
 #pragma once
 
 #include <Tempest/Device>
@@ -60689,7 +60689,7 @@ class WorldView {
   };
 
 
-===== game/main.cpp =====
+===== game\main.cpp =====
 #include <Tempest/Window>
 #include <Tempest/Application>
 #include <Tempest/Log>
@@ -60844,7 +60844,7 @@ int main(int argc,const char** argv) {
 
 
 
-===== game/mainwindow.cpp =====
+===== game\mainwindow.cpp =====
 #include "mainwindow.h"
 
 #include <Tempest/Except>
@@ -62336,7 +62336,7 @@ void MainWindow::BenchmarkData::clear() {
 
 
 
-===== game/mainwindow.h =====
+===== game\mainwindow.h =====
 #pragma once
 
 #include "camera.h"
@@ -62520,7 +62520,7 @@ class MainWindow : public Tempest::Window {
   };
 
 
-===== game/marvin.cpp =====
+===== game\marvin.cpp =====
 #include "marvin.h"
 
 #include <charconv>
@@ -63167,7 +63167,7 @@ std::string_view Marvin::completeInstanceName(std::string_view inp, bool& fullwo
   }
 
 
-===== game/marvin.h =====
+===== game\marvin.h =====
 #pragma once
 
 #include <Tempest/Vec>
@@ -63271,7 +63271,7 @@ class Marvin {
 
 
 
-===== game/physics/collisionworld.cpp =====
+===== game\physics\collisionworld.cpp =====
 #include "collisionworld.h"
 #include "physicvbo.h"
 
@@ -63640,7 +63640,7 @@ void CollisionWorld::saveKinematicState(btScalar /*timeStep*/) {
 
 
 
-===== game/physics/collisionworld.h =====
+===== game\physics\collisionworld.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -63734,7 +63734,7 @@ class CollisionWorld : public btDiscreteDynamicsWorld {
 
 
 
-===== game/physics/dynamicworld.cpp =====
+===== game\physics\dynamicworld.cpp =====
 #include "dynamicworld.h"
 
 #include "collisionworld.h"
@@ -65194,7 +65194,7 @@ DynamicWorld::BBoxBody::~BBoxBody() {
   }
 
 
-===== game/physics/dynamicworld.h =====
+===== game\physics\dynamicworld.h =====
 #pragma once
 
 #include <zenkit/Mesh.hh>
@@ -65508,7 +65508,7 @@ class DynamicWorld final {
   };
 
 
-===== game/physics/physicmesh.cpp =====
+===== game\physics\physicmesh.cpp =====
 #include "physicmesh.h"
 
 #include "graphics/mesh/attachbinder.h"
@@ -65569,7 +65569,7 @@ void PhysicMesh::setInteractive(Interactive* it) {
   }
 
 
-===== game/physics/physicmesh.h =====
+===== game\physics\physicmesh.h =====
 #pragma once
 
 #include "dynamicworld.h"
@@ -65601,7 +65601,7 @@ class PhysicMesh final {
   };
 
 
-===== game/physics/physicmeshshape.cpp =====
+===== game\physics\physicmeshshape.cpp =====
 #include "physicmeshshape.h"
 
 #include "graphics/mesh/submesh/packedmesh.h"
@@ -65630,7 +65630,7 @@ PhysicMeshShape::PhysicMeshShape(PackedMesh&& sPacked)
   }
 
 
-===== game/physics/physicmeshshape.h =====
+===== game\physics\physicmeshshape.h =====
 #pragma once
 
 #include "physics/physics.h"
@@ -65655,7 +65655,7 @@ class PhysicMeshShape final {
   };
 
 
-===== game/physics/physics.h =====
+===== game\physics\physics.h =====
 #pragma once
 
 #include <Tempest/Platform>
@@ -65697,7 +65697,7 @@ class PhysicMeshShape final {
 #endif
 
 
-===== game/physics/physicvbo.cpp =====
+===== game\physics\physicvbo.cpp =====
 #include "physicvbo.h"
 
 #include "graphics/mesh/submesh/packedmesh.h"
@@ -65818,7 +65818,7 @@ std::string_view PhysicVbo::validateSectorName(std::string_view name) const {
   }
 
 
-===== game/physics/physicvbo.h =====
+===== game\physics\physicvbo.h =====
 #pragma once
 
 #include <vector>
@@ -65871,7 +65871,7 @@ class PhysicVbo : public btTriangleIndexVertexArray {
   };
 
 
-===== game/resources.cpp =====
+===== game\resources.cpp =====
 #include "resources.h"
 
 #include <Tempest/MemReader>
@@ -67027,7 +67027,7 @@ Tempest::VertexBuffer<Resources::Vertex> Resources::sphere(int passCount, float 
   }
 
 
-===== game/resources.h =====
+===== game\resources.h =====
 #pragma once
 
 #include <Tempest/Font>
@@ -67291,7 +67291,7 @@ class Resources final {
   };
 
 
-===== game/sound/soundfx.cpp =====
+===== game\sound\soundfx.cpp =====
 #include "soundfx.h"
 
 #include <Tempest/Log>
@@ -67371,7 +67371,7 @@ void SoundFx::loadVariants(std::string_view s) {
   }
 
 
-===== game/sound/soundfx.h =====
+===== game\sound\soundfx.h =====
 #pragma once
 
 #include <Tempest/SoundEffect>
@@ -67409,7 +67409,7 @@ class SoundFx {
 
 
 
-===== game/ui/chapterscreen.cpp =====
+===== game\ui\chapterscreen.cpp =====
 #include "chapterscreen.h"
 
 #include <Tempest/Painter>
@@ -67491,7 +67491,7 @@ void ChapterScreen::keyUpEvent(KeyEvent&) {
   }
 
 
-===== game/ui/chapterscreen.h =====
+===== game\ui\chapterscreen.h =====
 #pragma once
 
 #include <Tempest/Widget>
@@ -67530,7 +67530,7 @@ class ChapterScreen : public Tempest::Widget {
   };
 
 
-===== game/ui/consolewidget.cpp =====
+===== game\ui\consolewidget.cpp =====
 #include "consolewidget.h"
 
 #include <Tempest/Painter>
@@ -67780,7 +67780,7 @@ void ConsoleWidget::updateSizeHint() {
 
 
 
-===== game/ui/consolewidget.h =====
+===== game\ui\consolewidget.h =====
 #pragma once
 
 #include <Tempest/Widget>
@@ -67824,7 +67824,7 @@ class ConsoleWidget : public Tempest::Widget {
 
 
 
-===== game/ui/dialogmenu.cpp =====
+===== game\ui\dialogmenu.cpp =====
 #include "dialogmenu.h"
 
 #include <Tempest/Painter>
@@ -68424,7 +68424,7 @@ void DialogMenu::keyUpEvent(KeyEvent &event) {
 
 
 
-===== game/ui/dialogmenu.h =====
+===== game\ui\dialogmenu.h =====
 #pragma once
 
 #include <Tempest/Font>
@@ -68576,7 +68576,7 @@ class DialogMenu : public Tempest::Widget {
   };
 
 
-===== game/ui/documentmenu.cpp =====
+===== game\ui\documentmenu.cpp =====
 #include "documentmenu.h"
 
 #include "world/objects/interactive.h"
@@ -68696,7 +68696,7 @@ void DocumentMenu::paintEvent(PaintEvent &e) {
   }
 
 
-===== game/ui/documentmenu.h =====
+===== game\ui\documentmenu.h =====
 #pragma once
 
 #include <Tempest/Widget>
@@ -68755,7 +68755,7 @@ class DocumentMenu : public Tempest::Widget {
 
 
 
-===== game/ui/gamemenu.cpp =====
+===== game\ui\gamemenu.cpp =====
 #include "gamemenu.h"
 
 #include <Tempest/Painter>
@@ -70052,7 +70052,7 @@ void GameMenu::setPlayer(const Npc &pl) {
 
 
 
-===== game/ui/gamemenu.h =====
+===== game\ui\gamemenu.h =====
 #pragma once
 
 #include <Tempest/Widget>
@@ -70186,7 +70186,7 @@ class GameMenu : public Tempest::Widget {
   };
 
 
-===== game/ui/inventorymenu.cpp =====
+===== game\ui\inventorymenu.cpp =====
 #include "inventorymenu.h"
 
 #include <Tempest/Painter>
@@ -70950,7 +70950,7 @@ void InventoryMenu::draw(Tempest::Encoder<CommandBuffer>& cmd) {
   }
 
 
-===== game/ui/inventorymenu.h =====
+===== game\ui\inventorymenu.h =====
 #pragma once
 
 #include <Tempest/Widget>
@@ -71081,7 +71081,7 @@ class InventoryMenu : public Tempest::Widget {
   };
 
 
-===== game/ui/menuroot.cpp =====
+===== game\ui\menuroot.cpp =====
 #include "menuroot.h"
 
 #include <Tempest/Log>
@@ -71295,7 +71295,7 @@ void MenuRoot::keyDownEvent(KeyEvent &e) {
   }
 
 
-===== game/ui/menuroot.h =====
+===== game\ui\menuroot.h =====
 #pragma once
 
 #include <Tempest/Widget>
@@ -71349,7 +71349,7 @@ class MenuRoot : public Tempest::Widget {
   };
 
 
-===== game/ui/stacklayout.cpp =====
+===== game\ui\stacklayout.cpp =====
 #include "stacklayout.h"
 
 #include <Tempest/Widget>
@@ -71368,7 +71368,7 @@ void StackLayout::applyLayout() {
   }
 
 
-===== game/ui/stacklayout.h =====
+===== game\ui\stacklayout.h =====
 #pragma once
 
 #include <Tempest/Layout>
@@ -71382,7 +71382,7 @@ class StackLayout : public Tempest::Layout {
   };
 
 
-===== game/ui/touchinput.cpp =====
+===== game\ui\touchinput.cpp =====
 #include "touchinput.h"
 
 #include <Tempest/Painter>
@@ -71426,7 +71426,7 @@ void TouchInput::mouseUpEvent(Tempest::MouseEvent& e) {
   }
 
 
-===== game/ui/touchinput.h =====
+===== game\ui\touchinput.h =====
 #pragma once
 
 #include <Tempest/Widget>
@@ -71450,7 +71450,7 @@ class TouchInput : public Tempest::Widget {
 
 
 
-===== game/ui/videowidget.cpp =====
+===== game\ui\videowidget.cpp =====
 #include "videowidget.h"
 
 #include <Tempest/Painter>
@@ -71833,7 +71833,7 @@ void VideoWidget::paintEvent(PaintEvent& e) {
   }
 
 
-===== game/ui/videowidget.h =====
+===== game\ui\videowidget.h =====
 #pragma once
 
 #include <Tempest/Widget>
@@ -71880,7 +71880,7 @@ class VideoWidget : public Tempest::Widget {
 
 
 
-===== game/utils/crashlog.cpp =====
+===== game\utils\crashlog.cpp =====
 #include "crashlog.h"
 #include "commandline.h"
 
@@ -72100,7 +72100,7 @@ void CrashLog::writeSysInfo(std::ostream &fout) {
   }
 
 
-===== game/utils/crashlog.h =====
+===== game\utils\crashlog.h =====
 #pragma once
 
 #include <ostream>
@@ -72121,7 +72121,7 @@ class CrashLog final {
 
 
 
-===== game/utils/dbgpainter.cpp =====
+===== game\utils\dbgpainter.cpp =====
 #include "dbgpainter.h"
 
 #include "utils/gthfont.h"
@@ -72239,7 +72239,7 @@ void DbgPainter::drawObb(const Tempest::Matrix4x4& m, const Tempest::Vec3 bbox[]
   }
 
 
-===== game/utils/dbgpainter.h =====
+===== game\utils\dbgpainter.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -72269,7 +72269,7 @@ class DbgPainter {
 
 
 
-===== game/utils/fileext.h =====
+===== game\utils\fileext.h =====
 #pragma once
 
 #include <string>
@@ -72359,7 +72359,7 @@ namespace FileExt {
   }
 
 
-===== game/utils/fileutil.cpp =====
+===== game\utils\fileutil.cpp =====
 #include "fileutil.h"
 
 #include <Tempest/Platform>
@@ -72425,7 +72425,7 @@ std::u16string FileUtil::nestedPath(std::u16string_view gpath, const std::initia
   }
 
 
-===== game/utils/fileutil.h =====
+===== game\utils\fileutil.h =====
 #pragma once
 
 #include <Tempest/Dir>
@@ -72438,7 +72438,7 @@ namespace FileUtil {
   }
 
 
-===== game/utils/gthfont.cpp =====
+===== game\utils\gthfont.cpp =====
 #include "gthfont.h"
 
 #include <Tempest/Size>
@@ -72683,7 +72683,7 @@ bool GthFont::isSpace(uint8_t ch) {
   }
 
 
-===== game/utils/gthfont.h =====
+===== game\utils\gthfont.h =====
 #pragma once
 
 #include <zenkit/Font.hh>
@@ -72728,7 +72728,7 @@ class GthFont final {
 
 
 
-===== game/utils/inifile.cpp =====
+===== game\utils\inifile.cpp =====
 #include "inifile.h"
 
 #include <Tempest/Log>
@@ -73005,7 +73005,7 @@ float IniFile::getF(const IniFile::Value& v) const {
   }
 
 
-===== game/utils/inifile.h =====
+===== game\utils\inifile.h =====
 #pragma once
 
 #include <Tempest/File>
@@ -73061,7 +73061,7 @@ class IniFile final {
   };
 
 
-===== game/utils/installdetect.cpp =====
+===== game\utils\installdetect.cpp =====
 #include "installdetect.h"
 
 #include <Tempest/Platform>
@@ -73128,7 +73128,7 @@ std::u16string InstallDetect::programFiles(bool x86) {
 #endif
 
 
-===== game/utils/installdetect.h =====
+===== game\utils\installdetect.h =====
 #pragma once
 
 #include <Tempest/Platform>
@@ -73157,7 +73157,7 @@ class InstallDetect final {
   };
 
 
-===== game/utils/keycodec.cpp =====
+===== game\utils\keycodec.cpp =====
 #include "keycodec.h"
 
 #include "gothic.h"
@@ -73657,7 +73657,7 @@ int KeyCodec::fetch(std::string_view keys, size_t s, size_t e) {
   }
 
 
-===== game/utils/keycodec.h =====
+===== game\utils\keycodec.h =====
 #pragma once
 
 #include <Tempest/Event>
@@ -73832,7 +73832,7 @@ class KeyCodec final {
 
 
 
-===== game/utils/mouseutil.cpp =====
+===== game\utils\mouseutil.cpp =====
 #include "mouseutil.h"
 
 #include <Tempest/Platform>
@@ -73860,7 +73860,7 @@ float MouseUtil::mouseSysSpeed() {
   }
 
 
-===== game/utils/mouseutil.h =====
+===== game\utils\mouseutil.h =====
 #pragma once
 
 namespace MouseUtil {
@@ -73869,7 +73869,7 @@ namespace MouseUtil {
 
 
 
-===== game/utils/parser.cpp =====
+===== game\utils\parser.cpp =====
 #include "parser.h"
 #include "utils/string_frm.h"
 
@@ -73926,7 +73926,7 @@ Material::AlphaFunc Parser::loadAlpha(std::string_view src) {
   }
 
 
-===== game/utils/parser.h =====
+===== game\utils\parser.h =====
 #pragma once
 
 #include <Tempest/Vec>
@@ -73940,7 +73940,7 @@ namespace Parser {
 
 
 
-===== game/utils/string_frm.h =====
+===== game\utils\string_frm.h =====
 #pragma once
 
 #include <cstdio>
@@ -74116,7 +74116,7 @@ bool operator == (std::string_view v, const string_frm<sz>& l) {
   }
 
 
-===== game/utils/versioninfo.h =====
+===== game\utils\versioninfo.h =====
 #pragma once
 
 #include <cstdint>
@@ -74132,7 +74132,7 @@ class VersionInfo final {
 
 
 
-===== game/utils/workers.cpp =====
+===== game\utils\workers.cpp =====
 #include "workers.h"
 #include "utils/string_frm.h"
 
@@ -74342,7 +74342,7 @@ void Workers::execWork(uint32_t& minElts) {
   }
 
 
-===== game/utils/workers.h =====
+===== game\utils\workers.h =====
 #pragma once
 
 #include <thread>
@@ -74445,7 +74445,7 @@ class Workers final {
   };
 
 
-===== game/world/aiqueue.cpp =====
+===== game\world\aiqueue.cpp =====
 #include "aiqueue.h"
 
 #include <limits>
@@ -74871,7 +74871,7 @@ AiQueue::AiAction AiQueue::aiPrintScreen(int time, std::string_view font, int x,
   }
 
 
-===== game/world/aiqueue.h =====
+===== game\world\aiqueue.h =====
 #pragma once
 
 #include <cstdint>
@@ -74973,7 +74973,7 @@ class AiQueue {
 
 
 
-===== game/world/bullet.cpp =====
+===== game\world\bullet.cpp =====
 #include "bullet.h"
 
 #include <Tempest/Log>
@@ -75147,7 +75147,7 @@ void Bullet::updateMatrix() {
   }
 
 
-===== game/world/bullet.h =====
+===== game\world\bullet.h =====
 #pragma once
 
 #include <cstdint>
@@ -75234,7 +75234,7 @@ class Bullet final : public DynamicWorld::BulletCallback {
 
 
 
-===== game/world/collisionzone.cpp =====
+===== game\world\collisionzone.cpp =====
 #include "collisionzone.h"
 
 #include <Tempest/Log>
@@ -75410,7 +75410,7 @@ void CollisionZone::setPosition(const Tempest::Vec3& p) {
   }
 
 
-===== game/world/collisionzone.h =====
+===== game\world\collisionzone.h =====
 #pragma once
 
 #include <Tempest/Vec>
@@ -75470,7 +75470,7 @@ class CollisionZone final {
 
 
 
-===== game/world/focus.cpp =====
+===== game\world\focus.cpp =====
 #include "focus.h"
 
 #include "world/objects/npc.h"
@@ -75511,7 +75511,7 @@ std::string_view Focus::displayName() const {
   }
 
 
-===== game/world/focus.h =====
+===== game\world\focus.h =====
 #pragma once
 
 #include <Tempest/Point>
@@ -75538,7 +75538,7 @@ class Focus final {
   };
 
 
-===== game/world/fplock.cpp =====
+===== game\world\fplock.cpp =====
 #include "fplock.h"
 #include "waypoint.h"
 
@@ -75587,7 +75587,7 @@ void FpLock::save(Serialize &fout) const {
   }
 
 
-===== game/world/fplock.h =====
+===== game\world\fplock.h =====
 #pragma once
 
 class WayPoint;
@@ -75611,7 +75611,7 @@ class FpLock final {
   };
 
 
-===== game/world/objects/fireplace.cpp =====
+===== game\world\objects\fireplace.cpp =====
 #include "fireplace.h"
 
 #include <zenkit/vobs/MovableObject.hh>
@@ -75645,7 +75645,7 @@ void FirePlace::onStateChanged() {
   }
 
 
-===== game/world/objects/fireplace.h =====
+===== game\world\objects\fireplace.h =====
 #pragma once
 
 #include "interactive.h"
@@ -75668,7 +75668,7 @@ class FirePlace : public Interactive {
 
 
 
-===== game/world/objects/globalfx.cpp =====
+===== game\world\objects\globalfx.cpp =====
 #include "globalfx.h"
 
 GlobalFx::GlobalFx() {
@@ -75703,7 +75703,7 @@ uint64_t GlobalFx::effectPrefferedTime() const {
   }
 
 
-===== game/world/objects/globalfx.h =====
+===== game\world\objects\globalfx.h =====
 #pragma once
 
 #include <memory>
@@ -75726,7 +75726,7 @@ class GlobalFx {
 
 
 
-===== game/world/objects/interactive.cpp =====
+===== game\world\objects\interactive.cpp =====
 #include "interactive.h"
 #include "game/mmosemantichooks.h"
 
@@ -76900,7 +76900,7 @@ bool Interactive::Pos::isDistPos() const {
 
 
 
-===== game/world/objects/interactive.h =====
+===== game\world\objects\interactive.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -77087,7 +77087,7 @@ class Interactive : public Vob {
   };
 
 
-===== game/world/objects/item.cpp =====
+===== game\world\objects\item.cpp =====
 #include "item.h"
 
 #include <Tempest/Log>
@@ -77473,7 +77473,7 @@ void Item::moveEvent() {
   }
 
 
-===== game/world/objects/item.h =====
+===== game\world\objects\item.h =====
 #pragma once
 
 #include <cstdint>
@@ -77591,7 +77591,7 @@ class Item : public Vob {
   };
 
 
-===== game/world/objects/itemtorchburning.cpp =====
+===== game\world\objects\itemtorchburning.cpp =====
 #include "itemtorchburning.h"
 
 #include "world/world.h"
@@ -77628,7 +77628,7 @@ void ItemTorchBurning::moveEvent() {
   }
 
 
-===== game/world/objects/itemtorchburning.h =====
+===== game\world\objects\itemtorchburning.h =====
 #pragma once
 
 #include "item.h"
@@ -77649,7 +77649,7 @@ class ItemTorchBurning : public Item {
 
 
 
-===== game/world/objects/npc.cpp =====
+===== game\world\objects\npc.cpp =====
 #include "npc.h"
 
 #include <algorithm>
@@ -82726,7 +82726,7 @@ void Npc::updateAnimation(uint64_t dt, bool force) {
 
 
 
-===== game/world/objects/npc.h =====
+===== game\world\objects\npc.h =====
 #pragma once
 
 #include "graphics/mesh/pose.h"
@@ -83444,7 +83444,7 @@ class Npc final {
 
 
 
-===== game/world/objects/pfxemitter.cpp =====
+===== game\world\objects\pfxemitter.cpp =====
 #include "pfxemitter.h"
 
 #include <Tempest/Log>
@@ -83638,7 +83638,7 @@ void PfxEmitter::setObjMatrix(const Matrix4x4 &mt) {
   }
 
 
-===== game/world/objects/pfxemitter.h =====
+===== game\world\objects\pfxemitter.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -83699,7 +83699,7 @@ class PfxEmitter {
 
 
 
-===== game/world/objects/sound.cpp =====
+===== game\world\objects\sound.cpp =====
 #include "sound.h"
 
 #include "world/world.h"
@@ -83837,7 +83837,7 @@ uint64_t Sound::effectPrefferedTime() const {
   }
 
 
-===== game/world/objects/sound.h =====
+===== game\world\objects\sound.h =====
 #pragma once
 
 #include "world/worldsound.h"
@@ -83884,7 +83884,7 @@ class Sound final {
 
 
 
-===== game/world/objects/staticobj.cpp =====
+===== game\world\objects\staticobj.cpp =====
 #include "staticobj.h"
 
 #include <Tempest/Log>
@@ -83921,7 +83921,7 @@ bool StaticObj::setMobState(std::string_view sc, int32_t st) {
   }
 
 
-===== game/world/objects/staticobj.h =====
+===== game\world\objects\staticobj.h =====
 #pragma once
 
 #include "graphics/objvisual.h"
@@ -83941,7 +83941,7 @@ class StaticObj : public Vob {
 
 
 
-===== game/world/objects/vob.cpp =====
+===== game\world\objects\vob.cpp =====
 #include "vob.h"
 
 #include <Tempest/Log>
@@ -84219,7 +84219,7 @@ void Vob::load(Serialize& fin) {
   }
 
 
-===== game/world/objects/vob.h =====
+===== game\world\objects\vob.h =====
 #pragma once
 
 #include <Tempest/Matrix4x4>
@@ -84281,7 +84281,7 @@ class Vob {
 
 
 
-===== game/world/objects/vobbundle.cpp =====
+===== game\world\objects\vobbundle.cpp =====
 #include "vobbundle.h"
 
 #include "world/world.h"
@@ -84299,7 +84299,7 @@ void VobBundle::setObjMatrix(const Tempest::Matrix4x4& obj) {
   }
 
 
-===== game/world/objects/vobbundle.h =====
+===== game\world\objects\vobbundle.h =====
 #pragma once
 
 #include <memory>
@@ -84319,7 +84319,7 @@ class VobBundle {
 
 
 
-===== game/world/spaceindex.cpp =====
+===== game\world\spaceindex.cpp =====
 #include "spaceindex.h"
 
 #include "world/objects/vob.h"
@@ -84454,7 +84454,7 @@ void BaseSpaceIndex::implFind(Vob** v, size_t cnt, uint8_t depth,
   }
 
 
-===== game/world/spaceindex.h =====
+===== game\world\spaceindex.h =====
 #pragma once
 
 #include <vector>
@@ -84542,7 +84542,7 @@ class SpaceIndex final : public BaseSpaceIndex {
 
 
 
-===== game/world/triggers/abstracttrigger.cpp =====
+===== game\world\triggers\abstracttrigger.cpp =====
 #include "abstracttrigger.h"
 
 #include <Tempest/Log>
@@ -84809,7 +84809,7 @@ void TriggerEvent::load(Serialize& fin) {
 
 
 
-===== game/world/triggers/abstracttrigger.h =====
+===== game\world\triggers\abstracttrigger.h =====
 #pragma once
 
 #include <zenkit/vobs/Misc.hh>
@@ -84923,7 +84923,7 @@ class AbstractTrigger : public Vob {
 
 
 
-===== game/world/triggers/codemaster.cpp =====
+===== game\world\triggers\codemaster.cpp =====
 #include "codemaster.h"
 
 #include <Tempest/Log>
@@ -85002,7 +85002,7 @@ void CodeMaster::zeroState() {
   }
 
 
-===== game/world/triggers/codemaster.h =====
+===== game\world\triggers\codemaster.h =====
 #pragma once
 
 #include "abstracttrigger.h"
@@ -85034,7 +85034,7 @@ class CodeMaster : public AbstractTrigger {
 
 
 
-===== game/world/triggers/cscamera.cpp =====
+===== game\world\triggers\cscamera.cpp =====
 #include "cscamera.h"
 
 #include <Tempest/Log>
@@ -85279,7 +85279,7 @@ PointF CsCamera::spin(Tempest::Vec3& d) {
   }
 
 
-===== game/world/triggers/cscamera.h =====
+===== game\world\triggers\cscamera.h =====
 #pragma once
 
 #include <zenkit/vobs/Camera.hh>
@@ -85335,7 +85335,7 @@ class CsCamera : public AbstractTrigger {
   };
 
 
-===== game/world/triggers/earthquake.cpp =====
+===== game\world\triggers\earthquake.cpp =====
 #include "earthquake.h"
 
 #include <Tempest/Log>
@@ -85351,7 +85351,7 @@ void Earthquake::onTrigger(const TriggerEvent& evt) {
   }
 
 
-===== game/world/triggers/earthquake.h =====
+===== game\world\triggers\earthquake.h =====
 #pragma once
 
 #include "abstracttrigger.h"
@@ -85369,7 +85369,7 @@ class Earthquake : public AbstractTrigger {
   };
 
 
-===== game/world/triggers/messagefilter.cpp =====
+===== game\world\triggers\messagefilter.cpp =====
 #include "messagefilter.h"
 
 #include "world/world.h"
@@ -85422,7 +85422,7 @@ void MessageFilter::exec(zenkit::MessageFilterAction eval) {
   }
 
 
-===== game/world/triggers/messagefilter.h =====
+===== game\world\triggers\messagefilter.h =====
 #pragma once
 
 #include "abstracttrigger.h"
@@ -85442,7 +85442,7 @@ class MessageFilter : public AbstractTrigger {
   };
 
 
-===== game/world/triggers/movercontroler.cpp =====
+===== game\world\triggers\movercontroler.cpp =====
 #include "movercontroler.h"
 
 #include "world/world.h"
@@ -85465,7 +85465,7 @@ void MoverControler::onTrigger(const TriggerEvent&) {
   }
 
 
-===== game/world/triggers/movercontroler.h =====
+===== game\world\triggers\movercontroler.h =====
 #pragma once
 
 #include "abstracttrigger.h"
@@ -85486,7 +85486,7 @@ class MoverControler : public AbstractTrigger {
 
 
 
-===== game/world/triggers/movetrigger.cpp =====
+===== game\world\triggers\movetrigger.cpp =====
 #include "movetrigger.h"
 
 #include <Tempest/Log>
@@ -85989,7 +85989,7 @@ Matrix4x4 MoveTrigger::calcTransform(uint32_t f1, uint32_t f2, float a) const {
 
 
 
-===== game/world/triggers/movetrigger.h =====
+===== game\world\triggers\movetrigger.h =====
 #pragma once
 
 #include <cstdint>
@@ -86070,7 +86070,7 @@ class MoveTrigger : public AbstractTrigger {
   };
 
 
-===== game/world/triggers/pfxcontroller.cpp =====
+===== game\world\triggers\pfxcontroller.cpp =====
 #include "pfxcontroller.h"
 
 #include "world/world.h"
@@ -86141,7 +86141,7 @@ void PfxController::tick(uint64_t /*dt*/) {
   }
 
 
-===== game/world/triggers/pfxcontroller.h =====
+===== game\world\triggers\pfxcontroller.h =====
 #pragma once
 
 #include "abstracttrigger.h"
@@ -86170,7 +86170,7 @@ class PfxController : public AbstractTrigger {
   };
 
 
-===== game/world/triggers/touchdamage.cpp =====
+===== game\world\triggers\touchdamage.cpp =====
 #include "touchdamage.h"
 
 #include "world/objects/npc.h"
@@ -86237,7 +86237,7 @@ void TouchDamage::takeDamage(Npc& npc, int32_t val, int32_t prot) {
   }
 
 
-===== game/world/triggers/touchdamage.h =====
+===== game\world\triggers\touchdamage.h =====
 #pragma once
 
 #include "abstracttrigger.h"
@@ -86268,7 +86268,7 @@ class TouchDamage : public AbstractTrigger {
   };
 
 
-===== game/world/triggers/trigger.cpp =====
+===== game\world\triggers\trigger.cpp =====
 #include "trigger.h"
 
 #include <Tempest/Log>
@@ -86287,7 +86287,7 @@ void Trigger::onTrigger(const TriggerEvent&) {
   }
 
 
-===== game/world/triggers/trigger.h =====
+===== game\world\triggers\trigger.h =====
 #pragma once
 
 #include "abstracttrigger.h"
@@ -86300,7 +86300,7 @@ class Trigger : public AbstractTrigger {
   };
 
 
-===== game/world/triggers/triggerlist.cpp =====
+===== game\world\triggers\triggerlist.cpp =====
 #include "triggerlist.h"
 
 #include <Tempest/Log>
@@ -86362,7 +86362,7 @@ void TriggerList::load(Serialize& fin) {
   }
 
 
-===== game/world/triggers/triggerlist.h =====
+===== game\world\triggers\triggerlist.h =====
 #pragma once
 
 #include <zenkit/vobs/Trigger.hh>
@@ -86392,7 +86392,7 @@ class TriggerList : public AbstractTrigger {
   };
 
 
-===== game/world/triggers/triggerscript.cpp =====
+===== game\world\triggers\triggerscript.cpp =====
 #include "triggerscript.h"
 
 #include <zenkit/vobs/Trigger.hh>
@@ -86415,7 +86415,7 @@ void TriggerScript::onTrigger(const TriggerEvent &) {
   }
 
 
-===== game/world/triggers/triggerscript.h =====
+===== game\world\triggers\triggerscript.h =====
 #pragma once
 
 #include "abstracttrigger.h"
@@ -86433,7 +86433,7 @@ class TriggerScript : public AbstractTrigger {
   };
 
 
-===== game/world/triggers/triggerworldstart.cpp =====
+===== game\world\triggers\triggerworldstart.cpp =====
 #include "triggerworldstart.h"
 
 #include <zenkit/vobs/Trigger.hh>
@@ -86455,7 +86455,7 @@ void TriggerWorldStart::onTrigger(const TriggerEvent &ev) {
   }
 
 
-===== game/world/triggers/triggerworldstart.h =====
+===== game\world\triggers\triggerworldstart.h =====
 #pragma once
 
 #include "abstracttrigger.h"
@@ -86473,7 +86473,7 @@ class TriggerWorldStart : public AbstractTrigger {
   };
 
 
-===== game/world/triggers/zonetrigger.cpp =====
+===== game\world\triggers\zonetrigger.cpp =====
 #include "zonetrigger.h"
 
 #include <zenkit/vobs/Trigger.hh>
@@ -86493,7 +86493,7 @@ void ZoneTrigger::onIntersect(Npc &n) {
   }
 
 
-===== game/world/triggers/zonetrigger.h =====
+===== game\world\triggers\zonetrigger.h =====
 #pragma once
 
 #include "abstracttrigger.h"
@@ -86510,7 +86510,7 @@ class ZoneTrigger : public AbstractTrigger {
   };
 
 
-===== game/world/waymatrix.cpp =====
+===== game\world\waymatrix.cpp =====
 #include "waymatrix.h"
 
 #include <Tempest/Log>
@@ -86915,7 +86915,7 @@ WayPath WayMatrix::wayTo(const WayPoint** begin, size_t beginSz, const Tempest::
   }
 
 
-===== game/world/waymatrix.h =====
+===== game\world\waymatrix.h =====
 #pragma once
 
 #include <Tempest/Painter>
@@ -86998,7 +86998,7 @@ class WayMatrix final {
   };
 
 
-===== game/world/waypath.cpp =====
+===== game\world\waypath.cpp =====
 #include "waypath.h"
 
 #include "game/serialize.h"
@@ -87054,7 +87054,7 @@ const WayPoint *WayPath::last() const {
   }
 
 
-===== game/world/waypath.h =====
+===== game\world\waypath.h =====
 #pragma once
 
 #include <vector>
@@ -87083,7 +87083,7 @@ class WayPath final {
   };
 
 
-===== game/world/waypoint.cpp =====
+===== game\world\waypoint.cpp =====
 #include "waypoint.h"
 
 #include <cmath>
@@ -87164,7 +87164,7 @@ bool WayPoint::hasLadderConn(const WayPoint* w) const {
   }
 
 
-===== game/world/waypoint.h =====
+===== game\world\waypoint.h =====
 #pragma once
 
 #include <zenkit/world/WayNet.hh>
@@ -87226,7 +87226,7 @@ class WayPoint final {
   };
 
 
-===== game/world/world.cpp =====
+===== game\world\world.cpp =====
 #include "world.h"
 
 #include <functional>
@@ -88433,7 +88433,7 @@ int32_t World::guildOfRoom(std::string_view portalName) {
 
 
 
-===== game/world/world.h =====
+===== game\world\world.h =====
 #pragma once
 
 #include <Tempest/VertexBuffer>
@@ -88670,7 +88670,7 @@ class World final {
 
 
 
-===== game/world/worldlight.cpp =====
+===== game\world\worldlight.cpp =====
 #include "worldlight.h"
 
 #include "world.h"
@@ -88714,7 +88714,7 @@ void WorldLight::moveEvent() {
   }
 
 
-===== game/world/worldlight.h =====
+===== game\world\worldlight.h =====
 #pragma once
 
 #include "world/objects/vob.h"
@@ -88732,7 +88732,7 @@ class WorldLight : public Vob {
 
 
 
-===== game/world/worldobjects.cpp =====
+===== game\world\worldobjects.cpp =====
 #include "worldobjects.h"
 
 #include "game/serialize.h"
@@ -90017,7 +90017,7 @@ bool WorldObjects::testObj(T &src, const Npc &pl, const WorldObjects::SearchOpt 
 
 
 
-===== game/world/worldobjects.h =====
+===== game\world\worldobjects.h =====
 #pragma once
 
 #include <vector>
@@ -90227,7 +90227,7 @@ class WorldObjects final {
 
 
 
-===== game/world/worldsound.cpp =====
+===== game\world\worldsound.cpp =====
 #include "worldsound.h"
 
 #include <Tempest/SoundEffect>
@@ -90588,7 +90588,7 @@ void WorldSound::aiOutput(const Tempest::Vec3& pos, std::string_view outputname)
   }
 
 
-===== game/world/worldsound.h =====
+===== game\world\worldsound.h =====
 #pragma once
 
 #include <Tempest/SoundDevice>
@@ -90684,7 +90684,7 @@ class WorldSound final {
   };
 
 
-===== server/cpp/mmo_server_identity.h =====
+===== server\cpp\mmo_server_identity.h =====
 #pragma once
 
 #include <charconv>
@@ -90822,7 +90822,7 @@ inline constexpr std::string_view WorldItemDbPrefix = "world_item:";
 } // namespace Mmo::Server::Identity
 
 
-===== server/cpp/mmo_server_snapshot_limits.h =====
+===== server\cpp\mmo_server_snapshot_limits.h =====
 #pragma once
 
 #include <cstddef>
@@ -90894,7 +90894,7 @@ inline constexpr std::string_view BootstrapClientCorrectionsSection = "client_co
 
 
 
-===== server/cpp/mmo_server_types.h =====
+===== server\cpp\mmo_server_types.h =====
 #pragma once
 
 #include <cstdint>
@@ -90961,7 +90961,7 @@ struct WorldItemIdentity final {
 
 
 
-===== server/cpp/mmo_udp_server.cpp =====
+===== server\cpp\mmo_udp_server.cpp =====
 #ifndef ASIO_STANDALONE
 #define ASIO_STANDALONE
 #endif

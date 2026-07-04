@@ -1,36 +1,9 @@
 # OpenGothic docs/llm snapshot
-# Generated: 2026-07-01T22:09:41+02:00
-# Project root: /home/radseq/Desktop/OpenGothic
+# Generated: 2026-07-03T19:33:02
+# Project root: C:\Users\admin\Desktop\OpenGothic
 # MAX_BYTES per file: 1500000
 
-===== docs/llm/README.md =====
-# OpenGothic MMO AI Context
-
-Read these files by default, in order:
-
-1. `ai/00-current-state.md`
-2. `ai/01-authority-data-model.md`
-3. `ai/02-gameplay-domains.md`
-4. `ai/03-code-map-and-hooks.md`
-5. `ai/04-cpp-asio-network.md`
-6. `ai/05-dev-loop-and-next-work.md`
-7. `ai/06-save-to-server-roadmap.md`
-8. `ai/22-mmo-menu-db-continue-step109.md`
-9. `ai/23-db-continue-no-new-game-trigger-step110.md`
-10. `ai/24-mmo-db-continue-startup-suppression-step112.md`
-11. `ai/25-mmo-menu-in-session-db-continue-step113.md`
-12. `ai/26-mmo-db-mover-materialization-step114.md`
-13. `ai/27-mmo-db-world-clock-routine-bootstrap-step115.md`
-
-Do not load old numbered step files during normal work. They are archaeology.
-Keep their hard facts only when they became durable project rules below.
-
-Target: Gothic II NotR first, later Gothic 1/Gothic 2 vanilla. C++23. Prefer
-safe, explicit, high-performance code. Old single-player behavior must remain
-unchanged unless an explicit MMO/server flag is passed.
-
-
-===== docs/llm/ai/00-current-state.md =====
+===== docs\llm\ai\00-current-state.md =====
 # 00 Current State
 
 Goal: turn OpenGothic/Gothic II NotR into a server-authoritative MMO while
@@ -326,7 +299,7 @@ Step98 notes:
 - `mmo_validate_latest_save_checkpoint_restore_v1`, `mmo_assert_latest_save_checkpoint_restore_v1` and `v_mmo_latest_save_checkpoint_strict_restore` are the DB-side evidence surface for proving DB-native Continue readiness.
 
 
-===== docs/llm/ai/01-authority-data-model.md =====
+===== docs\llm\ai\01-authority-data-model.md =====
 # 01 Authority And Data Model
 
 Production runtime flow:
@@ -416,7 +389,7 @@ Step92 identity/admin note:
 - `engine_template_key` and `item_instance_key` are import/source identity strings, not final gameplay labels. They intentionally preserve world name, engine symbol/script id, source persistent id and sometimes display name so identity collisions can be diagnosed across Gothic worlds and save/runtime captures.
 
 
-===== docs/llm/ai/02-gameplay-domains.md =====
+===== docs\llm\ai\02-gameplay-domains.md =====
 # 02 Gameplay Domains
 
 Movement:
@@ -523,7 +496,7 @@ Step84 gameplay note:
 - Unresolved local corpse/world pickup can be converted into a journaled character inventory grant by item symbol as a bridge until server-owned loot/drop spawning is authoritative.
 
 
-===== docs/llm/ai/03-code-map-and-hooks.md =====
+===== docs\llm\ai\03-code-map-and-hooks.md =====
 # 03 Code Map And Hooks
 
 Main C++ files:
@@ -627,7 +600,7 @@ Step84 code-map note:
 - `server/sql/step84_world_identity_lifecycle_bridge.sql` defines `mmo_grant_character_item_by_symbol`, the temporary unresolved-pickup grant fallback used by the C++ server.
 
 
-===== docs/llm/ai/04-cpp-asio-network.md =====
+===== docs\llm\ai\04-cpp-asio-network.md =====
 # 04 C++ ASIO Network
 
 Current network step:
@@ -831,7 +804,7 @@ Step92 network note:
 - Do not drive local NPC movement from `nearby_npcs`. Active NPC pathing, routine execution, perception and combat decisions remain local-client/native until a dedicated server simulation tick exists.
 
 
-===== docs/llm/ai/05-dev-loop-and-next-work.md =====
+===== docs\llm\ai\05-dev-loop-and-next-work.md =====
 # 05 Dev Loop And Next Work
 
 Clean DB rebuild for a fresh game/server test:
@@ -1277,7 +1250,7 @@ Step93 save-to-server roadmap notes:
 
 
 
-===== docs/llm/ai/06-save-to-server-roadmap.md =====
+===== docs\llm\ai\06-save-to-server-roadmap.md =====
 # 06 Native Save to DB/Server Roadmap
 
 Purpose: enumerate what the native `.sav` file currently preserves and define the
@@ -1584,7 +1557,7 @@ When phases 1-6 are good enough:
 - Do not infer production authority from periodic full-world diffs.
 
 
-===== docs/llm/ai/07-save-checkpoint-step94.md =====
+===== docs\llm\ai\07-save-checkpoint-step94.md =====
 # 07 Save Checkpoint Step94
 
 This is the first runtime implementation slice from the save-to-server roadmap.
@@ -1620,7 +1593,7 @@ Next work:
 3. Extract snapshot SQL/read-model logic from `mmo_udp_server.cpp`.
 
 
-===== docs/llm/ai/07-save-to-server-step93-foundation.md =====
+===== docs\llm\ai\07-save-to-server-step93-foundation.md =====
 # 07 Save To Server Step93 Foundation
 
 This step implements the first practical chunk of the save-to-server roadmap
@@ -1676,7 +1649,7 @@ Next safe C++ target:
   currently restored.
 
 
-===== docs/llm/ai/08-save-slot-catalog-step95.md =====
+===== docs\llm\ai\08-save-slot-catalog-step95.md =====
 # 08 Save Slot Catalog Step95
 
 Step95 moves the save-to-DB work from a generic checkpoint manifest toward a real
@@ -1746,7 +1719,7 @@ menu. Actual save migration continues in Step96 through structured snapshot
 tables generated from DB current projections.
 
 
-===== docs/llm/ai/09-db-save-checkpoint-snapshots-step96.md =====
+===== docs\llm\ai\09-db-save-checkpoint-snapshots-step96.md =====
 # 09 DB Save Checkpoint Snapshots Step96
 
 Purpose: move from "native save exists and DB has a manifest" to "DB contains a
@@ -1796,7 +1769,7 @@ Step97 notes:
 
 
 
-===== docs/llm/ai/10-db-save-checkpoint-restore-step97.md =====
+===== docs\llm\ai\10-db-save-checkpoint-restore-step97.md =====
 # 10 DB Save Checkpoint Restore Step97
 
 Purpose: turn the Step96 DB-native save checkpoint tables into a real restore source for server-bound bootstrap.
@@ -1845,7 +1818,7 @@ Limits:
 - If no DB save checkpoint exists yet, the bootstrap falls back to current projections so New Game reset remains usable.
 
 
-===== docs/llm/ai/11-strict-db-continue-step98.md =====
+===== docs\llm\ai\11-strict-db-continue-step98.md =====
 # 11 Strict DB Continue Step98
 
 Purpose: make DB-native Continue/restores testable without accidentally passing because the server silently fell back to live projections or because the local native `.sav` still contained the wanted state.
@@ -1913,7 +1886,7 @@ Limits:
 - It is a strict evidence guard for the save-file-to-DB migration path.
 
 
-===== docs/llm/ai/12-db-continue-preworld-step99.md =====
+===== docs\llm\ai\12-db-continue-preworld-step99.md =====
 # 12 DB Continue Pre-World Step99
 
 Purpose: remove another `.sav` dependency from the DB-native Continue path.
@@ -1972,7 +1945,7 @@ MMO DB continue: native save is missing, bootstrapping baseline world ...
 ```
 
 
-===== docs/llm/ai/13-db-continue-preworld-reuse-step100.md =====
+===== docs\llm\ai\13-db-continue-preworld-reuse-step100.md =====
 # 13 DB Continue Pre-World Reuse Step100
 
 Purpose: avoid downloading the same DB save checkpoint bootstrap twice during
@@ -2016,7 +1989,7 @@ There should not be a second immediate `client_bootstrap_request` for
 `world=newworld.zen` during the same DB Continue startup.
 
 
-===== docs/llm/ai/14-db-continue-end-to-end-step101.md =====
+===== docs\llm\ai\14-db-continue-end-to-end-step101.md =====
 # 14 DB Continue End-To-End Step101
 
 Purpose: make the current DB-native Continue work testable against a real save
@@ -2106,7 +2079,7 @@ MMO server snapshot restore source: ... snapshot_source=db_save_checkpoint_v1 ..
 There should be no silent fallback to `current_projections_v1` in strict mode.
 
 
-===== docs/llm/ai/15-db-checkpoint-parity-step102.md =====
+===== docs\llm\ai\15-db-checkpoint-parity-step102.md =====
 # 15 DB Checkpoint Parity Step102
 
 State before Step102:
@@ -2183,7 +2156,7 @@ before the client started?"
 
 
 
-===== docs/llm/ai/16-db-checkpoint-export-coverage-step103.md =====
+===== docs\llm\ai\16-db-checkpoint-export-coverage-step103.md =====
 # 16 DB Checkpoint Export Coverage Step103
 
 Evidence from the first Step102 test:
@@ -2251,7 +2224,7 @@ also add `--assert-no-drift`. If that fails only on excluded domains, inspect
 
 
 
-===== docs/llm/ai/17-db-checkpoint-script-state-full-export-step104.md =====
+===== docs\llm\ai\17-db-checkpoint-script-state-full-export-step104.md =====
 # 17 DB Checkpoint Script-State Full Export - Step104
 
 Log evidence after Step103:
@@ -2273,7 +2246,7 @@ Operational note:
 - Accepted `ready_weapon`/`holster_weapon` lines are log-coalesced like movement. Errors/diagnostics remain visible.
 
 
-===== docs/llm/ai/18-mysql-function-binlog-step105.md =====
+===== docs\llm\ai\18-mysql-function-binlog-step105.md =====
 # 18 MySQL Function Binary-Log Safety - Step105
 
 Observed failure:
@@ -2317,7 +2290,7 @@ Step105 changes:
   only for patching an existing DB without dropping it.
 
 
-===== docs/llm/ai/19-mysql-no-function-checkpoint-export-step106.md =====
+===== docs\llm\ai\19-mysql-no-function-checkpoint-export-step106.md =====
 # 19 MySQL No-Function Checkpoint Export - Step106
 
 Observed after Step105:
@@ -2353,7 +2326,7 @@ The JSON contract is unchanged: `script_state` remains the safe client-apply
 subset, while `script_state_full` remains the full checkpoint coverage export.
 
 
-===== docs/llm/ai/20-clean-reset-no-legacy-function-step107.md =====
+===== docs\llm\ai\20-clean-reset-no-legacy-function-step107.md =====
 # 20 Clean Reset Without Legacy Function Bridges - Step107
 
 Observed after Step106:
@@ -2385,7 +2358,7 @@ Step107 changes:
   import crashes during in-process reset.
 
 
-===== docs/llm/ai/21-clean-reset-world-clock-foundation-step108.md =====
+===== docs\llm\ai\21-clean-reset-world-clock-foundation-step108.md =====
 # 21 Clean Reset World Clock Foundation - Step108
 
 Observed after Step107:
@@ -2437,7 +2410,7 @@ Expected manifest evidence:
   `mmo_save_checkpoint_world_clock_snapshot`.
 
 
-===== docs/llm/ai/22-mmo-menu-db-continue-step109.md =====
+===== docs\llm\ai\22-mmo-menu-db-continue-step109.md =====
 # 22 MMO Menu DB Continue - Step109
 
 Purpose: remove the fake local save-slot UX from the normal server-bound client
@@ -2483,7 +2456,7 @@ Strict DB checkpoint flags remain useful for checkers and diagnostics, but they
 are no longer the intended everyday player startup command.
 
 
-===== docs/llm/ai/23-db-continue-no-new-game-trigger-step110.md =====
+===== docs\llm\ai\23-db-continue-no-new-game-trigger-step110.md =====
 # 23 DB Continue Without New Game Trigger - Step110
 
 Observed after Step109:
@@ -2516,7 +2489,7 @@ Remaining gap:
   trigger from DB Continue.
 
 
-===== docs/llm/ai/24-mmo-db-continue-startup-suppression-step112.md =====
+===== docs\llm\ai\24-mmo-db-continue-startup-suppression-step112.md =====
 # 24 MMO DB Continue Startup Suppression - Step112
 
 Observed after Step110:
@@ -2560,7 +2533,7 @@ Remaining gap:
   behaves like visible New Game startup.
 
 
-===== docs/llm/ai/25-mmo-menu-in-session-db-continue-step113.md =====
+===== docs\llm\ai\25-mmo-menu-in-session-db-continue-step113.md =====
 # 25 MMO In-Session Menu DB Continue - Step113
 
 Observed after Step112:
@@ -2598,7 +2571,7 @@ There should be no follow-up `reason=new_game_pre_start_loaded` from normal MMO
 menu use.
 
 
-===== docs/llm/ai/26-mmo-db-mover-materialization-step114.md =====
+===== docs\llm\ai\26-mmo-db-mover-materialization-step114.md =====
 # MMO DB Mover Materialization - Step114
 
 Step114 closes the visible gap where MySQL already stored a mover/door/gate as
@@ -2635,7 +2608,7 @@ server simulation are separate domains. Step114 only makes DB mover rows affect
 the local world during DB Continue and live snapshot refresh.
 
 
-===== docs/llm/ai/27-mmo-db-world-clock-routine-bootstrap-step115.md =====
+===== docs\llm\ai\27-mmo-db-world-clock-routine-bootstrap-step115.md =====
 # MMO DB World Clock Routine Bootstrap - Step115
 
 Step115 fixes the next DB Continue parity gap visible around Xardas.
@@ -2681,7 +2654,7 @@ routine schedule, route target, current waypoint/fp, AI state intent and combat
 state.
 
 
-===== docs/llm/ai/28-mmo-db-server-ai-authority-foundation-step116.md =====
+===== docs\llm\ai\28-mmo-db-server-ai-authority-foundation-step116.md =====
 # MMO DB Server AI Authority Foundation - Step116
 
 Purpose: move the remaining `.sav` parity gaps from loose future-work notes into
@@ -2721,7 +2694,7 @@ What this unlocks next:
   ACK/NACK log.
 
 
-===== docs/llm/ai/29-mmo-observed-npc-authority-feed-step117.md =====
+===== docs\llm\ai\29-mmo-observed-npc-authority-feed-step117.md =====
 # MMO observed NPC authority feed - Step117
 
 Step117 turns the previously empty NPC authority snapshot domains into live data in server-bound client mode.
@@ -2751,7 +2724,7 @@ should start showing positive counts when nearby NPCs are present and the client
 This is still not a full authoritative server AI tick. It is the next durable layer for that: the server database now receives routine, AI, pathing and fight observations for nearby NPCs without relying on native save files.
 
 
-===== docs/llm/ai/30-mmo-server-bound-fresh-new-game-step118.md =====
+===== docs\llm\ai\30-mmo-server-bound-fresh-new-game-step118.md =====
 # MMO server-bound fresh New Game - Step118
 
 Step118 deliberately re-opens the `New Game` menu action while `-mmo-client-server`
@@ -2784,7 +2757,7 @@ This does not delete MySQL rows. It only prevents New Game from importing DB
 script/world snapshot state into the just-created local session.
 
 
-===== docs/llm/ai/31-mmo-db-continue-npc-routine-wakeup-step119.md =====
+===== docs\llm\ai\31-mmo-db-continue-npc-routine-wakeup-step119.md =====
 # MMO DB Continue NPC routine wakeup - Step119
 
 Problem observed after Step118:
@@ -2826,5 +2799,32 @@ MMO DB continue startup NPC routines resumed: count=N
 
 For Xardas, `N` should be greater than zero in a normal NewWorld load with
 routine NPCs present.
+
+
+===== docs\llm\README.md =====
+# OpenGothic MMO AI Context
+
+Read these files by default, in order:
+
+1. `ai/00-current-state.md`
+2. `ai/01-authority-data-model.md`
+3. `ai/02-gameplay-domains.md`
+4. `ai/03-code-map-and-hooks.md`
+5. `ai/04-cpp-asio-network.md`
+6. `ai/05-dev-loop-and-next-work.md`
+7. `ai/06-save-to-server-roadmap.md`
+8. `ai/22-mmo-menu-db-continue-step109.md`
+9. `ai/23-db-continue-no-new-game-trigger-step110.md`
+10. `ai/24-mmo-db-continue-startup-suppression-step112.md`
+11. `ai/25-mmo-menu-in-session-db-continue-step113.md`
+12. `ai/26-mmo-db-mover-materialization-step114.md`
+13. `ai/27-mmo-db-world-clock-routine-bootstrap-step115.md`
+
+Do not load old numbered step files during normal work. They are archaeology.
+Keep their hard facts only when they became durable project rules below.
+
+Target: Gothic II NotR first, later Gothic 1/Gothic 2 vanilla. C++23. Prefer
+safe, explicit, high-performance code. Old single-player behavior must remain
+unchanged unless an explicit MMO/server flag is passed.
 
 

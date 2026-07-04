@@ -34,4 +34,14 @@ __pycache__/
 
 /tools/_archive/*
 
-*.sql*
+# Generated SQL previews/dumps can be huge and machine-local. Keep source SQL
+# migrations/bridges trackable, especially under db/migrations/ and server/sql/.
+runtime/**/*.sql
+runtime/**/*.sql.*
+*.dump.sql
+*.preview.sql
+
+
+runtime/g2notr_chapter1_before_xardas.sqlite
+runtime/g2notr_ch1_pre_xardas.sqlite
+runtime/baselines/*.sqlite

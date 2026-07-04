@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -65,9 +66,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
-    if exe is None:
-        raise RuntimeError("mysql executable was not found in PATH")
+    exe = resolve_mysql_exe()
     cmd = [
         exe,
         "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
@@ -87,11 +86,30 @@ def mysql_cmd(target: Target) -> list[str]:
     return cmd
 
 
+def resolve_mysql_exe() -> str:
+    for env_name in ("GOTHIC_MMO_MYSQL_EXE", "MYSQL_EXE"):
+        value = os.environ.get(env_name)
+        if value:
+            path = Path(value)
+            if path.exists():
+                return str(path)
+            found = shutil.which(value)
+            if found is not None:
+                return found
+            raise RuntimeError(f"{env_name} points to missing mysql executable: {value}")
+    exe = shutil.which("mysql")
+    if exe is None:
+        raise RuntimeError("mysql executable was not found in PATH; set MYSQL_EXE to the full mysql.exe path")
+    return exe
+
+
 def run_mysql(target: Target, sql: str, *, echo_stdout: bool = False) -> str:
     proc = subprocess.run(
         mysql_cmd(target),
         input=sql,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )

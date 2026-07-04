@@ -59,6 +59,10 @@ bool exec(sqlite3* db, const char* sql) {
   return false;
   }
 
+bool exec(sqlite3* db, const std::string& sql) {
+  return exec(db, sql.c_str());
+  }
+
 void appendUtf8(std::string& out, uint32_t codepoint) {
   if(codepoint<=0x7F) {
     out.push_back(char(codepoint));
@@ -1562,7 +1566,9 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
   if(!exec(impl->db, schemaWorld))
     return false;
 
-  const char* schemaNpcState = R"SQL(
+  std::string schemaNpcState;
+  schemaNpcState.reserve(19613);
+  schemaNpcState += R"SQL(
     CREATE TABLE IF NOT EXISTS runtime_npc_stats (
       entity_key TEXT NOT NULL,
       world_name TEXT NOT NULL,
@@ -1755,6 +1761,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       display_name TEXT NOT NULL DEFAULT '',
       player INTEGER NOT NULL,
       ai_state_function INTEGER NOT NULL,
+  )SQL";
+  schemaNpcState += R"SQL(
       ai_state_name TEXT NOT NULL DEFAULT '',
       target_key TEXT NOT NULL DEFAULT '',
       target_symbol_index INTEGER NOT NULL,
@@ -1932,7 +1940,9 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       "ON runtime_npc_ai_state(world_name, state_other_key)"))
     return false;
 
-  const char* schemaMmoCurrent = R"SQL(
+  std::string schemaMmoCurrent;
+  schemaMmoCurrent.reserve(39422);
+  schemaMmoCurrent += R"SQL(
     CREATE TABLE IF NOT EXISTS mmo_unit_stat_current (
       unit_key TEXT NOT NULL,
       unit_type TEXT NOT NULL,
@@ -2211,6 +2221,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
     );
     CREATE INDEX IF NOT EXISTS idx_mmo_character_quests_current_status
       ON mmo_character_quests_current(character_key, status);
+  )SQL";
+  schemaMmoCurrent += R"SQL(
     CREATE TABLE IF NOT EXISTS mmo_character_known_dialogs_current (
       character_key TEXT NOT NULL,
       npc_symbol_index INTEGER NOT NULL,
@@ -2491,6 +2503,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       amount INTEGER NOT NULL,
       iterator_count INTEGER NOT NULL,
       value INTEGER NOT NULL,
+  )SQL";
+  schemaMmoCurrent += R"SQL(
       PRIMARY KEY(world_template_key, owner_key, item_instance_key)
     );
     CREATE TABLE IF NOT EXISTS mmo_world_baseline_script_globals (
@@ -2782,6 +2796,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       persistence_class TEXT NOT NULL DEFAULT '',
       PRIMARY KEY(snapshot_id, creature_spawn_key)
     );
+  )SQL";
+  schemaMmoCurrent += R"SQL(
     CREATE TABLE IF NOT EXISTS mmo_save_slot_creature_inventory (
       snapshot_id INTEGER NOT NULL,
       creature_spawn_key TEXT NOT NULL,
@@ -2987,7 +3003,9 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
     )SQL"))
     return false;
 
-  const char* schemaViews = R"SQL(
+  std::string schemaViews;
+  schemaViews.reserve(61936);
+  schemaViews += R"SQL(
     DROP VIEW IF EXISTS v_mmo_persistence_contract;
     DROP VIEW IF EXISTS v_mmo_restore_readiness;
     DROP VIEW IF EXISTS v_mmo_event_journal;
@@ -3216,6 +3234,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              r.updated_at
         FROM runtime_npc_routines r;
     CREATE TEMP VIEW IF NOT EXISTS v_runtime_waypoint_users AS
+  )SQL";
+  schemaViews += R"SQL(
       SELECT 'current' AS usage_kind,
              current_waypoint_key AS waypoint_key,
              current_waypoint_name AS waypoint_name,
@@ -3477,6 +3497,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              n.true_guild,
              n.level,
              n.experience,
+  )SQL";
+  schemaViews += R"SQL(
              MAX(CASE WHEN s.stat_group='progression' AND s.stat_key='experience_next' THEN s.value END) AS experience_next,
              MAX(CASE WHEN s.stat_group='progression' AND s.stat_key='learning_points' THEN s.value END) AS learning_points,
              MAX(CASE WHEN s.stat_group='attitude' AND s.stat_key='permanent' THEN s.value END) AS permanent_attitude,
@@ -3697,6 +3719,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              rotation,
              guild,
              true_guild,
+  )SQL";
+  schemaViews += R"SQL(
              hp,
              hp_max,
              mana,
@@ -3973,6 +3997,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
                CASE WHEN b.creature_spawn_key IS NOT NULL AND c.health_current IS NOT b.health_current THEN 'health,' ELSE '' END ||
                CASE WHEN b.creature_spawn_key IS NOT NULL AND c.mana_current IS NOT b.mana_current THEN 'mana,' ELSE '' END ||
                CASE WHEN b.creature_spawn_key IS NOT NULL AND (c.level IS NOT b.level OR c.experience IS NOT b.experience) THEN 'progression,' ELSE '' END ||
+  )SQL";
+  schemaViews += R"SQL(
                CASE WHEN b.creature_spawn_key IS NOT NULL AND (c.pos_x IS NOT b.pos_x OR c.pos_y IS NOT b.pos_y OR c.pos_z IS NOT b.pos_z OR c.rotation IS NOT b.rotation OR c.waypoint IS NOT b.waypoint) THEN 'transform,' ELSE '' END,
                ','
              ) AS changed_fields,
@@ -4164,6 +4190,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       UNION ALL SELECT 'world', 'mmo_creature_inventory_current', 'world_creature_inventory_current', COUNT(*) FROM mmo_creature_inventory_current
       UNION ALL SELECT 'world', 'mmo_creature_inventory_snapshots_current', 'world_creature_inventory_snapshot_current', COUNT(*) FROM mmo_creature_inventory_snapshots_current
       UNION ALL SELECT 'world', 'mmo_creature_relations_current', 'world_creature_relation_current', COUNT(*) FROM mmo_creature_relations_current
+  )SQL";
+  schemaViews += R"SQL(
       UNION ALL SELECT 'content', 'mmo_world_templates', 'world_template_baseline', COUNT(*) FROM mmo_world_templates
       UNION ALL SELECT 'world', 'mmo_world_instances', 'world_instance_current', COUNT(*) FROM mmo_world_instances
       UNION ALL SELECT 'content', 'mmo_world_baseline_creature_templates', 'world_template_creature_baseline', COUNT(*) FROM mmo_world_baseline_creature_templates
