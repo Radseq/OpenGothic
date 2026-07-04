@@ -1,21 +1,3 @@
--- NOTE: MySQL views were skipped in this schema export.
---       This avoids mysqldump failures when a view is invalid or has a bad definer.
---       Set MYSQL_SCHEMA_INCLUDE_VIEWS=1 to try exporting views.
--- Skipped views:
---   v_active_server_sessions
---   v_character_inventory
---   v_character_latest_checkpoint
---   v_character_sheet
---   v_mmo_import_runs
---   v_mmo_import_validation_errors
---   v_mmo_latest_save_checkpoint_manifests
---   v_mmo_latest_save_checkpoint_strict_restore
---   v_mmo_save_checkpoint_snapshot_domain_counts
---   v_pending_server_actions
---   v_server_action_outbox
---   v_world_dead_entities
---   v_world_event_counts
-
 -- MySQL dump 10.13  Distrib 8.0.36, for Win64 (x86_64)
 --
 -- Host: 192.168.195.94    Database: gothic_mmo_ch1_clean
@@ -285,7 +267,7 @@ CREATE TABLE `character_progress_audit` (
   UNIQUE KEY `ux_character_progress_audit_idempotency` (`idempotency_key`),
   KEY `ix_character_progress_audit_character` (`character_id`),
   KEY `ix_character_progress_audit_event` (`event_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -315,7 +297,7 @@ CREATE TABLE `character_quest_audit` (
   CONSTRAINT `character_quest_audit_entries_json_ck` CHECK (json_valid(`text_entries`)),
   CONSTRAINT `character_quest_audit_metadata_json_ck` CHECK (((`metadata` is null) or json_valid(`metadata`))),
   CONSTRAINT `character_quest_audit_status_ck` CHECK ((`status` in (_utf8mb4'running',_utf8mb4'success',_utf8mb4'failed',_utf8mb4'obsolete')))
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -752,6 +734,147 @@ CREATE TABLE `mmo_character_training_state_current` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `mmo_character_world_transition_state_current`
+--
+
+DROP TABLE IF EXISTS `mmo_character_world_transition_state_current`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_character_world_transition_state_current` (
+  `character_id` binary(16) NOT NULL,
+  `from_world_key` varchar(191) NOT NULL DEFAULT '',
+  `to_world_key` varchar(191) NOT NULL,
+  `transition_state` varchar(64) NOT NULL,
+  `chapter_key` varchar(128) NOT NULL DEFAULT '',
+  `visited` tinyint(1) NOT NULL DEFAULT '0',
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(191) NOT NULL,
+  `row_version` bigint unsigned NOT NULL DEFAULT '1',
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`character_id`,`to_world_key`),
+  KEY `ix_mmo_world_transition_tick` (`character_id`,`last_server_tick`),
+  CONSTRAINT `mmo_world_transition_character_fk` FOREIGN KEY (`character_id`) REFERENCES `characters` (`character_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_world_transition_metadata_json_ck` CHECK (json_valid(`metadata`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_character_world_transition_state_history`
+--
+
+DROP TABLE IF EXISTS `mmo_character_world_transition_state_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_character_world_transition_state_history` (
+  `history_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `event_id` binary(16) DEFAULT NULL,
+  `session_id` binary(16) NOT NULL,
+  `character_id` binary(16) NOT NULL,
+  `from_world_key` varchar(191) NOT NULL DEFAULT '',
+  `to_world_key` varchar(191) NOT NULL,
+  `transition_state` varchar(64) NOT NULL,
+  `chapter_key` varchar(128) NOT NULL DEFAULT '',
+  `visited` tinyint(1) NOT NULL DEFAULT '0',
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(191) NOT NULL,
+  `row_version` bigint unsigned NOT NULL,
+  `captured_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`history_id`),
+  UNIQUE KEY `ux_mmo_world_transition_history_idem` (`character_id`,`idempotency_key`),
+  KEY `ix_mmo_world_transition_history_character` (`character_id`,`captured_at`),
+  KEY `mmo_world_transition_history_session_fk` (`session_id`),
+  CONSTRAINT `mmo_world_transition_history_character_fk` FOREIGN KEY (`character_id`) REFERENCES `characters` (`character_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_world_transition_history_session_fk` FOREIGN KEY (`session_id`) REFERENCES `server_sessions` (`session_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_world_transition_history_metadata_json_ck` CHECK (json_valid(`metadata`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_client_action_correction_current`
+--
+
+DROP TABLE IF EXISTS `mmo_client_action_correction_current`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_client_action_correction_current` (
+  `correction_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `session_id` binary(16) NOT NULL,
+  `character_id` binary(16) NOT NULL,
+  `world_instance_id` binary(16) NOT NULL,
+  `action_kind` varchar(128) NOT NULL,
+  `client_local_sequence` bigint unsigned NOT NULL DEFAULT '0',
+  `correction_kind` varchar(128) NOT NULL,
+  `reason` varchar(191) NOT NULL,
+  `rejected_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `authoritative_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `authoritative_pos_x` double DEFAULT NULL,
+  `authoritative_pos_y` double DEFAULT NULL,
+  `authoritative_pos_z` double DEFAULT NULL,
+  `authoritative_yaw` double DEFAULT NULL,
+  `payload` json NOT NULL,
+  `acknowledged` tinyint(1) NOT NULL DEFAULT '0',
+  `ack_server_tick` bigint unsigned DEFAULT NULL,
+  `ack_payload` json DEFAULT NULL,
+  `idempotency_key` varchar(191) NOT NULL,
+  `row_version` bigint unsigned NOT NULL DEFAULT '1',
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`correction_id`),
+  UNIQUE KEY `ux_mmo_client_correction_idem` (`session_id`,`idempotency_key`),
+  KEY `ix_mmo_client_correction_pending` (`session_id`,`acknowledged`,`updated_at`),
+  KEY `ix_mmo_client_correction_action` (`session_id`,`action_kind`,`client_local_sequence`),
+  KEY `mmo_client_correction_character_fk` (`character_id`),
+  KEY `mmo_client_correction_world_fk` (`world_instance_id`),
+  CONSTRAINT `mmo_client_correction_character_fk` FOREIGN KEY (`character_id`) REFERENCES `characters` (`character_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_client_correction_session_fk` FOREIGN KEY (`session_id`) REFERENCES `server_sessions` (`session_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_client_correction_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_client_correction_payload_json_ck` CHECK (json_valid(`payload`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_client_action_correction_history`
+--
+
+DROP TABLE IF EXISTS `mmo_client_action_correction_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_client_action_correction_history` (
+  `correction_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `session_id` binary(16) NOT NULL,
+  `character_id` binary(16) NOT NULL,
+  `world_instance_id` binary(16) NOT NULL,
+  `action_kind` varchar(128) NOT NULL,
+  `client_local_sequence` bigint unsigned NOT NULL DEFAULT '0',
+  `correction_kind` varchar(128) NOT NULL,
+  `reason` varchar(191) NOT NULL,
+  `rejected_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `authoritative_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `authoritative_pos_x` double DEFAULT NULL,
+  `authoritative_pos_y` double DEFAULT NULL,
+  `authoritative_pos_z` double DEFAULT NULL,
+  `authoritative_yaw` double DEFAULT NULL,
+  `payload` json NOT NULL,
+  `acknowledged` tinyint(1) NOT NULL DEFAULT '0',
+  `ack_server_tick` bigint unsigned DEFAULT NULL,
+  `ack_payload` json DEFAULT NULL,
+  `idempotency_key` varchar(191) NOT NULL,
+  `row_version` bigint unsigned NOT NULL DEFAULT '1',
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`correction_id`),
+  UNIQUE KEY `ux_mmo_client_correction_idem` (`session_id`,`idempotency_key`),
+  KEY `ix_mmo_client_correction_pending` (`session_id`,`acknowledged`,`updated_at`),
+  KEY `ix_mmo_client_correction_action` (`session_id`,`action_kind`,`client_local_sequence`),
+  KEY `mmo_client_correction_character_fk` (`character_id`),
+  KEY `mmo_client_correction_world_fk` (`world_instance_id`),
+  CONSTRAINT `mmo_client_action_correction_history_chk_1` CHECK (json_valid(`payload`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `mmo_import_object_map`
 --
 
@@ -830,6 +953,188 @@ CREATE TABLE `mmo_import_validation_results` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `mmo_npc_ai_state_current`
+--
+
+DROP TABLE IF EXISTS `mmo_npc_ai_state_current`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_npc_ai_state_current` (
+  `world_instance_id` binary(16) NOT NULL,
+  `npc_entity_key` varchar(512) NOT NULL,
+  `ai_state` varchar(191) NOT NULL,
+  `ai_intent` varchar(128) NOT NULL DEFAULT '',
+  `target_key` varchar(512) NOT NULL DEFAULT '',
+  `perception_state` varchar(512) NOT NULL DEFAULT '',
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(512) NOT NULL,
+  `row_version` bigint unsigned NOT NULL DEFAULT '1',
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`world_instance_id`,`npc_entity_key`),
+  KEY `ix_mmo_npc_ai_tick` (`world_instance_id`,`last_server_tick`),
+  CONSTRAINT `mmo_npc_ai_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_ai_metadata_json_ck` CHECK (json_valid(`metadata`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_npc_ai_state_history`
+--
+
+DROP TABLE IF EXISTS `mmo_npc_ai_state_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_npc_ai_state_history` (
+  `history_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `event_id` binary(16) DEFAULT NULL,
+  `session_id` binary(16) NOT NULL,
+  `world_instance_id` binary(16) NOT NULL,
+  `npc_entity_key` varchar(512) NOT NULL,
+  `ai_state` varchar(191) NOT NULL,
+  `ai_intent` varchar(128) NOT NULL DEFAULT '',
+  `target_key` varchar(512) NOT NULL DEFAULT '',
+  `perception_state` varchar(512) NOT NULL DEFAULT '',
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(512) NOT NULL,
+  `row_version` bigint unsigned NOT NULL,
+  `captured_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`history_id`),
+  UNIQUE KEY `ux_mmo_npc_ai_history_idem` (`world_instance_id`,`idempotency_key`),
+  KEY `ix_mmo_npc_ai_history_npc` (`world_instance_id`,`npc_entity_key`,`captured_at`),
+  KEY `mmo_npc_ai_history_session_fk` (`session_id`),
+  CONSTRAINT `mmo_npc_ai_history_session_fk` FOREIGN KEY (`session_id`) REFERENCES `server_sessions` (`session_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_ai_history_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_ai_history_metadata_json_ck` CHECK (json_valid(`metadata`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_npc_fight_state_current`
+--
+
+DROP TABLE IF EXISTS `mmo_npc_fight_state_current`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_npc_fight_state_current` (
+  `world_instance_id` binary(16) NOT NULL,
+  `npc_entity_key` varchar(512) NOT NULL,
+  `opponent_key` varchar(512) NOT NULL DEFAULT '',
+  `fight_state` varchar(128) NOT NULL,
+  `attack_state` varchar(128) NOT NULL DEFAULT '',
+  `combo_index` int NOT NULL DEFAULT '0',
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(512) NOT NULL,
+  `row_version` bigint unsigned NOT NULL DEFAULT '1',
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`world_instance_id`,`npc_entity_key`),
+  KEY `ix_mmo_npc_fight_tick` (`world_instance_id`,`last_server_tick`),
+  CONSTRAINT `mmo_npc_fight_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_fight_metadata_json_ck` CHECK (json_valid(`metadata`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_npc_fight_state_history`
+--
+
+DROP TABLE IF EXISTS `mmo_npc_fight_state_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_npc_fight_state_history` (
+  `history_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `event_id` binary(16) DEFAULT NULL,
+  `session_id` binary(16) NOT NULL,
+  `world_instance_id` binary(16) NOT NULL,
+  `npc_entity_key` varchar(512) NOT NULL,
+  `opponent_key` varchar(512) NOT NULL DEFAULT '',
+  `fight_state` varchar(128) NOT NULL,
+  `attack_state` varchar(128) NOT NULL DEFAULT '',
+  `combo_index` int NOT NULL DEFAULT '0',
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(512) NOT NULL,
+  `row_version` bigint unsigned NOT NULL,
+  `captured_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`history_id`),
+  UNIQUE KEY `ux_mmo_npc_fight_history_idem` (`world_instance_id`,`idempotency_key`),
+  KEY `ix_mmo_npc_fight_history_npc` (`world_instance_id`,`npc_entity_key`,`captured_at`),
+  KEY `mmo_npc_fight_history_session_fk` (`session_id`),
+  CONSTRAINT `mmo_npc_fight_history_session_fk` FOREIGN KEY (`session_id`) REFERENCES `server_sessions` (`session_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_fight_history_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_fight_history_metadata_json_ck` CHECK (json_valid(`metadata`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_npc_path_state_current`
+--
+
+DROP TABLE IF EXISTS `mmo_npc_path_state_current`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_npc_path_state_current` (
+  `world_instance_id` binary(16) NOT NULL,
+  `npc_entity_key` varchar(512) NOT NULL,
+  `path_state` varchar(128) NOT NULL,
+  `route_key` varchar(512) NOT NULL DEFAULT '',
+  `current_waypoint_key` varchar(512) NOT NULL DEFAULT '',
+  `next_waypoint_key` varchar(512) NOT NULL DEFAULT '',
+  `target_waypoint_key` varchar(512) NOT NULL DEFAULT '',
+  `pos_x` double DEFAULT NULL,
+  `pos_y` double DEFAULT NULL,
+  `pos_z` double DEFAULT NULL,
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(512) NOT NULL,
+  `row_version` bigint unsigned NOT NULL DEFAULT '1',
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`world_instance_id`,`npc_entity_key`),
+  KEY `ix_mmo_npc_path_tick` (`world_instance_id`,`last_server_tick`),
+  CONSTRAINT `mmo_npc_path_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_path_metadata_json_ck` CHECK (json_valid(`metadata`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_npc_path_state_history`
+--
+
+DROP TABLE IF EXISTS `mmo_npc_path_state_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_npc_path_state_history` (
+  `history_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `event_id` binary(16) DEFAULT NULL,
+  `session_id` binary(16) NOT NULL,
+  `world_instance_id` binary(16) NOT NULL,
+  `npc_entity_key` varchar(512) NOT NULL,
+  `path_state` varchar(128) NOT NULL,
+  `route_key` varchar(512) NOT NULL DEFAULT '',
+  `current_waypoint_key` varchar(512) NOT NULL DEFAULT '',
+  `next_waypoint_key` varchar(512) NOT NULL DEFAULT '',
+  `target_waypoint_key` varchar(512) NOT NULL DEFAULT '',
+  `pos_x` double DEFAULT NULL,
+  `pos_y` double DEFAULT NULL,
+  `pos_z` double DEFAULT NULL,
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(512) NOT NULL,
+  `row_version` bigint unsigned NOT NULL,
+  `captured_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`history_id`),
+  UNIQUE KEY `ux_mmo_npc_path_history_idem` (`world_instance_id`,`idempotency_key`),
+  KEY `ix_mmo_npc_path_history_npc` (`world_instance_id`,`npc_entity_key`,`captured_at`),
+  KEY `mmo_npc_path_history_session_fk` (`session_id`),
+  CONSTRAINT `mmo_npc_path_history_session_fk` FOREIGN KEY (`session_id`) REFERENCES `server_sessions` (`session_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_path_history_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_path_history_metadata_json_ck` CHECK (json_valid(`metadata`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `mmo_npc_reaction_history`
 --
 
@@ -851,6 +1156,64 @@ CREATE TABLE `mmo_npc_reaction_history` (
   UNIQUE KEY `ux_mmo_npc_reaction_history_idem` (`idempotency_key`),
   KEY `ix_mmo_npc_reaction_history_world_tick` (`world_instance_id`,`server_tick`),
   KEY `ix_mmo_npc_reaction_history_actor` (`world_instance_id`,`actor_npc_key`,`server_tick`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_npc_routine_state_current`
+--
+
+DROP TABLE IF EXISTS `mmo_npc_routine_state_current`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_npc_routine_state_current` (
+  `world_instance_id` binary(16) NOT NULL,
+  `npc_entity_key` varchar(512) NOT NULL,
+  `routine_state` varchar(128) NOT NULL,
+  `schedule_key` varchar(512) NOT NULL DEFAULT '',
+  `current_waypoint_key` varchar(512) NOT NULL DEFAULT '',
+  `target_waypoint_key` varchar(512) NOT NULL DEFAULT '',
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(512) NOT NULL,
+  `row_version` bigint unsigned NOT NULL DEFAULT '1',
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`world_instance_id`,`npc_entity_key`),
+  KEY `ix_mmo_npc_routine_tick` (`world_instance_id`,`last_server_tick`),
+  CONSTRAINT `mmo_npc_routine_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_routine_metadata_json_ck` CHECK (json_valid(`metadata`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_npc_routine_state_history`
+--
+
+DROP TABLE IF EXISTS `mmo_npc_routine_state_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_npc_routine_state_history` (
+  `history_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `event_id` binary(16) DEFAULT NULL,
+  `session_id` binary(16) NOT NULL,
+  `world_instance_id` binary(16) NOT NULL,
+  `npc_entity_key` varchar(512) NOT NULL,
+  `routine_state` varchar(128) NOT NULL,
+  `schedule_key` varchar(512) NOT NULL DEFAULT '',
+  `current_waypoint_key` varchar(512) NOT NULL DEFAULT '',
+  `target_waypoint_key` varchar(512) NOT NULL DEFAULT '',
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(512) NOT NULL,
+  `row_version` bigint unsigned NOT NULL,
+  `captured_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`history_id`),
+  UNIQUE KEY `ux_mmo_npc_routine_history_idem` (`world_instance_id`,`idempotency_key`),
+  KEY `ix_mmo_npc_routine_history_npc` (`world_instance_id`,`npc_entity_key`,`captured_at`),
+  KEY `mmo_npc_routine_history_session_fk` (`session_id`),
+  CONSTRAINT `mmo_npc_routine_history_session_fk` FOREIGN KEY (`session_id`) REFERENCES `server_sessions` (`session_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_routine_history_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_npc_routine_history_metadata_json_ck` CHECK (json_valid(`metadata`))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -897,7 +1260,7 @@ CREATE TABLE `mmo_npc_weapon_state_history` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `ux_mmo_npc_weapon_state_history_idem` (`idempotency_key`),
   KEY `ix_mmo_npc_weapon_state_history_key` (`world_instance_id`,`npc_entity_key`,`server_tick`)
-) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=97 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1771,6 +2134,62 @@ CREATE TABLE `mmo_world_trigger_events` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `mmo_world_trigger_queue_current`
+--
+
+DROP TABLE IF EXISTS `mmo_world_trigger_queue_current`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_world_trigger_queue_current` (
+  `world_instance_id` binary(16) NOT NULL,
+  `trigger_key` varchar(191) NOT NULL,
+  `queue_state` varchar(64) NOT NULL,
+  `event_type_name` varchar(128) NOT NULL,
+  `scheduled_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(191) NOT NULL,
+  `row_version` bigint unsigned NOT NULL DEFAULT '1',
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`world_instance_id`,`trigger_key`),
+  KEY `ix_mmo_trigger_queue_tick` (`world_instance_id`,`scheduled_server_tick`),
+  CONSTRAINT `mmo_trigger_queue_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_trigger_queue_metadata_json_ck` CHECK (json_valid(`metadata`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_world_trigger_queue_history`
+--
+
+DROP TABLE IF EXISTS `mmo_world_trigger_queue_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_world_trigger_queue_history` (
+  `history_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `event_id` binary(16) DEFAULT NULL,
+  `session_id` binary(16) NOT NULL,
+  `world_instance_id` binary(16) NOT NULL,
+  `trigger_key` varchar(191) NOT NULL,
+  `queue_state` varchar(64) NOT NULL,
+  `event_type_name` varchar(128) NOT NULL,
+  `scheduled_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `last_server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `metadata` json NOT NULL,
+  `idempotency_key` varchar(191) NOT NULL,
+  `row_version` bigint unsigned NOT NULL,
+  `captured_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`history_id`),
+  UNIQUE KEY `ux_mmo_trigger_queue_history_idem` (`world_instance_id`,`idempotency_key`),
+  KEY `ix_mmo_trigger_queue_history_world` (`world_instance_id`,`captured_at`),
+  KEY `mmo_trigger_queue_history_session_fk` (`session_id`),
+  CONSTRAINT `mmo_trigger_queue_history_session_fk` FOREIGN KEY (`session_id`) REFERENCES `server_sessions` (`session_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_trigger_queue_history_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_trigger_queue_history_metadata_json_ck` CHECK (json_valid(`metadata`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `realm_realms`
 --
 
@@ -1862,6 +2281,181 @@ CREATE TABLE `server_sessions` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Temporary view structure for view `v_mmo_latest_save_checkpoint_manifests`
+--
+
+DROP TABLE IF EXISTS `v_mmo_latest_save_checkpoint_manifests`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_latest_save_checkpoint_manifests`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_latest_save_checkpoint_manifests` AS SELECT 
+ 1 AS `manifest_id`,
+ 1 AS `manifest_uuid`,
+ 1 AS `event_id`,
+ 1 AS `realm_id`,
+ 1 AS `world_instance_id`,
+ 1 AS `character_id`,
+ 1 AS `character_key`,
+ 1 AS `manifest_key`,
+ 1 AS `save_slot_key`,
+ 1 AS `native_save_path`,
+ 1 AS `display_name`,
+ 1 AS `client_world_name`,
+ 1 AS `native_save_present`,
+ 1 AS `checkpoint_kind`,
+ 1 AS `reason`,
+ 1 AS `server_tick`,
+ 1 AS `latest_checkpoint_tick`,
+ 1 AS `recent_event_seq`,
+ 1 AS `inventory_rows`,
+ 1 AS `equipment_rows`,
+ 1 AS `quest_rows`,
+ 1 AS `known_dialog_rows`,
+ 1 AS `script_state_rows`,
+ 1 AS `world_item_rows`,
+ 1 AS `world_inventory_rows`,
+ 1 AS `interactive_rows`,
+ 1 AS `npc_lifecycle_rows`,
+ 1 AS `mover_rows`,
+ 1 AS `metadata`,
+ 1 AS `idempotency_key`,
+ 1 AS `row_version`,
+ 1 AS `created_at`,
+ 1 AS `updated_at`,
+ 1 AS `character_rank`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_latest_save_checkpoint_restore_readiness`
+--
+
+DROP TABLE IF EXISTS `v_mmo_latest_save_checkpoint_restore_readiness`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_latest_save_checkpoint_restore_readiness`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_latest_save_checkpoint_restore_readiness` AS SELECT 
+ 1 AS `manifest_id`,
+ 1 AS `manifest_uuid`,
+ 1 AS `character_id`,
+ 1 AS `character_key`,
+ 1 AS `world_instance_id`,
+ 1 AS `manifest_key`,
+ 1 AS `save_key`,
+ 1 AS `save_slot_key`,
+ 1 AS `native_save_path`,
+ 1 AS `display_name`,
+ 1 AS `client_world_name`,
+ 1 AS `native_save_present`,
+ 1 AS `checkpoint_kind`,
+ 1 AS `reason`,
+ 1 AS `server_tick`,
+ 1 AS `latest_checkpoint_tick`,
+ 1 AS `recent_event_seq`,
+ 1 AS `row_version`,
+ 1 AS `created_at`,
+ 1 AS `updated_at`,
+ 1 AS `character_rows`,
+ 1 AS `inventory_rows`,
+ 1 AS `equipment_rows`,
+ 1 AS `quest_rows`,
+ 1 AS `known_dialog_rows`,
+ 1 AS `script_state_rows`,
+ 1 AS `world_entity_rows`,
+ 1 AS `world_item_rows`,
+ 1 AS `world_item_active_rows`,
+ 1 AS `world_item_removed_rows`,
+ 1 AS `interactive_rows`,
+ 1 AS `npc_lifecycle_rows`,
+ 1 AS `npc_lifecycle_non_active_rows`,
+ 1 AS `world_inventory_rows`,
+ 1 AS `world_clock_rows`,
+ 1 AS `mover_rows`,
+ 1 AS `exported_bootstrap_bytes`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_latest_save_checkpoint_strict_restore`
+--
+
+DROP TABLE IF EXISTS `v_mmo_latest_save_checkpoint_strict_restore`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_latest_save_checkpoint_strict_restore`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_latest_save_checkpoint_strict_restore` AS SELECT 
+ 1 AS `session_key`,
+ 1 AS `session_uuid`,
+ 1 AS `character_key`,
+ 1 AS `world_instance_key`,
+ 1 AS `manifest_uuid`,
+ 1 AS `save_key`,
+ 1 AS `display_name`,
+ 1 AS `client_world_name`,
+ 1 AS `native_save_present`,
+ 1 AS `reason`,
+ 1 AS `character_rows`,
+ 1 AS `inventory_rows`,
+ 1 AS `equipment_rows`,
+ 1 AS `quest_rows`,
+ 1 AS `known_dialog_rows`,
+ 1 AS `script_state_rows`,
+ 1 AS `world_entity_rows`,
+ 1 AS `world_inventory_rows`,
+ 1 AS `world_clock_rows`,
+ 1 AS `mover_rows`,
+ 1 AS `exported_bootstrap_bytes`,
+ 1 AS `snapshot_source`,
+ 1 AS `strict_restore_ok`,
+ 1 AS `created_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_save_checkpoint_snapshot_domain_counts`
+--
+
+DROP TABLE IF EXISTS `v_mmo_save_checkpoint_snapshot_domain_counts`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_save_checkpoint_snapshot_domain_counts`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_save_checkpoint_snapshot_domain_counts` AS SELECT 
+ 1 AS `manifest_id`,
+ 1 AS `manifest_uuid`,
+ 1 AS `character_id`,
+ 1 AS `character_key`,
+ 1 AS `world_instance_id`,
+ 1 AS `manifest_key`,
+ 1 AS `save_key`,
+ 1 AS `save_slot_key`,
+ 1 AS `native_save_path`,
+ 1 AS `display_name`,
+ 1 AS `client_world_name`,
+ 1 AS `native_save_present`,
+ 1 AS `checkpoint_kind`,
+ 1 AS `reason`,
+ 1 AS `server_tick`,
+ 1 AS `latest_checkpoint_tick`,
+ 1 AS `recent_event_seq`,
+ 1 AS `row_version`,
+ 1 AS `created_at`,
+ 1 AS `updated_at`,
+ 1 AS `character_rows`,
+ 1 AS `inventory_rows`,
+ 1 AS `equipment_rows`,
+ 1 AS `quest_rows`,
+ 1 AS `known_dialog_rows`,
+ 1 AS `script_state_rows`,
+ 1 AS `world_entity_rows`,
+ 1 AS `world_item_rows`,
+ 1 AS `world_item_active_rows`,
+ 1 AS `world_item_removed_rows`,
+ 1 AS `interactive_rows`,
+ 1 AS `npc_lifecycle_rows`,
+ 1 AS `npc_lifecycle_non_active_rows`,
+ 1 AS `world_inventory_rows`,
+ 1 AS `world_clock_rows`,
+ 1 AS `mover_rows`*/;
+SET character_set_client = @saved_cs_client;
+
+--
 -- Table structure for table `world_entity_state`
 --
 
@@ -1941,7 +2535,7 @@ CREATE TABLE `world_event_journal` (
   CONSTRAINT `world_event_journal_schema_version_ck` CHECK ((`schema_version` > 0)),
   CONSTRAINT `world_event_journal_source_ck` CHECK ((`source` in (_utf8mb4'server',_utf8mb4'import',_utf8mb4'runtime_sqlite',_utf8mb4'admin',_utf8mb4'test'))),
   CONSTRAINT `world_event_journal_tick_ck` CHECK ((`server_tick` >= 0))
-) ENGINE=InnoDB AUTO_INCREMENT=123 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=279 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1967,7 +2561,7 @@ CREATE TABLE `world_interactive_audit` (
   UNIQUE KEY `ux_world_interactive_audit_idempotency` (`idempotency_key`),
   KEY `ix_world_interactive_audit_entity` (`world_instance_id`,`entity_key`),
   KEY `ix_world_interactive_audit_event` (`event_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2096,6 +2690,52 @@ CREATE TABLE `world_state_snapshots` (
 --
 -- Dumping routines for database 'gothic_mmo_ch1_clean'
 --
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_ack_client_action_correction` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_ack_client_action_correction`(
+  IN p_session_id BINARY(16),
+  IN p_action_kind VARCHAR(128),
+  IN p_client_local_sequence BIGINT UNSIGNED,
+  IN p_ack_server_tick BIGINT UNSIGNED,
+  IN p_ack_payload JSON,
+  IN p_idempotency_key VARCHAR(191),
+  OUT p_row_version_after BIGINT UNSIGNED
+)
+BEGIN
+  UPDATE mmo_client_action_correction_current
+     SET acknowledged = 1,
+         ack_server_tick = COALESCE(p_ack_server_tick, ack_server_tick),
+         ack_payload = COALESCE(p_ack_payload, JSON_OBJECT()),
+         row_version = row_version + 1
+   WHERE session_id = p_session_id
+     AND action_kind = p_action_kind
+     AND client_local_sequence = COALESCE(p_client_local_sequence, 0);
+
+  SELECT COALESCE(MAX(row_version), 0) INTO p_row_version_after
+    FROM mmo_client_action_correction_current
+   WHERE session_id = p_session_id
+     AND action_kind = p_action_kind
+     AND client_local_sequence = COALESCE(p_client_local_sequence, 0);
+
+  INSERT IGNORE INTO mmo_client_action_correction_history
+  SELECT * FROM mmo_client_action_correction_current
+   WHERE session_id = p_session_id
+     AND action_kind = p_action_kind
+     AND client_local_sequence = COALESCE(p_client_local_sequence, 0);
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!50003 DROP PROCEDURE IF EXISTS `mmo_adjust_character_progression` */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -2106,7 +2746,7 @@ CREATE TABLE `world_state_snapshots` (
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_adjust_character_progression`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_adjust_character_progression`(
   IN p_session_id BINARY(16),
   IN p_experience_delta INT,
   IN p_learning_points_delta INT,
@@ -2197,7 +2837,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_append_world_event`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_append_world_event`(
   IN  p_realm_id            BINARY(16),
   IN  p_world_instance_id   BINARY(16),
   IN  p_actor_character_id  BINARY(16),
@@ -2275,7 +2915,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_apply_character_damage`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_apply_character_damage`(
   IN p_session_id BINARY(16),
   IN p_target_character_key VARCHAR(191),
   IN p_damage_amount INT,
@@ -2403,7 +3043,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_apply_character_experience_reward`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_apply_character_experience_reward`(
   IN p_session_id BINARY(16),
   IN p_experience_delta INT,
   IN p_reason VARCHAR(128),
@@ -2444,7 +3084,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_apply_world_entity_damage`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_apply_world_entity_damage`(
   IN p_session_id BINARY(16),
   IN p_entity_key VARCHAR(512),
   IN p_damage_amount INT,
@@ -2595,7 +3235,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_assert_latest_save_checkpoint_restore_v1`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_assert_latest_save_checkpoint_restore_v1`(
   IN p_session_id BINARY(16),
   OUT p_validation_json LONGTEXT
 )
@@ -2622,7 +3262,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_build_latest_save_checkpoint_bootstrap_snapshot_v1`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_build_latest_save_checkpoint_bootstrap_snapshot_v1`(
   IN p_session_id BINARY(16),
   OUT p_snapshot_json LONGTEXT
 )
@@ -3141,7 +3781,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_change_world_or_teleport_character`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_change_world_or_teleport_character`(
   IN p_session_id BINARY(16),
   IN p_target_world_instance_key VARCHAR(255),
   IN p_pos_x DOUBLE,
@@ -3193,7 +3833,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_checkpoint_character_state`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_checkpoint_character_state`(
   IN p_session_id BINARY(16),
   IN p_server_tick BIGINT,
   IN p_pos_x DOUBLE,
@@ -3324,7 +3964,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_claim_next_server_action`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_claim_next_server_action`(
   IN p_worker_id VARCHAR(191),
   OUT o_action_id BINARY(16),
   OUT o_action_kind VARCHAR(128),
@@ -3385,7 +4025,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_create_db_save_checkpoint_v1`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_create_db_save_checkpoint_v1`(
   IN p_session_id BINARY(16),
   IN p_manifest_key VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,
   IN p_checkpoint_kind VARCHAR(64),
@@ -3429,7 +4069,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_create_save_checkpoint_manifest`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_create_save_checkpoint_manifest`(
   IN p_session_id BINARY(16),
   IN p_manifest_key VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,
   IN p_checkpoint_kind VARCHAR(64),
@@ -3648,7 +4288,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_drop_character_item`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_drop_character_item`(
   IN p_session_id BINARY(16),
   IN p_item_instance_id BINARY(16),
   IN p_amount_requested INT,
@@ -3866,7 +4506,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_enqueue_server_action`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_enqueue_server_action`(
   IN p_session_id BINARY(16),
   IN p_action_kind VARCHAR(128),
   IN p_target_key VARCHAR(191),
@@ -3934,7 +4574,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_equip_character_item`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_equip_character_item`(
   IN p_session_id BINARY(16),
   IN p_item_instance_id BINARY(16),
   IN p_equipment_slot VARCHAR(32),
@@ -4031,7 +4671,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_finish_server_action_worker_run`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_finish_server_action_worker_run`(
   IN p_worker_run_id BINARY(16),
   IN p_failed BOOL,
   OUT o_status VARCHAR(32),
@@ -4067,7 +4707,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_grant_character_item_by_symbol`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_grant_character_item_by_symbol`(
   IN p_session_id BINARY(16),
   IN p_item_symbol INT,
   IN p_amount_requested INT,
@@ -4251,7 +4891,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_login_character`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_login_character`(
   IN p_account_name VARCHAR(191),
   IN p_character_key VARCHAR(191),
   IN p_session_key VARCHAR(191),
@@ -4379,7 +5019,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_logout_character`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_logout_character`(
   IN p_session_id BINARY(16),
   IN p_reason VARCHAR(191),
   IN p_metadata JSON,
@@ -4444,7 +5084,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_loot_npc_inventory`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_loot_npc_inventory`(
   IN p_session_id BINARY(16),
   IN p_source_entity_key VARCHAR(512),
   IN p_item_instance_id BINARY(16),
@@ -4628,7 +5268,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_mark_import_finished`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_mark_import_finished`(
   IN p_import_run_id BINARY(16),
   IN p_status VARCHAR(32),
   IN p_counters JSON,
@@ -4657,7 +5297,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_mark_npc_dead`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_mark_npc_dead`(
   IN p_session_id BINARY(16),
   IN p_entity_key VARCHAR(512),
   IN p_server_tick BIGINT,
@@ -4781,7 +5421,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_mark_server_action_applied`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_mark_server_action_applied`(
   IN p_action_id BINARY(16),
   IN p_event_id BINARY(16),
   IN p_result_payload JSON,
@@ -4815,7 +5455,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_mark_server_action_failed`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_mark_server_action_failed`(
   IN p_action_id BINARY(16),
   IN p_error_code VARCHAR(64),
   IN p_error_message TEXT,
@@ -4871,7 +5511,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_materialize_save_checkpoint_snapshot_v1`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_materialize_save_checkpoint_snapshot_v1`(
   IN p_manifest_id BINARY(16)
 )
 proc: BEGIN
@@ -5011,7 +5651,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_materialize_save_checkpoint_world_clock_snapshot_v1`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_materialize_save_checkpoint_world_clock_snapshot_v1`(
   IN p_manifest_id BINARY(16)
 )
 proc: BEGIN
@@ -5082,7 +5722,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_pickup_world_item`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_pickup_world_item`(
   IN p_session_id BINARY(16),
   IN p_world_item_entity_key VARCHAR(512),
   IN p_amount_requested INT,
@@ -5207,7 +5847,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_record_character_resource_delta`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_character_resource_delta`(
   IN p_session_id BINARY(16),
   IN p_character_key VARCHAR(128),
   IN p_resource_key VARCHAR(64),
@@ -5250,6 +5890,77 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_record_client_action_correction` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_client_action_correction`(
+  IN p_session_id BINARY(16),
+  IN p_action_kind VARCHAR(128),
+  IN p_client_local_sequence BIGINT UNSIGNED,
+  IN p_correction_kind VARCHAR(128),
+  IN p_reason VARCHAR(191),
+  IN p_rejected_server_tick BIGINT UNSIGNED,
+  IN p_payload JSON,
+  IN p_idempotency_key VARCHAR(191),
+  OUT p_event_id BINARY(16),
+  OUT p_correction_id BINARY(16)
+)
+BEGIN
+  DECLARE v_character_id BINARY(16);
+  DECLARE v_world_instance_id BINARY(16);
+  SET p_event_id = UUID_TO_BIN(UUID(), 1);
+  SELECT character_id, world_instance_id INTO v_character_id, v_world_instance_id
+    FROM server_sessions WHERE session_id = p_session_id LIMIT 1;
+
+  INSERT INTO mmo_client_action_correction_current(
+    session_id, character_id, world_instance_id, action_kind, client_local_sequence,
+    correction_kind, reason, rejected_server_tick, authoritative_server_tick,
+    authoritative_pos_x, authoritative_pos_y, authoritative_pos_z, authoritative_yaw,
+    payload, acknowledged, idempotency_key, row_version
+  )
+  VALUES (
+    p_session_id, v_character_id, v_world_instance_id, p_action_kind, COALESCE(p_client_local_sequence, 0),
+    p_correction_kind, p_reason, COALESCE(p_rejected_server_tick, 0),
+    COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p_payload, '$.authoritative_server_tick')), p_rejected_server_tick, 0),
+    JSON_UNQUOTE(JSON_EXTRACT(p_payload, '$.authoritative_pos_x')),
+    JSON_UNQUOTE(JSON_EXTRACT(p_payload, '$.authoritative_pos_y')),
+    JSON_UNQUOTE(JSON_EXTRACT(p_payload, '$.authoritative_pos_z')),
+    JSON_UNQUOTE(JSON_EXTRACT(p_payload, '$.authoritative_yaw')),
+    COALESCE(p_payload, JSON_OBJECT()), 0, p_idempotency_key, 1
+  )
+  ON DUPLICATE KEY UPDATE
+    correction_kind = VALUES(correction_kind),
+    reason = VALUES(reason),
+    rejected_server_tick = VALUES(rejected_server_tick),
+    authoritative_server_tick = VALUES(authoritative_server_tick),
+    authoritative_pos_x = VALUES(authoritative_pos_x),
+    authoritative_pos_y = VALUES(authoritative_pos_y),
+    authoritative_pos_z = VALUES(authoritative_pos_z),
+    authoritative_yaw = VALUES(authoritative_yaw),
+    payload = VALUES(payload),
+    acknowledged = 0,
+    row_version = row_version + 1;
+
+  SELECT correction_id INTO p_correction_id
+    FROM mmo_client_action_correction_current
+   WHERE session_id = p_session_id AND idempotency_key = p_idempotency_key
+   LIMIT 1;
+
+  INSERT IGNORE INTO mmo_client_action_correction_history
+  SELECT * FROM mmo_client_action_correction_current WHERE correction_id = p_correction_id;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!50003 DROP PROCEDURE IF EXISTS `mmo_record_interactive_use` */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -5260,7 +5971,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_record_interactive_use`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_interactive_use`(
   IN p_session_id BINARY(16),
   IN p_interactive_entity_key VARCHAR(512),
   IN p_state_after INT,
@@ -5387,7 +6098,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_record_mover_state`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_mover_state`(
   IN p_session_id BINARY(16),
   IN p_mover_key VARCHAR(255),
   IN p_state_before INT,
@@ -5424,6 +6135,71 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_record_npc_ai_state` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_npc_ai_state`(
+  IN p_session_id BINARY(16),
+  IN p_npc_entity_key VARCHAR(512),
+  IN p_ai_state VARCHAR(191),
+  IN p_ai_intent VARCHAR(128),
+  IN p_target_key VARCHAR(512),
+  IN p_perception_state VARCHAR(512),
+  IN p_last_server_tick BIGINT UNSIGNED,
+  IN p_metadata JSON,
+  IN p_idempotency_key VARCHAR(512),
+  OUT p_event_id BINARY(16),
+  OUT p_row_version_after BIGINT UNSIGNED
+)
+BEGIN
+  DECLARE v_world_instance_id BINARY(16);
+  SET p_event_id = UUID_TO_BIN(UUID(), 1);
+  SELECT world_instance_id INTO v_world_instance_id FROM server_sessions WHERE session_id = p_session_id LIMIT 1;
+  IF v_world_instance_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='mmo_record_npc_ai_state: invalid session'; END IF;
+
+  INSERT INTO mmo_npc_ai_state_current(
+    world_instance_id, npc_entity_key, ai_state, ai_intent, target_key,
+    perception_state, last_server_tick, metadata, idempotency_key, row_version
+  )
+  VALUES (
+    v_world_instance_id, p_npc_entity_key, p_ai_state, COALESCE(p_ai_intent, ''), COALESCE(p_target_key, ''),
+    COALESCE(p_perception_state, ''), COALESCE(p_last_server_tick, 0), COALESCE(p_metadata, JSON_OBJECT()), p_idempotency_key, 1
+  )
+  ON DUPLICATE KEY UPDATE
+    ai_state = VALUES(ai_state),
+    ai_intent = VALUES(ai_intent),
+    target_key = VALUES(target_key),
+    perception_state = VALUES(perception_state),
+    last_server_tick = VALUES(last_server_tick),
+    metadata = VALUES(metadata),
+    idempotency_key = VALUES(idempotency_key),
+    row_version = row_version + 1;
+
+  SELECT row_version INTO p_row_version_after
+    FROM mmo_npc_ai_state_current
+   WHERE world_instance_id = v_world_instance_id AND npc_entity_key = p_npc_entity_key;
+
+  INSERT IGNORE INTO mmo_npc_ai_state_history(
+    event_id, session_id, world_instance_id, npc_entity_key, ai_state, ai_intent,
+    target_key, perception_state, last_server_tick, metadata, idempotency_key, row_version
+  )
+  SELECT p_event_id, p_session_id, world_instance_id, npc_entity_key, ai_state, ai_intent,
+         target_key, perception_state, last_server_tick, metadata, idempotency_key, row_version
+    FROM mmo_npc_ai_state_current
+   WHERE world_instance_id = v_world_instance_id AND npc_entity_key = p_npc_entity_key;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!50003 DROP PROCEDURE IF EXISTS `mmo_record_npc_dialog_initiated` */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -5434,7 +6210,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_record_npc_dialog_initiated`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_npc_dialog_initiated`(
   IN p_session_id BINARY(16),
   IN p_actor_npc_key VARCHAR(255),
   IN p_target_character_key VARCHAR(128),
@@ -5462,6 +6238,148 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_record_npc_fight_state` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_npc_fight_state`(
+  IN p_session_id BINARY(16),
+  IN p_npc_entity_key VARCHAR(512),
+  IN p_opponent_key VARCHAR(512),
+  IN p_fight_state VARCHAR(128),
+  IN p_attack_state VARCHAR(128),
+  IN p_combo_index INT,
+  IN p_last_server_tick BIGINT UNSIGNED,
+  IN p_metadata JSON,
+  IN p_idempotency_key VARCHAR(512),
+  OUT p_event_id BINARY(16),
+  OUT p_row_version_after BIGINT UNSIGNED
+)
+BEGIN
+  DECLARE v_world_instance_id BINARY(16);
+  SET p_event_id = UUID_TO_BIN(UUID(), 1);
+  SELECT world_instance_id INTO v_world_instance_id FROM server_sessions WHERE session_id = p_session_id LIMIT 1;
+  IF v_world_instance_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='mmo_record_npc_fight_state: invalid session'; END IF;
+
+  INSERT INTO mmo_npc_fight_state_current(
+    world_instance_id, npc_entity_key, opponent_key, fight_state, attack_state,
+    combo_index, last_server_tick, metadata, idempotency_key, row_version
+  )
+  VALUES (
+    v_world_instance_id, p_npc_entity_key, COALESCE(p_opponent_key, ''), p_fight_state, COALESCE(p_attack_state, ''),
+    COALESCE(p_combo_index, 0), COALESCE(p_last_server_tick, 0), COALESCE(p_metadata, JSON_OBJECT()), p_idempotency_key, 1
+  )
+  ON DUPLICATE KEY UPDATE
+    opponent_key = VALUES(opponent_key),
+    fight_state = VALUES(fight_state),
+    attack_state = VALUES(attack_state),
+    combo_index = VALUES(combo_index),
+    last_server_tick = VALUES(last_server_tick),
+    metadata = VALUES(metadata),
+    idempotency_key = VALUES(idempotency_key),
+    row_version = row_version + 1;
+
+  SELECT row_version INTO p_row_version_after
+    FROM mmo_npc_fight_state_current
+   WHERE world_instance_id = v_world_instance_id AND npc_entity_key = p_npc_entity_key;
+
+  INSERT IGNORE INTO mmo_npc_fight_state_history(
+    event_id, session_id, world_instance_id, npc_entity_key, opponent_key, fight_state,
+    attack_state, combo_index, last_server_tick, metadata, idempotency_key, row_version
+  )
+  SELECT p_event_id, p_session_id, world_instance_id, npc_entity_key, opponent_key, fight_state,
+         attack_state, combo_index, last_server_tick, metadata, idempotency_key, row_version
+    FROM mmo_npc_fight_state_current
+   WHERE world_instance_id = v_world_instance_id AND npc_entity_key = p_npc_entity_key;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_record_npc_path_state` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_npc_path_state`(
+  IN p_session_id BINARY(16),
+  IN p_npc_entity_key VARCHAR(512),
+  IN p_path_state VARCHAR(128),
+  IN p_route_key VARCHAR(512),
+  IN p_current_waypoint_key VARCHAR(512),
+  IN p_next_waypoint_key VARCHAR(512),
+  IN p_target_waypoint_key VARCHAR(512),
+  IN p_pos_x DOUBLE,
+  IN p_pos_y DOUBLE,
+  IN p_pos_z DOUBLE,
+  IN p_last_server_tick BIGINT UNSIGNED,
+  IN p_metadata JSON,
+  IN p_idempotency_key VARCHAR(512),
+  OUT p_event_id BINARY(16),
+  OUT p_row_version_after BIGINT UNSIGNED
+)
+BEGIN
+  DECLARE v_world_instance_id BINARY(16);
+  SET p_event_id = UUID_TO_BIN(UUID(), 1);
+  SELECT world_instance_id INTO v_world_instance_id FROM server_sessions WHERE session_id = p_session_id LIMIT 1;
+  IF v_world_instance_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='mmo_record_npc_path_state: invalid session'; END IF;
+
+  INSERT INTO mmo_npc_path_state_current(
+    world_instance_id, npc_entity_key, path_state, route_key, current_waypoint_key,
+    next_waypoint_key, target_waypoint_key, pos_x, pos_y, pos_z,
+    last_server_tick, metadata, idempotency_key, row_version
+  )
+  VALUES (
+    v_world_instance_id, p_npc_entity_key, p_path_state, COALESCE(p_route_key, ''), COALESCE(p_current_waypoint_key, ''),
+    COALESCE(p_next_waypoint_key, ''), COALESCE(p_target_waypoint_key, ''), p_pos_x, p_pos_y, p_pos_z,
+    COALESCE(p_last_server_tick, 0), COALESCE(p_metadata, JSON_OBJECT()), p_idempotency_key, 1
+  )
+  ON DUPLICATE KEY UPDATE
+    path_state = VALUES(path_state),
+    route_key = VALUES(route_key),
+    current_waypoint_key = VALUES(current_waypoint_key),
+    next_waypoint_key = VALUES(next_waypoint_key),
+    target_waypoint_key = VALUES(target_waypoint_key),
+    pos_x = VALUES(pos_x),
+    pos_y = VALUES(pos_y),
+    pos_z = VALUES(pos_z),
+    last_server_tick = VALUES(last_server_tick),
+    metadata = VALUES(metadata),
+    idempotency_key = VALUES(idempotency_key),
+    row_version = row_version + 1;
+
+  SELECT row_version INTO p_row_version_after
+    FROM mmo_npc_path_state_current
+   WHERE world_instance_id = v_world_instance_id AND npc_entity_key = p_npc_entity_key;
+
+  INSERT IGNORE INTO mmo_npc_path_state_history(
+    event_id, session_id, world_instance_id, npc_entity_key, path_state, route_key,
+    current_waypoint_key, next_waypoint_key, target_waypoint_key, pos_x, pos_y, pos_z,
+    last_server_tick, metadata, idempotency_key, row_version
+  )
+  SELECT p_event_id, p_session_id, world_instance_id, npc_entity_key, path_state, route_key,
+         current_waypoint_key, next_waypoint_key, target_waypoint_key, pos_x, pos_y, pos_z,
+         last_server_tick, metadata, idempotency_key, row_version
+    FROM mmo_npc_path_state_current
+   WHERE world_instance_id = v_world_instance_id AND npc_entity_key = p_npc_entity_key;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!50003 DROP PROCEDURE IF EXISTS `mmo_record_npc_reaction_started` */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -5472,7 +6390,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_record_npc_reaction_started`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_npc_reaction_started`(
   IN p_session_id BINARY(16),
   IN p_actor_npc_key VARCHAR(255),
   IN p_target_key VARCHAR(255),
@@ -5500,6 +6418,71 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_record_npc_routine_state` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_npc_routine_state`(
+  IN p_session_id BINARY(16),
+  IN p_npc_entity_key VARCHAR(512),
+  IN p_routine_state VARCHAR(128),
+  IN p_schedule_key VARCHAR(512),
+  IN p_current_waypoint_key VARCHAR(512),
+  IN p_target_waypoint_key VARCHAR(512),
+  IN p_last_server_tick BIGINT UNSIGNED,
+  IN p_metadata JSON,
+  IN p_idempotency_key VARCHAR(512),
+  OUT p_event_id BINARY(16),
+  OUT p_row_version_after BIGINT UNSIGNED
+)
+BEGIN
+  DECLARE v_world_instance_id BINARY(16);
+  SET p_event_id = UUID_TO_BIN(UUID(), 1);
+  SELECT world_instance_id INTO v_world_instance_id FROM server_sessions WHERE session_id = p_session_id LIMIT 1;
+  IF v_world_instance_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='mmo_record_npc_routine_state: invalid session'; END IF;
+
+  INSERT INTO mmo_npc_routine_state_current(
+    world_instance_id, npc_entity_key, routine_state, schedule_key, current_waypoint_key,
+    target_waypoint_key, last_server_tick, metadata, idempotency_key, row_version
+  )
+  VALUES (
+    v_world_instance_id, p_npc_entity_key, p_routine_state, COALESCE(p_schedule_key, ''), COALESCE(p_current_waypoint_key, ''),
+    COALESCE(p_target_waypoint_key, ''), COALESCE(p_last_server_tick, 0), COALESCE(p_metadata, JSON_OBJECT()), p_idempotency_key, 1
+  )
+  ON DUPLICATE KEY UPDATE
+    routine_state = VALUES(routine_state),
+    schedule_key = VALUES(schedule_key),
+    current_waypoint_key = VALUES(current_waypoint_key),
+    target_waypoint_key = VALUES(target_waypoint_key),
+    last_server_tick = VALUES(last_server_tick),
+    metadata = VALUES(metadata),
+    idempotency_key = VALUES(idempotency_key),
+    row_version = row_version + 1;
+
+  SELECT row_version INTO p_row_version_after
+    FROM mmo_npc_routine_state_current
+   WHERE world_instance_id = v_world_instance_id AND npc_entity_key = p_npc_entity_key;
+
+  INSERT IGNORE INTO mmo_npc_routine_state_history(
+    event_id, session_id, world_instance_id, npc_entity_key, routine_state, schedule_key,
+    current_waypoint_key, target_waypoint_key, last_server_tick, metadata, idempotency_key, row_version
+  )
+  SELECT p_event_id, p_session_id, world_instance_id, npc_entity_key, routine_state, schedule_key,
+         current_waypoint_key, target_waypoint_key, last_server_tick, metadata, idempotency_key, row_version
+    FROM mmo_npc_routine_state_current
+   WHERE world_instance_id = v_world_instance_id AND npc_entity_key = p_npc_entity_key;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!50003 DROP PROCEDURE IF EXISTS `mmo_record_npc_weapon_state` */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -5510,7 +6493,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_record_npc_weapon_state`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_npc_weapon_state`(
   IN p_session_id BINARY(16),
   IN p_npc_entity_key VARCHAR(255),
   IN p_weapon_state VARCHAR(64),
@@ -5556,7 +6539,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_record_server_action_worker_result`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_server_action_worker_result`(
   IN p_worker_run_id BINARY(16),
   IN p_action_id BINARY(16),
   IN p_action_kind VARCHAR(128),
@@ -5590,7 +6573,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_record_trigger_event`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_trigger_event`(
   IN p_session_id BINARY(16),
   IN p_trigger_key VARCHAR(255),
   IN p_event_type_name VARCHAR(96),
@@ -5618,6 +6601,68 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_record_trigger_queue_state` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_trigger_queue_state`(
+  IN p_session_id BINARY(16),
+  IN p_trigger_key VARCHAR(191),
+  IN p_queue_state VARCHAR(64),
+  IN p_event_type_name VARCHAR(128),
+  IN p_scheduled_server_tick BIGINT UNSIGNED,
+  IN p_last_server_tick BIGINT UNSIGNED,
+  IN p_metadata JSON,
+  IN p_idempotency_key VARCHAR(191),
+  OUT p_event_id BINARY(16),
+  OUT p_row_version_after BIGINT UNSIGNED
+)
+BEGIN
+  DECLARE v_world_instance_id BINARY(16);
+  SET p_event_id = UUID_TO_BIN(UUID(), 1);
+  SELECT world_instance_id INTO v_world_instance_id FROM server_sessions WHERE session_id = p_session_id LIMIT 1;
+
+  INSERT INTO mmo_world_trigger_queue_current(
+    world_instance_id, trigger_key, queue_state, event_type_name, scheduled_server_tick,
+    last_server_tick, metadata, idempotency_key, row_version
+  )
+  VALUES (
+    v_world_instance_id, p_trigger_key, p_queue_state, p_event_type_name, COALESCE(p_scheduled_server_tick, 0),
+    COALESCE(p_last_server_tick, 0), COALESCE(p_metadata, JSON_OBJECT()), p_idempotency_key, 1
+  )
+  ON DUPLICATE KEY UPDATE
+    queue_state = VALUES(queue_state),
+    event_type_name = VALUES(event_type_name),
+    scheduled_server_tick = VALUES(scheduled_server_tick),
+    last_server_tick = VALUES(last_server_tick),
+    metadata = VALUES(metadata),
+    idempotency_key = VALUES(idempotency_key),
+    row_version = row_version + 1;
+
+  SELECT row_version INTO p_row_version_after
+    FROM mmo_world_trigger_queue_current
+   WHERE world_instance_id = v_world_instance_id AND trigger_key = p_trigger_key;
+
+  INSERT IGNORE INTO mmo_world_trigger_queue_history(
+    event_id, session_id, world_instance_id, trigger_key, queue_state, event_type_name,
+    scheduled_server_tick, last_server_tick, metadata, idempotency_key, row_version
+  )
+  SELECT p_event_id, p_session_id, world_instance_id, trigger_key, queue_state, event_type_name,
+         scheduled_server_tick, last_server_tick, metadata, idempotency_key, row_version
+    FROM mmo_world_trigger_queue_current
+   WHERE world_instance_id = v_world_instance_id AND trigger_key = p_trigger_key;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!50003 DROP PROCEDURE IF EXISTS `mmo_record_world_time_changed` */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -5628,7 +6673,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_record_world_time_changed`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_world_time_changed`(
   IN p_session_id BINARY(16),
   IN p_world_time_before_ms BIGINT,
   IN p_world_time_after_ms BIGINT,
@@ -5663,6 +6708,70 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_record_world_transition_state` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_world_transition_state`(
+  IN p_session_id BINARY(16),
+  IN p_from_world_key VARCHAR(191),
+  IN p_to_world_key VARCHAR(191),
+  IN p_transition_state VARCHAR(64),
+  IN p_chapter_key VARCHAR(128),
+  IN p_visited TINYINT(1),
+  IN p_last_server_tick BIGINT UNSIGNED,
+  IN p_metadata JSON,
+  IN p_idempotency_key VARCHAR(191),
+  OUT p_event_id BINARY(16),
+  OUT p_row_version_after BIGINT UNSIGNED
+)
+BEGIN
+  DECLARE v_character_id BINARY(16);
+  SET p_event_id = UUID_TO_BIN(UUID(), 1);
+  SELECT character_id INTO v_character_id FROM server_sessions WHERE session_id = p_session_id LIMIT 1;
+
+  INSERT INTO mmo_character_world_transition_state_current(
+    character_id, from_world_key, to_world_key, transition_state, chapter_key,
+    visited, last_server_tick, metadata, idempotency_key, row_version
+  )
+  VALUES (
+    v_character_id, COALESCE(p_from_world_key, ''), p_to_world_key, p_transition_state, COALESCE(p_chapter_key, ''),
+    COALESCE(p_visited, 0), COALESCE(p_last_server_tick, 0), COALESCE(p_metadata, JSON_OBJECT()), p_idempotency_key, 1
+  )
+  ON DUPLICATE KEY UPDATE
+    from_world_key = VALUES(from_world_key),
+    transition_state = VALUES(transition_state),
+    chapter_key = VALUES(chapter_key),
+    visited = VALUES(visited),
+    last_server_tick = VALUES(last_server_tick),
+    metadata = VALUES(metadata),
+    idempotency_key = VALUES(idempotency_key),
+    row_version = row_version + 1;
+
+  SELECT row_version INTO p_row_version_after
+    FROM mmo_character_world_transition_state_current
+   WHERE character_id = v_character_id AND to_world_key = p_to_world_key;
+
+  INSERT IGNORE INTO mmo_character_world_transition_state_history(
+    event_id, session_id, character_id, from_world_key, to_world_key, transition_state,
+    chapter_key, visited, last_server_tick, metadata, idempotency_key, row_version
+  )
+  SELECT p_event_id, p_session_id, character_id, from_world_key, to_world_key, transition_state,
+         chapter_key, visited, last_server_tick, metadata, idempotency_key, row_version
+    FROM mmo_character_world_transition_state_current
+   WHERE character_id = v_character_id AND to_world_key = p_to_world_key;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!50003 DROP PROCEDURE IF EXISTS `mmo_remove_world_item` */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -5673,7 +6782,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_remove_world_item`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_remove_world_item`(
   IN p_session_id BINARY(16),
   IN p_world_item_entity_key VARCHAR(512),
   IN p_reason VARCHAR(128),
@@ -5782,7 +6891,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_respawn_container_item`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_respawn_container_item`(
   IN p_session_id BINARY(16),
   IN p_respawn_policy_key VARCHAR(255),
   IN p_owner_entity_key VARCHAR(255),
@@ -5821,7 +6930,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_respawn_world_item`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_respawn_world_item`(
   IN p_session_id BINARY(16),
   IN p_respawn_policy_key VARCHAR(255),
   IN p_world_item_entity_key VARCHAR(255),
@@ -5861,7 +6970,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_set_character_known_dialog`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_set_character_known_dialog`(
   IN p_session_id BINARY(16),
   IN p_npc_key VARCHAR(255),
   IN p_info_key VARCHAR(255),
@@ -5969,7 +7078,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_set_character_script_int`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_set_character_script_int`(
   IN p_session_id BINARY(16),
   IN p_script_key VARCHAR(255),
   IN p_symbol_index INT,
@@ -6071,7 +7180,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_spend_learning_points`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_spend_learning_points`(
   IN p_session_id BINARY(16),
   IN p_stat_key VARCHAR(96),
   IN p_lp_cost INT,
@@ -6127,7 +7236,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_start_server_action_worker_run`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_start_server_action_worker_run`(
   IN p_worker_id VARCHAR(191),
   IN p_run_key VARCHAR(191),
   IN p_worker_mode VARCHAR(128),
@@ -6170,7 +7279,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_transfer_character_item`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_transfer_character_item`(
   IN p_session_id BINARY(16),
   IN p_item_instance_id BINARY(16),
   IN p_target_character_key VARCHAR(191),
@@ -6294,7 +7403,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_unequip_character_item`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_unequip_character_item`(
   IN p_session_id BINARY(16),
   IN p_equipment_slot VARCHAR(32),
   IN p_server_tick BIGINT,
@@ -6384,7 +7493,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_update_character_quest`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_update_character_quest`(
   IN p_session_id BINARY(16),
   IN p_quest_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,
   IN p_quest_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,
@@ -6516,7 +7625,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_update_interactive_state`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_update_interactive_state`(
   IN p_session_id BINARY(16),
   IN p_interactive_entity_key VARCHAR(512),
   IN p_state_after INT,
@@ -6618,7 +7727,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_validate_latest_save_checkpoint_restore_v1`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_validate_latest_save_checkpoint_restore_v1`(
   IN p_session_id BINARY(16),
   OUT p_validation_json LONGTEXT
 )
@@ -6789,7 +7898,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-CREATE DEFINER=`gothic`@`127.0.0.1` PROCEDURE `mmo_validate_server_action_dispatch_contracts`(
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_validate_server_action_dispatch_contracts`(
   OUT o_errors INT,
   OUT o_warnings INT
 )
@@ -6802,6 +7911,84 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+
+--
+-- Current Database: `gothic_mmo_ch1_clean`
+--
+
+USE `gothic_mmo_ch1_clean`;
+
+--
+-- Final view structure for view `v_mmo_latest_save_checkpoint_manifests`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_latest_save_checkpoint_manifests`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_latest_save_checkpoint_manifests` AS select `ranked`.`manifest_id` AS `manifest_id`,`ranked`.`manifest_uuid` AS `manifest_uuid`,`ranked`.`event_id` AS `event_id`,`ranked`.`realm_id` AS `realm_id`,`ranked`.`world_instance_id` AS `world_instance_id`,`ranked`.`character_id` AS `character_id`,`ranked`.`character_key` AS `character_key`,`ranked`.`manifest_key` AS `manifest_key`,`ranked`.`save_slot_key` AS `save_slot_key`,`ranked`.`native_save_path` AS `native_save_path`,`ranked`.`display_name` AS `display_name`,`ranked`.`client_world_name` AS `client_world_name`,`ranked`.`native_save_present` AS `native_save_present`,`ranked`.`checkpoint_kind` AS `checkpoint_kind`,`ranked`.`reason` AS `reason`,`ranked`.`server_tick` AS `server_tick`,`ranked`.`latest_checkpoint_tick` AS `latest_checkpoint_tick`,`ranked`.`recent_event_seq` AS `recent_event_seq`,`ranked`.`inventory_rows` AS `inventory_rows`,`ranked`.`equipment_rows` AS `equipment_rows`,`ranked`.`quest_rows` AS `quest_rows`,`ranked`.`known_dialog_rows` AS `known_dialog_rows`,`ranked`.`script_state_rows` AS `script_state_rows`,`ranked`.`world_item_rows` AS `world_item_rows`,`ranked`.`world_inventory_rows` AS `world_inventory_rows`,`ranked`.`interactive_rows` AS `interactive_rows`,`ranked`.`npc_lifecycle_rows` AS `npc_lifecycle_rows`,`ranked`.`mover_rows` AS `mover_rows`,`ranked`.`metadata` AS `metadata`,`ranked`.`idempotency_key` AS `idempotency_key`,`ranked`.`row_version` AS `row_version`,`ranked`.`created_at` AS `created_at`,`ranked`.`updated_at` AS `updated_at`,`ranked`.`character_rank` AS `character_rank` from (select `sm`.`manifest_id` AS `manifest_id`,bin_to_uuid(`sm`.`manifest_id`,1) AS `manifest_uuid`,`sm`.`event_id` AS `event_id`,`sm`.`realm_id` AS `realm_id`,`sm`.`world_instance_id` AS `world_instance_id`,`sm`.`character_id` AS `character_id`,`c`.`character_key` AS `character_key`,`sm`.`manifest_key` AS `manifest_key`,`sm`.`save_slot_key` AS `save_slot_key`,`sm`.`native_save_path` AS `native_save_path`,`sm`.`display_name` AS `display_name`,`sm`.`client_world_name` AS `client_world_name`,`sm`.`native_save_present` AS `native_save_present`,`sm`.`checkpoint_kind` AS `checkpoint_kind`,`sm`.`reason` AS `reason`,`sm`.`server_tick` AS `server_tick`,`sm`.`latest_checkpoint_tick` AS `latest_checkpoint_tick`,`sm`.`recent_event_seq` AS `recent_event_seq`,`sm`.`inventory_rows` AS `inventory_rows`,`sm`.`equipment_rows` AS `equipment_rows`,`sm`.`quest_rows` AS `quest_rows`,`sm`.`known_dialog_rows` AS `known_dialog_rows`,`sm`.`script_state_rows` AS `script_state_rows`,`sm`.`world_item_rows` AS `world_item_rows`,`sm`.`world_inventory_rows` AS `world_inventory_rows`,`sm`.`interactive_rows` AS `interactive_rows`,`sm`.`npc_lifecycle_rows` AS `npc_lifecycle_rows`,`sm`.`mover_rows` AS `mover_rows`,`sm`.`metadata` AS `metadata`,`sm`.`idempotency_key` AS `idempotency_key`,`sm`.`row_version` AS `row_version`,`sm`.`created_at` AS `created_at`,`sm`.`updated_at` AS `updated_at`,row_number() OVER (PARTITION BY `sm`.`character_id`,coalesce(`sm`.`save_slot_key`,`sm`.`native_save_path`,`sm`.`manifest_key`) ORDER BY `sm`.`created_at` desc,`sm`.`row_version` desc,`sm`.`manifest_id` desc )  AS `character_rank` from (`mmo_save_checkpoint_manifests` `sm` join `characters` `c` on((`c`.`character_id` = `sm`.`character_id`)))) `ranked` where (`ranked`.`character_rank` = 1) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_latest_save_checkpoint_restore_readiness`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_latest_save_checkpoint_restore_readiness`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_latest_save_checkpoint_restore_readiness` AS select `dc`.`manifest_id` AS `manifest_id`,`dc`.`manifest_uuid` AS `manifest_uuid`,`dc`.`character_id` AS `character_id`,`dc`.`character_key` AS `character_key`,`dc`.`world_instance_id` AS `world_instance_id`,`dc`.`manifest_key` AS `manifest_key`,`dc`.`save_key` AS `save_key`,`dc`.`save_slot_key` AS `save_slot_key`,`dc`.`native_save_path` AS `native_save_path`,`dc`.`display_name` AS `display_name`,`dc`.`client_world_name` AS `client_world_name`,`dc`.`native_save_present` AS `native_save_present`,`dc`.`checkpoint_kind` AS `checkpoint_kind`,`dc`.`reason` AS `reason`,`dc`.`server_tick` AS `server_tick`,`dc`.`latest_checkpoint_tick` AS `latest_checkpoint_tick`,`dc`.`recent_event_seq` AS `recent_event_seq`,`dc`.`row_version` AS `row_version`,`dc`.`created_at` AS `created_at`,`dc`.`updated_at` AS `updated_at`,`dc`.`character_rows` AS `character_rows`,`dc`.`inventory_rows` AS `inventory_rows`,`dc`.`equipment_rows` AS `equipment_rows`,`dc`.`quest_rows` AS `quest_rows`,`dc`.`known_dialog_rows` AS `known_dialog_rows`,`dc`.`script_state_rows` AS `script_state_rows`,`dc`.`world_entity_rows` AS `world_entity_rows`,`dc`.`world_item_rows` AS `world_item_rows`,`dc`.`world_item_active_rows` AS `world_item_active_rows`,`dc`.`world_item_removed_rows` AS `world_item_removed_rows`,`dc`.`interactive_rows` AS `interactive_rows`,`dc`.`npc_lifecycle_rows` AS `npc_lifecycle_rows`,`dc`.`npc_lifecycle_non_active_rows` AS `npc_lifecycle_non_active_rows`,`dc`.`world_inventory_rows` AS `world_inventory_rows`,`dc`.`world_clock_rows` AS `world_clock_rows`,`dc`.`mover_rows` AS `mover_rows`,0 AS `exported_bootstrap_bytes` from (`v_mmo_save_checkpoint_snapshot_domain_counts` `dc` join `server_sessions` `ss` on(((`ss`.`character_id` = `dc`.`character_id`) and (`ss`.`world_instance_id` = `dc`.`world_instance_id`)))) where exists(select 1 from `mmo_save_checkpoint_manifests` `newer` where ((`newer`.`character_id` = `dc`.`character_id`) and (`newer`.`world_instance_id` = `dc`.`world_instance_id`) and ((`newer`.`created_at` > `dc`.`created_at`) or ((`newer`.`created_at` = `dc`.`created_at`) and (`newer`.`row_version` > `dc`.`row_version`)) or ((`newer`.`created_at` = `dc`.`created_at`) and (`newer`.`row_version` = `dc`.`row_version`) and (`newer`.`manifest_id` > `dc`.`manifest_id`))))) is false */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_latest_save_checkpoint_strict_restore`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_latest_save_checkpoint_strict_restore`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_latest_save_checkpoint_strict_restore` AS select `ss`.`session_key` AS `session_key`,bin_to_uuid(`ss`.`session_id`,1) AS `session_uuid`,`dc`.`character_key` AS `character_key`,`rwi`.`world_instance_key` AS `world_instance_key`,`dc`.`manifest_uuid` AS `manifest_uuid`,`dc`.`save_key` AS `save_key`,`dc`.`display_name` AS `display_name`,`dc`.`client_world_name` AS `client_world_name`,`dc`.`native_save_present` AS `native_save_present`,`dc`.`reason` AS `reason`,`dc`.`character_rows` AS `character_rows`,`dc`.`inventory_rows` AS `inventory_rows`,`dc`.`equipment_rows` AS `equipment_rows`,`dc`.`quest_rows` AS `quest_rows`,`dc`.`known_dialog_rows` AS `known_dialog_rows`,`dc`.`script_state_rows` AS `script_state_rows`,`dc`.`world_entity_rows` AS `world_entity_rows`,`dc`.`world_inventory_rows` AS `world_inventory_rows`,`dc`.`world_clock_rows` AS `world_clock_rows`,`dc`.`mover_rows` AS `mover_rows`,0 AS `exported_bootstrap_bytes`,'fallback_missing_export_function' AS `snapshot_source`,0 AS `strict_restore_ok`,`dc`.`created_at` AS `created_at` from ((`v_mmo_save_checkpoint_snapshot_domain_counts` `dc` join `server_sessions` `ss` on(((`ss`.`character_id` = `dc`.`character_id`) and (`ss`.`world_instance_id` = `dc`.`world_instance_id`)))) join `realm_world_instances` `rwi` on((`rwi`.`world_instance_id` = `dc`.`world_instance_id`))) where exists(select 1 from `mmo_save_checkpoint_manifests` `newer` where ((`newer`.`character_id` = `dc`.`character_id`) and (`newer`.`world_instance_id` = `dc`.`world_instance_id`) and ((`newer`.`created_at` > `dc`.`created_at`) or ((`newer`.`created_at` = `dc`.`created_at`) and (`newer`.`row_version` > `dc`.`row_version`)) or ((`newer`.`created_at` = `dc`.`created_at`) and (`newer`.`row_version` = `dc`.`row_version`) and (`newer`.`manifest_id` > `dc`.`manifest_id`))))) is false */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_save_checkpoint_snapshot_domain_counts`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_save_checkpoint_snapshot_domain_counts`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_save_checkpoint_snapshot_domain_counts` AS select `sm`.`manifest_id` AS `manifest_id`,bin_to_uuid(`sm`.`manifest_id`,1) AS `manifest_uuid`,`sm`.`character_id` AS `character_id`,`c`.`character_key` AS `character_key`,`sm`.`world_instance_id` AS `world_instance_id`,`sm`.`manifest_key` AS `manifest_key`,coalesce(`sm`.`save_slot_key`,`sm`.`manifest_key`) AS `save_key`,`sm`.`save_slot_key` AS `save_slot_key`,`sm`.`native_save_path` AS `native_save_path`,`sm`.`display_name` AS `display_name`,`sm`.`client_world_name` AS `client_world_name`,`sm`.`native_save_present` AS `native_save_present`,`sm`.`checkpoint_kind` AS `checkpoint_kind`,`sm`.`reason` AS `reason`,`sm`.`server_tick` AS `server_tick`,`sm`.`latest_checkpoint_tick` AS `latest_checkpoint_tick`,`sm`.`recent_event_seq` AS `recent_event_seq`,`sm`.`row_version` AS `row_version`,`sm`.`created_at` AS `created_at`,`sm`.`updated_at` AS `updated_at`,(select count(0) from `mmo_save_checkpoint_character_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `character_rows`,(select count(0) from `mmo_save_checkpoint_inventory_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `inventory_rows`,(select count(0) from `mmo_save_checkpoint_equipment_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `equipment_rows`,(select count(0) from `mmo_save_checkpoint_quest_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `quest_rows`,(select count(0) from `mmo_save_checkpoint_known_dialog_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `known_dialog_rows`,(select count(0) from `mmo_save_checkpoint_script_state_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `script_state_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `world_entity_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` = 'item'))) AS `world_item_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` = 'item') and (`s`.`lifecycle_state` = 'active'))) AS `world_item_active_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` = 'item') and (`s`.`lifecycle_state` <> 'active'))) AS `world_item_removed_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` = 'interactive'))) AS `interactive_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` in ('npc','creature')))) AS `npc_lifecycle_rows`,(select count(0) from `mmo_save_checkpoint_world_entity_snapshot` `s` where ((`s`.`manifest_id` = `sm`.`manifest_id`) and (`s`.`entity_kind` in ('npc','creature')) and (`s`.`lifecycle_state` <> 'active'))) AS `npc_lifecycle_non_active_rows`,(select count(0) from `mmo_save_checkpoint_world_inventory_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `world_inventory_rows`,(select count(0) from `mmo_save_checkpoint_world_clock_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `world_clock_rows`,(select count(0) from `mmo_save_checkpoint_mover_snapshot` `s` where (`s`.`manifest_id` = `sm`.`manifest_id`)) AS `mover_rows` from (`mmo_save_checkpoint_manifests` `sm` join `characters` `c` on((`c`.`character_id` = `sm`.`character_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -6812,4 +7999,4 @@ DELIMITER ;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-07-03 19:33:14
+-- Dump completed on 2026-07-04 12:50:14

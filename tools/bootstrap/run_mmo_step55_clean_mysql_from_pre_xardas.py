@@ -8,7 +8,8 @@ This wrapper is intentionally boring and explicit:
 4. leave only logs/manifests under runtime/;
 5. install the live receiver bridge, Step56b progress bridge, Step59 item/interactive/progress bridge,
    Step60 equipment bridge, Step67 interactive-use bridge, Step68 drop/loot bridge,
-   Step83 combat/lifecycle bridge, Step120/Step121 server parity bridges, and normalize collations by default;
+   Step83 combat/lifecycle bridge, Step120/Step121 server parity bridges, Step122 NPC observation hotfix,
+   and normalize collations by default;
 6. write a Step70 PC_HERO_TEST live-loop readiness manifest.
 
 It does not make SQLite the server database. The live server path remains:
@@ -196,6 +197,7 @@ def main() -> int:
     ap.add_argument("--skip-step104-db-checkpoint-script-state-full-export", action="store_true", help="Do not install DB checkpoint full script-state export bridge.")
     ap.add_argument("--skip-step120-npc-authority-restore-bridge", action="store_true", help="Do not install NPC authority restore current/history tables and recorder procedures.")
     ap.add_argument("--skip-step121-server-parity-state-bridge", action="store_true", help="Do not install trigger queue, world transition and client correction current/history tables and recorder procedures.")
+    ap.add_argument("--skip-step122-npc-observation-failopen-item-refresh-guard", action="store_true", help="Do not install NPC observation VARCHAR widening used by direct C++ server fail-open/item refresh guard.")
     ap.add_argument("--skip-step70-live-readiness", action="store_true", help="Do not run the clean live-loop readiness checker after a successful rebuild.")
     ap.add_argument("--skip-collation-normalize", action="store_true", help="Do not normalize MySQL table collations after the clean import and additive SQL surfaces.")
     ap.add_argument("--no-strict-baseline", action="store_true", help="Do not require zero dialog selections in the SQLite capture.")
@@ -307,6 +309,8 @@ def main() -> int:
                 reset_args.append("--no-with-step120-npc-authority-restore-bridge")
             if args.skip_step121_server_parity_state_bridge:
                 reset_args.append("--no-with-step121-server-parity-state-bridge")
+            if args.skip_step122_npc_observation_failopen_item_refresh_guard:
+                reset_args.append("--no-with-step122-npc-observation-failopen-item-refresh-guard")
             if args.skip_collation_normalize:
                 reset_args.append("--no-normalize-collation")
             if args.dry_run:

@@ -162,10 +162,56 @@
     },
     {
       "path": "server/sql/step120_npc_authority_restore_bridge.sql",
-      "status": "missing_skipped"
+      "result": {
+        "cmd": [
+          "C:\\Program Files\\MySQL\\MySQL Workbench 8.0 CE\\mysql.exe",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "192.168.195.94",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
     },
     {
       "path": "server/sql/step121_server_parity_state_bridge.sql",
+      "result": {
+        "cmd": [
+          "C:\\Program Files\\MySQL\\MySQL Workbench 8.0 CE\\mysql.exe",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "192.168.195.94",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-pgothic_dev_password",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    },
+    {
+      "path": "server/sql/step122_npc_observation_failopen_and_item_refresh_guard.sql",
       "result": {
         "cmd": [
           "C:\\Program Files\\MySQL\\MySQL Workbench 8.0 CE\\mysql.exe",
@@ -262,7 +308,7 @@
       "dry_run": false,
       "returncode": 0,
       "stderr": "",
-      "stdout": "[OK] schema marker 001: 1 rows, expected >= 1\n[OK] schema marker 002: 1 rows, expected >= 1\n[OK] finished import runs: 1 rows, expected >= 1\n[OK] content game target: 1 rows, expected >= 1\n[OK] content revisions: 1 rows, expected >= 1\n[OK] world templates: 1 rows, expected >= 1\n[OK] realm: 1 rows, expected >= 1\n[OK] world instances: 1 rows, expected >= 1\n[OK] character: 1 rows, expected >= 1\n[OK] character position: 1 rows, expected >= 1\n[OK] character stats: 1 rows, expected >= 1\n[OK] import event: 1 rows, expected >= 1\nlatest import:\n9914308c-c15a-4d15-bb6a-fb215259b037\t25\tg2notr\tfinished\t{\"mmo_world_instances\": 1, \"mmo_world_templates\": 1, \"imported_character_key\": \"PC_HERO\", \"mmo_characters_current\": 1, \"imported_item_templates\": 315, \"mmo_world_clock_current\": 1, \"mmo_world_items_current\": 2461, \"imported_world_templates\": 1, \"mmo_world_baseline_items\": 2461, \"imported_entity_templates\": 638, \"mmo_script_globals_current\": 2924, \"mmo_creature_spawns_current\": 1052, \"mmo_unit_stat_sheet_current\": 1053, \"mmo_character_quests_current\": 0, \"mmo_character_wallet_current\": 1, \"mmo_world_baseline_creatures\": 1052, \"mmo_creature_inventory_current\": 2482, \"mmo_creature_templates_current\": 404, \"mmo_world_interactives_current\": 996, \"mmo_character_inventory_current\": 0, \"mmo_world_baseline_interactives\": 996, \"mmo_script_global_values_current\": 3143, \"mmo_world_baseline_creature_stats\": 200932, \"mmo_world_baseline_script_globals\": 2924, \"mmo_character_known_dialogs_current\": 0, \"mmo_character_story_progress_current\": 1, \"mmo_world_baseline_creature_inventory\": 2482, \"mmo_world_baseline_creature_templates\": 404, \"mmo_world_container_inventory_current\": 438, \"mmo_world_baseline_container_inventory\": 438, \"mmo_world_baseline_script_global_values\": 3143}\n"
+      "stdout": "[OK] schema marker 001: 1 rows, expected >= 1\n[OK] schema marker 002: 1 rows, expected >= 1\n[OK] finished import runs: 1 rows, expected >= 1\n[OK] content game target: 1 rows, expected >= 1\n[OK] content revisions: 1 rows, expected >= 1\n[OK] world templates: 1 rows, expected >= 1\n[OK] realm: 1 rows, expected >= 1\n[OK] world instances: 1 rows, expected >= 1\n[OK] character: 1 rows, expected >= 1\n[OK] character position: 1 rows, expected >= 1\n[OK] character stats: 1 rows, expected >= 1\n[OK] import event: 1 rows, expected >= 1\nlatest import:\n9c8327a7-d3fa-409f-9ef8-435dd3953ab3\t25\tg2notr\tfinished\t{\"mmo_world_instances\": 1, \"mmo_world_templates\": 1, \"imported_character_key\": \"PC_HERO\", \"mmo_characters_current\": 1, \"imported_item_templates\": 315, \"mmo_world_clock_current\": 1, \"mmo_world_items_current\": 2461, \"imported_world_templates\": 1, \"mmo_world_baseline_items\": 2461, \"imported_entity_templates\": 638, \"mmo_script_globals_current\": 2924, \"mmo_creature_spawns_current\": 1052, \"mmo_unit_stat_sheet_current\": 1053, \"mmo_character_quests_current\": 0, \"mmo_character_wallet_current\": 1, \"mmo_world_baseline_creatures\": 1052, \"mmo_creature_inventory_current\": 2482, \"mmo_creature_templates_current\": 404, \"mmo_world_interactives_current\": 996, \"mmo_character_inventory_current\": 0, \"mmo_world_baseline_interactives\": 996, \"mmo_script_global_values_current\": 3143, \"mmo_world_baseline_creature_stats\": 200932, \"mmo_world_baseline_script_globals\": 2924, \"mmo_character_known_dialogs_current\": 0, \"mmo_character_story_progress_current\": 1, \"mmo_world_baseline_creature_inventory\": 2482, \"mmo_world_baseline_creature_templates\": 404, \"mmo_world_container_inventory_current\": 438, \"mmo_world_baseline_container_inventory\": 438, \"mmo_world_baseline_script_global_values\": 3143}\n"
     },
     {
       "cmd": [
@@ -427,8 +473,8 @@
     "step104_procedure_export_enabled": true
   },
   "database": "gothic_mmo_ch1_clean",
-  "finished_at": "2026-07-04T09:34:01.848302+00:00",
-  "started_at": "2026-07-04T09:31:05.349133+00:00",
+  "finished_at": "2026-07-04T11:07:35.365493+00:00",
+  "started_at": "2026-07-04T11:04:29.919194+00:00",
   "status": "passed",
   "step": 54
 }

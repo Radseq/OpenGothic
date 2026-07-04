@@ -1,5 +1,5 @@
 # OpenGothic C/C++ source snapshot
-# Generated: 2026-07-03T19:33:02
+# Generated: 2026-07-04T12:49:56
 # Project root: C:\Users\admin\Desktop\OpenGothic
 # MAX_BYTES per file: 1500000
 
@@ -18109,6 +18109,7 @@ class GameScript final {
 #include <limits>
 #include <iterator>
 #include <functional>
+#include <optional>
 
 #include "utils/string_frm.h"
 #include "worldstatestorage.h"
@@ -18148,6 +18149,8 @@ constexpr uint64_t MmoNpcAuthoritySampleStaleInterval = 10000;
 constexpr uint64_t MmoNpcAuthoritySamplePruneInterval = 60000;
 constexpr float    MmoNpcAuthoritySampleRadius = 12000.f;
 constexpr size_t   MmoNpcAuthoritySampleMaxPerSweep = 8;
+constexpr float    MmoNpcAuthoritySaveSampleRadius = 60000.f;
+constexpr size_t   MmoNpcAuthoritySaveSampleMaxPerSweep = 512;
 
 void hashCombine(std::uint64_t& seed, std::uint64_t value) noexcept {
   seed ^= value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2);
@@ -18212,6 +18215,123 @@ std::uint64_t mmoNpcAuthoritySignature(Npc& npc) noexcept {
     hashCombine(out, victim->instanceSymbol());
     }
   return out;
+}
+
+struct MmoNpcIdentity final {
+  bool        valid = false;
+  std::string world;
+  std::size_t persistentId = std::size_t(-1);
+  std::size_t symbolIndex = std::size_t(-1);
+};
+
+struct MmoNpcRoutineAuthorityApplyStats final {
+  std::size_t applied = 0;
+  std::size_t fallback = 0;
+  std::size_t missingNpc = 0;
+  std::size_t skipped = 0;
+};
+
+std::optional<std::size_t> parseSizeToken(std::string_view text) noexcept {
+  if(text.empty())
+    return std::nullopt;
+  std::size_t value = 0;
+  auto r = std::from_chars(text.data(), text.data() + text.size(), value);
+  if(r.ec != std::errc{} || r.ptr != text.data() + text.size())
+    return std::nullopt;
+  return value;
+}
+
+MmoNpcIdentity parseMmoNpcEntityKey(std::string_view key) {
+  MmoNpcIdentity out;
+  constexpr std::string_view prefix = "npc:";
+  if(key.substr(0, prefix.size()) != prefix)
+    return out;
+  auto rest = key.substr(prefix.size());
+  auto marker = rest.find(":pid:");
+  if(marker == std::string_view::npos)
+    return out;
+  out.world = std::string(rest.substr(0, marker));
+  rest.remove_prefix(marker + 5);
+  marker = rest.find(":sym:");
+  if(marker == std::string_view::npos)
+    return out;
+  auto pid = parseSizeToken(rest.substr(0, marker));
+  rest.remove_prefix(marker + 5);
+  auto sym = parseSizeToken(rest);
+  if(!pid || !sym)
+    return out;
+  out.persistentId = *pid;
+  out.symbolIndex = *sym;
+  out.valid = true;
+  return out;
+}
+
+std::optional<std::size_t> parseScriptFunctionKey(std::string_view key) noexcept {
+  constexpr std::string_view prefix = "script-fn:";
+  if(key.substr(0, prefix.size()) != prefix)
+    return std::nullopt;
+  return parseSizeToken(key.substr(prefix.size()));
+}
+
+std::string waypointNameFromAuthorityKey(std::string_view key) {
+  constexpr std::string_view prefix = "waypoint:";
+  if(key.empty())
+    return {};
+  if(key.substr(0, prefix.size()) != prefix)
+    return std::string(key);
+  const auto tail = key.substr(prefix.size());
+  const auto sep = tail.rfind(':');
+  if(sep == std::string_view::npos)
+    return {};
+  return std::string(tail.substr(sep + 1));
+}
+
+Npc* findNpcByAuthorityKey(World& world, std::string_view key) {
+  const auto identity = parseMmoNpcEntityKey(key);
+  if(!identity.valid)
+    return nullptr;
+
+  for(uint32_t i = 0, count = world.npcCount(); i < count; ++i) {
+    auto* npc = world.npcById(i);
+    if(npc == nullptr || npc->isPlayer())
+      continue;
+    if(npc->persistentId() == identity.persistentId && npc->instanceSymbol() == identity.symbolIndex)
+      return npc;
+    }
+  return nullptr;
+}
+
+MmoNpcRoutineAuthorityApplyStats applyMmoNpcRoutineAuthorityState(World& world,
+                                                                  const Mmo::RestoreSnapshot::Result& snapshot) {
+  MmoNpcRoutineAuthorityApplyStats stats;
+  for(const auto& row : snapshot.npcRoutineStates) {
+    auto* npc = findNpcByAuthorityKey(world, row.npcEntityKey);
+    if(npc == nullptr) {
+      ++stats.missingNpc;
+      continue;
+      }
+    if(npc->isPlayer() || npc->isDead() || npc->isDown() || npc->isUnconscious()) {
+      ++stats.skipped;
+      continue;
+      }
+
+    const auto fn = parseScriptFunctionKey(row.scheduleKey);
+    std::string waypoint = waypointNameFromAuthorityKey(row.currentWaypointKey);
+    if(waypoint.empty())
+      waypoint = waypointNameFromAuthorityKey(row.targetWaypointKey);
+
+    if(fn && *fn != 0) {
+      const bool started = npc->startState(ScriptFn(*fn), waypoint, gtime::endOfTime(), false);
+      if(started) {
+        ++stats.applied;
+        continue;
+        }
+      }
+
+    npc->resumeAiRoutine();
+    ++stats.fallback;
+    }
+  return stats;
 }
 
 std::filesystem::path snapshotTmpPath(std::string_view path) {
@@ -18793,20 +18913,21 @@ void GameSession::tickMmoMovementProposal(Npc& npc, uint64_t now) noexcept {
     }
 }
 
-void GameSession::tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept {
+void GameSession::emitMmoNpcAuthoritySamples(Npc& hero, uint64_t now, const char* reason, bool force,
+                                             float radius, size_t maxPerSweep) noexcept {
   const auto& cmd = CommandLine::inst();
   if(!cmd.mmoClientUsesServer() || wrld == nullptr)
     return;
 
   auto& state = mmoNpcAuthoritySamples;
-  if(state.lastSweepTick != 0 && now - state.lastSweepTick < MmoNpcAuthoritySampleInterval)
+  if(!force && state.lastSweepTick != 0 && now - state.lastSweepTick < MmoNpcAuthoritySampleInterval)
     return;
   state.lastSweepTick = now;
 
   const auto center = hero.position();
   size_t emitted = 0;
-  wrld->detectNpc(center, MmoNpcAuthoritySampleRadius, [&](Npc& npc) {
-    if(emitted >= MmoNpcAuthoritySampleMaxPerSweep || npc.isPlayer())
+  wrld->detectNpc(center, radius, [&](Npc& npc) {
+    if(emitted >= maxPerSweep || npc.isPlayer())
       return;
 
     const auto key = mmoNpcAuthorityCacheKey(npc);
@@ -18814,11 +18935,12 @@ void GameSession::tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept {
     auto& cached = state.observed[key];
     const bool changed = cached.lastEmitTick == 0 || cached.signature != signature;
     const bool stale = cached.lastEmitTick == 0 || now - cached.lastEmitTick >= MmoNpcAuthoritySampleStaleInterval;
-    if(!changed && !stale)
+    if(!force && !changed && !stale)
       return;
 
-    Mmo::Hooks::onObservedNpcAuthorityState(npc, "GameSession::tickMmoNpcAuthoritySamples",
-                                            changed ? "observed_npc_authority_changed" : "observed_npc_authority_refresh");
+    Mmo::Hooks::onObservedNpcAuthorityState(npc, "GameSession::emitMmoNpcAuthoritySamples",
+                                            reason != nullptr ? reason :
+                                            (changed ? "observed_npc_authority_changed" : "observed_npc_authority_refresh"));
     cached.lastEmitTick = now;
     cached.signature = signature;
     ++emitted;
@@ -18832,6 +18954,12 @@ void GameSession::tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept {
         ++it;
       }
     }
+}
+
+void GameSession::tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept {
+  emitMmoNpcAuthoritySamples(hero, now, nullptr, false,
+                             MmoNpcAuthoritySampleRadius,
+                             MmoNpcAuthoritySampleMaxPerSweep);
 }
 
 void GameSession::HeroStorage::save(Npc& npc) {
@@ -18885,6 +19013,7 @@ GameSession::GameSession(std::string file) : GameSession(std::move(file), Startu
 GameSession::GameSession(std::string file, StartupMode startupMode) {
   const bool dbContinueRequested = startupMode == StartupMode::MmoDbContinue && CommandLine::inst().mmoClientUsesServer();
   const bool mmoServerFreshNewGame = startupMode == StartupMode::MmoServerFreshNewGame && CommandLine::inst().mmoClientUsesServer();
+  mmoServerFreshNewGameSession = mmoServerFreshNewGame;
   const ScopedMmoDbContinueVideoSuppression suppressStartupVideos(dbContinueRequested);
 
   cam.reset(new Camera());
@@ -18982,6 +19111,15 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
     wrld->triggerOnStart(false);
     const auto resumedNpcRoutines = wrld->resumeNpcRoutinesAfterServerRestore();
     Log::i("MMO DB continue startup NPC routines resumed: count=", resumedNpcRoutines);
+    if(auto snapshot = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(CommandLine::inst().mmoServerSnapshotJson(), "PC_HERO"); snapshot.ok) {
+      const auto npcAuthority = applyMmoNpcRoutineAuthorityState(*wrld, snapshot);
+      Log::i("MMO DB continue startup NPC authority applied: routine_applied=", npcAuthority.applied,
+             " routine_fallback=", npcAuthority.fallback,
+             " missing_npc=", npcAuthority.missingNpc,
+             " skipped=", npcAuthority.skipped,
+             " records=", snapshot.npcRoutineStates.size(),
+             " snapshot_source=", snapshot.snapshotSource);
+      }
   } else {
     wrld->triggerOnStart(true);
   }
@@ -19127,8 +19265,12 @@ void GameSession::save(Serialize &fout, std::string_view name, const Pixmap& scr
   Gothic::inst().setLoadingProgress(80);
 
   if(wrld != nullptr && CommandLine::inst().mmoClientUsesServer()) {
-    if(auto* hero = wrld->player())
+    if(auto* hero = wrld->player()) {
+      emitMmoNpcAuthoritySamples(*hero, ticks, "native_save_pre_manifest_npc_authority", true,
+                                 MmoNpcAuthoritySaveSampleRadius,
+                                 MmoNpcAuthoritySaveSampleMaxPerSweep);
       Mmo::Hooks::onCharacterCheckpoint(*hero, "GameSession::save", "native_save_pre_manifest_checkpoint");
+      }
     }
   }
 
@@ -19136,12 +19278,17 @@ void GameSession::recordMmoSaveSlot(std::string_view slotPath, std::string_view 
   if(mmoSqlite!=nullptr)
     mmoSqlite->recordSaveSlot(*this, slotPath, displayName);
 
-  if(wrld != nullptr && CommandLine::inst().mmoClientUsesServer())
+  if(wrld != nullptr && CommandLine::inst().mmoClientUsesServer()) {
+    if(auto* hero = wrld->player())
+      emitMmoNpcAuthoritySamples(*hero, ticks, "native_save_slot_recorded_npc_authority", true,
+                                 MmoNpcAuthoritySaveSampleRadius,
+                                 MmoNpcAuthoritySaveSampleMaxPerSweep);
     Mmo::Hooks::onSaveCheckpointManifest(*wrld,
                                          slotPath,
                                          displayName,
                                          "GameSession::recordMmoSaveSlot",
                                          "native_save_slot_recorded");
+    }
   }
 
 void GameSession::setupSettings() {
@@ -19500,13 +19647,18 @@ bool GameSession::tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept {
   if(restoredFromDbSaveCheckpoint || state.reason == "db_continue_baseline_loaded") {
     wrld->resetPositionToTA();
     const auto resumedNpcRoutines = wrld->resumeNpcRoutinesAfterServerRestore();
+    const auto npcAuthority = applyMmoNpcRoutineAuthorityState(*wrld, result);
     Log::i("MMO server DB restore NPC routines resumed: count=", resumedNpcRoutines,
            " db_checkpoint=", restoredFromDbSaveCheckpoint ? 1 : 0,
            " reason=", state.reason,
            " npc_routine_state=", result.npcRoutineStateCount,
            " npc_ai_state=", result.npcAiStateCount,
            " npc_path_state=", result.npcPathStateCount,
-           " npc_fight_state=", result.npcFightStateCount);
+           " npc_fight_state=", result.npcFightStateCount,
+           " authority_applied=", npcAuthority.applied,
+           " authority_fallback=", npcAuthority.fallback,
+           " authority_missing_npc=", npcAuthority.missingNpc,
+           " authority_skipped=", npcAuthority.skipped);
     }
 
   if(const auto snapshotId = readMmoSnapshotManifestId())
@@ -19538,6 +19690,8 @@ void GameSession::pollMmoServerSnapshotRestore() noexcept {
 bool GameSession::tryApplyMmoServerWorldSnapshotRefresh() noexcept {
   const auto& cmd = CommandLine::inst();
   if(!cmd.mmoClientUsesServer() || !cmd.mmoServerSnapshotApplyWorldState())
+    return false;
+  if(mmoServerFreshNewGameSession)
     return false;
 
   auto& state = mmoServerSnapshotRestore;
@@ -19969,9 +20123,6 @@ void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
 
 
 
-
-
-
 ===== game\game\gamesession.h =====
 #pragma once
 
@@ -20149,6 +20300,8 @@ class GameSession final {
       std::unordered_map<std::string, MmoNpcAuthoritySampleRecord> observed;
       };
 
+    void        emitMmoNpcAuthoritySamples(Npc& hero, uint64_t now, const char* reason, bool force,
+                                           float radius, size_t maxPerSweep) noexcept;
     void        tickMmoNpcAuthoritySamples(Npc& hero, uint64_t now) noexcept;
 
     struct MmoServerSnapshotRestoreState final {
@@ -20175,6 +20328,7 @@ class GameSession final {
     MmoActionMovementProposalState lastMmoActionMovementProposal;
     MmoNpcAuthoritySampleState     mmoNpcAuthoritySamples;
     MmoServerSnapshotRestoreState  mmoServerSnapshotRestore;
+    bool                           mmoServerFreshNewGameSession = false;
     uint64_t                       timeMul = 1000, timeMulFract = 0;
     gtime                          wrldTime;
 
@@ -22711,6 +22865,16 @@ struct MoverState final {
   std::size_t lastServerTick = 0;
   };
 
+struct NpcRoutineState final {
+  std::string npcEntityKey;
+  std::string routineState;
+  std::string scheduleKey;
+  std::string currentWaypointKey;
+  std::string targetWaypointKey;
+  std::size_t rowVersion = 0;
+  std::size_t lastServerTick = 0;
+  };
+
 struct ServerCheckpointManifest final {
   bool        present = false;
   std::string manifestUuid;
@@ -22834,6 +22998,7 @@ struct Result final {
   std::vector<NearbyNpcKnownDialog> nearbyNpcKnownDialogs;
   std::vector<NearbyWaypoint> nearbyWaypoints;
   std::vector<MoverState> moverStates;
+  std::vector<NpcRoutineState> npcRoutineStates;
   std::vector<RecentAction> recentActions;
   std::vector<ClientCorrection> clientCorrections;
   ServerCheckpointManifest serverCheckpointManifest;
@@ -23701,6 +23866,23 @@ inline std::vector<MoverState> restoreMoverStates(std::string_view moverArray) {
   return out;
 }
 
+inline std::vector<NpcRoutineState> restoreNpcRoutineStates(std::string_view routineArray) {
+  std::vector<NpcRoutineState> out;
+  for(auto object : objectSpansInArray(routineArray)) {
+    NpcRoutineState state;
+    state.npcEntityKey = stringValueForKey(object, "npc_entity_key");
+    state.routineState = stringValueForKey(object, "routine_state");
+    state.scheduleKey = stringValueForKey(object, "schedule_key");
+    state.currentWaypointKey = stringValueForKey(object, "current_waypoint_key");
+    state.targetWaypointKey = stringValueForKey(object, "target_waypoint_key");
+    state.lastServerTick = sizeValueForKey(object, "last_server_tick");
+    state.rowVersion = sizeValueForKey(object, "row_version");
+    if(!state.npcEntityKey.empty())
+      out.push_back(std::move(state));
+    }
+  return out;
+}
+
 inline ServerCheckpointManifest restoreServerCheckpointManifest(std::string_view manifestObject) {
   ServerCheckpointManifest out;
   if(manifestObject.empty())
@@ -24004,6 +24186,7 @@ inline Result loadAndValidateBootstrapSnapshot(std::string_view path,
   result.nearbyNpcKnownDialogs = Detail::restoreNearbyNpcKnownDialogs(nearbyNpcKnownDialogs);
   result.nearbyWaypoints = Detail::restoreNearbyWaypoints(nearbyWaypoints);
   result.moverStates = Detail::restoreMoverStates(moverState);
+  result.npcRoutineStates = Detail::restoreNpcRoutineStates(npcRoutineState);
   result.worldClock = Detail::restoreWorldClock(worldClock);
   result.recentActions = Detail::restoreRecentActions(recentActions);
   result.clientCorrections = Detail::restoreClientCorrections(clientCorrections);
@@ -24187,6 +24370,10 @@ bool exec(sqlite3* db, const char* sql) {
   Tempest::Log::e("mmo sqlite exec failed: ", err!=nullptr ? err : sqlite3_errmsg(db));
   sqlite3_free(err);
   return false;
+  }
+
+bool exec(sqlite3* db, const std::string& sql) {
+  return exec(db, sql.c_str());
   }
 
 void appendUtf8(std::string& out, uint32_t codepoint) {
@@ -25692,7 +25879,9 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
   if(!exec(impl->db, schemaWorld))
     return false;
 
-  const char* schemaNpcState = R"SQL(
+  std::string schemaNpcState;
+  schemaNpcState.reserve(19613);
+  schemaNpcState += R"SQL(
     CREATE TABLE IF NOT EXISTS runtime_npc_stats (
       entity_key TEXT NOT NULL,
       world_name TEXT NOT NULL,
@@ -25885,6 +26074,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       display_name TEXT NOT NULL DEFAULT '',
       player INTEGER NOT NULL,
       ai_state_function INTEGER NOT NULL,
+  )SQL";
+  schemaNpcState += R"SQL(
       ai_state_name TEXT NOT NULL DEFAULT '',
       target_key TEXT NOT NULL DEFAULT '',
       target_symbol_index INTEGER NOT NULL,
@@ -26062,7 +26253,9 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       "ON runtime_npc_ai_state(world_name, state_other_key)"))
     return false;
 
-  const char* schemaMmoCurrent = R"SQL(
+  std::string schemaMmoCurrent;
+  schemaMmoCurrent.reserve(39422);
+  schemaMmoCurrent += R"SQL(
     CREATE TABLE IF NOT EXISTS mmo_unit_stat_current (
       unit_key TEXT NOT NULL,
       unit_type TEXT NOT NULL,
@@ -26341,6 +26534,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
     );
     CREATE INDEX IF NOT EXISTS idx_mmo_character_quests_current_status
       ON mmo_character_quests_current(character_key, status);
+  )SQL";
+  schemaMmoCurrent += R"SQL(
     CREATE TABLE IF NOT EXISTS mmo_character_known_dialogs_current (
       character_key TEXT NOT NULL,
       npc_symbol_index INTEGER NOT NULL,
@@ -26621,6 +26816,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       amount INTEGER NOT NULL,
       iterator_count INTEGER NOT NULL,
       value INTEGER NOT NULL,
+  )SQL";
+  schemaMmoCurrent += R"SQL(
       PRIMARY KEY(world_template_key, owner_key, item_instance_key)
     );
     CREATE TABLE IF NOT EXISTS mmo_world_baseline_script_globals (
@@ -26912,6 +27109,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       persistence_class TEXT NOT NULL DEFAULT '',
       PRIMARY KEY(snapshot_id, creature_spawn_key)
     );
+  )SQL";
+  schemaMmoCurrent += R"SQL(
     CREATE TABLE IF NOT EXISTS mmo_save_slot_creature_inventory (
       snapshot_id INTEGER NOT NULL,
       creature_spawn_key TEXT NOT NULL,
@@ -27117,7 +27316,9 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
     )SQL"))
     return false;
 
-  const char* schemaViews = R"SQL(
+  std::string schemaViews;
+  schemaViews.reserve(61936);
+  schemaViews += R"SQL(
     DROP VIEW IF EXISTS v_mmo_persistence_contract;
     DROP VIEW IF EXISTS v_mmo_restore_readiness;
     DROP VIEW IF EXISTS v_mmo_event_journal;
@@ -27346,6 +27547,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              r.updated_at
         FROM runtime_npc_routines r;
     CREATE TEMP VIEW IF NOT EXISTS v_runtime_waypoint_users AS
+  )SQL";
+  schemaViews += R"SQL(
       SELECT 'current' AS usage_kind,
              current_waypoint_key AS waypoint_key,
              current_waypoint_name AS waypoint_name,
@@ -27607,6 +27810,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              n.true_guild,
              n.level,
              n.experience,
+  )SQL";
+  schemaViews += R"SQL(
              MAX(CASE WHEN s.stat_group='progression' AND s.stat_key='experience_next' THEN s.value END) AS experience_next,
              MAX(CASE WHEN s.stat_group='progression' AND s.stat_key='learning_points' THEN s.value END) AS learning_points,
              MAX(CASE WHEN s.stat_group='attitude' AND s.stat_key='permanent' THEN s.value END) AS permanent_attitude,
@@ -27827,6 +28032,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
              rotation,
              guild,
              true_guild,
+  )SQL";
+  schemaViews += R"SQL(
              hp,
              hp_max,
              mana,
@@ -28103,6 +28310,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
                CASE WHEN b.creature_spawn_key IS NOT NULL AND c.health_current IS NOT b.health_current THEN 'health,' ELSE '' END ||
                CASE WHEN b.creature_spawn_key IS NOT NULL AND c.mana_current IS NOT b.mana_current THEN 'mana,' ELSE '' END ||
                CASE WHEN b.creature_spawn_key IS NOT NULL AND (c.level IS NOT b.level OR c.experience IS NOT b.experience) THEN 'progression,' ELSE '' END ||
+  )SQL";
+  schemaViews += R"SQL(
                CASE WHEN b.creature_spawn_key IS NOT NULL AND (c.pos_x IS NOT b.pos_x OR c.pos_y IS NOT b.pos_y OR c.pos_z IS NOT b.pos_z OR c.rotation IS NOT b.rotation OR c.waypoint IS NOT b.waypoint) THEN 'transform,' ELSE '' END,
                ','
              ) AS changed_fields,
@@ -28294,6 +28503,8 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
       UNION ALL SELECT 'world', 'mmo_creature_inventory_current', 'world_creature_inventory_current', COUNT(*) FROM mmo_creature_inventory_current
       UNION ALL SELECT 'world', 'mmo_creature_inventory_snapshots_current', 'world_creature_inventory_snapshot_current', COUNT(*) FROM mmo_creature_inventory_snapshots_current
       UNION ALL SELECT 'world', 'mmo_creature_relations_current', 'world_creature_relation_current', COUNT(*) FROM mmo_creature_relations_current
+  )SQL";
+  schemaViews += R"SQL(
       UNION ALL SELECT 'content', 'mmo_world_templates', 'world_template_baseline', COUNT(*) FROM mmo_world_templates
       UNION ALL SELECT 'world', 'mmo_world_instances', 'world_instance_current', COUNT(*) FROM mmo_world_instances
       UNION ALL SELECT 'content', 'mmo_world_baseline_creature_templates', 'world_template_creature_baseline', COUNT(*) FROM mmo_world_baseline_creature_templates
@@ -91022,6 +91233,22 @@ constexpr std::string_view MysqlSessionPreamble =
     "SET SESSION max_execution_time=0; ";
 std::atomic_bool gRunning {true};
 
+[[nodiscard]] FILE* openProcessPipe(const std::string& cmd) {
+#if defined(_WIN32)
+  return ::_popen(cmd.c_str(), "r");
+#else
+  return ::popen(cmd.c_str(), "r");
+#endif
+}
+
+int closeProcessPipe(FILE* pipe) {
+#if defined(_WIN32)
+  return ::_pclose(pipe);
+#else
+  return ::pclose(pipe);
+#endif
+}
+
 struct ServerPacketLogState final {
   std::uint64_t suppressedMovementLines = 0;
   std::uint64_t nextMovementSummaryAt = 100;
@@ -91136,6 +91363,33 @@ void stopHandler(int) {
 }
 
 [[nodiscard]] std::string shellQuote(std::string_view text) {
+#if defined(_WIN32)
+  std::string out;
+  out.reserve(text.size() + 8);
+  out.push_back('"');
+  std::size_t backslashes = 0;
+  for(char ch : text) {
+    if(ch == '\\') {
+      ++backslashes;
+      continue;
+    }
+    if(ch == '"') {
+      out.append(backslashes * 2 + 1, '\\');
+      out.push_back('"');
+      backslashes = 0;
+      continue;
+    }
+    out.append(backslashes, '\\');
+    backslashes = 0;
+    if(ch == '%')
+      out += "%%";
+    else
+      out.push_back(ch);
+  }
+  out.append(backslashes * 2, '\\');
+  out.push_back('"');
+  return out;
+#else
   std::string out;
   out.reserve(text.size() + 8);
   out.push_back('\'');
@@ -91147,7 +91401,32 @@ void stopHandler(int) {
   }
   out.push_back('\'');
   return out;
+#endif
 }
+
+[[nodiscard]] std::string mysqlExecutable() {
+#if defined(_WIN32)
+  if(const char* exe = std::getenv("GOTHIC_MMO_MYSQL_EXE"); exe != nullptr && *exe != '\0')
+    return exe;
+  if(const char* exe = std::getenv("MYSQL_EXE"); exe != nullptr && *exe != '\0')
+    return exe;
+#endif
+  return "mysql";
+}
+
+#if defined(_WIN32)
+[[nodiscard]] std::string cmdSetEnvPrefix(std::string_view name, std::string_view value) {
+  std::string out = "set \"" + std::string(name) + "=";
+  for(char ch : value) {
+    if(ch == '%')
+      out += "%%";
+    else
+      out.push_back(ch);
+  }
+  out += "\" && ";
+  return out;
+}
+#endif
 
 [[nodiscard]] std::string sqlLiteral(std::string_view text) {
   std::string out;
@@ -91671,14 +91950,18 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
 [[nodiscard]] std::string runCommand(std::string_view cmd) {
   std::array<char, 4096> buffer {};
   std::string output;
-  FILE* pipe = ::popen(std::string(cmd).c_str(), "r");
+  FILE* pipe = openProcessPipe(std::string(cmd));
   if(pipe == nullptr)
     throw std::runtime_error("popen failed");
   while(std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr)
     output += buffer.data();
-  const int rc = ::pclose(pipe);
-  if(rc != 0)
-    throw std::runtime_error("command failed");
+  const int rc = closeProcessPipe(pipe);
+  if(rc != 0) {
+    const auto message = trim(output);
+    if(message.empty())
+      throw std::runtime_error("command failed");
+    throw std::runtime_error("command failed: " + message);
+  }
   return trim(output);
 }
 
@@ -91719,14 +92002,19 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
 }
 
 [[nodiscard]] std::string mysqlBaseCommand(const MySqlTarget& target) {
-  std::string cmd = "mysql --default-character-set=utf8mb4 ";
+  std::string cmd = shellQuote(mysqlExecutable()) + " --default-character-set=utf8mb4 ";
   cmd += "--init-command=" + shellQuote("SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci") + " ";
   cmd += "--batch --raw --skip-column-names ";
   cmd += "--host=" + shellQuote(target.host) + " ";
   cmd += "--port=" + shellQuote(std::to_string(target.port)) + " ";
   cmd += "--user=" + shellQuote(target.user) + " ";
-  if(!target.password.empty())
+  if(!target.password.empty()) {
+#if defined(_WIN32)
+    cmd = cmdSetEnvPrefix("MYSQL_PWD", target.password) + cmd;
+#else
     cmd = "MYSQL_PWD=" + shellQuote(target.password) + " " + cmd;
+#endif
+  }
   cmd += shellQuote(target.database);
   return cmd;
 }
@@ -91736,7 +92024,14 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
   statement.reserve(MysqlSessionPreamble.size() + sql.size());
   statement.append(MysqlSessionPreamble);
   statement.append(sql.data(), sql.size());
-  return runCommand(mysqlBaseCommand(target) + " --execute " + shellQuote(statement));
+  return runCommand(mysqlBaseCommand(target) + " --execute " + shellQuote(statement) + " 2>&1");
+}
+
+[[nodiscard]] bool isFailOpenNpcObservationAction(Mmo::SemanticActionKind kind) noexcept {
+  return kind == Mmo::SemanticActionKind::RecordNpcRoutineState ||
+         kind == Mmo::SemanticActionKind::RecordNpcAiState ||
+         kind == Mmo::SemanticActionKind::RecordNpcPathState ||
+         kind == Mmo::SemanticActionKind::RecordNpcFightState;
 }
 
 [[nodiscard]] std::vector<std::string> splitMysqlLastRow(std::string_view raw) {
@@ -94279,6 +94574,9 @@ constexpr std::int64_t InvalidGothicPersistentId = 4294967295LL;
     sql += "CALL mmo_ack_client_action_correction(UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1),";
     sql += sqlLiteral(actionKind) + "," + std::to_string(localSequence) + ",";
     sql += std::to_string(tick) + "," + sqlJson(dbPayload) + "," + sqlLiteral(packet.idempotencyKey) + ",@row_after);";
+  } else if(packet.kind == Mmo::SemanticActionKind::SplitItemStack ||
+            packet.kind == Mmo::SemanticActionKind::MergeItemStack) {
+    return {true, true, false, "stack_layout_noop"};
   } else if(packet.kind == Mmo::SemanticActionKind::TransferCharacterItem) {
     const auto targetCharacter = optionalJsonString(payload, "target_character_key");
     const auto sourceActor = optionalJsonString(payload, "source_actor_key");
@@ -94666,18 +94964,28 @@ int main(int argc, char** argv) {
             }
           }
         } catch(const std::exception& exc) {
-          packetAccepted = false;
-          ++failed;
           direct.handled = true;
-          direct.accepted = false;
-          diagnosticSeverity = 2;
-          diagnosticReason = "direct_db_failed";
-          diagnosticMessage = exc.what();
-          std::cerr << "[direct_db_failed] action=" << actionName
-                    << " target=" << packet.targetKey
-                    << " error=" << exc.what()
-                    << " payload=" << packet.payloadJson
-                    << "\n";
+          if(isFailOpenNpcObservationAction(packet.kind)) {
+            direct.accepted = true;
+            packetAccepted = true;
+            std::cerr << "[direct_db_observation_failed_accepted] action=" << actionName
+                      << " target=" << packet.targetKey
+                      << " error=" << exc.what()
+                      << " payload=" << packet.payloadJson
+                      << "\n";
+          } else {
+            packetAccepted = false;
+            ++failed;
+            direct.accepted = false;
+            diagnosticSeverity = 2;
+            diagnosticReason = "direct_db_failed";
+            diagnosticMessage = exc.what();
+            std::cerr << "[direct_db_failed] action=" << actionName
+                      << " target=" << packet.targetKey
+                      << " error=" << exc.what()
+                      << " payload=" << packet.payloadJson
+                      << "\n";
+          }
         }
       }
 

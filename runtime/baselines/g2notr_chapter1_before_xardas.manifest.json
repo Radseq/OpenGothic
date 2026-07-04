@@ -1,6 +1,6 @@
 {
   "baseline_key": "g2notr_chapter1_before_xardas",
-  "captured_at": "2026-07-04T09:31:04.762496+00:00",
+  "captured_at": "2026-07-04T11:04:27.929856+00:00",
   "display_name": "Gothic II NotR - Chapter 1 clean start before Xardas dialog",
   "game_code": "g2notr",
   "intended_use": [
@@ -11,7 +11,7 @@
   "manifest_path": "runtime/baselines/g2notr_chapter1_before_xardas.manifest.json",
   "output": {
     "path": "runtime/baselines/g2notr_chapter1_before_xardas.sqlite",
-    "sha256": "6be25b656007c9b91d5f6b3bb8df0edd37e866b4cc4c793834b9635f5ebeaeda",
+    "sha256": "f199402c0bf03a831c497f31dcc751fd48eecc6bf213b4646b3b0ff0d39fb4a9",
     "size_bytes": 170311680,
     "stamped": true
   },

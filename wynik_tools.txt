@@ -1,7 +1,48 @@
 # OpenGothic tools snapshot
-# Generated: 2026-07-03T19:33:02
+# Generated: 2026-07-04T12:49:56
 # Project root: C:\Users\admin\Desktop\OpenGothic
 # MAX_BYTES per file: 1500000
+
+===== tools\_mysql_cli.py =====
+from __future__ import annotations
+
+import os
+import shutil
+from pathlib import Path
+
+
+def resolve_mysql_exe() -> str:
+    for env_name in ("GOTHIC_MMO_MYSQL_EXE", "MYSQL_EXE"):
+        value = os.environ.get(env_name)
+        if value:
+            path = Path(value)
+            if path.exists():
+                return str(path)
+            found = shutil.which(value)
+            if found is not None:
+                return found
+            raise RuntimeError(f"{env_name} points to missing mysql executable: {value}")
+
+    found = shutil.which("mysql")
+    if found is not None:
+        return found
+
+    if os.name == "nt":
+        roots = [
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "MySQL",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "MySQL",
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "MariaDB",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "MariaDB",
+        ]
+        matches: list[Path] = []
+        for root in roots:
+            if root.exists():
+                matches.extend(root.glob("**/mysql.exe"))
+        if matches:
+            return str(sorted(matches, key=lambda p: (len(p.parts), str(p)))[0])
+
+    raise RuntimeError("mysql executable was not found; set MYSQL_EXE to the full mysql.exe path")
+
 
 ===== tools\_tool_entrypoint.py =====
 #!/usr/bin/env python3
@@ -18,6 +59,13 @@ def run(relative_target: str) -> None:
         raise SystemExit(f"tool target does not exist: {target}")
     sys.argv[0] = str(target)
     runpy.run_path(str(target), run_name="__main__")
+
+
+===== tools\apply_current_mmo_db_state.py =====
+#!/usr/bin/env python3
+from _tool_entrypoint import run
+
+run("bootstrap/apply_current_mmo_db_state.py")
 
 
 ===== tools\apply_mmo_step83_combat_lifecycle_bridge.py =====
@@ -46,6 +94,211 @@ run("_archive/apply_mmo_step92_identity_admin_views.py")
 from _tool_entrypoint import run
 
 run("validation/audit_runtime_sqlite.py")
+
+
+===== tools\bootstrap\apply_current_mmo_db_state.py =====
+#!/usr/bin/env python3
+"""Apply the current MMO DB/server authority state to an existing MySQL DB.
+
+The StepXX SQL files are kept as migration history. This tool is the user-facing
+"state as of now" entrypoint: it applies the currently active additive SQL
+surfaces in the order expected by the C++ UDP server path.
+
+It intentionally does not drop or recreate the database. It also does not run
+the Step53 read-model materialization wrapper, because that is a Python
+materialization job rather than a plain SQL surface.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+@dataclass(frozen=True)
+class SqlSurface:
+    key: str
+    path: Path
+    note: str
+
+
+CURRENT_SQL_SURFACES = (
+    SqlSurface("authority_gap", ROOT / "server" / "sql" / "step51_authority_gap_procedures.sql", "trigger/mover/world-time/resource/training/respawn/reaction procedures"),
+    SqlSurface("live_receiver", ROOT / "server" / "sql" / "step55_live_receiver_bridge.sql", "server_sessions, outbox and live receiver procedures"),
+    SqlSurface("progress_bridge", ROOT / "server" / "sql" / "step56b_clean_db_progress_bridge.sql", "dialog/quest/progress procedures"),
+    SqlSurface("item_interactive_progress", ROOT / "server" / "sql" / "step59_clean_db_item_interactive_progress_bridge.sql", "pickup/remove/interactive/progression procedures"),
+    SqlSurface("equipment", ROOT / "server" / "sql" / "step60_clean_db_equipment_bridge.sql", "equip/unequip/transfer procedures"),
+    SqlSurface("interactive_use", ROOT / "server" / "sql" / "step67_interactive_use_bridge.sql", "interactive-use procedure"),
+    SqlSurface("drop_loot", ROOT / "server" / "sql" / "step68_drop_loot_inventory_bridge.sql", "drop/loot inventory procedures"),
+    SqlSurface("combat_lifecycle", ROOT / "server" / "sql" / "step83_combat_lifecycle_bridge.sql", "combat and NPC/world-entity lifecycle procedures"),
+    SqlSurface("world_identity_lifecycle", ROOT / "server" / "sql" / "step84_world_identity_lifecycle_bridge.sql", "world identity/lifecycle fallback procedures"),
+    SqlSurface("save_checkpoint_quest_utf8", ROOT / "server" / "sql" / "step93_save_checkpoint_quest_utf8_bridge.sql", "quest UTF-8/idempotency save-checkpoint procedure"),
+    SqlSurface("server_save_checkpoint_manifest", ROOT / "server" / "sql" / "step94_server_save_checkpoint_manifest.sql", "durable server save/checkpoint manifest"),
+    SqlSurface("save_slot_catalog_continue", ROOT / "server" / "sql" / "step95_save_slot_catalog_db_continue_bridge.sql", "DB-backed save-slot catalog and Continue metadata"),
+    SqlSurface("db_save_checkpoint_snapshots", ROOT / "server" / "sql" / "step96_db_save_checkpoint_snapshots.sql", "DB-native checkpoint snapshot tables/procedures"),
+    SqlSurface("world_clock_foundation_pre", ROOT / "server" / "sql" / "step108_db_checkpoint_world_clock_foundation.sql", "world-clock foundation before checkpoint export coverage"),
+    SqlSurface("checkpoint_export_coverage", ROOT / "server" / "sql" / "step103_db_checkpoint_export_coverage.sql", "checkpoint export coverage/world-clock fallback"),
+    SqlSurface("script_state_full_export", ROOT / "server" / "sql" / "step104_db_checkpoint_script_state_full_export.sql", "full script-state checkpoint export"),
+    SqlSurface("world_clock_foundation_finalize", ROOT / "server" / "sql" / "step108_db_checkpoint_world_clock_foundation.sql", "world-clock foundation final pass after script-state export"),
+    SqlSurface("npc_authority_restore", ROOT / "server" / "sql" / "step120_npc_authority_restore_bridge.sql", "NPC routine/AI/path/fight current/history and recorder procedures"),
+    SqlSurface("server_parity_state", ROOT / "server" / "sql" / "step121_server_parity_state_bridge.sql", "trigger queue, world transition and client correction current/history"),
+)
+
+
+def rel(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def parse_mysql_url(url: str) -> Target:
+    p = urlparse(url)
+    if p.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql:// URL")
+    db = (p.path or "/").lstrip("/")
+    if not db:
+        raise ValueError("database missing in mysql URL")
+    return Target(
+        host=p.hostname or "localhost",
+        port=p.port or 3306,
+        user=unquote(p.username or ""),
+        password=unquote(p.password or ""),
+        database=db,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def redact_cmd(cmd: list[str]) -> list[str]:
+    return ["-p***" if part.startswith("-p") and len(part) > 2 else part for part in cmd]
+
+
+def run_mysql_file(target: Target, path: Path, *, dry_run: bool) -> dict[str, object]:
+    shown = redact_cmd(mysql_cmd(target))
+    print("[SQL] " + rel(path))
+    print("[RUN] " + " ".join(shown))
+    if dry_run:
+        return {"cmd": shown, "returncode": 0, "dry_run": True, "stdout": "", "stderr": ""}
+    proc = subprocess.run(mysql_cmd(target), input=path.read_text(encoding="utf-8"), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(ROOT))
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, file=sys.stderr, end="")
+    return {"cmd": shown, "returncode": proc.returncode, "dry_run": False, "stdout": proc.stdout, "stderr": proc.stderr}
+
+
+def selected_surfaces(skip: set[str]) -> list[SqlSurface]:
+    return [surface for surface in CURRENT_SQL_SURFACES if surface.key not in skip]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Apply current MMO DB/server authority state to an existing MySQL database.")
+    parser.add_argument("--url", required=True, help="mysql://user:password@host:port/database")
+    parser.add_argument("--output", default="")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--list", action="store_true", help="Print the current SQL surface order and exit.")
+    parser.add_argument("--skip", action="append", default=[], help="Skip a current SQL surface key. Repeatable; use --list to see keys.")
+    args = parser.parse_args()
+
+    skip = set(args.skip or [])
+    surfaces = selected_surfaces(skip)
+    if args.list:
+        for surface in surfaces:
+            print(f"{surface.key}\t{rel(surface.path)}\t{surface.note}")
+        return 0
+
+    target = parse_mysql_url(args.url)
+    manifest: dict[str, object] = {
+        "tool": "apply_current_mmo_db_state.py",
+        "status": "running",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "database": target.database,
+        "surfaces": [],
+    }
+
+    missing = [surface for surface in surfaces if not surface.path.exists()]
+    if missing:
+        manifest["status"] = "failed_missing_sql"
+        manifest["missing"] = [{"key": item.key, "path": rel(item.path)} for item in missing]
+    else:
+        for surface in surfaces:
+            result = run_mysql_file(target, surface.path, dry_run=args.dry_run)
+            entry = {
+                "key": surface.key,
+                "path": rel(surface.path),
+                "note": surface.note,
+                "status": "applied" if result["returncode"] == 0 else "failed",
+                "result": result,
+            }
+            manifest["surfaces"].append(entry)
+            if entry["status"] == "failed":
+                manifest["status"] = "failed"
+                break
+        else:
+            manifest["status"] = "passed"
+
+    manifest["finished_at"] = datetime.now(timezone.utc).isoformat()
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(f"artifact={rel(out)}")
+    print("status=" + str(manifest["status"]))
+    return 0 if manifest["status"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 
 ===== tools\bootstrap\capture_mmo_chapter1_start_sqlite_baseline.py =====
@@ -407,6 +660,12 @@ import os
 import shutil
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 from dataclasses import dataclass
 from typing import Iterable
 from urllib.parse import urlparse, unquote
@@ -504,7 +763,7 @@ def parse_url(url: str) -> MySqlTarget:
 
 
 def mysql_cmd(target: MySqlTarget) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -1138,10 +1397,41 @@ def parse_mysql_url(url: str) -> MySqlTarget:
     )
 
 
+def resolve_mysql_exe() -> str:
+    for env_name in ("GOTHIC_MMO_MYSQL_EXE", "MYSQL_EXE"):
+        value = os.environ.get(env_name)
+        if value:
+            path = Path(value)
+            if path.exists():
+                return str(path)
+            found = shutil.which(value)
+            if found is not None:
+                return found
+            fail(f"{env_name} points to missing mysql executable: {value}")
+
+    found = shutil.which("mysql")
+    if found is not None:
+        return found
+
+    if os.name == "nt":
+        candidates = [
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "MySQL",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "MySQL",
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "MariaDB",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "MariaDB",
+        ]
+        matches: list[Path] = []
+        for root in candidates:
+            if root.exists():
+                matches.extend(root.glob("**/mysql.exe"))
+        if matches:
+            return str(sorted(matches, key=lambda p: (len(p.parts), str(p)))[0])
+
+    fail("mysql command not found; install mysql-client, add mysql.exe to PATH, set MYSQL_EXE, or use --dry-run-sql")
+
+
 def mysql_cmd(target: MySqlTarget) -> list[str]:
-    exe = shutil.which("mysql")
-    if not exe:
-        fail("mysql command not found; install mysql-client or use --dry-run-sql")
+    exe = resolve_mysql_exe()
     cmd = [
         exe,
         f"--host={target.host}",
@@ -1438,6 +1728,8 @@ def run_mysql(target: MySqlTarget, sql: str) -> None:
         mysql_cmd(target),
         input=sql,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
@@ -1519,6 +1811,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 TARGET_CHARSET = "utf8mb4"
 TARGET_COLLATION = "utf8mb4_0900_ai_ci"
@@ -1544,7 +1842,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target, *, skip_column_names: bool = True) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -1564,7 +1862,7 @@ def mysql_cmd(target: Target, *, skip_column_names: bool = True) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str, *, skip_column_names: bool = True) -> str:
-    proc = subprocess.run(mysql_cmd(target, skip_column_names=skip_column_names), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(mysql_cmd(target, skip_column_names=skip_column_names), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -1689,17 +1987,20 @@ This is intentionally destructive and requires an explicit confirmation flag.
 It creates a clean dev DB, applies the existing production/bridge migrations, imports
 from the captured SQLite baseline, then optionally reapplies Step51 and Step53 helper
 surfaces if those files/tools exist in the checkout. It also applies the
-Step56b clean-DB progress bridge, the Step59 item/interactive/progress bridge,
-the Step60 equipment bridge, the Step67 interactive-use bridge, the Step68
-drop/loot bridge, the Step83 combat/lifecycle bridge, the Step84 world identity/lifecycle bridge, and normalizes MySQL
-collations so destructive rebuilds do not reintroduce the live-worker failures found
-during live tests.
+    Step56b clean-DB progress bridge, the Step59 item/interactive/progress bridge,
+    the Step60 equipment bridge, the Step67 interactive-use bridge, the Step68
+    drop/loot bridge, the Step83 combat/lifecycle bridge, the Step84 world
+    identity/lifecycle bridge, the Step120 NPC authority bridge, the Step121
+    server parity state bridge and the Step122 NPC observation hotfix. It also
+    normalizes MySQL collations so destructive rebuilds do not reintroduce the
+    live-worker failures found during live tests.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1719,6 +2020,7 @@ BASE_MIGRATIONS = (
     ROOT / "db" / "migrations" / "mysql" / "production" / "001_gothic_mmo_production_schema.sql",
     ROOT / "db" / "migrations" / "mysql" / "production" / "002_bootstrap_import_pipeline.sql",
 )
+SCHEMA_DUMP_FALLBACK = ROOT / "wynik_gothic_mmo_ch1_clean_schema.txt"
 STEP51_SQL = ROOT / "server" / "sql" / "step51_authority_gap_procedures.sql"
 STEP53_SQL = ROOT / "server" / "sql" / "step53_server_read_model_v1.sql"
 STEP55_LIVE_BRIDGE_SQL = ROOT / "server" / "sql" / "step55_live_receiver_bridge.sql"
@@ -1738,6 +2040,9 @@ STEP98_STRICT_DB_CONTINUE_RESTORE_SQL = ROOT / "server" / "sql" / "step98_strict
 STEP103_DB_CHECKPOINT_EXPORT_COVERAGE_SQL = ROOT / "server" / "sql" / "step103_db_checkpoint_export_coverage.sql"
 STEP104_DB_CHECKPOINT_SCRIPT_STATE_FULL_EXPORT_SQL = ROOT / "server" / "sql" / "step104_db_checkpoint_script_state_full_export.sql"
 STEP108_DB_CHECKPOINT_WORLD_CLOCK_FOUNDATION_SQL = ROOT / "server" / "sql" / "step108_db_checkpoint_world_clock_foundation.sql"
+STEP120_NPC_AUTHORITY_RESTORE_BRIDGE_SQL = ROOT / "server" / "sql" / "step120_npc_authority_restore_bridge.sql"
+STEP121_SERVER_PARITY_STATE_BRIDGE_SQL = ROOT / "server" / "sql" / "step121_server_parity_state_bridge.sql"
+STEP122_NPC_OBSERVATION_FAILOPEN_ITEM_REFRESH_GUARD_SQL = ROOT / "server" / "sql" / "step122_npc_observation_failopen_and_item_refresh_guard.sql"
 
 
 @dataclass(frozen=True)
@@ -1777,10 +2082,52 @@ def mysql_url_for_database(url: str, database: str) -> str:
     return urlunparse((p.scheme, p.netloc, "/" + database, "", "", ""))
 
 
+def base_migrations() -> tuple[Path, ...]:
+    if all(path.exists() for path in BASE_MIGRATIONS):
+        return BASE_MIGRATIONS
+    if SCHEMA_DUMP_FALLBACK.exists():
+        return (SCHEMA_DUMP_FALLBACK,)
+    return BASE_MIGRATIONS
+
+
+def resolve_mysql_exe() -> str:
+    for env_name in ("GOTHIC_MMO_MYSQL_EXE", "MYSQL_EXE"):
+        value = os.environ.get(env_name)
+        if value:
+            path = Path(value)
+            if path.exists():
+                return str(path)
+            found = shutil.which(value)
+            if found is not None:
+                return found
+            raise RuntimeError(f"{env_name} points to missing mysql executable: {value}")
+
+    found = shutil.which("mysql")
+    if found is not None:
+        return found
+
+    if os.name == "nt":
+        candidates = [
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "MySQL",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "MySQL",
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "MariaDB",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "MariaDB",
+        ]
+        matches: list[Path] = []
+        for root in candidates:
+            if root.exists():
+                matches.extend(root.glob("**/mysql.exe"))
+        if matches:
+            return str(sorted(matches, key=lambda p: (len(p.parts), str(p)))[0])
+
+    raise RuntimeError(
+        "mysql executable not found. Install MySQL client tools, add mysql.exe to PATH, "
+        "or set MYSQL_EXE to the full mysql.exe path."
+    )
+
+
 def mysql_cmd(target: Target, *, include_db: bool) -> list[str]:
-    exe = shutil.which("mysql")
-    if exe is None:
-        raise RuntimeError("mysql executable not found in PATH")
+    exe = resolve_mysql_exe()
     cmd = [
         exe,
         "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
@@ -1806,7 +2153,16 @@ def run(cmd: list[str], *, input_text: str | None = None, dry_run: bool = False,
     print(f"[RUN] {printable}")
     if dry_run:
         return {"cmd": cmd, "returncode": 0, "dry_run": True, "stdout": "", "stderr": ""}
-    proc = subprocess.run(cmd, input=input_text, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd))
+    proc = subprocess.run(
+        cmd,
+        input=input_text,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(cwd),
+    )
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -1814,12 +2170,215 @@ def run(cmd: list[str], *, input_text: str | None = None, dry_run: bool = False,
     return {"cmd": cmd, "returncode": proc.returncode, "dry_run": False, "stdout": proc.stdout, "stderr": proc.stderr}
 
 
+def mysql_connection_hint(target: Target, stderr: str) -> str:
+    lower = stderr.lower()
+    if "can't connect to mysql server" not in lower and "error 2003" not in lower:
+        return ""
+    if target.host in {"127.0.0.1", "::1"}:
+        return (
+            "HINT: MySQL refused TCP on loopback. This happens when mysqld is bound "
+            "to another interface or local socket only. Try a URL with host "
+            "'localhost' to use the Unix socket, or use the actual TCP bind address "
+            "reported by `ss -ltn`."
+        )
+    if target.host == "localhost":
+        return (
+            "HINT: MySQL refused the local connection. Verify that mysqld is running "
+            "and that the mysql CLI can connect through the configured Unix socket."
+        )
+    return (
+        "HINT: MySQL refused the TCP connection before authentication. Verify "
+        "mysqld bind-address/port and that the host in --mysql-url is an address "
+        "where the server actually listens."
+    )
+
+
 def apply_sql(target: Target, path: Path, *, dry_run: bool) -> dict[str, object]:
     if not path.exists():
         return {"path": rel(path), "status": "missing_skipped"}
-    result = run(mysql_cmd(target, include_db=True), input_text=path.read_text(encoding="utf-8"), dry_run=dry_run)
+    sql = path.read_text(encoding="utf-8")
+    if path.resolve() == SCHEMA_DUMP_FALLBACK.resolve():
+        sql = re.sub(r"CREATE\s+DEFINER=`[^`]+`@`[^`]+`\s+", "CREATE ", sql)
+    result = run(mysql_cmd(target, include_db=True), input_text=sql, dry_run=dry_run)
     status = "applied" if result["returncode"] == 0 else "failed"
+    if status == "failed":
+        hint = mysql_connection_hint(target, str(result.get("stderr") or ""))
+        if hint:
+            print(hint, file=sys.stderr)
+            result["connection_hint"] = hint
     return {"path": rel(path), "status": status, "result": result}
+
+
+def apply_schema_markers_for_fallback_dump(target: Target, *, dry_run: bool) -> dict[str, object]:
+    sql = """
+    INSERT INTO mmo_schema_versions(migration_key, schema_contract, notes)
+    VALUES
+      ('production/mysql/001_gothic_mmo_production_schema', 'production/mysql', 'compat marker: schema loaded from wynik_gothic_mmo_ch1_clean_schema.txt fallback dump'),
+      ('production/mysql/002_bootstrap_import_pipeline', 'production/mysql', 'compat marker: bootstrap import pipeline loaded from wynik_gothic_mmo_ch1_clean_schema.txt fallback dump')
+    ON DUPLICATE KEY UPDATE
+      schema_contract=VALUES(schema_contract),
+      notes=VALUES(notes);
+    """
+    result = run(mysql_cmd(target, include_db=True), input_text=sql, dry_run=dry_run)
+    status = "applied" if result["returncode"] == 0 else "failed"
+    return {"path": rel(SCHEMA_DUMP_FALLBACK), "status": status, "purpose": "fallback_schema_version_markers", "result": result}
+
+
+def apply_fallback_views(target: Target, *, dry_run: bool) -> dict[str, object]:
+    sql = """
+    CREATE OR REPLACE VIEW v_mmo_latest_save_checkpoint_manifests AS
+    SELECT *
+      FROM (
+        SELECT
+          sm.manifest_id,
+          BIN_TO_UUID(sm.manifest_id, 1) AS manifest_uuid,
+          sm.event_id,
+          sm.realm_id,
+          sm.world_instance_id,
+          sm.character_id,
+          c.character_key,
+          sm.manifest_key,
+          sm.save_slot_key,
+          sm.native_save_path,
+          sm.display_name,
+          sm.client_world_name,
+          sm.native_save_present,
+          sm.checkpoint_kind,
+          sm.reason,
+          sm.server_tick,
+          sm.latest_checkpoint_tick,
+          sm.recent_event_seq,
+          sm.inventory_rows,
+          sm.equipment_rows,
+          sm.quest_rows,
+          sm.known_dialog_rows,
+          sm.script_state_rows,
+          sm.world_item_rows,
+          sm.world_inventory_rows,
+          sm.interactive_rows,
+          sm.npc_lifecycle_rows,
+          sm.mover_rows,
+          sm.metadata,
+          sm.idempotency_key,
+          sm.row_version,
+          sm.created_at,
+          sm.updated_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY sm.character_id, COALESCE(sm.save_slot_key, sm.native_save_path, sm.manifest_key)
+            ORDER BY sm.created_at DESC, sm.row_version DESC, sm.manifest_id DESC
+          ) AS character_rank
+        FROM mmo_save_checkpoint_manifests sm
+        JOIN characters c ON c.character_id = sm.character_id
+      ) ranked
+     WHERE character_rank = 1;
+
+    CREATE OR REPLACE VIEW v_mmo_save_checkpoint_snapshot_domain_counts AS
+    SELECT
+      sm.manifest_id,
+      BIN_TO_UUID(sm.manifest_id, 1) AS manifest_uuid,
+      sm.character_id,
+      c.character_key,
+      sm.world_instance_id,
+      sm.manifest_key,
+      COALESCE(sm.save_slot_key, sm.manifest_key) AS save_key,
+      sm.save_slot_key,
+      sm.native_save_path,
+      sm.display_name,
+      sm.client_world_name,
+      sm.native_save_present,
+      sm.checkpoint_kind,
+      sm.reason,
+      sm.server_tick,
+      sm.latest_checkpoint_tick,
+      sm.recent_event_seq,
+      sm.row_version,
+      sm.created_at,
+      sm.updated_at,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_character_snapshot s WHERE s.manifest_id = sm.manifest_id) AS character_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_inventory_snapshot s WHERE s.manifest_id = sm.manifest_id) AS inventory_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_equipment_snapshot s WHERE s.manifest_id = sm.manifest_id) AS equipment_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_quest_snapshot s WHERE s.manifest_id = sm.manifest_id) AS quest_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_known_dialog_snapshot s WHERE s.manifest_id = sm.manifest_id) AS known_dialog_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_script_state_snapshot s WHERE s.manifest_id = sm.manifest_id) AS script_state_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id) AS world_entity_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind = 'item') AS world_item_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind = 'item' AND s.lifecycle_state = 'active') AS world_item_active_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind = 'item' AND s.lifecycle_state <> 'active') AS world_item_removed_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind = 'interactive') AS interactive_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind IN ('npc', 'creature')) AS npc_lifecycle_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_entity_snapshot s WHERE s.manifest_id = sm.manifest_id AND s.entity_kind IN ('npc', 'creature') AND s.lifecycle_state <> 'active') AS npc_lifecycle_non_active_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_inventory_snapshot s WHERE s.manifest_id = sm.manifest_id) AS world_inventory_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_world_clock_snapshot s WHERE s.manifest_id = sm.manifest_id) AS world_clock_rows,
+      (SELECT COUNT(*) FROM mmo_save_checkpoint_mover_snapshot s WHERE s.manifest_id = sm.manifest_id) AS mover_rows
+    FROM mmo_save_checkpoint_manifests sm
+    JOIN characters c ON c.character_id = sm.character_id;
+
+    CREATE OR REPLACE VIEW v_mmo_latest_save_checkpoint_restore_readiness AS
+    SELECT
+      dc.*,
+      0 AS exported_bootstrap_bytes
+    FROM v_mmo_save_checkpoint_snapshot_domain_counts dc
+    JOIN server_sessions ss
+      ON ss.character_id = dc.character_id
+     AND ss.world_instance_id = dc.world_instance_id
+    WHERE NOT EXISTS (
+      SELECT 1
+        FROM mmo_save_checkpoint_manifests newer
+       WHERE newer.character_id = dc.character_id
+         AND newer.world_instance_id = dc.world_instance_id
+         AND (
+           newer.created_at > dc.created_at
+           OR (newer.created_at = dc.created_at AND newer.row_version > dc.row_version)
+           OR (newer.created_at = dc.created_at AND newer.row_version = dc.row_version AND newer.manifest_id > dc.manifest_id)
+         )
+    );
+
+    CREATE OR REPLACE VIEW v_mmo_latest_save_checkpoint_strict_restore AS
+    SELECT
+      ss.session_key,
+      BIN_TO_UUID(ss.session_id, 1) AS session_uuid,
+      dc.character_key,
+      rwi.world_instance_key,
+      dc.manifest_uuid,
+      dc.save_key,
+      dc.display_name,
+      dc.client_world_name,
+      dc.native_save_present,
+      dc.reason,
+      dc.character_rows,
+      dc.inventory_rows,
+      dc.equipment_rows,
+      dc.quest_rows,
+      dc.known_dialog_rows,
+      dc.script_state_rows,
+      dc.world_entity_rows,
+      dc.world_inventory_rows,
+      dc.world_clock_rows,
+      dc.mover_rows,
+      0 AS exported_bootstrap_bytes,
+      'fallback_missing_export_function' AS snapshot_source,
+      0 AS strict_restore_ok,
+      dc.created_at
+    FROM v_mmo_save_checkpoint_snapshot_domain_counts dc
+    JOIN server_sessions ss
+      ON ss.character_id = dc.character_id
+     AND ss.world_instance_id = dc.world_instance_id
+    JOIN realm_world_instances rwi ON rwi.world_instance_id = dc.world_instance_id
+    WHERE NOT EXISTS (
+      SELECT 1
+        FROM mmo_save_checkpoint_manifests newer
+       WHERE newer.character_id = dc.character_id
+         AND newer.world_instance_id = dc.world_instance_id
+         AND (
+           newer.created_at > dc.created_at
+           OR (newer.created_at = dc.created_at AND newer.row_version > dc.row_version)
+           OR (newer.created_at = dc.created_at AND newer.row_version = dc.row_version AND newer.manifest_id > dc.manifest_id)
+         )
+    );
+    """
+    result = run(mysql_cmd(target, include_db=True), input_text=sql, dry_run=dry_run)
+    status = "applied" if result["returncode"] == 0 else "failed"
+    return {"path": rel(SCHEMA_DUMP_FALLBACK), "status": status, "purpose": "fallback_views", "result": result}
 
 
 def main() -> int:
@@ -1849,6 +2408,9 @@ def main() -> int:
     ap.add_argument("--with-step98-strict-db-continue-restore", action=argparse.BooleanOptionalAction, default=True, help="Install strict DB-native Continue/restore validation bridge")
     ap.add_argument("--with-step103-db-checkpoint-export-coverage", action=argparse.BooleanOptionalAction, default=True, help="Install DB checkpoint export coverage/world-clock fallback bridge")
     ap.add_argument("--with-step104-db-checkpoint-script-state-full-export", action=argparse.BooleanOptionalAction, default=True, help="Install DB checkpoint full script-state export bridge")
+    ap.add_argument("--with-step120-npc-authority-restore-bridge", action=argparse.BooleanOptionalAction, default=True, help="Install NPC authority restore current/history tables and recorder procedures")
+    ap.add_argument("--with-step121-server-parity-state-bridge", action=argparse.BooleanOptionalAction, default=True, help="Install trigger queue, world transition and client correction current/history tables and recorder procedures")
+    ap.add_argument("--with-step122-npc-observation-failopen-item-refresh-guard", action=argparse.BooleanOptionalAction, default=True, help="Install NPC observation VARCHAR widening used by direct C++ server fail-open/item refresh guard")
     ap.add_argument("--normalize-collation", action=argparse.BooleanOptionalAction, default=True, help="Normalize base table collations to utf8mb4_0900_ai_ci after optional SQL surfaces are installed")
     ap.add_argument("--activate-content", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
@@ -1890,14 +2452,32 @@ def main() -> int:
     reset_result = run(mysql_cmd(target, include_db=False), input_text=create_sql, dry_run=args.dry_run)
     manifest["commands"].append(reset_result)
     if reset_result["returncode"] != 0:
+        hint = mysql_connection_hint(target, str(reset_result.get("stderr") or ""))
+        if hint:
+            print(hint, file=sys.stderr)
+            reset_result["connection_hint"] = hint
         manifest["status"] = "failed_drop_create"
     else:
-        for migration in BASE_MIGRATIONS:
+        for migration in base_migrations():
             entry = apply_sql(target, migration, dry_run=args.dry_run)
             manifest["applied_sql"].append(entry)
             if entry["status"] == "failed":
                 manifest["status"] = "failed_base_migration"
                 break
+            if entry["status"] == "missing_skipped":
+                manifest["status"] = "failed_missing_base_migration"
+                break
+            if migration.resolve() == SCHEMA_DUMP_FALLBACK.resolve():
+                marker_entry = apply_schema_markers_for_fallback_dump(target, dry_run=args.dry_run)
+                manifest["applied_sql"].append(marker_entry)
+                if marker_entry["status"] == "failed":
+                    manifest["status"] = "failed_fallback_schema_markers"
+                    break
+                view_entry = apply_fallback_views(target, dry_run=args.dry_run)
+                manifest["applied_sql"].append(view_entry)
+                if view_entry["status"] == "failed":
+                    manifest["status"] = "failed_fallback_views"
+                    break
         else:
             import_cmd = [
                 sys.executable,
@@ -1924,7 +2504,13 @@ def main() -> int:
                 if manifest["status"] == "running" and args.with_step53:
                     # Create/materialize Step53 read models through its wrapper when available; otherwise apply SQL only.
                     step53_wrapper = ROOT / "tools" / "migration" / "run_mmo_step53_server_materialization_followup.py"
-                    if step53_wrapper.exists():
+                    if not STEP53_SQL.exists():
+                        manifest["applied_sql"].append({
+                            "path": rel(STEP53_SQL),
+                            "status": "skipped_missing_optional_step53_sql",
+                            "reason": "Step53 SQL is absent in this checkout; fallback schema dump already provides any exported read-model tables.",
+                        })
+                    elif step53_wrapper.exists():
                         step53_cmd = [
                             sys.executable,
                             str(step53_wrapper),
@@ -1947,96 +2533,72 @@ def main() -> int:
                     manifest["applied_sql"].append(step55_live_bridge)
                     if step55_live_bridge["status"] == "failed":
                         manifest["status"] = "failed_step55_live_bridge"
-                    elif step55_live_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step55_live_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step56b_progress_bridge:
                     step56b_progress_bridge = apply_sql(target, STEP56B_PROGRESS_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step56b_progress_bridge)
                     if step56b_progress_bridge["status"] == "failed":
                         manifest["status"] = "failed_step56b_progress_bridge"
-                    elif step56b_progress_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step56b_progress_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step59_item_interactive_progress_bridge:
                     step59_bridge = apply_sql(target, STEP59_ITEM_INTERACTIVE_PROGRESS_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step59_bridge)
                     if step59_bridge["status"] == "failed":
                         manifest["status"] = "failed_step59_item_interactive_progress_bridge"
-                    elif step59_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step59_item_interactive_progress_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step60_equipment_bridge:
                     step60_bridge = apply_sql(target, STEP60_EQUIPMENT_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step60_bridge)
                     if step60_bridge["status"] == "failed":
                         manifest["status"] = "failed_step60_equipment_bridge"
-                    elif step60_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step60_equipment_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step67_interactive_use_bridge:
                     step67_bridge = apply_sql(target, STEP67_INTERACTIVE_USE_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step67_bridge)
                     if step67_bridge["status"] == "failed":
                         manifest["status"] = "failed_step67_interactive_use_bridge"
-                    elif step67_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step67_interactive_use_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step68_drop_loot_bridge:
                     step68_bridge = apply_sql(target, STEP68_DROP_LOOT_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step68_bridge)
                     if step68_bridge["status"] == "failed":
                         manifest["status"] = "failed_step68_drop_loot_bridge"
-                    elif step68_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step68_drop_loot_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step83_combat_lifecycle_bridge:
                     step83_bridge = apply_sql(target, STEP83_COMBAT_LIFECYCLE_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step83_bridge)
                     if step83_bridge["status"] == "failed":
                         manifest["status"] = "failed_step83_combat_lifecycle_bridge"
-                    elif step83_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step83_combat_lifecycle_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step84_world_identity_lifecycle_bridge:
                     step84_bridge = apply_sql(target, STEP84_WORLD_IDENTITY_LIFECYCLE_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step84_bridge)
                     if step84_bridge["status"] == "failed":
                         manifest["status"] = "failed_step84_world_identity_lifecycle_bridge"
-                    elif step84_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step84_world_identity_lifecycle_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step93_save_checkpoint_quest_utf8_bridge:
                     step93_bridge = apply_sql(target, STEP93_SAVE_CHECKPOINT_QUEST_UTF8_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step93_bridge)
                     if step93_bridge["status"] == "failed":
                         manifest["status"] = "failed_step93_save_checkpoint_quest_utf8_bridge"
-                    elif step93_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step93_save_checkpoint_quest_utf8_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step94_server_save_checkpoint_manifest:
                     step94_manifest = apply_sql(target, STEP94_SERVER_SAVE_CHECKPOINT_MANIFEST_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step94_manifest)
                     if step94_manifest["status"] == "failed":
                         manifest["status"] = "failed_step94_server_save_checkpoint_manifest"
-                    elif step94_manifest["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step94_server_save_checkpoint_manifest_sql"
 
                 if manifest["status"] == "running" and args.with_step95_save_slot_catalog_db_continue_bridge:
                     step95_bridge = apply_sql(target, STEP95_SAVE_SLOT_CATALOG_DB_CONTINUE_BRIDGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step95_bridge)
                     if step95_bridge["status"] == "failed":
                         manifest["status"] = "failed_step95_save_slot_catalog_db_continue_bridge"
-                    elif step95_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step95_save_slot_catalog_db_continue_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step96_db_save_checkpoint_snapshots:
                     step96_bridge = apply_sql(target, STEP96_DB_SAVE_CHECKPOINT_SNAPSHOTS_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step96_bridge)
                     if step96_bridge["status"] == "failed":
                         manifest["status"] = "failed_step96_db_save_checkpoint_snapshots"
-                    elif step96_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step96_db_save_checkpoint_snapshots_sql"
 
                 if manifest["status"] == "running" and step104_procedure_export_enabled:
                     step108_foundation = apply_sql(target, STEP108_DB_CHECKPOINT_WORLD_CLOCK_FOUNDATION_SQL, dry_run=args.dry_run)
@@ -2044,8 +2606,6 @@ def main() -> int:
                     manifest["applied_sql"].append(step108_foundation)
                     if step108_foundation["status"] == "failed":
                         manifest["status"] = "failed_step108_db_checkpoint_world_clock_foundation"
-                    elif step108_foundation["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step108_db_checkpoint_world_clock_foundation_sql"
 
                 if manifest["status"] == "running" and args.with_step97_db_save_checkpoint_restore_bridge and not legacy_step97_restore_enabled:
                     manifest["applied_sql"].append({
@@ -2058,8 +2618,6 @@ def main() -> int:
                     manifest["applied_sql"].append(step97_bridge)
                     if step97_bridge["status"] == "failed":
                         manifest["status"] = "failed_step97_db_save_checkpoint_restore_bridge"
-                    elif step97_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step97_db_save_checkpoint_restore_bridge_sql"
 
                 if manifest["status"] == "running" and args.with_step98_strict_db_continue_restore and not legacy_step98_strict_enabled:
                     manifest["applied_sql"].append({
@@ -2072,24 +2630,18 @@ def main() -> int:
                     manifest["applied_sql"].append(step98_bridge)
                     if step98_bridge["status"] == "failed":
                         manifest["status"] = "failed_step98_strict_db_continue_restore"
-                    elif step98_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step98_strict_db_continue_restore_sql"
 
                 if manifest["status"] == "running" and args.with_step103_db_checkpoint_export_coverage:
                     step103_bridge = apply_sql(target, STEP103_DB_CHECKPOINT_EXPORT_COVERAGE_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step103_bridge)
                     if step103_bridge["status"] == "failed":
                         manifest["status"] = "failed_step103_db_checkpoint_export_coverage"
-                    elif step103_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step103_db_checkpoint_export_coverage_sql"
 
                 if manifest["status"] == "running" and args.with_step104_db_checkpoint_script_state_full_export:
                     step104_bridge = apply_sql(target, STEP104_DB_CHECKPOINT_SCRIPT_STATE_FULL_EXPORT_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step104_bridge)
                     if step104_bridge["status"] == "failed":
                         manifest["status"] = "failed_step104_db_checkpoint_script_state_full_export"
-                    elif step104_bridge["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step104_db_checkpoint_script_state_full_export_sql"
 
                 if manifest["status"] == "running" and step104_procedure_export_enabled:
                     step108_finalize = apply_sql(target, STEP108_DB_CHECKPOINT_WORLD_CLOCK_FOUNDATION_SQL, dry_run=args.dry_run)
@@ -2097,8 +2649,24 @@ def main() -> int:
                     manifest["applied_sql"].append(step108_finalize)
                     if step108_finalize["status"] == "failed":
                         manifest["status"] = "failed_step108_db_checkpoint_world_clock_foundation_finalize"
-                    elif step108_finalize["status"] == "missing_skipped":
-                        manifest["status"] = "failed_missing_step108_db_checkpoint_world_clock_foundation_sql"
+
+                if manifest["status"] == "running" and args.with_step120_npc_authority_restore_bridge:
+                    step120_bridge = apply_sql(target, STEP120_NPC_AUTHORITY_RESTORE_BRIDGE_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step120_bridge)
+                    if step120_bridge["status"] == "failed":
+                        manifest["status"] = "failed_step120_npc_authority_restore_bridge"
+
+                if manifest["status"] == "running" and args.with_step121_server_parity_state_bridge:
+                    step121_bridge = apply_sql(target, STEP121_SERVER_PARITY_STATE_BRIDGE_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step121_bridge)
+                    if step121_bridge["status"] == "failed":
+                        manifest["status"] = "failed_step121_server_parity_state_bridge"
+
+                if manifest["status"] == "running" and args.with_step122_npc_observation_failopen_item_refresh_guard:
+                    step122_bridge = apply_sql(target, STEP122_NPC_OBSERVATION_FAILOPEN_ITEM_REFRESH_GUARD_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step122_bridge)
+                    if step122_bridge["status"] == "failed":
+                        manifest["status"] = "failed_step122_npc_observation_failopen_item_refresh_guard"
 
                 if manifest["status"] == "running" and args.normalize_collation:
                     normalize_tool = ROOT / "tools" / "bootstrap" / "normalize_mmo_mysql_collation.py"
@@ -2298,6 +2866,19 @@ def main() -> int:
                         if check_step98_result["returncode"] != 0:
                             manifest["status"] = "failed_step98_strict_db_continue_restore_check"
 
+                if manifest["status"] == "passed" and args.with_step121_server_parity_state_bridge:
+                    step121_check = ROOT / "tools" / "validation" / "check_mmo_step121_server_parity_state_bridge.py"
+                    if step121_check.exists():
+                        check_step121_cmd = [
+                            sys.executable,
+                            str(step121_check),
+                            "--url", mysql_url_for_database(args.mysql_url, target.database),
+                        ]
+                        check_step121_result = run(check_step121_cmd, dry_run=args.dry_run)
+                        manifest["commands"].append(check_step121_result)
+                        if check_step121_result["returncode"] != 0:
+                            manifest["status"] = "failed_step121_server_parity_state_bridge_check"
+
     manifest["finished_at"] = datetime.now(timezone.utc).isoformat()
     manifest_path = output_dir / "mysql_reset_manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -2462,7 +3043,8 @@ This wrapper is intentionally boring and explicit:
 4. leave only logs/manifests under runtime/;
 5. install the live receiver bridge, Step56b progress bridge, Step59 item/interactive/progress bridge,
    Step60 equipment bridge, Step67 interactive-use bridge, Step68 drop/loot bridge,
-   Step83 combat/lifecycle bridge, and normalize collations by default;
+   Step83 combat/lifecycle bridge, Step120/Step121 server parity bridges, Step122 NPC observation hotfix,
+   and normalize collations by default;
 6. write a Step70 PC_HERO_TEST live-loop readiness manifest.
 
 It does not make SQLite the server database. The live server path remains:
@@ -2473,6 +3055,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
+import platform
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -2487,7 +3071,12 @@ DEFAULT_SQLITE_SOURCE = ROOT / "runtime" / "g2notr_ch1_pre_xardas.sqlite"
 DEFAULT_BASELINE = ROOT / "runtime" / "baselines" / "g2notr_chapter1_before_xardas.sqlite"
 DEFAULT_BASELINE_MANIFEST = ROOT / "runtime" / "baselines" / "g2notr_chapter1_before_xardas.manifest.json"
 DEFAULT_OUTPUT_DIR = ROOT / "runtime" / "step55_clean_mysql_from_pre_xardas"
-DEFAULT_MYSQL_URL = "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean"
+DEFAULT_MYSQL_HOST = "192.168.195.94" if platform.system().lower() == "windows" else "127.0.0.1"
+PLATFORM_DEFAULT_MYSQL_URL = f"mysql://gothic:gothic_dev_password@{DEFAULT_MYSQL_HOST}:3306/gothic_mmo_ch1_clean"
+DEFAULT_MYSQL_URL = os.environ.get(
+    "GOTHIC_MMO_MYSQL_URL",
+    os.environ.get("MYSQL_URL", PLATFORM_DEFAULT_MYSQL_URL),
+)
 
 
 def rel(path: Path) -> str:
@@ -2535,7 +3124,15 @@ def run(cmd: list[str], *, dry_run: bool = False) -> dict[str, object]:
     print("[RUN] " + " ".join(shown))
     if dry_run:
         return {"cmd": shown, "returncode": 0, "dry_run": True, "stdout_tail": "", "stderr_tail": ""}
-    proc = subprocess.run(cmd, cwd=str(ROOT), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(
+        cmd,
+        cwd=str(ROOT),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -2602,7 +3199,11 @@ def mysql_database_name(mysql_url: str) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Build clean MySQL dev DB from runtime/g2notr_ch1_pre_xardas.sqlite.")
     ap.add_argument("--sqlite", default=str(DEFAULT_SQLITE_SOURCE), help="Pre-Xardas SQLite capture file. Default: runtime/g2notr_ch1_pre_xardas.sqlite")
-    ap.add_argument("--mysql-url", default=DEFAULT_MYSQL_URL, help="Target MySQL database URL. The database is dropped/recreated.")
+    ap.add_argument(
+        "--mysql-url",
+        default=DEFAULT_MYSQL_URL,
+        help="Target MySQL database URL. Defaults to GOTHIC_MMO_MYSQL_URL, MYSQL_URL, then local socket via localhost. The database is dropped/recreated.",
+    )
     ap.add_argument("--baseline", default=str(DEFAULT_BASELINE), help="Canonical local baseline copy path.")
     ap.add_argument("--manifest", default=str(DEFAULT_BASELINE_MANIFEST), help="Canonical local baseline manifest path.")
     ap.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Local report/log artifact directory.")
@@ -2629,6 +3230,9 @@ def main() -> int:
     ap.add_argument("--skip-step98-strict-db-continue-restore", action="store_true", help="Do not install strict DB-native Continue/restore validation bridge.")
     ap.add_argument("--skip-step103-db-checkpoint-export-coverage", action="store_true", help="Do not install DB checkpoint export coverage/world-clock fallback bridge.")
     ap.add_argument("--skip-step104-db-checkpoint-script-state-full-export", action="store_true", help="Do not install DB checkpoint full script-state export bridge.")
+    ap.add_argument("--skip-step120-npc-authority-restore-bridge", action="store_true", help="Do not install NPC authority restore current/history tables and recorder procedures.")
+    ap.add_argument("--skip-step121-server-parity-state-bridge", action="store_true", help="Do not install trigger queue, world transition and client correction current/history tables and recorder procedures.")
+    ap.add_argument("--skip-step122-npc-observation-failopen-item-refresh-guard", action="store_true", help="Do not install NPC observation VARCHAR widening used by direct C++ server fail-open/item refresh guard.")
     ap.add_argument("--skip-step70-live-readiness", action="store_true", help="Do not run the clean live-loop readiness checker after a successful rebuild.")
     ap.add_argument("--skip-collation-normalize", action="store_true", help="Do not normalize MySQL table collations after the clean import and additive SQL surfaces.")
     ap.add_argument("--no-strict-baseline", action="store_true", help="Do not require zero dialog selections in the SQLite capture.")
@@ -2736,6 +3340,12 @@ def main() -> int:
                 reset_args.append("--no-with-step103-db-checkpoint-export-coverage")
             if args.skip_step104_db_checkpoint_script_state_full_export:
                 reset_args.append("--no-with-step104-db-checkpoint-script-state-full-export")
+            if args.skip_step120_npc_authority_restore_bridge:
+                reset_args.append("--no-with-step120-npc-authority-restore-bridge")
+            if args.skip_step121_server_parity_state_bridge:
+                reset_args.append("--no-with-step121-server-parity-state-bridge")
+            if args.skip_step122_npc_observation_failopen_item_refresh_guard:
+                reset_args.append("--no-with-step122-npc-observation-failopen-item-refresh-guard")
             if args.skip_collation_normalize:
                 reset_args.append("--no-normalize-collation")
             if args.dry_run:
@@ -2798,9 +3408,6 @@ if __name__ == "__main__":
 
 
 
-
-
-
 ===== tools\capture_mmo_chapter1_start_sqlite_baseline.py =====
 #!/usr/bin/env python3
 from _tool_entrypoint import run
@@ -2834,6 +3441,13 @@ run("validation/check_mmo_step103_db_checkpoint_parity.py")
 from _tool_entrypoint import run
 
 run("validation/check_mmo_step104_db_checkpoint_export.py")
+
+
+===== tools\check_mmo_step121_server_parity_state_bridge.py =====
+#!/usr/bin/env python3
+from _tool_entrypoint import run
+
+run("validation/check_mmo_step121_server_parity_state_bridge.py")
 
 
 ===== tools\check_mmo_step95_save_slot_catalog_db_continue_bridge.py =====
@@ -2887,6 +3501,12 @@ import json
 import shutil
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -2925,7 +3545,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -3344,6 +3964,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -3391,9 +4012,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
-    if exe is None:
-        raise RuntimeError("mysql executable was not found in PATH")
+    exe = resolve_mysql_exe()
     cmd = [exe, "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci", "--batch", "--raw", "--skip-column-names", "-h", target.host, "-P", str(target.port), "-u", target.user]
     if target.password:
         cmd.append(f"-p{target.password}")
@@ -3401,8 +4020,25 @@ def mysql_cmd(target: Target) -> list[str]:
     return cmd
 
 
+def resolve_mysql_exe() -> str:
+    for env_name in ("GOTHIC_MMO_MYSQL_EXE", "MYSQL_EXE"):
+        value = os.environ.get(env_name)
+        if value:
+            path = Path(value)
+            if path.exists():
+                return str(path)
+            found = shutil.which(value)
+            if found is not None:
+                return found
+            raise RuntimeError(f"{env_name} points to missing mysql executable: {value}")
+    exe = shutil.which("mysql")
+    if exe is None:
+        raise RuntimeError("mysql executable was not found in PATH; set MYSQL_EXE to the full mysql.exe path")
+    return exe
+
+
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -3547,6 +4183,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 
 @dataclass(frozen=True)
@@ -3575,7 +4217,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -3970,6 +4612,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 
 @dataclass(frozen=True)
@@ -3998,7 +4646,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -4018,7 +4666,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -4688,6 +5336,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -4740,9 +5389,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
-    if exe is None:
-        raise RuntimeError("mysql executable was not found in PATH")
+    exe = resolve_mysql_exe()
     cmd = [exe, "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci", "--batch", "--raw", "--skip-column-names", "-h", target.host, "-P", str(target.port), "-u", target.user]
     if target.password:
         cmd.append(f"-p{target.password}")
@@ -4750,8 +5397,25 @@ def mysql_cmd(target: Target) -> list[str]:
     return cmd
 
 
+def resolve_mysql_exe() -> str:
+    for env_name in ("GOTHIC_MMO_MYSQL_EXE", "MYSQL_EXE"):
+        value = os.environ.get(env_name)
+        if value:
+            path = Path(value)
+            if path.exists():
+                return str(path)
+            found = shutil.which(value)
+            if found is not None:
+                return found
+            raise RuntimeError(f"{env_name} points to missing mysql executable: {value}")
+    exe = shutil.which("mysql")
+    if exe is None:
+        raise RuntimeError("mysql executable was not found in PATH; set MYSQL_EXE to the full mysql.exe path")
+    return exe
+
+
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -4973,6 +5637,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -5028,9 +5693,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
-    if exe is None:
-        raise RuntimeError("mysql executable was not found in PATH")
+    exe = resolve_mysql_exe()
     cmd = [
         exe,
         "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
@@ -5050,11 +5713,30 @@ def mysql_cmd(target: Target) -> list[str]:
     return cmd
 
 
+def resolve_mysql_exe() -> str:
+    for env_name in ("GOTHIC_MMO_MYSQL_EXE", "MYSQL_EXE"):
+        value = os.environ.get(env_name)
+        if value:
+            path = Path(value)
+            if path.exists():
+                return str(path)
+            found = shutil.which(value)
+            if found is not None:
+                return found
+            raise RuntimeError(f"{env_name} points to missing mysql executable: {value}")
+    exe = shutil.which("mysql")
+    if exe is None:
+        raise RuntimeError("mysql executable was not found in PATH; set MYSQL_EXE to the full mysql.exe path")
+    return exe
+
+
 def run_mysql(target: Target, sql: str, *, echo_stdout: bool = False) -> str:
     proc = subprocess.run(
         mysql_cmd(target),
         input=sql,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -5919,6 +6601,12 @@ import signal
 import socket
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -6001,7 +6689,7 @@ def parse_mysql_url(url: str) -> MySqlTarget:
 
 
 def mysql_cmd(target: MySqlTarget) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -6656,6 +7344,12 @@ import re
 import shutil
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -6694,7 +7388,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -6718,7 +7412,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target) + ["--execute", sql], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target) + ["--execute", sql], text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -6848,7 +7542,7 @@ def inventory_evidence_summary(target: Target, session_key: str) -> dict[str, ob
 
 
 def run_capture(cmd: list[str]) -> dict[str, object]:
-    proc = subprocess.run(cmd, cwd=str(ROOT), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(cmd, cwd=str(ROOT), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -6955,7 +7649,7 @@ def latest_active_session_key(target: Target) -> tuple[str, dict[str, int]]:
 
 
 def worker_supported_flags() -> set[str]:
-    proc = subprocess.run([sys.executable, str(WORKER), "--help"], cwd=str(ROOT), text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    proc = subprocess.run([sys.executable, str(WORKER), "--help"], cwd=str(ROOT), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     help_text = proc.stdout
     return set(re.findall(r"(--[a-zA-Z0-9][a-zA-Z0-9-]*)", help_text))
 
@@ -7327,6 +8021,12 @@ import re
 import shutil
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -7415,7 +8115,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -7435,7 +8135,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -10006,9 +10706,27 @@ The supported destructive local rebuild remains:
 ```bash
 python3 tools/run_mmo_step55_clean_mysql_from_pre_xardas.py \
   --sqlite runtime/g2notr_ch1_pre_xardas.sqlite \
-  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --mysql-url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --i-understand-this-drops-database
 ```
+
+The clean rebuild applies the active bridge SQL surfaces by default, including
+`server/sql/step120_npc_authority_restore_bridge.sql` and
+`server/sql/step121_server_parity_state_bridge.sql`.
+
+For an already-created DB, use the current-state entrypoint instead of applying
+individual StepXX SQL files by hand:
+
+```bash
+python3 tools/apply_current_mmo_db_state.py \
+  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
+  --output runtime/current_mmo_db_state/apply.json
+```
+
+The old StepXX SQL files are migration history and debugging anchors. New local
+work should target the current-state tool unless a regression needs a specific
+old step. Step53 read-model materialization remains a separate Python job and is
+still run by the clean rebuild path.
 
 `runtime/g2notr_ch1_pre_xardas.sqlite` is a captured New Game zero-point/oracle,
 not the MMO production database. To recreate that SQLite file, run the game once
@@ -10052,6 +10770,7 @@ run("bootstrap/restore_mmo_chapter1_start_sqlite_baseline.py")
 from _tool_entrypoint import run
 
 run("bootstrap/run_mmo_step55_clean_mysql_from_pre_xardas.py")
+
 
 
 ===== tools\validation\audit_runtime_sqlite.py =====
@@ -11025,6 +11744,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_ROUTINES = (
     "mmo_build_latest_save_checkpoint_bootstrap_snapshot_v1",
@@ -11065,7 +11790,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -11421,6 +12146,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_ROUTINES = (
     "mmo_build_latest_save_checkpoint_bootstrap_snapshot_v1",
@@ -11472,7 +12203,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -11985,6 +12716,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_ROUTINES = (
     "mmo_build_latest_save_checkpoint_bootstrap_snapshot_v1",
@@ -12055,7 +12792,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -12601,6 +13338,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_ROUTINES = (
     "mmo_build_latest_save_checkpoint_bootstrap_snapshot_v1",
@@ -12672,7 +13415,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -13161,6 +13904,274 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
+===== tools\validation\check_mmo_step121_server_parity_state_bridge.py =====
+#!/usr/bin/env python3
+"""Check Step121 server parity state bridge."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
+
+REQUIRED_TABLES = (
+    "mmo_world_trigger_queue_current",
+    "mmo_world_trigger_queue_history",
+    "mmo_character_world_transition_state_current",
+    "mmo_character_world_transition_state_history",
+    "mmo_client_action_correction_current",
+    "mmo_client_action_correction_history",
+)
+REQUIRED_ROUTINES = (
+    "mmo_record_trigger_queue_state",
+    "mmo_record_world_transition_state",
+    "mmo_record_client_action_correction",
+    "mmo_ack_client_action_correction",
+)
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql:// URL")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database is missing in mysql URL")
+    return Target(
+        parsed.hostname or "localhost",
+        parsed.port or 3306,
+        unquote(parsed.username or ""),
+        unquote(parsed.password or ""),
+        database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable was not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "--skip-column-names",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, file=sys.stderr, end="")
+    if proc.returncode != 0:
+        raise RuntimeError(f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def sql_literal(value: str) -> str:
+    return "'" + value.replace("\\", "\\\\").replace("'", "''") + "'"
+
+
+def count_object(target: Target, kind: str, name: str) -> int:
+    if kind == "table":
+        sql = (
+            "SELECT COUNT(*) FROM information_schema.tables "
+            f"WHERE table_schema=DATABASE() AND table_type='BASE TABLE' AND table_name={sql_literal(name)};"
+        )
+    elif kind == "routine":
+        sql = (
+            "SELECT COUNT(*) FROM information_schema.routines "
+            f"WHERE routine_schema=DATABASE() AND routine_name={sql_literal(name)};"
+        )
+    else:
+        raise ValueError(kind)
+    return int((run_mysql(target, sql) or "0").splitlines()[-1])
+
+
+def inspect(target: Target) -> dict[str, object]:
+    return {
+        "tables": {name: count_object(target, "table", name) == 1 for name in REQUIRED_TABLES},
+        "routines": {name: count_object(target, "routine", name) == 1 for name in REQUIRED_ROUTINES},
+    }
+
+
+def smoke(target: Target) -> dict[str, object]:
+    idem_prefix = "step121-smoke"
+    sql = f"""
+    SET @sid=(
+      SELECT session_id
+        FROM server_sessions
+       WHERE character_id IS NOT NULL
+         AND world_instance_id IS NOT NULL
+       ORDER BY started_at DESC
+       LIMIT 1
+    );
+    SET @world_key=(SELECT rwi.world_instance_key FROM server_sessions ss JOIN realm_world_instances rwi ON rwi.world_instance_id=ss.world_instance_id WHERE ss.session_id=@sid LIMIT 1);
+
+    SET @trigger_event_id=NULL; SET @trigger_row=NULL;
+    CALL mmo_record_trigger_queue_state(
+      @sid,
+      'trigger:step121:smoke',
+      'queued',
+      'timer',
+      121000,
+      121,
+      JSON_OBJECT('smoke', true),
+      {sql_literal(idem_prefix + ":trigger-queue")},
+      @trigger_event_id,
+      @trigger_row
+    );
+
+    SET @transition_event_id=NULL; SET @transition_row=NULL;
+    CALL mmo_record_world_transition_state(
+      @sid,
+      @world_key,
+      @world_key,
+      'visited',
+      'chapter:1',
+      TRUE,
+      121,
+      JSON_OBJECT('smoke', true),
+      {sql_literal(idem_prefix + ":world-transition")},
+      @transition_event_id,
+      @transition_row
+    );
+
+    SET @correction_event_id=NULL; SET @correction_id=NULL;
+    CALL mmo_record_client_action_correction(
+      @sid,
+      'movement_proposal',
+      121,
+      'rollback_to_authoritative_position',
+      'step121_smoke',
+      121,
+      JSON_OBJECT('smoke', true),
+      {sql_literal(idem_prefix + ":client-correction")},
+      @correction_event_id,
+      @correction_id
+    );
+
+    SET @ack_row=NULL;
+    CALL mmo_ack_client_action_correction(
+      @sid,
+      'movement_proposal',
+      121,
+      122,
+      JSON_OBJECT('smoke', true),
+      {sql_literal(idem_prefix + ":client-correction-ack")},
+      @ack_row
+    );
+
+    SELECT CONCAT(
+      COALESCE(@trigger_row,0), '\t',
+      COALESCE(@transition_row,0), '\t',
+      COALESCE(BIN_TO_UUID(@correction_id,1), ''), '\t',
+      COALESCE(@ack_row,0), '\t',
+      (SELECT COUNT(*) FROM mmo_world_trigger_queue_current WHERE trigger_key='trigger:step121:smoke'), '\t',
+      (SELECT COUNT(*) FROM mmo_character_world_transition_state_current WHERE to_world_key=@world_key), '\t',
+      (SELECT COUNT(*) FROM mmo_client_action_correction_current WHERE correction_id=@correction_id AND acknowledged=TRUE)
+    );
+    """
+    out = run_mysql(target, sql)
+    last = out.splitlines()[-1] if out.splitlines() else ""
+    parts = last.split("\t")
+    ok = (
+        len(parts) == 7
+        and int(parts[0] or "0") >= 1
+        and int(parts[1] or "0") >= 1
+        and bool(parts[2])
+        and int(parts[3] or "0") >= 1
+        and int(parts[4] or "0") >= 1
+        and int(parts[5] or "0") >= 1
+        and int(parts[6] or "0") == 1
+    )
+    return {"ok": ok, "row": last}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check Step121 server parity state bridge.")
+    parser.add_argument("--url", required=True)
+    parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    target = parse_mysql_url(args.url)
+    result: dict[str, object] = {
+        "step": "121_server_parity_state_bridge",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "database": target.database,
+        "status": "running",
+    }
+
+    try:
+        result.update(inspect(target))
+        missing = (
+            [name for name, ok in result["tables"].items() if not ok] +  # type: ignore[index]
+            [name for name, ok in result["routines"].items() if not ok]  # type: ignore[index]
+        )
+        if missing:
+            result["status"] = "failed"
+            result["missing"] = missing
+        elif args.smoke:
+            result["smoke"] = smoke(target)
+            result["status"] = "ok" if result["smoke"]["ok"] else "failed"  # type: ignore[index]
+        else:
+            result["status"] = "ok"
+    except Exception as exc:  # noqa: BLE001
+        result["status"] = "failed"
+        result["error"] = str(exc)
+        print(f"ERROR: {exc}", file=sys.stderr)
+
+    result["finished_at"] = datetime.now(timezone.utc).isoformat()
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(f"artifact={out}")
+    print("status=" + str(result["status"]))
+    return 0 if result["status"] == "ok" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
 ===== tools\validation\check_mmo_step55_live_receiver_bridge.py =====
 #!/usr/bin/env python3
 """Verify that a clean MySQL DB is ready for Step55 receiver + outbox usage."""
@@ -13179,6 +14190,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_TABLES = [
     "server_sessions",
@@ -13218,7 +14235,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -13242,7 +14259,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -13401,6 +14418,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_ROUTINES = [
     "mmo_set_character_script_int",
@@ -13442,7 +14465,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -13466,7 +14489,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -13665,6 +14688,12 @@ import json
 import shutil
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -13719,7 +14748,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -13743,7 +14772,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target) + ["--execute", sql], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target) + ["--execute", sql], text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -13959,6 +14988,12 @@ import json
 import shutil
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14011,7 +15046,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -14035,7 +15070,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target) + ["--execute", sql], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target) + ["--execute", sql], text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -14290,6 +15325,12 @@ import json
 import shutil
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14333,7 +15374,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -14357,7 +15398,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target) + ["--execute", sql], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target) + ["--execute", sql], text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -14544,6 +15585,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_TABLES = [
     "server_sessions",
@@ -14585,7 +15632,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -14629,7 +15676,7 @@ class SmokeSqlError(RuntimeError):
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -14896,6 +15943,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SESSION_KEY = "local-dev-PC_HERO_TEST"
@@ -14940,7 +15993,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -14971,7 +16024,7 @@ def sql_literal(value: object) -> str:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -15337,6 +16390,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SQLITE = ROOT / "runtime" / "g2notr_ch1_pre_xardas.sqlite"
@@ -15408,7 +16467,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -15439,7 +16498,7 @@ def sql_literal(value: object) -> str:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != 0:
         if proc.stderr:
             print(proc.stderr, file=sys.stderr, end="")
@@ -15726,6 +16785,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_TABLES = ("character_quest_audit",)
 REQUIRED_ROUTINES = ("mmo_update_character_quest",)
@@ -15751,7 +16816,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [exe, "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci", "--batch", "--raw", "--skip-column-names", "-h", target.host, "-P", str(target.port), "-u", target.user]
@@ -15762,7 +16827,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -15870,6 +16935,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_TABLES = ("mmo_save_checkpoint_manifests",)
 REQUIRED_ROUTINES = ("mmo_create_save_checkpoint_manifest",)
@@ -15892,7 +16963,7 @@ def parse_mysql_url(url: str) -> Target:
     return Target(p.hostname or "127.0.0.1", p.port or 3306, unquote(p.username or ""), unquote(p.password or ""), db)
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [exe, "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci", "--batch", "--raw", "--skip-column-names", "-h", target.host, "-P", str(target.port), "-u", target.user]
@@ -15902,7 +16973,7 @@ def mysql_cmd(target: Target) -> list[str]:
     return cmd
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -15995,6 +17066,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_TABLES = ("mmo_save_checkpoint_manifests",)
 REQUIRED_VIEWS = ("v_mmo_latest_save_checkpoint_manifests",)
@@ -16028,7 +17105,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [exe, "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci", "--batch", "--raw", "--skip-column-names", "-h", target.host, "-P", str(target.port), "-u", target.user]
@@ -16039,7 +17116,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -16200,6 +17277,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_TABLES = (
     "mmo_save_checkpoint_character_snapshot",
@@ -16240,7 +17323,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [exe, "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
@@ -16252,7 +17335,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -16405,6 +17488,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_TABLES = ("mmo_save_checkpoint_world_clock_snapshot",)
 REQUIRED_ROUTINES = (
@@ -16438,7 +17527,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [exe, "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
@@ -16450,7 +17539,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -16661,6 +17750,12 @@ from urllib.parse import unquote, urlparse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
+
 
 REQUIRED_ROUTINES = (
     "mmo_validate_latest_save_checkpoint_restore_v1",
@@ -16689,7 +17784,7 @@ def parse_mysql_url(url: str) -> Target:
 
 
 def mysql_cmd(target: Target) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if exe is None:
         raise RuntimeError("mysql executable was not found in PATH")
     cmd = [
@@ -16713,7 +17808,7 @@ def mysql_cmd(target: Target) -> list[str]:
 
 
 def run_mysql(target: Target, sql: str) -> str:
-    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
@@ -16893,6 +17988,12 @@ import os
 import shutil
 import subprocess
 import sys
+
+from pathlib import Path as _MysqlCliPath
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+from _mysql_cli import resolve_mysql_exe
 from dataclasses import dataclass
 from typing import Sequence
 from urllib.parse import urlparse, unquote
@@ -16934,7 +18035,7 @@ def parse_url(url: str) -> MySqlTarget:
 
 
 def mysql_cmd(target: MySqlTarget) -> list[str]:
-    exe = shutil.which("mysql")
+    exe = resolve_mysql_exe()
     if not exe:
         fail("mysql command not found")
     cmd = [
@@ -16957,6 +18058,8 @@ def run_mysql(target: MySqlTarget, sql: str) -> str:
     proc = subprocess.run(
         mysql_cmd(target) + ["--execute", sql],
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
@@ -16974,6 +18077,18 @@ def count(target: MySqlTarget, sql: str) -> int:
         return int(raw.splitlines()[-1] if raw else "0")
     except ValueError:
         return 0
+
+
+def relation_exists(target: MySqlTarget, name: str) -> bool:
+    return count(
+        target,
+        f"""
+        SELECT COUNT(*)
+          FROM information_schema.tables
+         WHERE table_schema=DATABASE()
+           AND table_name={quote(name)};
+        """,
+    ) >= 1
 
 
 def exists_count_check(target: MySqlTarget, name: str, sql: str, minimum: int = 1) -> Check:
@@ -17026,7 +18141,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not ok:
         return 1
 
-    summary = run_mysql(target, "SELECT import_run_id, source_schema_version, game_code, status, counters FROM v_mmo_import_runs ORDER BY started_at DESC LIMIT 1;")
+    if relation_exists(target, "v_mmo_import_runs"):
+        summary_sql = "SELECT import_run_id, source_schema_version, game_code, status, counters FROM v_mmo_import_runs ORDER BY started_at DESC LIMIT 1;"
+    else:
+        summary_sql = "SELECT BIN_TO_UUID(import_run_id,1), source_schema_version, game_code, status, counters FROM mmo_import_runs ORDER BY started_at DESC LIMIT 1;"
+    summary = run_mysql(target, summary_sql)
     if summary:
         print("latest import:")
         print(summary)

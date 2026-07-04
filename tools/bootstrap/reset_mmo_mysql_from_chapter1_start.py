@@ -5,12 +5,13 @@ This is intentionally destructive and requires an explicit confirmation flag.
 It creates a clean dev DB, applies the existing production/bridge migrations, imports
 from the captured SQLite baseline, then optionally reapplies Step51 and Step53 helper
 surfaces if those files/tools exist in the checkout. It also applies the
-Step56b clean-DB progress bridge, the Step59 item/interactive/progress bridge,
-the Step60 equipment bridge, the Step67 interactive-use bridge, the Step68
-drop/loot bridge, the Step83 combat/lifecycle bridge, the Step84 world
-identity/lifecycle bridge, the Step120 NPC authority bridge and the Step121
-server parity state bridge. It also normalizes MySQL collations so destructive
-rebuilds do not reintroduce the live-worker failures found during live tests.
+    Step56b clean-DB progress bridge, the Step59 item/interactive/progress bridge,
+    the Step60 equipment bridge, the Step67 interactive-use bridge, the Step68
+    drop/loot bridge, the Step83 combat/lifecycle bridge, the Step84 world
+    identity/lifecycle bridge, the Step120 NPC authority bridge, the Step121
+    server parity state bridge and the Step122 NPC observation hotfix. It also
+    normalizes MySQL collations so destructive rebuilds do not reintroduce the
+    live-worker failures found during live tests.
 """
 from __future__ import annotations
 
@@ -59,6 +60,7 @@ STEP104_DB_CHECKPOINT_SCRIPT_STATE_FULL_EXPORT_SQL = ROOT / "server" / "sql" / "
 STEP108_DB_CHECKPOINT_WORLD_CLOCK_FOUNDATION_SQL = ROOT / "server" / "sql" / "step108_db_checkpoint_world_clock_foundation.sql"
 STEP120_NPC_AUTHORITY_RESTORE_BRIDGE_SQL = ROOT / "server" / "sql" / "step120_npc_authority_restore_bridge.sql"
 STEP121_SERVER_PARITY_STATE_BRIDGE_SQL = ROOT / "server" / "sql" / "step121_server_parity_state_bridge.sql"
+STEP122_NPC_OBSERVATION_FAILOPEN_ITEM_REFRESH_GUARD_SQL = ROOT / "server" / "sql" / "step122_npc_observation_failopen_and_item_refresh_guard.sql"
 
 
 @dataclass(frozen=True)
@@ -426,6 +428,7 @@ def main() -> int:
     ap.add_argument("--with-step104-db-checkpoint-script-state-full-export", action=argparse.BooleanOptionalAction, default=True, help="Install DB checkpoint full script-state export bridge")
     ap.add_argument("--with-step120-npc-authority-restore-bridge", action=argparse.BooleanOptionalAction, default=True, help="Install NPC authority restore current/history tables and recorder procedures")
     ap.add_argument("--with-step121-server-parity-state-bridge", action=argparse.BooleanOptionalAction, default=True, help="Install trigger queue, world transition and client correction current/history tables and recorder procedures")
+    ap.add_argument("--with-step122-npc-observation-failopen-item-refresh-guard", action=argparse.BooleanOptionalAction, default=True, help="Install NPC observation VARCHAR widening used by direct C++ server fail-open/item refresh guard")
     ap.add_argument("--normalize-collation", action=argparse.BooleanOptionalAction, default=True, help="Normalize base table collations to utf8mb4_0900_ai_ci after optional SQL surfaces are installed")
     ap.add_argument("--activate-content", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
@@ -676,6 +679,12 @@ def main() -> int:
                     manifest["applied_sql"].append(step121_bridge)
                     if step121_bridge["status"] == "failed":
                         manifest["status"] = "failed_step121_server_parity_state_bridge"
+
+                if manifest["status"] == "running" and args.with_step122_npc_observation_failopen_item_refresh_guard:
+                    step122_bridge = apply_sql(target, STEP122_NPC_OBSERVATION_FAILOPEN_ITEM_REFRESH_GUARD_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step122_bridge)
+                    if step122_bridge["status"] == "failed":
+                        manifest["status"] = "failed_step122_npc_observation_failopen_item_refresh_guard"
 
                 if manifest["status"] == "running" and args.normalize_collation:
                     normalize_tool = ROOT / "tools" / "bootstrap" / "normalize_mmo_mysql_collation.py"

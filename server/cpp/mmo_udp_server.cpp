@@ -781,8 +781,12 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
   while(std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr)
     output += buffer.data();
   const int rc = closeProcessPipe(pipe);
-  if(rc != 0)
-    throw std::runtime_error("command failed");
+  if(rc != 0) {
+    const auto message = trim(output);
+    if(message.empty())
+      throw std::runtime_error("command failed");
+    throw std::runtime_error("command failed: " + message);
+  }
   return trim(output);
 }
 
@@ -845,7 +849,14 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
   statement.reserve(MysqlSessionPreamble.size() + sql.size());
   statement.append(MysqlSessionPreamble);
   statement.append(sql.data(), sql.size());
-  return runCommand(mysqlBaseCommand(target) + " --execute " + shellQuote(statement));
+  return runCommand(mysqlBaseCommand(target) + " --execute " + shellQuote(statement) + " 2>&1");
+}
+
+[[nodiscard]] bool isFailOpenNpcObservationAction(Mmo::SemanticActionKind kind) noexcept {
+  return kind == Mmo::SemanticActionKind::RecordNpcRoutineState ||
+         kind == Mmo::SemanticActionKind::RecordNpcAiState ||
+         kind == Mmo::SemanticActionKind::RecordNpcPathState ||
+         kind == Mmo::SemanticActionKind::RecordNpcFightState;
 }
 
 [[nodiscard]] std::vector<std::string> splitMysqlLastRow(std::string_view raw) {
@@ -3778,18 +3789,28 @@ int main(int argc, char** argv) {
             }
           }
         } catch(const std::exception& exc) {
-          packetAccepted = false;
-          ++failed;
           direct.handled = true;
-          direct.accepted = false;
-          diagnosticSeverity = 2;
-          diagnosticReason = "direct_db_failed";
-          diagnosticMessage = exc.what();
-          std::cerr << "[direct_db_failed] action=" << actionName
-                    << " target=" << packet.targetKey
-                    << " error=" << exc.what()
-                    << " payload=" << packet.payloadJson
-                    << "\n";
+          if(isFailOpenNpcObservationAction(packet.kind)) {
+            direct.accepted = true;
+            packetAccepted = true;
+            std::cerr << "[direct_db_observation_failed_accepted] action=" << actionName
+                      << " target=" << packet.targetKey
+                      << " error=" << exc.what()
+                      << " payload=" << packet.payloadJson
+                      << "\n";
+          } else {
+            packetAccepted = false;
+            ++failed;
+            direct.accepted = false;
+            diagnosticSeverity = 2;
+            diagnosticReason = "direct_db_failed";
+            diagnosticMessage = exc.what();
+            std::cerr << "[direct_db_failed] action=" << actionName
+                      << " target=" << packet.targetKey
+                      << " error=" << exc.what()
+                      << " payload=" << packet.payloadJson
+                      << "\n";
+          }
         }
       }
 

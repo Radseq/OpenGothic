@@ -1,5 +1,5 @@
 # OpenGothic docs/llm snapshot
-# Generated: 2026-07-03T19:33:02
+# Generated: 2026-07-04T12:49:56
 # Project root: C:\Users\admin\Desktop\OpenGothic
 # MAX_BYTES per file: 1500000
 
@@ -48,6 +48,9 @@ Important status:
   before Xardas/start-trigger side effects. Do not remove this reset path.
 - `run_mmo_step55_clean_mysql_from_pre_xardas.py` remains the destructive clean
   MySQL rebuild path for starting a new game/server test.
+- `tools/apply_current_mmo_db_state.py` is the non-destructive current-state
+  updater for an existing MySQL DB. StepXX SQL files are migration history, not
+  the normal manual workflow.
 - The C++ UDP server must tolerate repeated clean DB rebuilds during local
   development. It validates its cached `server_sessions.session_id` and calls
   `mmo_login_character` again when the DB was dropped/recreated.
@@ -79,6 +82,10 @@ Domains with meaningful server/DB path:
   item calls;
 - direct C++ ready/holster weapon calls;
 - direct C++ combat/lifecycle calls for character damage, NPC/world entity damage and NPC death.
+- direct C++ NPC routine/AI/path/fight observation recorder calls and bootstrap
+  snapshot sections backed by the Step120 clean-DB bridge;
+- direct C++ trigger queue, world transition/visited-world and client correction
+  recorder/ack calls backed by the Step121 clean-DB bridge.
 
 Step75 notes:
 - A ready bootstrap ACK does not prove snapshot delivery. The server must also
@@ -98,16 +105,18 @@ Outbox status:
   behavior or debugging an unhandled domain.
 
 Incomplete authority:
-- client consumes and logs live ACK/NACK responses but does not yet rollback or
-  correct local state after a rejected action;
+- client correction rows exist for rejected authoritative actions and pending
+  corrections are carried in snapshots, but correction is still snapshot-driven
+  and needs typed live packets plus broader pickup/drop rollback evidence;
 - server snapshot restore is now automatic in server-bound mode, but still load-time
   materialization rather than real-time replication;
-- server-produced bootstrap snapshot applies HERO stats/resources, inventory/equipment, position, quest log, known dialogs, safe full character script ints, world item tombstones, active server-owned world items, interactive/mobsi state and NPC lifecycle state after load; NPC movement/routines/world-inventory samples remain downloaded-only;
+- server-produced bootstrap snapshot applies HERO stats/resources, inventory/equipment, position, quest log, known dialogs, safe full character script ints, world item tombstones, active server-owned world items, interactive/mobsi state and NPC lifecycle state after load; NPC routine authority rows can be applied for DB Continue, but NPC movement/full AI/world-inventory samples remain bridge materialization work;
 - NPC AI/pathing/live movement replication is future work; the server does not yet simulate or broadcast routine NPC movement;
 - teleport/world transition/chapter transition must be separate events, not
   movement bypasses;
 - trigger/mover/world-time/resource/training/respawn/NPC reaction procedures
-  exist as contract/proof but still need end-to-end gameplay evidence.
+  exist as contract/proof; Step121 adds durable trigger queue/current state, but
+  full event-timer execution still needs server tick evidence.
 - `loot_npc_inventory` has direct C++ owner-aware resolution for canonical NPC/world inventory keys; container put/trade remain future work.
 
 Hard rules:
@@ -814,8 +823,28 @@ cd ~/Desktop/OpenGothic
 
 python3 tools/run_mmo_step55_clean_mysql_from_pre_xardas.py \
   --sqlite runtime/g2notr_ch1_pre_xardas.sqlite \
-  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --mysql-url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --i-understand-this-drops-database
+```
+
+Use `localhost` for the local dev database unless MySQL is explicitly listening
+on loopback TCP. The mysql CLI resolves `localhost` through the local Unix
+socket, while `127.0.0.1` forces TCP and fails when mysqld is bound only to a LAN
+interface such as `192.168.195.x`.
+
+The clean rebuild also installs Step120 NPC authority restore and Step121 server
+parity state bridges by default, so manual post-clean commands for
+`server/sql/step120_npc_authority_restore_bridge.sql` and
+`server/sql/step121_server_parity_state_bridge.sql` are no longer needed.
+
+Do not grow the normal local workflow by asking for more manual StepXX SQL
+commands. StepXX files are migration history. For an existing DB that needs to
+catch up to the current server contract, use the current-state entrypoint:
+
+```bash
+python3 tools/apply_current_mmo_db_state.py \
+  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
+  --output runtime/current_mmo_db_state/apply.json
 ```
 
 If the C++ UDP server is already running, wait for the clean rebuild command to
@@ -837,7 +866,7 @@ cd ~/Desktop/OpenGothic
 
 ./build/mmo_cpp_server/mmo_udp_server \
   --bind 127.0.0.1:29777 \
-  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --mysql-url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --session-key local-dev-PC_HERO_TEST \
   --character-key PC_HERO
 ```
@@ -906,7 +935,7 @@ Optional fallback/debug only:
 ```bash
 ./build/mmo_cpp_server/mmo_udp_server \
   --bind 127.0.0.1:29777 \
-  --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --mysql-url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --session-key local-dev-PC_HERO_TEST \
   --character-key PC_HERO \
   --enqueue-outbox
@@ -1071,7 +1100,7 @@ events use one of the allowed classes: `character`, `inventory`, `equipment`,
 
 ```bash
 python3 tools/apply_mmo_step83_combat_lifecycle_bridge.py \
-  --url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --output runtime/step83_combat_lifecycle_bridge/apply.json
 ```
 
@@ -1099,7 +1128,7 @@ For an already-created DB that predates Step84, install the bridge once before t
 
 ```bash
 python3 tools/apply_mmo_step84_world_identity_lifecycle_bridge.py \
-  --url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --output runtime/step84_world_identity_lifecycle_bridge/apply.json
 ```
 
@@ -1224,7 +1253,7 @@ Install readable admin identity views after a clean DB rebuild when inspecting B
 
 ```bash
 python3 tools/apply_mmo_step92_identity_admin_views.py \
-  --url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean" \
+  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --output runtime/step92_identity_admin_views/apply.json
 ```
 
@@ -1239,7 +1268,7 @@ SELECT * FROM v_mmo_admin_world_entities_readable WHERE entity_kind IN ('npc','c
 Next large slice after Step92:
 1. Move item/NPC/window SQL out of `mmo_udp_server.cpp` into a focused snapshot/read-model module.
 2. Replace reused full JSON snapshot refresh with typed binary interest-window deltas.
-3. Start client correction for rejected movement/pickup instead of only logging ACK/NACK.
+3. Harden client correction evidence for rejected movement/pickup/drop and stop relying on full snapshot refresh as the correction carrier.
 
 
 Step93 save-to-server roadmap notes:
@@ -1247,7 +1276,6 @@ Step93 save-to-server roadmap notes:
 - Native `.sav` currently stores much more than HERO stats/inventory: session/world time, visited worlds, current world, camera, quests/dialogs, Daedalus globals, portal guilds, NPC arrays, invalid NPCs, world items, mobsi/interactives, trigger queues, routines, mover state and per-NPC AI/movement/fight internals.
 - DB-only play should not copy raw save internals 1:1. Persist durable facts and server projections; keep camera/render/audio/particles and raw AI/fight queues out of production authority.
 - Immediate next blockers for DB-only work are: UTF-8/idempotency fix for non-ASCII quest/dialog keys, save/checkpoint manifest, baseline+DB load without `.sav`, mover materialization, waypoint import/read-model and then server-side NPC routine prototype.
-
 
 
 ===== docs\llm\ai\06-save-to-server-roadmap.md =====
@@ -2799,6 +2827,139 @@ MMO DB continue startup NPC routines resumed: count=N
 
 For Xardas, `N` should be greater than zero in a normal NewWorld load with
 routine NPCs present.
+
+
+===== docs\llm\ai\32-mmo-db-continue-npc-authority-apply-step120.md =====
+# MMO DB Continue NPC Authority Apply - Step120
+
+Problem:
+- Fresh server-bound New Game can run Xardas normally.
+- After save, exit and DB Continue, the DB checkpoint path can still leave Xardas
+  standing because the client only called `resumeAiRoutine()`.
+- The current snapshot parser counted `npc_routine_state` rows but did not parse
+  them into typed client data, so the rows could not be applied.
+- The clean DB schema also did not contain the `mmo_npc_*_state_current` tables
+  and `mmo_record_npc_*` procedures required by the Step117 observer.
+
+Changes:
+- Forced a wide NPC authority sample before server-bound save checkpoint
+  manifest creation.
+- Added parsing of `npc_routine_state` rows in `mmorestoresnapshot.h`.
+- DB Continue now applies routine authority rows after the last
+  `triggerOnStart(false)` reset by starting the recorded `script-fn:*` state on
+  the matching `npc:<world>:pid:<id>:sym:<symbol>` NPC.
+- Fresh server-bound New Game ignores unsolicited live DB snapshot refreshes, so
+  a clean local baseline is not overwritten by an existing DB checkpoint.
+- Added `server/sql/step120_npc_authority_restore_bridge.sql` for clean DBs.
+- Clean MySQL rebuilds install Step120 by default through
+  `run_mmo_step55_clean_mysql_from_pre_xardas.py` /
+  `reset_mmo_mysql_from_chapter1_start.py`; use
+  `--skip-step120-npc-authority-restore-bridge` only for regression/debug runs.
+- Split/merge stack semantic actions are accepted as server no-ops until a
+  dedicated stack layout model exists.
+
+Expected logs after save + DB Continue:
+
+```text
+MMO server DB restore NPC routines resumed: ... npc_routine_state=N ... authority_applied=M
+MMO DB continue startup NPC authority applied: routine_applied=M ... records=N
+```
+
+If `records=0`, apply the SQL bridge after cleaning the DB and verify that the
+new server binary is running.
+
+
+===== docs\llm\ai\33-mmo-npc-observation-failopen-item-refresh-guard-step122.md =====
+# MMO NPC Observation Fail-Open Item Refresh Guard - Step122
+
+Problem:
+- NPC authority observations fixed DB Continue routine wakeup, but a single
+  rejected `record_npc_routine_state` could still produce a server correction
+  snapshot.
+- Correction snapshots are meant for authoritative rejected gameplay actions.
+  They are wrong for best-effort NPC observation rows and can refresh the nearby
+  world item window while the client is locally interacting with items.
+- In practice this looked like a picked-up item appearing again.
+
+Changes:
+- MySQL command failures now include captured CLI output in the server log.
+- NPC routine/AI/path/fight observation failures are accepted fail-open by the
+  C++ UDP server. They log
+  `[direct_db_observation_failed_accepted]` and do not queue a correction
+  snapshot.
+- Added SQL bridge to widen NPC authority key and idempotency columns to 512 and
+  recreate the four `mmo_record_npc_*_state` procedures with matching parameter
+  widths.
+
+Gameplay authority remains strict for pickup/loot/drop/equip and similar item
+mutations.
+
+
+===== docs\llm\ai\33-mmo-server-parity-state-bridge-step121.md =====
+# MMO Server Parity State Bridge - Step121
+
+Purpose: make clean MySQL rebuilds install the durable DB state already expected
+by the C++ UDP server for trigger queues, world transitions and client
+corrections.
+
+Changes:
+- Added `server/sql/step121_server_parity_state_bridge.sql`.
+- Added current/history projections for:
+  - trigger queue / event timer state;
+  - character world transition, visited-world and chapter state;
+  - client action correction records after rejected authoritative actions.
+- Added procedures used by the direct C++ server path:
+  - `mmo_record_trigger_queue_state`;
+  - `mmo_record_world_transition_state`;
+  - `mmo_record_client_action_correction`;
+  - `mmo_ack_client_action_correction`.
+- Clean MySQL rebuilds install Step121 by default through
+  `reset_mmo_mysql_from_chapter1_start.py` and
+  `run_mmo_step55_clean_mysql_from_pre_xardas.py`.
+- Added `check_mmo_step121_server_parity_state_bridge.py` to validate tables and
+  procedures, with optional smoke calls for recorder/ack behavior.
+- Added `tools/apply_current_mmo_db_state.py` as the current-state entrypoint for
+  existing DBs, so normal work does not require manual StepXX SQL commands.
+
+Important constraints:
+- Step121 is not a full server-side world simulation tick.
+- It closes the durable DB/server bridge for state that the C++ server already
+  sends in snapshots or records from semantic actions.
+- NPC routine/AI/path/fight tables and procedures are owned by Step120 in the
+  current clean DB path.
+
+Remaining work:
+- Replace correction delivery through reused snapshot refreshes with typed live
+  correction packets.
+- Execute trigger timers from a deterministic server tick.
+- Add real server-side NPC routine/pathing/AI/fight simulation and stream live
+  NPC state instead of relying on observed/client-fed bridge rows.
+
+
+===== docs\llm\ai\34-mmo-clean-script-applies-step122-step123.md =====
+Step123 wires the Step122 NPC observation hotfix into the destructive clean DB flow.
+
+Problem:
+- After clean DB and live play, NPC authority samples could fail in direct MySQL mode.
+- The server then queued a client correction/live snapshot for an observation-only action.
+- That snapshot could refresh active world items and make a recently picked item appear again.
+
+Change:
+- `tools/bootstrap/reset_mmo_mysql_from_chapter1_start.py` now installs
+  `server/sql/step122_npc_observation_failopen_and_item_refresh_guard.sql` by default,
+  directly after Step120/Step121.
+- `tools/bootstrap/run_mmo_step55_clean_mysql_from_pre_xardas.py` exposes
+  `--skip-step122-npc-observation-failopen-item-refresh-guard`, but normal clean runs no
+  longer require a separate manual SQL command.
+- Step122 widens the NPC routine/AI/path/fight observation key/idempotency fields and
+  recreates the recorder procedures with matching argument widths.
+
+Expected after a clean rebuild:
+- the reset manifest includes Step122 as an applied SQL surface;
+- `record_npc_routine_state`/`record_npc_ai_state` observation packets should not fail
+  because of canonical key width;
+- item pickup persistence should no longer be undone by an NPC-observation correction
+  snapshot.
 
 
 ===== docs\llm\README.md =====

@@ -2,13 +2,13 @@
   "character": {
     "character_key": "PC_HERO",
     "character_name": "Ja",
-    "character_uuid": "2aa7ebea-778b-11f1-8d6a-30560f155bba",
+    "character_uuid": "39de2bc8-7798-11f1-8d6a-30560f155bba",
     "equipment_count": 0,
     "found": true,
     "inventory_count": 0
   },
   "character_key": "PC_HERO",
-  "checked_at": "2026-07-04T09:34:01.942421+00:00",
+  "checked_at": "2026-07-04T11:07:35.457519+00:00",
   "collation": {
     "mismatch_count": 1,
     "mismatches_sample": [
