@@ -341,6 +341,13 @@ class Npc final {
     bool      isAttackAnim() const;
     bool      isPrehit() const;
     bool      isImmortal() const;
+    std::string_view primaryAnimationName() const;
+    std::string_view primaryAttackAnimationName() const;
+    uint64_t  primaryAnimationElapsed() const;
+    uint64_t  primaryAttackAnimationElapsed() const;
+    uint64_t  animationTotalTime() const;
+    uint64_t  attackTotalTime() const;
+    uint16_t  comboLength() const;
 
     void      setPerceptionTime   (uint64_t time);
     void      setPerceptionEnable (PercType t, size_t fn);

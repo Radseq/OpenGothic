@@ -3179,6 +3179,7 @@ void GameScript::ai_output(std::shared_ptr<zenkit::INpc> selfRef, std::shared_pt
     target = findNpc(vm.global_other());
 
   if(self!=nullptr && target!=nullptr) {
+    Mmo::Hooks::onNpcDialogLineQueued(*self, *target, outputname, "GameScript::ai_output");
     self->aiPush(AiQueue::aiOutput(*target,outputname,aiOutOrderId));
     ++aiOutOrderId;
     }

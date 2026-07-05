@@ -69,6 +69,10 @@ class Pose final {
     bool               isInAnim(std::string_view           sq) const;
     bool               isInAnim(const Animation::Sequence* sq) const;
     bool               hasAnim() const;
+    std::string_view   primaryAnimationName() const;
+    std::string_view   primaryAttackAnimationName() const;
+    uint64_t           primaryAnimationElapsed(uint64_t tickCount) const;
+    uint64_t           primaryAttackAnimationElapsed(uint64_t tickCount) const;
     uint64_t           animationTotalTime() const;
     uint64_t           atkTotalTime() const;
 

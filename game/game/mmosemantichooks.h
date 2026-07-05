@@ -217,6 +217,11 @@ void onObservedNpcAuthorityState(Npc& actor,
                                  const char* sourceLocation,
                                  const char* reason = "observed_npc_authority_state") noexcept;
 
+void onNpcDialogLineQueued(Npc& speaker,
+                           Npc& listener,
+                           std::string_view outputName,
+                           const char* sourceLocation) noexcept;
+
 void onScriptIntChanged(Npc& actor,
                         std::uint32_t scriptFunctionSymbol,
                         std::string_view scriptFunctionName,

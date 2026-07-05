@@ -4,8 +4,20 @@ project(OpenGothicMmoServerCpp LANGUAGES CXX)
 
 add_executable(mmo_udp_server
   mmo_udp_server.cpp
+  mmo_server_combat_timeline_authority.cpp
+  mmo_server_conversation_authority.cpp
+  mmo_server_dialog_authority.cpp
   mmo_server_movement_authority.cpp
+  mmo_server_npc_activity_authority.cpp
+  mmo_server_npc_action_authority.cpp
   mmo_server_persistence.cpp
+  mmo_server_persistence_direct_ops.cpp
+  mmo_server_persistence_item_ops.cpp
+  mmo_server_quest_authority.cpp
+  mmo_server_script_authority.cpp
+  mmo_server_waypoint_authority.cpp
+  mmo_server_waypoint_bootstrap.cpp
+  mmo_server_waypoint_graph.cpp
   mmo_server_world_clock.cpp
 )
 

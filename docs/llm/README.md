@@ -39,6 +39,21 @@ Read these files by default, in order:
 35. `ai/48-mmo-server-persistence-positioned-bootstrap-slices-step137.md`
 36. `ai/49-mmo-server-persistence-direct-apply-simple-ops-step138.md`
 37. `ai/50-mmo-server-persistence-item-ops-step139.md`
+38. `ai/51-mmo-server-persistence-module-split-step140.md`
+39. `ai/52-mmo-server-quest-authority-step141.md`
+40. `ai/53-mmo-server-dialog-authority-step142.md`
+41. `ai/54-mmo-server-script-authority-step143.md`
+42. `ai/55-mmo-server-waypoint-authority-bootstrap-step144.md`
+43. `ai/56-mmo-server-waypoint-graph-step145.md`
+44. `ai/57-mmo-server-npc-actions-dialog-sync-step146.md`
+45. `ai/58-mmo-server-conversation-authority-step147.md`
+46. `ai/59-mmo-server-npc-activity-registry-step148.md`
+47. `ai/60-mmo-server-npc-action-priority-step149.md`
+48. `ai/61-mmo-server-combat-outcome-policy-step150.md`
+49. `ai/62-mmo-server-ai-client-parity-audit-step151.md`
+50. `ai/63-mmo-server-combat-swing-timeline-audit-step152.md`
+51. `ai/64-mmo-server-combat-timeline-registry-step153.md`
+52. `ai/65-mmo-server-combat-animation-observation-step154.md`
 
 Do not load old numbered step files during normal work. They are archaeology.
 Keep their hard facts only when they became durable project rules below.
@@ -55,3 +70,7 @@ Durable engineering requirements:
   separation of concerns and replaceable components.
 - Old single-player behavior must remain unchanged unless an explicit
   MMO/server flag is passed.
+- When moving client/gameplay logic to the server, first inspect how the client
+  and Gothic scripts currently make the decision. Do not invent a parallel
+  interpretation. Recreate the same semantics in server-authoritative form,
+  adjusted only where the server architecture requires it.

@@ -4381,6 +4381,34 @@ bool Npc::isImmortal() const {
   return hnpc->flags & zenkit::NpcFlag::IMMORTAL;
   }
 
+std::string_view Npc::primaryAnimationName() const {
+  return visual.pose().primaryAnimationName();
+  }
+
+std::string_view Npc::primaryAttackAnimationName() const {
+  return visual.pose().primaryAttackAnimationName();
+  }
+
+uint64_t Npc::primaryAnimationElapsed() const {
+  return visual.pose().primaryAnimationElapsed(owner.tickCount());
+  }
+
+uint64_t Npc::primaryAttackAnimationElapsed() const {
+  return visual.pose().primaryAttackAnimationElapsed(owner.tickCount());
+  }
+
+uint64_t Npc::animationTotalTime() const {
+  return visual.pose().animationTotalTime();
+  }
+
+uint64_t Npc::attackTotalTime() const {
+  return visual.pose().atkTotalTime();
+  }
+
+uint16_t Npc::comboLength() const {
+  return visual.pose().comboLength();
+  }
+
 void Npc::setPerceptionTime(uint64_t time) {
   perceptionTime = time;
   }

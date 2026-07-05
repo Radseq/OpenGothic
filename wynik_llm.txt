@@ -1,5 +1,5 @@
 # OpenGothic docs/llm snapshot
-# Generated: 2026-07-04T19:43:39
+# Generated: 2026-07-05T10:59:26
 # Project root: C:\Users\admin\Desktop\OpenGothic
 # MAX_BYTES per file: 1500000
 
@@ -3791,6 +3791,1419 @@ Verification:
   succeeds without warnings.
 
 
+===== docs\llm\ai\51-mmo-server-persistence-module-split-step140.md =====
+# MMO server persistence module split - step 140
+
+## What changed
+
+- Split runtime persistence operations out of `server/cpp/mmo_server_persistence.cpp`.
+- Added `server/cpp/mmo_server_persistence_direct_ops.cpp` for direct server-authority DB commands:
+  checkpointing, outbox, corrections, script/dialog/quest/progression changes,
+  combat/resource mutations, triggers, movers, NPC authority state and interactive state.
+- Added `server/cpp/mmo_server_persistence_item_ops.cpp` for item/inventory/world-item DB commands.
+- Added `server/cpp/mmo_server_persistence_sql.h` for tiny shared SQL formatting helpers that should not leak into higher-level gameplay authority modules.
+- Updated `server/cpp/CMakeLists.txt` so the split modules are compiled into `mmo_udp_server`.
+
+## Durable decision
+
+Keep persistence as several focused bridge modules. The current MySQL stored-procedure layer is still temporary and should be replaceable later, so gameplay authority code should depend on narrow persistence functions rather than inline SQL or DB-specific details.
+
+## Verification
+
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+- Result: success.
+
+## Next good steps
+
+- Continue splitting `mmo_server_persistence.cpp`; the remaining core is still mostly CLI/process adapter plus bootstrap snapshot readers.
+- A good next boundary is a bootstrap/snapshot module, then a low-level MySQL process adapter module.
+- Do not expand the public persistence API casually; keep new DB bridge helpers private unless gameplay authority genuinely needs them.
+
+
+===== docs\llm\ai\52-mmo-server-quest-authority-step141.md =====
+# MMO server quest authority - step 141
+
+## What changed
+
+- Added `server/cpp/mmo_server_quest_authority.h/.cpp`.
+- Quest updates now pass through `Mmo::Server::Quest::buildUpdateCommand(...)` before hitting the persistence bridge.
+- The module owns quest-domain decisions:
+  - canonical quest status names: `running`, `success`, `failed`, `obsolete`;
+  - old/client status aliases like `run`, `in_progress`, `succeeded`, `failure`, `closed`;
+  - `quest:` target-key prefix stripping;
+  - default quest name fallback;
+  - entry-count validation through the existing story validation limits;
+  - optional transition guard against reopening terminal quests unless `allow_terminal_reopen` is true.
+- `mmo_udp_server_direct_story_apply.inl` now delegates `UpdateQuest` to the quest authority module.
+- `mmo_udp_server_payload_mapper.inl` forwards optional `previous_status` and `allow_terminal_reopen`.
+
+## Durable decision
+
+Quest rules must stay outside SQL/persistence. Dialogs, scripts and future server-side quest logic should emit quest inputs into the quest authority module, then persistence should only store the accepted command.
+
+The current DB bridge is temporary, but quest status normalization and transition policy are gameplay-domain rules and should survive a future database rewrite.
+
+## Verification
+
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+- Result: success.
+
+## Next good steps
+
+- Add a dialogue authority module that can produce quest updates without knowing DB details.
+- Add richer quest objectives/steps when the client capture starts sending objective payloads.
+- Later, replace direct DB quest writes with a repository interface without changing `mmo_server_quest_authority`.
+
+
+===== docs\llm\ai\53-mmo-server-dialog-authority-step142.md =====
+# MMO server dialog authority - step 142
+
+## What changed
+
+- Added `server/cpp/mmo_server_dialog_authority.h/.cpp`.
+- `SetKnownDialog` now passes through `Mmo::Server::Dialog::buildKnownDialogCommand(...)` before persistence.
+- The dialog authority module owns known-dialog decisions:
+  - NPC/info key fallback from explicit keys, symbol names and target key;
+  - stripping `npc-symbol:` and `dialog-info:` prefixes for canonical DB-facing keys;
+  - `known`, `removed`, `permanent` and `repeatable` policy;
+  - availability aliases such as `repeatable`, `consumed`, `visible`, `hidden`;
+  - final validation through existing story dialog limits.
+- `mmo_udp_server_payload_mapper.inl` now forwards optional dialog fields:
+  `npc_symbol_name`, `info_symbol_name`, `availability_state`, `permanent`, `repeatable`.
+
+## Durable decision
+
+Dialog rules must stay outside persistence. Scripts and future dialogue selection/execution logic should produce dialog-domain inputs, then the persistence bridge should only store accepted commands.
+
+This is currently a known-dialog authority layer, not the full dialog runtime. It prepares the boundary for later server-authoritative dialog choices, conditions, rewards and quest emissions.
+
+## Verification
+
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+- Result: success.
+
+## Next good steps
+
+- Add dialog-choice/selection authority when the semantic stream contains choice execution data.
+- Let dialogue authority emit quest authority inputs for quest-start/quest-complete consequences.
+- Keep DB-specific known-dialog storage behind persistence so it can be replaced with the future MMO database.
+
+
+===== docs\llm\ai\54-mmo-server-script-authority-step143.md =====
+# MMO server script authority - step 143
+
+## What changed
+
+- Added `server/cpp/mmo_server_script_authority.h/.cpp`.
+- `SetScriptInt` now passes through `Mmo::Server::Script::buildSetIntCommand(...)`.
+- The script authority module owns script-int command decisions:
+  - script key fallback order: `script_key`, `global_key`, `symbol_name`, packet target key;
+  - deterministic fallback key: `script-int:<symbol_index>:<value_index>`;
+  - symbol/value index and int32 value validation via the shared story validation limits.
+- Removed old local `scriptKeyFromPayload(...)` and obsolete quest-status normalization from `mmo_udp_server_story_payloads.inl`.
+
+## Durable decision
+
+Script, quest and dialog command building should stay in domain authority modules, not in UDP/direct-DB glue.
+
+The direct apply layer should parse transport payload fields, call an authority module, then pass the accepted command to persistence. This keeps the current temporary DB bridge replaceable.
+
+## Verification
+
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+- Result: success.
+
+## Next good steps
+
+- Rename or split `mmo_server_story_authority.h`; it is becoming a shared validation/limits header rather than a true domain module.
+- Add unit-level tests for script/quest/dialog command builders once a lightweight C++ test target exists.
+- Continue moving payload-specific logic out of `mmo_udp_server_*.inl` files into focused modules.
+
+
+===== docs\llm\ai\55-mmo-server-waypoint-authority-bootstrap-step144.md =====
+# MMO server waypoint authority and bootstrap split - step 144
+
+## What changed
+
+- Added `server/cpp/mmo_server_waypoint_authority.h/.cpp`.
+- NPC routine and path observations now pass through waypoint authority before persistence:
+  - `buildNpcRoutineCommand(...)`;
+  - `buildNpcPathCommand(...)`;
+  - `canonicalWaypointRef(...)`.
+- Waypoint authority canonicalizes waypoint inputs from:
+  - `*_waypoint_key`;
+  - `*_waypoint_name`;
+  - legacy `*_waypoint`.
+- Authority keys like `waypoint:<world>:<kind>:<index>:<name>` are reduced to the Gothic waypoint name for DB-facing routine/path state.
+- `mmo_udp_server_direct_world_state_apply.inl` is now orchestration: parse payload fields, call waypoint authority, persist accepted commands.
+- `mmo_udp_server_payload_mapper.inl` now forwards richer waypoint fields for NPC routine/path actions.
+
+## Bootstrap split
+
+- Added `server/cpp/mmo_server_waypoint_bootstrap.h/.cpp`.
+- Nearby waypoint bootstrap SQL moved out of `mmo_udp_server_bootstrap_snapshot.inl`.
+- `mmo_udp_server_bootstrap_snapshot.inl` now calls `Mmo::Server::Waypoint::readNearbyWaypointBootstrap(...)`.
+
+## Durable decision
+
+Waypoint normalization and NPC navigation command building belong in waypoint authority, not in transport or SQL code.
+
+The current MySQL-backed waypoint bootstrap remains a temporary bridge. Keeping it in a focused module makes it easier to replace later with a real MMO world/navigation repository.
+
+## Verification
+
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+- Result: success.
+
+## Next good steps
+
+- Add a waypoint graph/query interface independent of MySQL.
+- Add server-side route/path validation once waypoint edges are available through a real repository.
+- Move nearby NPC bootstrap SQL out in the same style as nearby waypoint bootstrap.
+
+
+===== docs\llm\ai\56-mmo-server-waypoint-graph-step145.md =====
+# MMO server waypoint graph foundation - step 145
+
+## What changed
+
+- Added `server/cpp/mmo_server_waypoint_graph.h/.cpp`.
+- The new waypoint graph is independent from MySQL and transport code.
+- It provides:
+  - waypoint nodes with key/name/kind/position;
+  - directed and undirected edges;
+  - O(1) key lookup through a heterogeneous `std::string_view`-friendly map;
+  - directed edge and adjacency checks;
+  - nearest waypoint lookup within a max distance;
+  - path-step validation for `current -> next` plus target existence checks.
+
+## Durable decision
+
+Server-side NPC navigation should validate against a domain graph, not SQL strings or UDP payload glue.
+
+The graph module is intentionally small and in-memory. A later repository can load it from the current bridge DB or from the future MMO database without changing NPC navigation authority logic.
+
+## Verification
+
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+- Result: success.
+
+## Next good steps
+
+- Add a loader/repository interface that can populate `Waypoint::Graph` from `mmo_server_waypoint_read_model` and `mmo_server_waypoint_edge_read_model`.
+- Use `Graph::validatePathStep(...)` in waypoint authority once the graph is available per world instance.
+- Consider caching one immutable graph snapshot per world template/instance.
+
+
+===== docs\llm\ai\57-mmo-server-npc-actions-dialog-sync-step146.md =====
+# MMO server NPC actions and dialog sync foundation - step 146
+
+## Client finding
+
+- Dialog text/audio is currently local-client driven.
+- `GameScript::exec(...)` runs the selected dialog script function.
+- Scripted `AI_Output(...)` queues an `AiQueue::aiOutput(...)`.
+- `Npc::AI_Output` calls the active `AiOuputPipe`.
+- `DialogMenu::aiOutput(...)` resolves:
+  - subtitle text through `Gothic::inst().messageByName(output_name)`;
+  - duration through `Gothic::inst().messageTime(output_name)`;
+  - sound through `<output_name>.wav`.
+
+This means MMO dialog synchronization cannot rely on each client independently executing scripts and choosing output lines. The server needs one accepted dialog/conversation event, then all observing clients should replay the same `output_name` and timing.
+
+## What changed
+
+- Added `server/cpp/mmo_server_npc_action_authority.h/.cpp`.
+- Added semantic action kinds:
+  - `record_npc_action_state`;
+  - `record_npc_dialog_line`.
+- `record_npc_action_state` captures general durable NPC actions such as:
+  - `talking`;
+  - `sleeping`;
+  - `using_mob`;
+  - `moving`;
+  - `combat`;
+  - `routine`;
+  - `idle`.
+- `record_npc_dialog_line` captures a deterministic dialogue line contract:
+  - `conversation_key`;
+  - `speaker_key`;
+  - `listener_key`;
+  - `output_name`;
+  - optional `subtitle_text`;
+  - `line_duration_ms`.
+- Added client hook `Mmo::Hooks::onNpcDialogLineQueued(...)`.
+- `GameScript::ai_output(...)` now emits `RecordNpcDialogLine` before queuing local `AI_Output`.
+- `onObservedNpcAuthorityState(...)` now emits `RecordNpcActionState` alongside routine/AI/path/fight observations.
+- Direct server apply validates these new actions through `NpcActionAuthority`; accepted events currently fall through to outbox fallback because the DB schema is temporary.
+
+## Durable decision
+
+For MMO, dialogue must be synchronized by a server-accepted output/event stream. The stable replay key is `output_name`, because current OpenGothic resolves both subtitle and WAV from that name.
+
+Later clients should not independently choose dialog lines for world-visible conversations. They should receive the accepted `record_npc_dialog_line`/broadcast event and replay exactly that line.
+
+## Verification
+
+- `cmake --build build --target Gothic2Notr --config Debug`
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+- Result: both success.
+
+## Next good steps
+
+- Add a server-side conversation/session state module to serialize dialog lines per `conversation_key`.
+- Add a client receiver/replay path for remote NPC dialog lines.
+- Add persistence/broadcast projection for accepted NPC action/dialog events after the DB bridge is replaced or isolated behind a repository.
+
+
+===== docs\llm\ai\58-mmo-server-conversation-authority-step147.md =====
+# MMO server conversation authority - step 147
+
+## Clarification
+
+The target MMO architecture is server-authoritative:
+
+- the server decides that two NPCs are in a conversation;
+- the server decides which line is currently active;
+- clients only replay the accepted line/event;
+- a player entering range mid-conversation must receive the current conversation snapshot with elapsed/remaining time, not start the conversation from the beginning.
+
+The previous client hook is only a compatibility/capture bridge for current OpenGothic single-player behavior.
+
+## What changed
+
+- Added `server/cpp/mmo_server_conversation_authority.h/.cpp`.
+- Added `Mmo::Server::Conversation::Registry`.
+- The registry stores active conversations keyed by `conversation_key`.
+- Each active line stores:
+  - speaker;
+  - listener;
+  - `output_name`;
+  - subtitle text;
+  - server start tick in ms;
+  - duration in ms.
+- `snapshot(conversation_key, now)` and `activeSnapshots(now)` return elapsed/remaining line time.
+- `expire(now)` removes conversations after a short grace period.
+- `RecordNpcDialogLine` now updates the server-side conversation registry before falling through to outbox persistence.
+
+## Durable decision
+
+Dialog replay must be driven by server conversation snapshots. A newly arriving observer should receive the current active line plus elapsed/remaining time and should not restart the dialogue script locally.
+
+## Verification
+
+- `cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug`
+- Result: success.
+
+## Next good steps
+
+- Add range-based broadcast/replay packets for `Conversation::Snapshot`.
+- Add client receiver that can play a remote dialog line from `output_name` starting at an offset.
+- Later, move `Conversation::Registry` into a world-state service instead of the temporary UDP server global.
+
+
+===== docs\llm\ai\59-mmo-server-npc-activity-registry-step148.md =====
+# MMO server NPC activity registry - step 148
+
+## What changed
+
+Added a server-side NPC activity registry:
+
+- `server/cpp/mmo_server_npc_activity_authority.h`
+- `server/cpp/mmo_server_npc_activity_authority.cpp`
+
+The registry tracks what an NPC is currently doing at runtime. It is intentionally
+small and in-memory for now, because the current database model is temporary and
+will be replaced later.
+
+## Why
+
+NPC actions must become server-authoritative. A Gothic MMO server cannot let each
+client independently decide that two NPCs are talking, sleeping, fighting or using
+a mob object. If a player enters range after an activity has already started, the
+server must know the current state and send the player the activity snapshot with
+elapsed/remaining timing.
+
+This step does not finish range-based broadcasting yet. It creates the authority
+primitive that later broadcast/snapshot code can read from.
+
+## Runtime rules
+
+`NpcActivity::Registry` stores one active activity per actor key.
+
+Known kinds:
+
+- `Idle`
+- `Routine`
+- `Moving`
+- `Talking`
+- `Sleeping`
+- `UsingMob`
+- `Combat`
+- `Down`
+- `Dead`
+
+Exclusive kinds are:
+
+- `Talking`
+- `Sleeping`
+- `UsingMob`
+- `Combat`
+- `Down`
+- `Dead`
+
+An exclusive activity cannot replace another exclusive activity unless:
+
+- it is the same kind and same sync group,
+- the previous activity timed out,
+- the new activity is `Combat`, `Down` or `Dead`,
+- the current activity is `Dead` and the next activity is also `Dead`.
+
+This is deliberately conservative. It prevents obvious nonsense such as:
+
+- an NPC sleeping and talking at the same time,
+- two different conversations claiming the same NPC,
+- a mob-use action starting while the NPC is already locked in a conversation.
+
+## Dialog locking
+
+`applyDialogLock` locks both the speaker and listener into `Talking` using the
+same `conversationKey` as `syncGroup`.
+
+The check is transactional in spirit: it validates both participants first, then
+applies the lock. If either participant is busy with another exclusive activity,
+the dialog line is rejected with a diagnostic reason such as:
+
+- `npc_activity_dialog_speaker_busy`
+- `npc_activity_dialog_listener_busy`
+
+This supports the architecture decision that the server owns NPC conversations.
+The current client `RecordNpcDialogLine` hook is only an observation bridge until
+the full server AI/dialog scheduler exists.
+
+## Integration
+
+`mmo_udp_server.cpp` now owns:
+
+```cpp
+Mmo::Server::NpcActivity::Registry gNpcActivityRegistry;
+```
+
+`mmo_udp_server_direct_world_state_apply.inl` now:
+
+- applies `RecordNpcActionState` into `gNpcActivityRegistry`,
+- expires old NPC activity states before dialog line processing,
+- applies a dialog lock before accepting `RecordNpcDialogLine`,
+- rejects conflicting activity/dialog events before they reach outbox fallback.
+
+`server/cpp/CMakeLists.txt` builds the new module.
+
+## Next good step
+
+Add a server snapshot/broadcast path for active NPC activities and active
+conversations. A newly entering player should receive:
+
+- actor key,
+- activity kind,
+- target/listener key if any,
+- sync group/conversation key,
+- elapsed server time,
+- expected remaining duration.
+
+That snapshot should be distance/interest filtered, not global spam.
+
+
+===== docs\llm\ai\60-mmo-server-npc-action-priority-step149.md =====
+# MMO server NPC action priority - step 149
+
+## What changed
+
+NPC activity now has explicit server-side priority/preemption semantics.
+
+The important files are:
+
+- `server/cpp/mmo_server_npc_activity_authority.h`
+- `server/cpp/mmo_server_npc_activity_authority.cpp`
+- `server/cpp/mmo_server_conversation_authority.h`
+- `server/cpp/mmo_server_conversation_authority.cpp`
+- `server/cpp/mmo_udp_server.cpp`
+- `server/cpp/mmo_udp_server_direct_world_state_apply.inl`
+- `server/cpp/mmo_udp_server_direct_combat_apply.inl`
+- `server/cpp/mmo_udp_server_direct_interactive_apply.inl`
+
+## Priority model
+
+The activity registry now ranks activity kinds:
+
+- `Unknown`: 0
+- `Idle`: 1
+- `Routine`: 10
+- `Moving`: 20
+- `Talking`, `Sleeping`, `UsingMob`: 40
+- `Alert`: 60
+- `Combat`: 80
+- `Down`: 90
+- `Dead`: 100
+
+Higher priority can preempt lower priority. Equal priority still needs the same
+sync group unless the previous activity has timed out.
+
+This means:
+
+- combat can interrupt NPC dialog,
+- weapon-ready alert can interrupt dialog/sleep/mob use,
+- down/dead can interrupt everything,
+- dialog cannot start over combat/dead,
+- routine movement cannot interrupt dialog/combat.
+
+## Conversation interruption
+
+When an activity preempts `Talking`, the server cancels the interrupted
+conversation by `conversationKey`.
+
+`Conversation::Registry` now exposes:
+
+```cpp
+bool cancel(std::string_view conversationKey);
+```
+
+`mmo_udp_server.cpp` owns the helper:
+
+```cpp
+cancelInterruptedConversation(activity);
+```
+
+This is the first server-side mechanism for:
+
+- "NPCs were talking",
+- "a hostile NPC/player event happened",
+- "the server interrupts that conversation for everyone",
+- "late observers should not receive a stale active conversation".
+
+## Integrated events
+
+The following direct apply paths now update the runtime NPC activity registry:
+
+- `RecordNpcFightState` -> `Combat`
+- `RecordNpcActionState` -> parsed activity kind
+- `ApplyWorldEntityDamage` -> `Combat` or `Dead` when fatal
+- `MarkNpcDead` -> `Dead`
+- `ReadyWeapon` -> `Alert`
+- `HolsterWeapon` -> clears `Alert` only, without clearing `Combat` or `Dead`
+
+`HolsterWeapon` intentionally does not call generic idle clear, because hiding a
+weapon must not erase stronger state like combat or death.
+
+## Architecture note
+
+This is still a runtime authority layer, not the final AI scheduler. The final
+server should eventually decide hostile perception, theft reactions, weapon
+threat reactions, chase/attack tasks and dialog interruption itself.
+
+For now, client-observed combat/weapon/damage events feed the registry so the
+server has a consistent central state to broadcast and validate against.
+
+## Next good step
+
+Add an explicit NPC intent/task scheduler module that can produce activity
+commands such as:
+
+- `InterruptConversation`
+- `DrawWeapon`
+- `ChaseTarget`
+- `AttackTarget`
+- `CallGuards`
+- `ReturnToRoutine`
+
+That scheduler should read threat/crime/perception inputs and emit authoritative
+NPC activity updates, instead of relying on client-observed action records.
+
+
+===== docs\llm\ai\61-mmo-server-combat-outcome-policy-step150.md =====
+# MMO server combat outcome policy - step 150
+
+## Durable rule added
+
+When moving gameplay logic from the client to the server, inspect the client and
+Gothic script behavior first. Do not invent a parallel interpretation.
+
+The server implementation should preserve the same semantics, adjusted only for
+server authority, validation, synchronization and anti-cheat needs.
+
+## Client behavior observed
+
+Relevant client facts:
+
+- `GameScript::isDead` checks `ZS_Dead`.
+- `GameScript::isUnconscious` checks `ZS_Unconscious`.
+- MMO observation maps NPC action/fight state:
+  - `dead` when `npc.isDead()`,
+  - `down` when `npc.isUnconscious()` or `npc.isDown()`,
+  - `combat` when attacking/engaged.
+- NPC inventory loot observation is allowed only when the source NPC is dead or
+  unconscious.
+- Damage observation reports `fatal=true` when hitpoints reach zero.
+- The lifecycle observation previously emitted only dead NPCs; it now emits dead
+  or unconscious NPCs.
+
+## What changed
+
+Added a header-only server module:
+
+- `server/cpp/mmo_server_combat_outcome_authority.h`
+
+It decides:
+
+- `Combat`
+- `Down`
+- `Dead`
+
+from:
+
+- fatal damage,
+- observed dead state,
+- observed unconscious/down state,
+- target-is-player,
+- explicit lethal/non-lethal intent flags,
+- explicit kill permission flags.
+
+## Current policy
+
+The policy is intentionally conservative:
+
+- observed `dead` -> `Dead`,
+- observed `unconscious`/`down` -> `Down`,
+- non-fatal damage -> `Combat`,
+- fatal damage against player -> `Down`,
+- fatal damage with `non_lethal`/`knockout_intent` -> `Down`,
+- fatal damage with `lethal`/`kill_intent`/`allow_kill`/`source_can_kill` -> `Dead`,
+- fatal damage without explicit kill permission -> `Down`.
+
+This gives the server a place to model Gothic's important distinction:
+
+- some attackers can kill,
+- some attackers should only knock the opponent unconscious and allow looting.
+
+## Integration
+
+`ApplyWorldEntityDamage` now uses `CombatOutcome::decide`.
+
+Important detail: when server outcome is `Down`, the direct DB damage record is
+not sent as fatal. The current DB model mostly understands dead/alive, and it is
+temporary. Until the DB is replaced, `Down` is a runtime authority state, not a
+final persistence model.
+
+`MarkNpcDead` now accepts payloads with:
+
+- `dead=true` -> `Dead` and DB mark-dead,
+- `unconscious=true` or `down=true` with `dead=false` -> runtime `Down`, no
+  mark-dead DB call.
+
+`game/game/mmosemantichooks.cpp` now emits NPC lifecycle observation when an NPC
+is dead or unconscious, not only when dead.
+
+## Next good step
+
+Build a server-side combat intent/threat module that feeds this outcome policy
+with Gothic-derived rules:
+
+- attacker species/guild can kill or only knock out,
+- scripted state/AI routine can request lethal or non-lethal combat,
+- player crime can escalate witnesses/guards differently,
+- monsters and humans can have different finish rules,
+- unconscious NPC loot should be explicitly represented in the future DB model.
+
+
+===== docs\llm\ai\62-mmo-server-ai-client-parity-audit-step151.md =====
+# MMO server AI client-parity audit - step 151
+
+## Audit rule
+
+When moving gameplay or AI logic to the server, the source of truth is the
+current OpenGothic client plus Gothic scripts/content. The server may reshape the
+logic for authority, replication, validation and anti-cheat, but it must not
+invent a separate interpretation without first checking how the client does it.
+
+This file audits the server-side "AI" work added so far through that rule.
+
+## Current classification
+
+Most current server AI work is not final AI simulation yet. It is a mixture of:
+
+- observation ingestion from the client,
+- runtime state registries,
+- validation and conflict prevention,
+- DB/outbox bridges,
+- early server-authority scaffolding.
+
+That is acceptable as an intermediate stage, but future work must not treat these
+bridges as already proven Gothic-equivalent AI.
+
+## Green: mostly client-derived or safe scaffolding
+
+### NPC action/fight/down/dead naming
+
+Client source checked:
+
+- `game/game/mmosemantichooks.cpp`
+- `game/game/gamescript.cpp`
+
+The client maps:
+
+- `npc.isDead()` -> `dead`
+- `npc.isUnconscious()` or `npc.isDown()` -> `down`
+- `npc.isTalk()` -> `talking`
+- attack animation/state/victim/target -> `combat`
+
+Server usage:
+
+- `mmo_server_npc_activity_authority.cpp`
+- `mmo_udp_server_direct_world_state_apply.inl`
+- `mmo_udp_server_direct_combat_apply.inl`
+
+This is acceptable as a temporary bridge because the server state names follow
+the client observation names.
+
+### Conversation snapshot timing
+
+Client source checked:
+
+- `GameScript::aiOutput`
+- dialog output timing through `messageTime(output_name)`
+
+Server module:
+
+- `mmo_server_conversation_authority.h/.cpp`
+
+This is safe scaffolding. The server stores the accepted line, timing and
+elapsed/remaining state. It still does not choose dialog branches itself.
+
+### Quest/dialog/script state commands
+
+Server modules:
+
+- `mmo_server_quest_authority.*`
+- `mmo_server_dialog_authority.*`
+- `mmo_server_script_authority.*`
+
+These modules are mostly normalizers/validators for client-observed script
+effects. They should be treated as event ingestion, not final server-side
+Daedalus execution.
+
+The quest status mapping follows the durable Gothic mapping already documented:
+
+- `1=running`
+- `2=success`
+- `3=failed`
+- `4=obsolete`
+
+## Yellow: acceptable bridge, but not final Gothic AI
+
+### NPC activity registry and priority
+
+Server module:
+
+- `mmo_server_npc_activity_authority.*`
+
+Risk:
+
+The registry's activity priority model is server-designed:
+
+- routine/moving/talking/sleeping/using mob/alert/combat/down/dead priorities
+- preemption behavior
+- same-sync-group continuation rule
+
+This is useful MMO infrastructure, but it is not directly proven from Gothic AI.
+It should remain a server scheduling policy, not be confused with original
+client decision logic.
+
+Required future parity work:
+
+- inspect Gothic script states such as `ZS_Talk`, `ZS_Attack`, `ZS_MM_Attack`,
+  mobsi/sleep states and perception handlers;
+- confirm which states are interruptible;
+- replace broad priority assumptions with rules derived from scripts/content.
+
+### Combat outcome policy
+
+Server module:
+
+- `mmo_server_combat_outcome_authority.h`
+
+Client source checked:
+
+- `GameScript::isDead` uses `ZS_Dead`
+- `GameScript::isUnconscious` uses `ZS_Unconscious`
+- loot hook allows dead or unconscious NPCs
+- damage hook reports `fatal=true` when hitpoints reach zero
+
+Risk:
+
+The server policy "fatal without kill permission becomes Down" is conservative,
+but still not fully proven from Gothic scripts. Real Gothic behavior likely
+depends on AI state, guild/species, scripted routines, crime/perception and
+attacker/target relationship.
+
+Required future parity work:
+
+- inspect Gothic script symbols and states that decide murder vs knockout;
+- inspect fight/perception/crime scripts;
+- feed the server outcome policy with Gothic-derived fields instead of generic
+  flags like `allow_kill` or `non_lethal`.
+
+### Weapon-ready alert
+
+Server path:
+
+- `mmo_udp_server_direct_interactive_apply.inl`
+
+Risk:
+
+The server currently treats weapon ready as `Alert`, which can interrupt talking.
+This is a reasonable MMO reaction scaffold, but not yet verified against Gothic's
+exact NPC reaction scripts.
+
+Required future parity work:
+
+- inspect client/script perception handlers for weapon drawing near NPCs;
+- distinguish "noticed weapon", "warned player", "call guard", "attack" and
+  "ignore" outcomes.
+
+## Red: must not be considered final until reworked
+
+### Perception and attack range constants
+
+Server module:
+
+- `mmo_server_gameplay_authority.h`
+
+Risk:
+
+The server currently has generic constants:
+
+- `DefaultNpcPerceptionRange = 2200`
+- `DefaultNpcFocusCos = 0.30`
+- `DefaultMeleeWeaponRange = 150`
+- `DefaultUnarmedRange = 90`
+
+Client source checked:
+
+- `game/game/fightalgo.cpp`
+- `game/game/damagecalculator.cpp`
+- `game/game/gamescript.cpp`
+
+The client derives combat distances from `GameScript::guildVal()`,
+`fight_range_base`, weapon state, weapon length, monster/fist/bow/magic ranges
+and script variable `NPC_ATTACK_FINISH_DISTANCE`. Focus angle uses a 30-degree
+cosine in `FightAlgo::isInFocusAngle`.
+
+Conclusion:
+
+Server `canPerceive` and `isInAttackRange` are only generic validators. They are
+not Gothic-equivalent and should not drive final combat AI.
+
+Required future parity work:
+
+- create a server-side fight range model fed by imported Gothic guild values,
+  weapon state and weapon/item range;
+- mirror `FightAlgo::prefferedAttackDistance`,
+  `prefferedGDistance`, `attackFinishDistance`, focus angle and weapon range;
+- mirror `DamageCalculator` before server-owned damage is authoritative.
+
+### Damage calculation
+
+Server module:
+
+- `mmo_server_combat_authority.h`
+
+Risk:
+
+Current server damage validation checks ranges and payload shape. It does not
+calculate Gothic melee/ranged/spell/fall damage.
+
+Client source checked:
+
+- `game/game/damagecalculator.cpp`
+
+The client uses weapon damage type, strength/dexterity, protections, hit chance,
+critical chance, monster special cases, bow/magic ranges and collision masks.
+
+Conclusion:
+
+Server damage is not yet authoritative Gothic damage. It is validated ingestion
+of client-observed damage.
+
+Required future parity work:
+
+- port or share `DamageCalculator` semantics server-side;
+- import all required NPC/item/protection/talent/guild values;
+- let the server produce damage, and demote client damage to proposal/evidence.
+
+### NPC routine/path AI
+
+Server modules:
+
+- `mmo_server_waypoint_authority.*`
+- `mmo_server_waypoint_graph.*`
+
+Risk:
+
+These modules validate observed routine/path state and graph adjacency. They do
+not yet reproduce Gothic routine selection, freepoint/mobsi choice or path queue
+behavior.
+
+Conclusion:
+
+Good foundation, not final AI.
+
+Required future parity work:
+
+- inspect client routine/TA/freepoint/mobsi resolution;
+- implement server routine engine from world time plus imported schedule data;
+- use waypoint graph validation as a safety layer, not the whole AI.
+
+## Practical next order
+
+1. Build a `server_fight_model` that mirrors `FightAlgo` using imported Gothic
+   guild values and weapon/item data.
+2. Build a `server_damage_model` that mirrors `DamageCalculator`.
+3. Build `npc_threat_intent` from inspected Gothic perception/crime scripts:
+   weapon draw, theft, attack, friendly fire, guild attitude, party member.
+4. Replace generic `Alert/Combat/Down/Dead` inputs with outputs from that
+   inspected threat/combat model.
+5. Only after that start full server NPC scheduler: chase, attack, warn,
+   call guards, loot/rob, return to routine.
+
+## Bottom line
+
+The current server-side AI work is structurally useful and modular, but only a
+small part is already Gothic-equivalent. The highest-risk areas are combat
+distance, perception, damage and lethal/non-lethal outcome. Those must be ported
+from client/script behavior before the server is allowed to make final gameplay
+decisions in production.
+
+
+===== docs\llm\ai\63-mmo-server-combat-swing-timeline-audit-step152.md =====
+# MMO server combat swing/timeline audit - step 152
+
+## Purpose
+
+This is the client-derived map for melee/ranged combat timing. It must be used
+before implementing server-owned attack decisions, block decisions, hit timing,
+combo validation or damage application.
+
+Do not replace this with a generic MMO combat model.
+
+## Client files inspected
+
+- `game/game/fightalgo.cpp`
+- `game/game/fightalgo.h`
+- `game/game/damagecalculator.cpp`
+- `game/game/gamescript.cpp`
+- `game/game/definitions/fightaidefinitions.cpp`
+- `game/world/objects/npc.cpp`
+- `game/graphics/mesh/animation.cpp`
+- `game/graphics/mesh/animationsolver.cpp`
+- `game/graphics/mesh/pose.cpp`
+- `game/graphics/mdlvisual.cpp`
+
+## Fight AI decision source
+
+`FightAlgo::fillQueue` is the main NPC fight move selector.
+
+It reads:
+
+- `npc.handle().fight_tactic`
+- loaded `Fight.dat` tables through `Gothic::fai()`
+- weapon state
+- distance to target
+- focus angle
+- whether the enemy is in `prehit`
+- whether the attacker was recently hit
+
+The move is chosen from Daedalus `C_FIGHTAI.MOVE` arrays loaded by
+`FightAi::loadAi`.
+
+Important fight AI buckets:
+
+- `enemy_prehit`
+- `enemy_stormprehit`
+- `my_w_combo`
+- `my_w_runto`
+- `my_w_strafe`
+- `my_w_focus`
+- `my_w_nofocus`
+- `my_g_combo`
+- `my_g_runto`
+- `my_g_strafe`
+- `my_g_focus`
+- `my_fk_focus`
+- `my_g_fk_nofocus`
+- `my_fk_focus_far`
+- `my_fk_nofocus_far`
+- `my_fk_focus_mag`
+- `my_fk_nofocus_mag`
+
+The server must import or reproduce these tables before it can choose attacks
+like Gothic does.
+
+## Fight moves
+
+`FightAlgo::nextFromQueue` maps `zenkit::FightAiMove` to internal actions:
+
+- `TURN` -> `MV_TURN`
+- `RUN` -> `MV_MOVE`
+- `JUMP_BACK` -> `MV_JUMPBACK`
+- `STRAFE` -> `MV_STRAFEL/MV_STRAFER` plus `MV_STRAFE_E`
+- `ATTACK` -> `MV_ATTACK`
+- `ATTACK_SIDE` -> `MV_ATTACKL`, `MV_ATTACKR`
+- `ATTACK_FRONT` -> randomized side attack then front attack
+- `ATTACK_TRIPLE` -> randomized triple sequence
+- `ATTACK_WHIRL` -> alternating left/right attacks
+- `ATTACK_MASTER` -> left/right then repeated front attacks
+- `TURN_TO_HIT` -> `MV_TURN2HIT`
+- `PARRY` -> `MV_BLOCK`
+- `WAIT`/`WAIT_EXT` -> `MV_WAIT`
+- `WAIT_LONGER` -> `MV_WAITLONG`
+
+This means a "swing" is not one fixed action. It can be a queued sequence of
+attack actions driven by Fight.dat and combo windows.
+
+## Distance and focus
+
+Do not use generic server constants for final combat.
+
+Client melee range is based on:
+
+- `GameScript::guildVal().fight_range_base[target.guild()]`
+- `GameScript::guildVal().fight_range_base[npc.guild()]`
+- `FightAlgo::weaponRange`
+- weapon state
+- weapon item sword length
+- guild values such as `fight_range_1ha`, `fight_range_2ha`,
+  `fight_range_fist`, `fight_range_g`
+
+Focus uses:
+
+- `FightAlgo::isInFocusAngle` with 30 degrees for normal checks
+- a tighter 5 degree focus check before attack execution in `Npc::implAttack`
+
+`NPC_ATTACK_FINISH_DISTANCE` is read from scripts if present, otherwise defaults
+to 180.
+
+## Attack execution
+
+`Npc::implAttack` executes actions from `FightAlgo`.
+
+Important behavior:
+
+- NPC attack does not run for player NPCs or talking NPCs.
+- If target is down, fight queue is cleared.
+- AI queue actions have priority over fight movement.
+- if unarmed and allowed, NPC can auto-draw melee weapon.
+- block action calls `blockFist` or `blockSword`.
+- attack action checks tight focus and range.
+- melee attack raycasts between collision centers; wall hit cancels attack.
+- ranged/magic attack checks obstacle/friendly-fire-like logic before shooting.
+- melee attack calls `doAttack(Attack/AttackL/AttackR, BS_HIT)`.
+- after a melee attack starts, FAI waits for `visual.pose().atkTotalTime()+1`.
+
+## Animation mapping
+
+`AnimationSolver::implSolveAnim` maps abstract attack actions to MDS sequence
+names.
+
+Examples:
+
+- fist attack:
+  - `S_FISTATTACK`
+  - `T_FISTATTACKMOVE`
+- fist block:
+  - G2: `T_FISTPARADE_0`
+  - G1: `T_FISTPARADE_O`
+- one/two handed attack:
+  - moving front attack: `T_%sATTACKMOVE`
+  - left: `T_%sATTACKL`
+  - right: `T_%sATTACKR`
+  - normal: `S_%sATTACK`
+- one/two handed block:
+  - G2 randomized among `T_%sPARADE_0`, `T_%sPARADE_0_A2`,
+    `T_%sPARADE_0_A3`
+  - G1: `T_%sPARADE_O`
+- finishing move:
+  - `T_%sSFINISH`
+- bow:
+  - aim: `S_%sAIM`
+  - shoot: `S_%sSHOOT`
+  - reload: `T_%sRELOAD`
+
+Server-owned attack replay must preserve the accepted animation/key, weapon
+state and start tick.
+
+## Hit timing
+
+Melee damage is not applied when the decision to attack is made.
+
+Flow:
+
+1. `Npc::doAttack` starts/continues an attack animation.
+2. Animation events are processed in `Npc::tickAnimationTags`.
+3. `Animation::Sequence::processEvent` increments `ev.def_opt_frame` on
+   `zenkit::MdsEventType::OPTIMAL_FRAME`.
+4. `Npc::tickAnimationTags` calls `commitDamage()` when `ev.def_opt_frame > 0`.
+5. `Npc::commitDamage` checks:
+   - current target exists,
+   - target is in attack range,
+   - attacker is in focus angle.
+6. Only then `target.takeDamage(attacker, nullptr)` is called.
+
+So the server needs an attack timeline with at least:
+
+- attack animation id/key,
+- server start tick,
+- optimal frame time,
+- hit end time,
+- combo windows,
+- current combo length,
+- target key.
+
+## Prehit
+
+`Animation::Sequence::isPrehit` returns true when an attack animation has a
+future `OPTIMAL_FRAME` still ahead of the current frame.
+
+`FightAlgo::fillQueue` uses target `isPrehit` plus distance/focus checks to pick
+`enemy_prehit` or `enemy_stormprehit` response moves. This is where block/parry
+reaction starts.
+
+The server must not approximate this as "enemy is attacking". It specifically
+means "enemy is in an attack animation before its optimal frame".
+
+## Blocking and jump-back defense
+
+`Npc::takeDamage` checks defense at the moment damage arrives.
+
+Block succeeds when:
+
+- target is not already down,
+- attack is not bullet/spell projectile (`b == nullptr` for melee),
+- defender is in focus angle toward attacker,
+- defender pose is in defense window:
+  - `pose.isDefence(now)` checks layers with `BS_PARADE` and `defWindow`.
+
+Jump-back can also avoid melee damage:
+
+- `pose.isJumpBack(now)` plus `FightAlgo::isInJumpBackAngle`.
+
+If blocked and defender has an active weapon, block effect is emitted.
+
+This means the server needs authoritative defensive animation windows, not just
+a boolean "blocking".
+
+## Combo windows and interruption
+
+Animation data stores:
+
+- `HIT_END` -> `defHitEnd`
+- `PARRY_FRAME` -> `defParFrame`
+- `COMBO_WINDOW` -> `defWindow`
+
+`Pose::continueCombo` allows attack continuation only inside the current combo
+window. If the combo window is missed, combo breaks.
+
+`Animation::Sequence::canInterrupt` also depends on combo/def windows. Damage
+can interrupt only certain body states:
+
+- if target body state has `BS_FLAG_INTERRUPTABLE`,
+- or is `BS_RUN`,
+- or is `BS_NONE`,
+- and `bodystate_interruptable_override` is not set.
+
+On hit, `Npc::takeDamage` can call `visual.interrupt()` and play stumble
+animation unless damage type includes `FLY`.
+
+## Damage
+
+Damage is handled by `DamageCalculator`.
+
+Server combat damage is not authoritative until it mirrors:
+
+- melee sword/fist damage,
+- ranged damage,
+- spell damage,
+- fall/drown damage,
+- protection filtering,
+- hit chance,
+- critical chance,
+- Gothic 1 vs Gothic 2 differences,
+- monster special cases,
+- collision masks such as `COLL_DONTKILL`.
+
+## Change made in this step
+
+`RecordNpcFightState` payload now includes extra client-observed phase data:
+
+- `body_state`
+- `attack_anim`
+- `prehit`
+- `weapon_state_id`
+
+Existing common NPC fields already include:
+
+- `dead`
+- `unconscious`
+- `down`
+- current HP
+
+This is still observation data. It does not make the server authoritative yet,
+but it gives the future server fight model enough evidence to compare against
+client behavior.
+
+## Required server model before authoritative attacking
+
+Build a server combat timeline module with these responsibilities:
+
+1. Import or expose Fight.dat `FightAi` move tables.
+2. Import guild fight range values and script constants.
+3. Resolve attack animation key from abstract action plus weapon state.
+4. Store active attack timeline:
+   - actor,
+   - target,
+   - animation key,
+   - start tick,
+   - optimal frame tick,
+   - hit end tick,
+   - combo window ticks,
+   - body state,
+   - combo index.
+5. At optimal frame, validate target range/focus and apply damage.
+6. At incoming hit, validate defender's defense/jump-back window.
+7. Validate combo continuation only inside combo window.
+8. Emit authoritative events for clients to replay.
+
+Until this exists, client-observed attack/damage events are only a bridge.
+
+
+===== docs\llm\ai\64-mmo-server-combat-timeline-registry-step153.md =====
+# MMO server combat timeline registry - step 153
+
+## What changed
+
+Added the first server-side combat timeline module:
+
+- `server/cpp/mmo_server_combat_timeline_authority.h`
+- `server/cpp/mmo_server_combat_timeline_authority.cpp`
+
+It is built by `server/cpp/CMakeLists.txt` and owned by the UDP server as:
+
+```cpp
+Mmo::Server::CombatTimeline::Registry gCombatTimelineRegistry;
+```
+
+## Why
+
+Gothic melee combat is animation-timed. A hit is not valid merely because an NPC
+is in combat. In the client, damage is committed when an attack animation reaches
+an `OPTIMAL_FRAME`, and blocking depends on defensive animation windows.
+
+The server therefore needs a combat timeline before it can become authoritative
+for:
+
+- attack start,
+- prehit/windup,
+- hit frame candidate,
+- recovery,
+- defence/parade,
+- down/dead,
+- combo continuation,
+- damage correlation.
+
+## Current model
+
+`CombatTimeline::Registry` stores one observed combat snapshot per actor.
+
+Phases:
+
+- `Idle`
+- `Ready`
+- `Windup`
+- `HitFrameCandidate`
+- `Recovery`
+- `Defence`
+- `Down`
+- `Dead`
+
+The phase is derived from client-observed fields:
+
+- `fight_state`
+- `attack_state`
+- `body_state`
+- `attack_anim`
+- `prehit`
+- `down`
+- `dead`
+- `unconscious`
+
+This follows the client audit:
+
+- `prehit` means attack animation before future `OPTIMAL_FRAME`,
+- `attack_anim`/`BS_HIT` means active attack animation,
+- `BS_PARADE` means defensive/parade body state,
+- `unconscious/down/dead` are terminal combat states.
+
+## Integration
+
+`RecordNpcFightState` now updates `gCombatTimelineRegistry` before persistence.
+
+`ApplyWorldEntityDamage` now asks the registry for damage evidence:
+
+```cpp
+gCombatTimelineRegistry.evaluateDamageEvidence(...)
+```
+
+If an attacker timeline exists but the damage is outside a recent observed attack
+window, the server logs:
+
+```text
+[combat_timeline_damage_mismatch]
+```
+
+It does not reject the damage yet.
+
+## Why no hard rejection yet
+
+The server still does not import MDS animation timings, Fight.dat move tables or
+full `DamageCalculator` semantics. Rejecting damage now would risk diverging from
+Gothic.
+
+This module is an evidence and synchronization layer. It prepares the server for
+authority without pretending to already be the final combat engine.
+
+## Client payload support
+
+Previous step added these fields to `RecordNpcFightState` payload:
+
+- `body_state`
+- `attack_anim`
+- `prehit`
+- `weapon_state_id`
+
+This step consumes those fields on the server.
+
+## Next good step
+
+Create a server-side `combat_animation_profile` importer/model that can represent
+the timing data currently coming from MDS animations:
+
+- animation key,
+- total time,
+- `OPTIMAL_FRAME`,
+- `HIT_END`,
+- `PARRY_FRAME`,
+- `COMBO_WINDOW`,
+- body state,
+- weapon state.
+
+After that, the timeline registry can become predictive instead of only
+observational: the server will accept an attack animation at start tick and know
+when the valid hit/parry/combo windows occur.
+
+
+===== docs\llm\ai\65-mmo-server-combat-animation-observation-step154.md =====
+# MMO server combat animation observation - step 154
+
+## What changed
+
+Extended the combat observation bridge with concrete animation timing data.
+
+Client-side read-only observation API:
+
+- `game/graphics/mesh/pose.h`
+- `game/graphics/mesh/pose.cpp`
+- `game/world/objects/npc.h`
+- `game/world/objects/npc.cpp`
+
+`Pose` exposes the active primary animation, active attack animation and elapsed
+time. `Npc` exposes narrow public getters so MMO hooks do not reach into private
+visual internals.
+
+`RecordNpcFightState` now sends:
+
+- `combo_index`
+- `animation_name`
+- `attack_animation_name`
+- `animation_elapsed_ms`
+- `attack_animation_elapsed_ms`
+- `animation_total_ms`
+- `attack_total_ms`
+
+Server-side timeline storage:
+
+- `server/cpp/mmo_server_combat_timeline_authority.h`
+- `server/cpp/mmo_server_combat_timeline_authority.cpp`
+- `server/cpp/mmo_udp_server_direct_world_state_apply.inl`
+
+The server parses and stores these fields in `CombatTimeline::Snapshot`.
+
+## Why
+
+Gothic combat validity depends on animation timing, not just high-level intent.
+The client audit showed:
+
+- damage is committed around animation `OPTIMAL_FRAME`,
+- `prehit` is the attack windup before the optimal frame,
+- blocking depends on defensive animation windows,
+- combo continuation depends on animation timing.
+
+The server needs the same timing vocabulary before it can safely become
+authoritative for hit acceptance, block windows and combo windows.
+
+## Boundary
+
+This is still an observation layer, not final combat authority.
+
+The client supplies timing facts so the server can log, correlate and build a
+profile of real Gothic behavior. The final server must derive these timings from
+imported animation/script data, not trust the client as the source of truth.
+
+## Durable rule reinforced
+
+When moving gameplay logic to the server, inspect the client and script behavior
+first. Combat timing must come from Gothic animation semantics such as MDS tags
+and existing client `Pose`/`FightAlgo`/`DamageCalculator` behavior, adjusted for
+server architecture.
+
+Do not replace this with a new MMO-style interpretation of swings.
+
+## Verified
+
+Built successfully:
+
+```text
+cmake --build build --target Gothic2Notr --config Debug
+cmake --build build\mmo_cpp_server --target mmo_udp_server --config Debug
+```
+
+## Next good step
+
+Create a server-side combat animation profile module/importer that can represent
+the timing data currently known by client animations:
+
+- animation key,
+- attack animation key,
+- total time,
+- `OPTIMAL_FRAME`,
+- `HIT_END`,
+- `PARRY_FRAME`,
+- `COMBO_WINDOW`,
+- weapon state,
+- body state.
+
+After that, the server can predict legal hit/parry/combo windows from an
+accepted attack start instead of only observing them after the client reports
+state.
+
+
 ===== docs\llm\README.md =====
 # OpenGothic MMO AI Context
 
@@ -3833,6 +5246,21 @@ Read these files by default, in order:
 35. `ai/48-mmo-server-persistence-positioned-bootstrap-slices-step137.md`
 36. `ai/49-mmo-server-persistence-direct-apply-simple-ops-step138.md`
 37. `ai/50-mmo-server-persistence-item-ops-step139.md`
+38. `ai/51-mmo-server-persistence-module-split-step140.md`
+39. `ai/52-mmo-server-quest-authority-step141.md`
+40. `ai/53-mmo-server-dialog-authority-step142.md`
+41. `ai/54-mmo-server-script-authority-step143.md`
+42. `ai/55-mmo-server-waypoint-authority-bootstrap-step144.md`
+43. `ai/56-mmo-server-waypoint-graph-step145.md`
+44. `ai/57-mmo-server-npc-actions-dialog-sync-step146.md`
+45. `ai/58-mmo-server-conversation-authority-step147.md`
+46. `ai/59-mmo-server-npc-activity-registry-step148.md`
+47. `ai/60-mmo-server-npc-action-priority-step149.md`
+48. `ai/61-mmo-server-combat-outcome-policy-step150.md`
+49. `ai/62-mmo-server-ai-client-parity-audit-step151.md`
+50. `ai/63-mmo-server-combat-swing-timeline-audit-step152.md`
+51. `ai/64-mmo-server-combat-timeline-registry-step153.md`
+52. `ai/65-mmo-server-combat-animation-observation-step154.md`
 
 Do not load old numbered step files during normal work. They are archaeology.
 Keep their hard facts only when they became durable project rules below.
@@ -3849,5 +5277,9 @@ Durable engineering requirements:
   separation of concerns and replaceable components.
 - Old single-player behavior must remain unchanged unless an explicit
   MMO/server flag is passed.
+- When moving client/gameplay logic to the server, first inspect how the client
+  and Gothic scripts currently make the decision. Do not invent a parallel
+  interpretation. Recreate the same semantics in server-authoritative form,
+  adjusted only where the server architecture requires it.
 
 

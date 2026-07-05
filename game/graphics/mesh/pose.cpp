@@ -710,6 +710,36 @@ bool Pose::hasAnim() const {
   return lay.size()>0;
   }
 
+std::string_view Pose::primaryAnimationName() const {
+  if(lay.empty())
+    return {};
+  return lay.front().seq->name;
+  }
+
+std::string_view Pose::primaryAttackAnimationName() const {
+  for(auto& i:lay)
+    if(i.seq->isAttackAnim())
+      return i.seq->name;
+  return {};
+  }
+
+uint64_t Pose::primaryAnimationElapsed(uint64_t tickCount) const {
+  if(lay.empty() || tickCount<=lay.front().sAnim)
+    return 0;
+  return tickCount-lay.front().sAnim;
+  }
+
+uint64_t Pose::primaryAttackAnimationElapsed(uint64_t tickCount) const {
+  for(auto& i:lay) {
+    if(!i.seq->isAttackAnim())
+      continue;
+    if(tickCount<=i.sAnim)
+      return 0;
+    return tickCount-i.sAnim;
+    }
+  return 0;
+  }
+
 uint64_t Pose::animationTotalTime() const {
   uint64_t ret=0;
   for(auto& i:lay)
