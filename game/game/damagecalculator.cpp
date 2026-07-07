@@ -13,6 +13,16 @@ static float mix(float x, float y, float a) {
   return x + (y-x)*a;
   }
 
+static DamageCalculator::Modifier damageModifier(CollideMask bMsk) noexcept {
+  if(bMsk & COLL_APPLYDOUBLEDAMAGE)
+    return DamageCalculator::Modifier::Double;
+  if(bMsk & COLL_APPLYHALVEDAMAGE)
+    return DamageCalculator::Modifier::Half;
+  if((bMsk & (COLL_APPLYDAMAGE | COLL_APPLYDOUBLEDAMAGE | COLL_APPLYHALVEDAMAGE | COLL_DOEVERYTHING))==0)
+    return DamageCalculator::Modifier::Blocked;
+  return DamageCalculator::Modifier::Normal;
+  }
+
 DamageCalculator::Val DamageCalculator::damageValue(Npc& src, Npc& other, const Bullet* b, bool isSpell, const DamageCalculator::Damage& splDmg, const CollideMask bMsk) {
   DamageCalculator::Val ret;
   if(b!=nullptr) {
@@ -51,9 +61,13 @@ DamageCalculator::Val DamageCalculator::damageFall(Npc& npc, float speed) {
   ret.value      = int32_t(dmgPerMeter*(height-h0)/100.f - float(prot));
   if(ret.value<=0 || ret.invincible) {
     ret.value = 0;
+    ret.kind = Kind::Fall;
+    ret.fallSpeed = speed;
     return ret;
     }
   ret.hasHit = true;
+  ret.kind = Kind::Fall;
+  ret.fallSpeed = speed;
   return ret;
   }
 
@@ -62,6 +76,14 @@ DamageCalculator::Val DamageCalculator::rangeDamage(Npc& nsrc, Npc& nother, cons
   bool  noHit      = dist>float(MaxMagRange);
   bool  invincible = !checkDamageMask(nsrc,nother,&b);
   auto  dmg        = b.damage();
+  Val   meta;
+  meta.kind = b.isSpell() ? Kind::Magic : Kind::Ranged;
+  meta.modifier = damageModifier(bMsk);
+  meta.hasExplicitDamage = true;
+  meta.explicitDamage = dmg;
+  meta.projectileSpell = b.isSpell();
+  meta.projectileDistance = dist;
+  meta.projectileWeaponChance = b.hitChance();
 
   if(!b.isSpell()) {
     auto& script    = nsrc.world().script();
@@ -71,6 +93,8 @@ DamageCalculator::Val DamageCalculator::rangeDamage(Npc& nsrc, Npc& nother, cons
     float refRange  = g2 ? ReferenceBowRangeG2 : ReferenceBowRangeG1;
     float maxRange  = float(MaxBowRange);
     float chance    = b.hitChance();
+    meta.hasRangedRoll = true;
+    meta.projectileRandomHitRoll = hitChance;
 
     if(dist<refRange)
       hitCh = mix(1.f, chance, (dist / refRange));
@@ -84,25 +108,50 @@ DamageCalculator::Val DamageCalculator::rangeDamage(Npc& nsrc, Npc& nother, cons
     if(!g2 && !noHit && !invincible) {
       const int32_t mul        = script.criticalDamageMultiplyer();
       const int     critChance = int(script.rand(100));
-      if(std::lround(100.f * b.critChance())>critChance)
+      meta.projectileCriticalHit = std::lround(100.f * b.critChance())>critChance;
+      if(meta.projectileCriticalHit)
         dmg *= mul;
       }
     }
 
-  if(noHit)
-    return Val(0,false,invincible);
+  if(noHit) {
+    meta.value = 0;
+    meta.hasHit = false;
+    meta.invincible = invincible;
+    return meta;
+    }
 
-  if(invincible)
-    return Val(0,true,true);
+  if(invincible) {
+    meta.value = 0;
+    meta.hasHit = true;
+    meta.invincible = true;
+    return meta;
+    }
 
-  if((bMsk & (COLL_APPLYDAMAGE | COLL_APPLYDOUBLEDAMAGE | COLL_APPLYHALVEDAMAGE | COLL_DOEVERYTHING))==0)
-    return Val(0,true,true);
+  if(meta.modifier == Modifier::Blocked) {
+    meta.value = 0;
+    meta.hasHit = true;
+    meta.invincible = true;
+    return meta;
+    }
 
-  return rangeDamage(nsrc,nother,dmg,bMsk);
+  auto ret = rangeDamage(nsrc,nother,dmg,bMsk);
+  ret.kind = meta.kind;
+  ret.modifier = meta.modifier;
+  ret.hasExplicitDamage = meta.hasExplicitDamage;
+  ret.explicitDamage = meta.explicitDamage;
+  ret.hasRangedRoll = meta.hasRangedRoll;
+  ret.projectileSpell = meta.projectileSpell;
+  ret.projectileDistance = meta.projectileDistance;
+  ret.projectileWeaponChance = meta.projectileWeaponChance;
+  ret.projectileRandomHitRoll = meta.projectileRandomHitRoll;
+  ret.projectileCriticalHit = meta.projectileCriticalHit;
+  return ret;
   }
 
 DamageCalculator::Val DamageCalculator::rangeDamage(Npc&, Npc& nother, Damage dmg, const CollideMask bMsk) {
   auto& other = nother.handle();
+  const auto rawDamage = dmg;
 
   if(bMsk & COLL_APPLYDOUBLEDAMAGE)
     dmg*=2;
@@ -121,7 +170,12 @@ DamageCalculator::Val DamageCalculator::rangeDamage(Npc&, Npc& nother, Damage dm
       }
     }
 
-  return Val(value,true,invincible);
+  Val ret(value,true,invincible);
+  ret.kind = Kind::Magic;
+  ret.modifier = damageModifier(bMsk);
+  ret.hasExplicitDamage = true;
+  ret.explicitDamage = rawDamage;
+  return ret;
   }
 
 DamageCalculator::Val DamageCalculator::swordDamage(Npc& nsrc, Npc& nother) {
@@ -165,7 +219,13 @@ DamageCalculator::Val DamageCalculator::swordDamage(Npc& nsrc, Npc& nother) {
         }
       }
 
-    return Val(value,true,invincible);
+    Val ret(value,true,invincible);
+    ret.kind = Kind::Melee;
+    ret.hasMeleeRoll = true;
+    ret.meleeTalentChance = src.hitchance[tal];
+    ret.meleeRandomRoll = critChance;
+    ret.criticalHit = src.hitchance[tal] > critChance;
+    return ret;
     } else {
     bool invincible = true;
     const int32_t mul = script.criticalDamageMultiplyer();
@@ -182,7 +242,13 @@ DamageCalculator::Val DamageCalculator::swordDamage(Npc& nsrc, Npc& nother) {
         }
       }
 
-    return Val(value,true,invincible);
+    Val ret(value,true,invincible);
+    ret.kind = Kind::Melee;
+    ret.hasMeleeRoll = true;
+    ret.meleeTalentChance = nsrc.talentValue(tal);
+    ret.meleeRandomRoll = critChance;
+    ret.criticalHit = nsrc.talentValue(tal) > critChance;
+    return ret;
     }
   }
 
@@ -224,3 +290,5 @@ DamageCalculator::Damage DamageCalculator::rangeDamageValue(Npc& src) {
     }
   return ret;
   }
+
+

@@ -6,7 +6,9 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
+#include "mmonetprotocol.h"
 #include "mmosemanticevents.h"
 
 class CommandLine;
@@ -65,8 +67,11 @@ void setSemanticActionSink(std::unique_ptr<SemanticActionSink> sink) noexcept;
 void configureSemanticActionSink(const SemanticActionSinkConfig& cfg);
 void configureSemanticActionSink(const CommandLine& cmd);
 void shutdownSemanticActionSink() noexcept;
+std::vector<Net::ServerLiveDeltaPacket> drainServerLiveDeltas() noexcept;
 
 } // namespace Mmo
+
+
 
 
 

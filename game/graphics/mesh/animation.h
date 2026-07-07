@@ -5,6 +5,8 @@
 
 #include <Tempest/Vec>
 #include <memory>
+#include <optional>
+#include <utility>
 
 class Npc;
 class MdlVisual;
@@ -83,6 +85,10 @@ class Animation final {
       bool                                   isIdle()   const { return bool(flags & zenkit::AnimationFlags::IDLE);   }
       bool                                   isFinished(uint64_t now, uint64_t sTime, uint16_t comboLen) const;
       float                                  atkTotalTime(uint16_t comboLen) const;
+      std::optional<uint64_t>                optimalFrameTime() const;
+      std::optional<uint64_t>                hitEndTime(uint16_t comboLen) const;
+      std::optional<std::pair<uint64_t, uint64_t>> parryWindow() const;
+      std::optional<std::pair<uint64_t, uint64_t>> comboWindow(uint16_t comboLen) const;
       bool                                   canInterrupt(uint64_t now, uint64_t sTime, uint16_t comboLen) const;
       bool                                   isInComboWindow(uint64_t t, uint16_t comboLen) const;
       bool                                   isDefParWindow(uint64_t t) const;

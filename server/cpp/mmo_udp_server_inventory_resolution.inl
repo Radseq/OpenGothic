@@ -39,6 +39,275 @@ constexpr std::int64_t InvalidGothicPersistentId = 4294967295LL;
   return isUsablePersistentId(value) ? value : -1;
 }
 
+[[nodiscard]] std::uint32_t u32FromMysqlField(const std::string& value) noexcept {
+  const auto parsed = parseI64(value);
+  if(!parsed || *parsed < 0 || *parsed > std::numeric_limits<std::uint32_t>::max())
+    return 0;
+  return static_cast<std::uint32_t>(*parsed);
+}
+
+[[nodiscard]] std::int64_t i64FromMysqlField(const std::string& value) noexcept {
+  return parseI64(value).value_or(0);
+}
+
+[[nodiscard]] std::string jsonI64Expr(std::string_view object,
+                                      std::string_view path,
+                                      std::string_view fallback = "0") {
+  std::string out;
+  out += "COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(";
+  out += object;
+  out += ",";
+  out += sqlLiteral(path);
+  out += ")),''),";
+  out += sqlLiteral(fallback);
+  out += ")";
+  return out;
+}
+
+[[nodiscard]] std::string jsonI64AnyExpr(std::string_view object,
+                                         std::initializer_list<std::string_view> paths,
+                                         std::string_view fallback = "0") {
+  std::string out = "COALESCE(";
+  bool first = true;
+  for(const auto path : paths) {
+    if(!first)
+      out += ",";
+    first = false;
+    out += "NULLIF(JSON_UNQUOTE(JSON_EXTRACT(";
+    out += object;
+    out += ",";
+    out += sqlLiteral(path);
+    out += ")), '')";
+  }
+  if(!first)
+    out += ",";
+  out += sqlLiteral(fallback);
+  out += ")";
+  return out;
+}
+
+[[nodiscard]] Mmo::Server::InventoryAuthority::CharacterUseStats readCharacterUseStats(
+    const MySqlTarget& target,
+    std::string_view sessionUuid) {
+  std::string query;
+  query += "SELECT cs.health_current,cs.health_max,cs.mana_current,cs.mana_max,cs.strength,cs.dexterity,";
+  query += jsonI64AnyExpr("cs.raw_stats", {"$.attributes[6]", "$.attribute[6]", "$.regenerate_hp", "$.regenerateHp"});
+  query += ",";
+  query += jsonI64AnyExpr("cs.raw_stats", {"$.attributes[7]", "$.attribute[7]", "$.regenerate_mana", "$.regenerateMana"});
+  query += ",";
+  query += jsonI64AnyExpr("cs.raw_stats", {"$.talent_skill[7]", "$.talentSkills[7]", "$.talents.mage.skill", "$.mage_skill", "$.mageCircle"});
+  query += " FROM character_stats cs ";
+  query += "JOIN server_sessions ss ON ss.character_id=cs.character_id ";
+  query += "WHERE ss.session_id=UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1) LIMIT 1;";
+
+  const auto parts = splitMysqlLastRow(runMysql(target, query));
+  if(parts.size() < 9)
+    throw std::runtime_error("character use stats could not be read");
+
+  return {
+    .healthCurrent = i64FromMysqlField(parts[0]),
+    .healthMax = i64FromMysqlField(parts[1]),
+    .manaCurrent = i64FromMysqlField(parts[2]),
+    .manaMax = i64FromMysqlField(parts[3]),
+    .strength = i64FromMysqlField(parts[4]),
+    .dexterity = i64FromMysqlField(parts[5]),
+    .regenerateHp = i64FromMysqlField(parts[6]),
+    .regenerateMana = i64FromMysqlField(parts[7]),
+    .mageCircle = i64FromMysqlField(parts[8]),
+  };
+}
+
+[[nodiscard]] Mmo::Server::InventoryAuthority::ItemUseRequirements readCharacterItemUseRequirements(
+    const MySqlTarget& target,
+    std::string_view sessionUuid,
+    std::string_view itemUuid) {
+  std::string query;
+  query += "SELECT ";
+  for(std::size_t i = 0; i < Mmo::Server::InventoryAuthority::MaxItemUseConditions; ++i) {
+    if(i != 0)
+      query += ",";
+    query += jsonI64AnyExpr("cit.raw_payload", {
+      "$.cond_atr[" + std::to_string(i) + "]",
+      "$.condition_attributes[" + std::to_string(i) + "]",
+      "$.conditions[" + std::to_string(i) + "].attribute"
+    });
+    query += ",";
+    query += jsonI64AnyExpr("cit.raw_payload", {
+      "$.cond_value[" + std::to_string(i) + "]",
+      "$.condition_values[" + std::to_string(i) + "]",
+      "$.conditions[" + std::to_string(i) + "].value"
+    });
+  }
+  query += ",";
+  query += jsonI64AnyExpr("cit.raw_payload", {"$.mag_circle", "$.magic_circle", "$.magCircle"});
+  query += " FROM item_instances ii ";
+  query += "JOIN content_item_templates cit ON cit.item_template_id=ii.item_template_id ";
+  query += "JOIN character_inventory ci ON ci.item_instance_id=ii.item_instance_id ";
+  query += "JOIN server_sessions ss ON ss.character_id=ci.character_id ";
+  query += "WHERE ss.session_id=UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1) ";
+  query += "AND ii.item_instance_id=UUID_TO_BIN(" + sqlLiteral(itemUuid) + ",1) ";
+  query += "AND ii.owner_type='character' AND ii.owner_id=ss.character_id ";
+  query += "AND ii.lifecycle_state='active' LIMIT 1;";
+
+  const auto parts = splitMysqlLastRow(runMysql(target, query));
+  if(parts.size() < Mmo::Server::InventoryAuthority::MaxItemUseConditions * 2 + 1)
+    throw std::runtime_error("character item use requirements could not be read");
+
+  Mmo::Server::InventoryAuthority::ItemUseRequirements out;
+  for(std::size_t i = 0; i < Mmo::Server::InventoryAuthority::MaxItemUseConditions; ++i) {
+    out.conditionAttributes[i] = i64FromMysqlField(parts[i * 2]);
+    out.conditionValues[i] = i64FromMysqlField(parts[i * 2 + 1]);
+  }
+  out.magicCircle = i64FromMysqlField(parts[Mmo::Server::InventoryAuthority::MaxItemUseConditions * 2]);
+  return out;
+}
+
+void validateCharacterItemUseRequirements(const MySqlTarget& target,
+                                          std::string_view sessionUuid,
+                                          std::string_view itemUuid) {
+  const auto stats = readCharacterUseStats(target, sessionUuid);
+  const auto requirements = readCharacterItemUseRequirements(target, sessionUuid, itemUuid);
+  const auto validation = Mmo::Server::InventoryAuthority::validateItemUseRequirements(stats, requirements);
+  if(!validation.accepted) {
+    std::string reason = validation.reason;
+    reason += ": required_attribute=" + std::to_string(validation.requiredAttribute);
+    reason += " current=" + std::to_string(validation.currentValue);
+    reason += " required=" + std::to_string(validation.requiredValue);
+    throw std::runtime_error(reason);
+  }
+}
+
+[[nodiscard]] Mmo::Server::InventoryAuthority::ItemEquipInput readCharacterItemEquipInput(
+    const MySqlTarget& target,
+    std::string_view sessionUuid,
+    std::string_view itemUuid,
+    std::string_view slot) {
+  std::string query;
+  query += "SELECT COALESCE(cit.classification,''),";
+  query += "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cit.raw_payload,'$.main_flag')),JSON_UNQUOTE(JSON_EXTRACT(cit.flags,'$.main_flag')),''),";
+  query += "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cit.raw_payload,'$.flags')),JSON_UNQUOTE(JSON_EXTRACT(cit.raw_payload,'$.item_flags')),JSON_UNQUOTE(JSON_EXTRACT(cit.flags,'$.flags')),JSON_UNQUOTE(JSON_EXTRACT(cit.flags,'$.item_flags')),'') ";
+  query += "FROM item_instances ii ";
+  query += "JOIN content_item_templates cit ON cit.item_template_id=ii.item_template_id ";
+  query += "JOIN character_inventory ci ON ci.item_instance_id=ii.item_instance_id ";
+  query += "JOIN server_sessions ss ON ss.character_id=ci.character_id ";
+  query += "WHERE ss.session_id=UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1) ";
+  query += "AND ii.item_instance_id=UUID_TO_BIN(" + sqlLiteral(itemUuid) + ",1) ";
+  query += "AND ii.owner_type='character' AND ii.owner_id=ss.character_id ";
+  query += "AND ii.lifecycle_state='active' LIMIT 1;";
+
+  auto parts = splitMysqlLastRow(runMysql(target, query));
+  if(parts.size() < 3)
+    throw std::runtime_error("character item template semantics could not be read");
+
+  const auto mainFlag = u32FromMysqlField(parts[1]);
+  const auto itemFlags = u32FromMysqlField(parts[2]);
+  return {
+    .slot = slot,
+    .classification = parts[0],
+    .mainFlag = mainFlag,
+    .itemFlags = itemFlags,
+    .hasGothicFlags = !parts[1].empty() || !parts[2].empty(),
+  };
+}
+
+[[nodiscard]] std::string chooseRingSlotForEquip(const MySqlTarget& target,
+                                                 std::string_view sessionUuid,
+                                                 std::string_view itemUuid) {
+  std::string query;
+  query += "SELECT ";
+  query += "COALESCE(MAX(CASE WHEN ce.equipment_slot='ring_left' THEN BIN_TO_UUID(ce.item_instance_id,1) ELSE '' END),''),";
+  query += "COALESCE(MAX(CASE WHEN ce.equipment_slot='ring_right' THEN BIN_TO_UUID(ce.item_instance_id,1) ELSE '' END),'') ";
+  query += "FROM character_equipment ce ";
+  query += "JOIN server_sessions ss ON ss.character_id=ce.character_id ";
+  query += "WHERE ss.session_id=UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1) ";
+  query += "AND ce.equipment_slot IN ('ring_left','ring_right');";
+
+  const auto parts = splitMysqlLastRow(runMysql(target, query));
+  const std::string left = parts.size() > 0 ? parts[0] : "";
+  const std::string right = parts.size() > 1 ? parts[1] : "";
+  if(left.empty() || left == itemUuid)
+    return std::string(Mmo::Server::InventoryAuthority::SlotRingLeft);
+  if(right.empty() || right == itemUuid)
+    return std::string(Mmo::Server::InventoryAuthority::SlotRingRight);
+  throw std::runtime_error("equipment_ring_slots_full");
+}
+
+[[nodiscard]] std::string inferEquipmentSlotFromItem(const MySqlTarget& target,
+                                                     std::string_view sessionUuid,
+                                                     std::string_view itemUuid,
+                                                     const Mmo::Server::InventoryAuthority::ItemEquipInput& item) {
+  namespace Inv = Mmo::Server::InventoryAuthority;
+  if(item.hasGothicFlags) {
+    if(Inv::hasFlag(item.itemFlags, Inv::ItmShield))
+      return std::string(Inv::SlotShield);
+    if(Inv::hasFlag(item.mainFlag, Inv::ItmCatMeleeWeapon))
+      return std::string(Inv::SlotWeaponMelee);
+    if(Inv::hasFlag(item.mainFlag, Inv::ItmCatRangedWeapon))
+      return std::string(Inv::SlotWeaponRanged);
+    if(Inv::hasFlag(item.mainFlag, Inv::ItmCatRune))
+      return std::string(Inv::SlotRune);
+    if(Inv::hasFlag(item.mainFlag, Inv::ItmCatArmor))
+      return std::string(Inv::SlotArmor);
+    if(Inv::hasFlag(item.itemFlags, Inv::ItmBelt))
+      return std::string(Inv::SlotBelt);
+    if(Inv::hasFlag(item.itemFlags, Inv::ItmAmulet))
+      return std::string(Inv::SlotAmulet);
+    if(Inv::hasFlag(item.itemFlags, Inv::ItmRing))
+      return chooseRingSlotForEquip(target, sessionUuid, itemUuid);
+    if(Inv::hasFlag(item.itemFlags, Inv::ItmTorch))
+      return std::string(Inv::SlotTorch);
+  }
+
+  if(item.classification == "armor")
+    return std::string(Inv::SlotArmor);
+  if(item.classification == "rune" || item.classification == "scroll")
+    return std::string(Inv::SlotRune);
+  throw std::runtime_error("equipment_slot_could_not_be_inferred");
+}
+
+[[nodiscard]] std::string resolveEquipmentSlotForEquip(const MySqlTarget& target,
+                                                       std::string_view sessionUuid,
+                                                       std::string_view itemUuid,
+                                                       std::string_view requestedSlot) {
+  namespace Inv = Mmo::Server::InventoryAuthority;
+  if(requestedSlot != Inv::SlotUnknown) {
+    const auto validation = Inv::validateEquipItem(readCharacterItemEquipInput(target, sessionUuid, itemUuid, requestedSlot));
+    if(!validation.accepted)
+      throw std::runtime_error(validation.reason);
+    validateCharacterItemUseRequirements(target, sessionUuid, itemUuid);
+    return std::string(requestedSlot);
+  }
+
+  auto item = readCharacterItemEquipInput(target, sessionUuid, itemUuid, requestedSlot);
+  const auto inferredSlot = inferEquipmentSlotFromItem(target, sessionUuid, itemUuid, item);
+  item.slot = inferredSlot;
+  const auto validation = Inv::validateEquipItem(item);
+  if(!validation.accepted)
+    throw std::runtime_error(validation.reason);
+  validateCharacterItemUseRequirements(target, sessionUuid, itemUuid);
+  return inferredSlot;
+}
+
+[[nodiscard]] std::string resolveEquipmentSlotForUnequip(const MySqlTarget& target,
+                                                         std::string_view sessionUuid,
+                                                         std::string_view itemUuid,
+                                                         std::string_view requestedSlot) {
+  namespace Inv = Mmo::Server::InventoryAuthority;
+  if(requestedSlot != Inv::SlotUnknown)
+    return std::string(requestedSlot);
+
+  std::string query;
+  query += "SELECT ce.equipment_slot ";
+  query += "FROM character_equipment ce ";
+  query += "JOIN server_sessions ss ON ss.character_id=ce.character_id ";
+  query += "WHERE ss.session_id=UUID_TO_BIN(" + sqlLiteral(sessionUuid) + ",1) ";
+  query += "AND ce.item_instance_id=UUID_TO_BIN(" + sqlLiteral(itemUuid) + ",1) LIMIT 1;";
+  auto slot = mysqlSingleField(target, query);
+  if(slot.empty())
+    throw std::runtime_error("equipment_slot_could_not_be_resolved_for_unequip");
+  return slot;
+}
+
 [[nodiscard]] std::string resolveNpcInventoryItemUuid(const MySqlTarget& target,
                                                      std::string_view sessionUuid,
                                                      std::string_view sourceNpcKey,

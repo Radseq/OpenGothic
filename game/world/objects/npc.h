@@ -4,6 +4,7 @@
 #include "graphics/mesh/animation.h"
 #include "graphics/meshobjects.h"
 #include "graphics/mdlvisual.h"
+#include "game/damagecalculator.h"
 #include "game/gametime.h"
 #include "game/movealgo.h"
 #include "game/inventory.h"
@@ -281,6 +282,7 @@ class Npc final {
     int32_t    experienceNext() const;
     int32_t    learningPoints() const;
     int32_t    diveTime() const;
+    const DamageCalculator::Val* pendingDamageObservation() const noexcept;
 
     void      setAttitude(Attitude att);
     Attitude  attitude() const { return permAttitude; }
@@ -347,6 +349,12 @@ class Npc final {
     uint64_t  primaryAttackAnimationElapsed() const;
     uint64_t  animationTotalTime() const;
     uint64_t  attackTotalTime() const;
+    uint64_t  attackOptimalTime() const;
+    uint64_t  attackHitEndTime() const;
+    uint64_t  parryWindowStart() const;
+    uint64_t  parryWindowEnd() const;
+    uint64_t  comboWindowStart() const;
+    uint64_t  comboWindowEnd() const;
     uint16_t  comboLength() const;
 
     void      setPerceptionTime   (uint64_t time);
@@ -660,6 +668,8 @@ class Npc final {
     Npc*                           lastHit          = nullptr;
     char                           lastHitType      = 'A';
     int32_t                        lastHitSpell     = 0;
+    DamageCalculator::Val          pendingDamage;
+    bool                           hasPendingDamage = false;
 
     // spell cast
     CastState                      castLevel        = CS_NoCast;
@@ -716,6 +726,8 @@ class Npc final {
 
   friend class MoveAlgo;
   };
+
+
 
 
 

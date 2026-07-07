@@ -116,6 +116,12 @@ void appendJsonRawFieldBeforeFinalObjectBrace(std::string& out, std::string_view
   return out;
 }
 
+[[nodiscard]] std::string sqlNullableDouble(std::optional<double> value) {
+  if(!value)
+    return "NULL";
+  return std::to_string(*value);
+}
+
 [[nodiscard]] int parsePortOrDefault(std::string_view text) noexcept {
   int value = 3306;
   const auto r = std::from_chars(text.data(), text.data() + text.size(), value);
@@ -473,6 +479,105 @@ std::string dbLogin(const MySqlTarget& target, const Options& opt) {
   return raw.substr(raw.rfind('\n') == std::string::npos ? 0 : raw.rfind('\n') + 1);
 }
 
+void validateClientContentManifestForSession(const MySqlTarget& target,
+                                             std::string_view sessionUuid,
+                                             const Options& opt,
+                                             std::string_view reason) {
+  const bool shouldValidate = opt.requireClientContentManifest || !opt.clientContentManifestHash.empty();
+  if(!shouldValidate)
+    return;
+  if(sessionUuid.empty()) {
+    if(opt.requireClientContentManifest) {
+      throw ContentManifestValidationError("session_uuid_missing",
+                                           opt.clientContentManifestHash,
+                                           std::string(),
+                                           std::string(),
+                                           std::string(reason));
+    }
+    std::cerr << "[content_manifest_validation]"
+              << " accepted=0"
+              << " required=0"
+              << " reason=session_uuid_missing"
+              << "\n";
+    return;
+  }
+
+  std::string sql;
+  sql += "SET @mmo_content_accepted=0;";
+  sql += "SET @mmo_content_reason='';";
+  sql += "SET @mmo_content_server_hash=NULL;";
+  sql += "SET @mmo_content_revision_key=NULL;";
+  sql += "CALL mmo_validate_client_content_pack_for_session(UUID_TO_BIN(";
+  sql += sqlLiteral(sessionUuid);
+  sql += ",1),";
+  sql += sqlLiteral(opt.clientContentManifestHash);
+  sql += ",@mmo_content_accepted,@mmo_content_reason,@mmo_content_server_hash,@mmo_content_revision_key);";
+  sql += "SELECT CONCAT(@mmo_content_accepted,'\\t',COALESCE(@mmo_content_reason,''),'\\t',";
+  sql += "COALESCE(@mmo_content_server_hash,''),'\\t',COALESCE(@mmo_content_revision_key,''));";
+
+  std::vector<std::string> parts;
+  try {
+    parts = splitMysqlLastRow(runMysql(target, sql));
+  } catch(const std::exception& error) {
+    if(opt.requireClientContentManifest)
+      throw;
+    std::cerr << "[content_manifest_validation_failed_open]"
+              << " required=0"
+              << " reason=" << error.what()
+              << " phase=" << reason
+              << "\n";
+    return;
+  }
+  const bool accepted = !parts.empty() && parts[0] == "1";
+  const std::string decision = parts.size() > 1 ? parts[1] : std::string("missing_validation_result");
+  const std::string serverHash = parts.size() > 2 ? parts[2] : std::string();
+  const std::string revisionKey = parts.size() > 3 ? parts[3] : std::string();
+
+  std::cout << "[content_manifest_validation]"
+            << " accepted=" << (accepted ? 1 : 0)
+            << " required=" << (opt.requireClientContentManifest ? 1 : 0)
+            << " reason=" << decision
+            << " phase=" << reason
+            << " revision=" << revisionKey
+            << " client_hash=" << (opt.clientContentManifestHash.empty() ? "<empty>" : opt.clientContentManifestHash)
+            << " server_hash=" << (serverHash.empty() ? "<empty>" : serverHash)
+            << "\n";
+
+  if(!accepted && opt.requireClientContentManifest) {
+    throw ContentManifestValidationError(decision,
+                                         opt.clientContentManifestHash,
+                                         serverHash,
+                                         revisionKey,
+                                         std::string(reason));
+  }
+}
+
+void recordContentManifestRejectAudit(const MySqlTarget& target,
+                                      const ContentManifestRejectAuditRecord& record) {
+  std::string sql;
+  sql += "SET @mmo_content_reject_id=NULL;";
+  sql += "CALL mmo_record_content_manifest_reject(";
+  if(record.sessionUuid.empty())
+    sql += "NULL,";
+  else
+    sql += "UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.remoteEndpoint) + ",";
+  sql += sqlLiteral(record.packetSessionKey) + ",";
+  sql += sqlLiteral(record.targetKey) + ",";
+  sql += std::to_string(record.packetSequence) + ",";
+  sql += std::to_string(record.localSequence) + ",";
+  sql += sqlLiteral(record.phase) + ",";
+  sql += sqlLiteral(record.reason) + ",";
+  sql += sqlLiteral(record.clientManifestHash) + ",";
+  sql += sqlLiteral(record.serverManifestHash) + ",";
+  sql += sqlLiteral(record.contentRevisionKey) + ",";
+  sql += sqlLiteral(record.message) + ",";
+  sql += sqlJson(record.payloadJson.empty() ? std::string_view("{}") : record.payloadJson);
+  sql += ",@mmo_content_reject_id);";
+  sql += "SELECT BIN_TO_UUID(@mmo_content_reject_id,1);";
+  (void)mysqlSingleField(target, sql);
+}
+
 bool isActiveDbSession(const MySqlTarget& target, std::string_view sessionUuid) {
   if(sessionUuid.empty())
     return false;
@@ -492,6 +597,7 @@ bool ensureActiveDbSession(const MySqlTarget& target,
 
   const std::string oldSession = sessionUuid.empty() ? std::string("<empty>") : sessionUuid;
   sessionUuid = dbLogin(target, opt);
+  validateClientContentManifestForSession(target, sessionUuid, opt, reason);
   std::cout << "[db_session_recovered]"
             << " reason=" << reason
             << " old=" << oldSession
@@ -1133,4 +1239,446 @@ std::string buildSaveCheckpointBootstrapSnapshotJson(const MySqlTarget& target,
   return out;
 }
 
+void enqueueOutboxAction(const MySqlTarget& target, const OutboxActionRecord& record) {
+  std::string sql;
+  sql += "SET @action_id = NULL;";
+  sql += "SET @status = NULL;";
+  sql += "CALL mmo_enqueue_server_action(";
+  sql += "UUID_TO_BIN(";
+  sql += sqlLiteral(record.sessionUuid);
+  sql += ", 1),";
+  sql += sqlLiteral(record.actionName) + ",";
+  sql += sqlLiteral(record.targetKey) + ",";
+  sql += sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",";
+  sql += std::to_string(record.priority) + ",";
+  sql += std::to_string(record.maxAttempts) + ",";
+  sql += "@action_id,@status);";
+  sql += "SELECT CONCAT(BIN_TO_UUID(@action_id, 1), '\\t', @status);";
+  (void)runMysql(target, sql);
+}
+
+void recordCharacterCheckpoint(const MySqlTarget& target, const CharacterCheckpointRecord& record) {
+  std::string sql;
+  sql += "SET @event_id = NULL;";
+  sql += "CALL mmo_checkpoint_character_state(";
+  sql += "UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ", 1),";
+  sql += std::to_string(record.serverTick) + ",";
+  sql += std::to_string(record.posX) + ",";
+  sql += std::to_string(record.posY) + ",";
+  sql += std::to_string(record.posZ) + ",";
+  sql += std::to_string(record.rotationYaw) + ",";
+  sql += sqlLiteral(record.waypoint) + ",";
+  sql += std::to_string(record.level) + ",";
+  sql += std::to_string(record.experience) + ",";
+  sql += std::to_string(record.experienceNext) + ",";
+  sql += std::to_string(record.learningPoints) + ",";
+  sql += std::to_string(record.healthCurrent) + ",";
+  sql += std::to_string(record.healthMax) + ",";
+  sql += std::to_string(record.manaCurrent) + ",";
+  sql += std::to_string(record.manaMax) + ",";
+  sql += std::to_string(record.strength) + ",";
+  sql += std::to_string(record.dexterity) + ",";
+  sql += std::to_string(record.guild) + ",";
+  sql += std::to_string(record.trueGuild) + ",";
+  sql += std::to_string(record.permanentAttitude) + ",";
+  sql += std::to_string(record.temporaryAttitude) + ",";
+  sql += sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",";
+  sql += "@event_id);";
+  sql += "SELECT BIN_TO_UUID(@event_id, 1);";
+  (void)runMysql(target, sql);
+}
+
+void createSaveCheckpointManifest(const MySqlTarget& target, const SaveCheckpointManifestRecord& record) {
+  std::string sql;
+  sql += "SET @manifest_id=NULL; SET @event_id=NULL; SET @row_version_after=NULL;";
+  sql += "CALL mmo_create_db_save_checkpoint_v1(";
+  sql += "UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.manifestKey) + ",";
+  sql += sqlLiteral(record.checkpointKind) + ",";
+  sql += sqlLiteral(record.reason) + ",";
+  sql += std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",";
+  sql += "@manifest_id,@event_id,@row_version_after);";
+  sql += "SELECT CONCAT(BIN_TO_UUID(@manifest_id,1),'\\t',BIN_TO_UUID(@event_id,1),'\\t',@row_version_after);";
+  (void)runMysql(target, sql);
+}
+
+void recordClientActionCorrection(const MySqlTarget& target, const ClientActionCorrectionRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @correction_id=NULL;";
+  sql += "CALL mmo_record_client_action_correction(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.actionName) + ",";
+  sql += std::to_string(record.localSequence) + ",";
+  sql += sqlLiteral(record.correctionKind) + ",";
+  sql += sqlLiteral(record.reason) + ",";
+  sql += std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",";
+  sql += "@event_id,@correction_id);";
+  sql += "SELECT BIN_TO_UUID(@correction_id,1);";
+  (void)runMysql(target, sql);
+}
+
+void setCharacterScriptInt(const MySqlTarget& target, const ScriptIntRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @value_after=NULL;";
+  sql += "CALL mmo_set_character_script_int(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.scriptKey) + "," + std::to_string(record.symbolIndex) + ",";
+  sql += std::to_string(record.valueIndex) + "," + std::to_string(record.valueAfter) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@value_after);";
+  (void)runMysql(target, sql);
+}
+
+void updateCharacterQuest(const MySqlTarget& target, const QuestUpdateRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL;";
+  sql += "CALL mmo_update_character_quest(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.questKey) + "," + sqlLiteral(record.questName) + ",";
+  sql += sqlLiteral(record.status) + "," + std::to_string(record.entryCount) + ",JSON_ARRAY(),";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id);";
+  (void)runMysql(target, sql);
+}
+
+void setCharacterKnownDialog(const MySqlTarget& target, const KnownDialogRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL;";
+  sql += "CALL mmo_set_character_known_dialog(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.npcKey) + "," + sqlLiteral(record.infoKey) + ",";
+  sql += sqlBool(record.known);
+  sql += ",";
+  sql += sqlBool(record.permanent);
+  sql += "," + sqlLiteral(record.availability) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey) + ",@event_id);";
+  (void)runMysql(target, sql);
+}
+
+void adjustCharacterProgression(const MySqlTarget& target, const ProgressionAdjustmentRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @experience_after=NULL; SET @learning_points_after=NULL;";
+  sql += "CALL mmo_adjust_character_progression(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += std::to_string(record.experienceDelta) + "," + std::to_string(record.learningPointsDelta) + ",";
+  sql += sqlLiteral(record.reason) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey);
+  sql += ",@event_id,@experience_after,@learning_points_after);";
+  (void)runMysql(target, sql);
+}
+
+void applyCharacterExperienceReward(const MySqlTarget& target, const ExperienceRewardRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @experience_after=NULL;";
+  sql += "CALL mmo_apply_character_experience_reward(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += std::to_string(record.experienceDelta) + "," + sqlLiteral(record.reason) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@experience_after);";
+  (void)runMysql(target, sql);
+}
+
+void applyCharacterDamage(const MySqlTarget& target, const CharacterDamageRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @health_after=NULL;";
+  sql += "CALL mmo_apply_character_damage(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.characterKey) + "," + std::to_string(record.damage) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@health_after);";
+  (void)runMysql(target, sql);
+}
+
+void applyWorldEntityDamage(const MySqlTarget& target, const WorldEntityDamageRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @health_after=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_apply_world_entity_damage(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.entityKey) + "," + std::to_string(record.damage) + ",";
+  sql += sqlBool(record.fatal);
+  sql += "," + std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@health_after,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void markNpcDead(const MySqlTarget& target, const MarkNpcDeadRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_mark_npc_dead(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.entityKey) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey) + ",@event_id,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void recordCharacterResourceDelta(const MySqlTarget& target, const CharacterResourceDeltaRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_record_character_resource_delta(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.characterKey) + "," + sqlLiteral(record.resourceKey) + ",";
+  sql += std::to_string(record.delta) + "," + std::to_string(record.valueBefore) + ",";
+  sql += std::to_string(record.valueAfter) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey) + ",@event_id,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void recordTriggerEvent(const MySqlTarget& target, const TriggerEventRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL;";
+  sql += "CALL mmo_record_trigger_event(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.triggerKey) + "," + sqlLiteral(record.eventTypeName) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id);";
+  (void)runMysql(target, sql);
+}
+
+void recordMoverState(const MySqlTarget& target, const MoverStateRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_record_mover_state(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.moverKey) + "," + std::to_string(record.stateBefore) + ",";
+  sql += std::to_string(record.stateAfter) + "," + sqlLiteral(record.stateAfterName) + ",";
+  sql += std::to_string(record.frame) + "," + std::to_string(record.targetFrame) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void recordNpcRoutineState(const MySqlTarget& target, const NpcRoutineStateRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_record_npc_routine_state(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.npcKey) + "," + sqlLiteral(record.routineState) + ",";
+  sql += sqlLiteral(record.scheduleKey) + "," + sqlLiteral(record.currentWaypoint) + ",";
+  sql += sqlLiteral(record.targetWaypoint) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey) + ",@event_id,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void recordNpcAiState(const MySqlTarget& target, const NpcAiStateRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_record_npc_ai_state(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.npcKey) + "," + sqlLiteral(record.aiState) + ",";
+  sql += sqlLiteral(record.aiIntent) + "," + sqlLiteral(record.targetEntity) + ",";
+  sql += sqlLiteral(record.perceptionState) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey) + ",@event_id,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void recordNpcPathState(const MySqlTarget& target, const NpcPathStateRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_record_npc_path_state(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.npcKey) + "," + sqlLiteral(record.pathState) + ",";
+  sql += sqlLiteral(record.routeKey) + "," + sqlLiteral(record.currentWaypoint) + ",";
+  sql += sqlLiteral(record.nextWaypoint) + "," + sqlLiteral(record.targetWaypoint) + ",";
+  sql += sqlNullableDouble(record.posX) + "," + sqlNullableDouble(record.posY) + "," + sqlNullableDouble(record.posZ) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void recordNpcFightState(const MySqlTarget& target, const NpcFightStateRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_record_npc_fight_state(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.npcKey) + "," + sqlLiteral(record.opponentKey) + ",";
+  sql += sqlLiteral(record.fightState) + "," + sqlLiteral(record.attackState) + ",";
+  sql += std::to_string(record.comboIndex) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey) + ",@event_id,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void recordTriggerQueueState(const MySqlTarget& target, const TriggerQueueStateRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_record_trigger_queue_state(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.triggerKey) + "," + sqlLiteral(record.queueState) + ",";
+  sql += sqlLiteral(record.eventTypeName) + "," + std::to_string(record.scheduledServerTick) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void recordWorldTransitionState(const MySqlTarget& target, const WorldTransitionStateRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_record_world_transition_state(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.fromWorld) + "," + sqlLiteral(record.toWorld) + ",";
+  sql += sqlLiteral(record.transitionState) + "," + sqlLiteral(record.chapterKey) + ",";
+  sql += sqlBool(record.visited);
+  sql += "," + std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void ackClientActionCorrection(const MySqlTarget& target, const ClientCorrectionAckRecord& record) {
+  std::string sql;
+  sql += "SET @row_after=NULL;";
+  sql += "CALL mmo_ack_client_action_correction(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.actionKind) + "," + std::to_string(record.localSequence) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void recordInteractiveUse(const MySqlTarget& target, const InteractiveUseRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_record_interactive_use(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.interactiveKey) + "," + std::to_string(record.stateAfter) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void updateInteractiveState(const MySqlTarget& target, const InteractiveStateUpdateRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_version_after=NULL;";
+  sql += "CALL mmo_update_interactive_state(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.interactiveKey) + "," + std::to_string(record.stateAfter) + ",";
+  sql += std::to_string(record.stateCount) + "," + std::to_string(record.stateMask) + ",";
+  sql += sqlBool(record.locked);
+  sql += ",";
+  sql += sqlBool(record.cracked);
+  sql += "," + sqlLiteral(record.lifecycle) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey) + ",@event_id,@row_version_after);";
+  (void)runMysql(target, sql);
+}
+
+void recordNpcWeaponState(const MySqlTarget& target, const NpcWeaponStateRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @row_after=NULL;";
+  sql += "CALL mmo_record_npc_weapon_state(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.actorKey) + "," + sqlLiteral(record.weaponState) + ",";
+  sql += sqlBool(record.ready);
+  sql += "," + std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@row_after);";
+  (void)runMysql(target, sql);
+}
+
+void transferCharacterItem(const MySqlTarget& target, const TransferCharacterItemRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @target_character_id=NULL; SET @amount_transferred=NULL;";
+  sql += "CALL mmo_transfer_character_item(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += "UUID_TO_BIN(" + sqlLiteral(record.itemUuid) + ",1)," + sqlLiteral(record.targetCharacterKey) + ",";
+  sql += std::to_string(record.amount) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey);
+  sql += ",@event_id,@target_character_id,@amount_transferred);";
+  (void)runMysql(target, sql);
+}
+
+void lootWorldInventoryItem(const MySqlTarget& target, const LootWorldInventoryRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @source_amount_remaining=NULL; SET @amount_looted=NULL;";
+  sql += "CALL mmo_loot_npc_inventory(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.sourceEntityKey) + ",UUID_TO_BIN(" + sqlLiteral(record.itemUuid) + ",1),";
+  sql += std::to_string(record.amount) + "," + std::to_string(record.bagIndex) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@source_amount_remaining,@amount_looted);";
+  (void)runMysql(target, sql);
+}
+
+void grantCharacterItemBySymbol(const MySqlTarget& target, const GrantCharacterItemBySymbolRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @item_id=NULL; SET @amount_granted=NULL;";
+  sql += "CALL mmo_grant_character_item_by_symbol(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += std::to_string(record.itemSymbol) + "," + std::to_string(record.amount) + ",";
+  sql += std::to_string(record.bagIndex) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey);
+  sql += ",@event_id,@item_id,@amount_granted);";
+  (void)runMysql(target, sql);
+}
+
+void pickupWorldItem(const MySqlTarget& target, const PickupWorldItemRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @item_id=NULL; SET @amount_picked=NULL;";
+  sql += "CALL mmo_pickup_world_item(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.entityKey) + "," + std::to_string(record.amount) + ",";
+  sql += std::to_string(record.bagIndex) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey);
+  sql += ",@event_id,@item_id,@amount_picked);";
+  (void)runMysql(target, sql);
+}
+
+void removeWorldItem(const MySqlTarget& target, const RemoveWorldItemRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @item_id=NULL;";
+  sql += "CALL mmo_remove_world_item(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.entityKey) + "," + sqlLiteral(record.reason) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@item_id);";
+  (void)runMysql(target, sql);
+}
+
+void equipCharacterItem(const MySqlTarget& target, const EquipCharacterItemRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL;";
+  sql += "CALL mmo_equip_character_item(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += "UUID_TO_BIN(" + sqlLiteral(record.itemUuid) + ",1)," + sqlLiteral(record.equipmentSlot) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id);";
+  (void)runMysql(target, sql);
+}
+
+void unequipCharacterItem(const MySqlTarget& target, const UnequipCharacterItemRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @item_id=NULL;";
+  sql += "CALL mmo_unequip_character_item(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.equipmentSlot) + "," + std::to_string(record.serverTick) + ",";
+  sql += sqlJson(record.dbPayload) + "," + sqlLiteral(record.idempotencyKey) + ",@event_id,@item_id);";
+  (void)runMysql(target, sql);
+}
+
+void consumeCharacterItem(const MySqlTarget& target, const ConsumeCharacterItemRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @amount_remaining=NULL; SET @amount_consumed=NULL;";
+  sql += "CALL mmo_consume_character_item(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += "UUID_TO_BIN(" + sqlLiteral(record.itemUuid) + ",1),";
+  sql += std::to_string(record.amount) + "," + sqlLiteral(record.reason) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@amount_remaining,@amount_consumed);";
+  (void)runMysql(target, sql);
+}
+
+void tradeSellToNpc(const MySqlTarget& target, const TradeSellToNpcRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @wallet_after=NULL;";
+  sql += "CALL mmo_trade_sell_to_npc(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.npcKey) + ",UUID_TO_BIN(" + sqlLiteral(record.itemUuid) + ",1),";
+  sql += std::to_string(record.priceTotal) + "," + sqlLiteral(record.currencyKey) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@wallet_after);";
+  (void)runMysql(target, sql);
+}
+
+void tradeBuyFromNpc(const MySqlTarget& target, const TradeBuyFromNpcRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @wallet_after=NULL; SET @bag_index=NULL;";
+  sql += "CALL mmo_trade_buy_from_npc(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += sqlLiteral(record.npcKey) + ",UUID_TO_BIN(" + sqlLiteral(record.itemUuid) + ",1),";
+  sql += std::to_string(record.priceTotal) + "," + sqlLiteral(record.currencyKey) + ",";
+  if(record.bagIndex < 0)
+    sql += "NULL";
+  else
+    sql += std::to_string(record.bagIndex);
+  sql += "," + std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@wallet_after,@bag_index);";
+  (void)runMysql(target, sql);
+}
+
+void dropCharacterItem(const MySqlTarget& target, const DropCharacterItemRecord& record) {
+  std::string sql;
+  sql += "SET @event_id=NULL; SET @amount_remaining=NULL; SET @amount_dropped=NULL;";
+  sql += "CALL mmo_drop_character_item(UUID_TO_BIN(" + sqlLiteral(record.sessionUuid) + ",1),";
+  sql += "UUID_TO_BIN(" + sqlLiteral(record.itemUuid) + ",1),";
+  sql += std::to_string(record.amount) + "," + sqlLiteral(record.entityKey) + ",";
+  sql += sqlNullableDouble(record.posX) + "," + sqlNullableDouble(record.posY) + "," + sqlNullableDouble(record.posZ) + ",";
+  sql += std::to_string(record.serverTick) + "," + sqlJson(record.dbPayload) + ",";
+  sql += sqlLiteral(record.idempotencyKey) + ",@event_id,@amount_remaining,@amount_dropped);";
+  (void)runMysql(target, sql);
+}
+
 } // namespace Mmo::Server
+
+
+
+

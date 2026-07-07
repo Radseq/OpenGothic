@@ -755,6 +755,65 @@ uint64_t Pose::atkTotalTime() const {
   return ret;
   }
 
+uint64_t Pose::primaryAttackOptimalTime() const {
+  for(auto& i:lay) {
+    if(!i.seq->isAttackAnim())
+      continue;
+    if(auto time = i.seq->optimalFrameTime())
+      return *time;
+    }
+  return 0;
+  }
+
+uint64_t Pose::primaryAttackHitEndTime() const {
+  const uint16_t comboLen = combo.len();
+  for(auto& i:lay) {
+    if(!i.seq->isAttackAnim())
+      continue;
+    if(auto time = i.seq->hitEndTime(comboLen))
+      return *time;
+    }
+  return 0;
+  }
+
+uint64_t Pose::primaryParryWindowStart() const {
+  for(auto& i:lay) {
+    if(auto window = i.seq->parryWindow())
+      return window->first;
+    }
+  return 0;
+  }
+
+uint64_t Pose::primaryParryWindowEnd() const {
+  for(auto& i:lay) {
+    if(auto window = i.seq->parryWindow())
+      return window->second;
+    }
+  return 0;
+  }
+
+uint64_t Pose::primaryComboWindowStart() const {
+  const uint16_t comboLen = combo.len();
+  for(auto& i:lay) {
+    if(!i.seq->isAttackAnim())
+      continue;
+    if(auto window = i.seq->comboWindow(comboLen))
+      return window->first;
+    }
+  return 0;
+  }
+
+uint64_t Pose::primaryComboWindowEnd() const {
+  const uint16_t comboLen = combo.len();
+  for(auto& i:lay) {
+    if(!i.seq->isAttackAnim())
+      continue;
+    if(auto window = i.seq->comboWindow(comboLen))
+      return window->second;
+    }
+  return 0;
+  }
+
 const Animation::Sequence* Pose::continueCombo(const AnimationSolver &solver, const Animation::Sequence *sq,
                                                BodyState bs, uint64_t tickCount) {
   if(sq==nullptr)

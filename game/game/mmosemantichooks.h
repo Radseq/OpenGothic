@@ -151,6 +151,12 @@ void onWeaponStateChanged(Npc& actor,
                           const char* sourceLocation,
                           const char* reason = "weapon_state_changed") noexcept;
 
+void onCombatIntent(Npc& actor,
+                    std::string_view combatAction,
+                    std::string_view intentState,
+                    const char* sourceLocation,
+                    const char* reason = "combat_intent_observed") noexcept;
+
 void onContainerInventoryTaken(Npc& actor,
                                Interactive& container,
                                std::size_t itemSymbol,

@@ -7,6 +7,10 @@
 #include <unordered_map>
 #include <vector>
 
+#include "mmo_server_combat_animation_profile.h"
+#include "mmo_server_combat_spatial_authority.h"
+#include "mmo_server_fight_move_model.h"
+
 namespace Mmo::Server::CombatTimeline {
 
 inline constexpr std::uint32_t ObservedAttackGraceMs = 750;
@@ -47,6 +51,35 @@ struct ObservedFightInput final {
   std::uint64_t attackAnimationElapsedMs = 0;
   std::uint64_t animationTotalMs = 0;
   std::uint64_t attackTotalMs = 0;
+  std::uint64_t attackOptimalMs = 0;
+  std::uint64_t attackHitEndMs = 0;
+  std::uint64_t parryWindowStartMs = 0;
+  std::uint64_t parryWindowEndMs = 0;
+  std::uint64_t comboWindowStartMs = 0;
+  std::uint64_t comboWindowEndMs = 0;
+  Mmo::Server::Gameplay::Vec3 attackerCenter;
+  Mmo::Server::Gameplay::Vec3 opponentCenter;
+  double attackerYawRad = 0.0;
+  double opponentYawRad = 0.0;
+  double attackRange = 0.0;
+  double opponentAttackRange = 0.0;
+  double attackerBaseRange = 0.0;
+  double opponentBaseRange = 0.0;
+  double weaponRange = 0.0;
+  bool hasAttackerCenter = false;
+  bool hasOpponentCenter = false;
+  bool hasAttackerYaw = false;
+  bool hasOpponentYaw = false;
+  bool hasAttackRange = false;
+  bool hasOpponentAttackRange = false;
+  bool hasAttackerBaseRange = false;
+  bool hasOpponentBaseRange = false;
+  bool hasWeaponRange = false;
+  bool actorRunning = false;
+  bool opponentRunning = false;
+  bool opponentPrehit = false;
+  bool opponentInWRange = false;
+  bool opponentInFocus = false;
   std::int64_t comboIndex = 0;
   std::int64_t bodyState = 0;
   std::int64_t weaponStateId = 0;
@@ -87,6 +120,36 @@ struct Snapshot final {
   std::uint64_t attackAnimationElapsedMs = 0;
   std::uint64_t animationTotalMs = 0;
   std::uint64_t attackTotalMs = 0;
+  std::uint64_t attackOptimalMs = 0;
+  std::uint64_t attackHitEndMs = 0;
+  std::uint64_t parryWindowStartMs = 0;
+  std::uint64_t parryWindowEndMs = 0;
+  std::uint64_t comboWindowStartMs = 0;
+  std::uint64_t comboWindowEndMs = 0;
+  Mmo::Server::Gameplay::Vec3 attackerCenter;
+  Mmo::Server::Gameplay::Vec3 opponentCenter;
+  double attackerYawRad = 0.0;
+  double opponentYawRad = 0.0;
+  double attackRange = 0.0;
+  double opponentAttackRange = 0.0;
+  double attackerBaseRange = 0.0;
+  double opponentBaseRange = 0.0;
+  double weaponRange = 0.0;
+  std::string fightTableChoice;
+  bool hasAttackerCenter = false;
+  bool hasOpponentCenter = false;
+  bool hasAttackerYaw = false;
+  bool hasOpponentYaw = false;
+  bool hasAttackRange = false;
+  bool hasOpponentAttackRange = false;
+  bool hasAttackerBaseRange = false;
+  bool hasOpponentBaseRange = false;
+  bool hasWeaponRange = false;
+  bool actorRunning = false;
+  bool opponentRunning = false;
+  bool opponentPrehit = false;
+  bool opponentInWRange = false;
+  bool opponentInFocus = false;
   std::int64_t comboIndex = 0;
   std::int64_t bodyState = 0;
   std::int64_t weaponStateId = 0;
@@ -109,6 +172,11 @@ public:
 
 private:
   [[nodiscard]] static Phase classify(const ObservedFightInput& input) noexcept;
+  [[nodiscard]] static CombatAnimation::Timing timingFromInput(const ObservedFightInput& input) noexcept;
+  [[nodiscard]] static CombatAnimation::Timing timingFromSnapshot(const Snapshot& snapshot) noexcept;
+  [[nodiscard]] static CombatSpatial::Input spatialFromInput(const ObservedFightInput& input) noexcept;
+  [[nodiscard]] static CombatSpatial::Input spatialFromSnapshot(const Snapshot& snapshot) noexcept;
+  [[nodiscard]] static FightMove::SelectionInput selectionFromInput(const ObservedFightInput& input) noexcept;
   [[nodiscard]] static bool validInput(const ObservedFightInput& input) noexcept;
   [[nodiscard]] static bool timedOut(const Snapshot& snapshot, std::uint64_t nowServerTickMs) noexcept;
 

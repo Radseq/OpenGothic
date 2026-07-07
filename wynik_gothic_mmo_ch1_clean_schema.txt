@@ -875,6 +875,56 @@ CREATE TABLE `mmo_client_action_correction_history` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `mmo_content_manifest_reject_audit`
+--
+
+DROP TABLE IF EXISTS `mmo_content_manifest_reject_audit`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_content_manifest_reject_audit` (
+  `reject_id` binary(16) NOT NULL,
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `session_id` binary(16) DEFAULT NULL,
+  `realm_id` binary(16) DEFAULT NULL,
+  `account_id` binary(16) DEFAULT NULL,
+  `character_id` binary(16) DEFAULT NULL,
+  `world_instance_id` binary(16) DEFAULT NULL,
+  `content_revision_id` binary(16) DEFAULT NULL,
+  `remote_endpoint` varchar(191) NOT NULL DEFAULT '',
+  `packet_session_key` varchar(191) NOT NULL DEFAULT '',
+  `target_key` varchar(191) NOT NULL DEFAULT '',
+  `packet_sequence` bigint unsigned NOT NULL DEFAULT '0',
+  `local_sequence` bigint unsigned NOT NULL DEFAULT '0',
+  `phase` varchar(64) NOT NULL DEFAULT '',
+  `reason` varchar(191) NOT NULL,
+  `client_manifest_hash` varchar(128) DEFAULT NULL,
+  `server_manifest_hash` char(64) DEFAULT NULL,
+  `content_revision_key` varchar(191) DEFAULT NULL,
+  `message` varchar(1024) NOT NULL DEFAULT '',
+  `payload_json` json NOT NULL DEFAULT (json_object()),
+  PRIMARY KEY (`reject_id`),
+  KEY `ix_mmo_cm_reject_created` (`created_at`),
+  KEY `ix_mmo_cm_reject_reason_created` (`reason`,`created_at`),
+  KEY `ix_mmo_cm_reject_session_created` (`session_id`,`created_at`),
+  KEY `ix_mmo_cm_reject_realm_reason` (`realm_id`,`reason`,`created_at`),
+  KEY `ix_mmo_cm_reject_revision_reason` (`content_revision_id`,`reason`,`created_at`),
+  KEY `ix_mmo_cm_reject_client_hash` (`client_manifest_hash`),
+  KEY `ix_mmo_cm_reject_server_hash` (`server_manifest_hash`),
+  KEY `mmo_cm_reject_account_fk` (`account_id`),
+  KEY `mmo_cm_reject_character_fk` (`character_id`),
+  KEY `mmo_cm_reject_world_fk` (`world_instance_id`),
+  CONSTRAINT `mmo_cm_reject_account_fk` FOREIGN KEY (`account_id`) REFERENCES `account_accounts` (`account_id`) ON DELETE SET NULL,
+  CONSTRAINT `mmo_cm_reject_character_fk` FOREIGN KEY (`character_id`) REFERENCES `characters` (`character_id`) ON DELETE SET NULL,
+  CONSTRAINT `mmo_cm_reject_realm_fk` FOREIGN KEY (`realm_id`) REFERENCES `realm_realms` (`realm_id`) ON DELETE SET NULL,
+  CONSTRAINT `mmo_cm_reject_revision_fk` FOREIGN KEY (`content_revision_id`) REFERENCES `content_revisions` (`content_revision_id`) ON DELETE SET NULL,
+  CONSTRAINT `mmo_cm_reject_session_fk` FOREIGN KEY (`session_id`) REFERENCES `server_sessions` (`session_id`) ON DELETE SET NULL,
+  CONSTRAINT `mmo_cm_reject_world_fk` FOREIGN KEY (`world_instance_id`) REFERENCES `realm_world_instances` (`world_instance_id`) ON DELETE SET NULL,
+  CONSTRAINT `mmo_cm_reject_payload_json_ck` CHECK (json_valid(`payload_json`)),
+  CONSTRAINT `mmo_cm_reject_server_hash_ck` CHECK (((`server_manifest_hash` is null) or regexp_like(`server_manifest_hash`,_utf8mb4'^[0-9a-f]{64}$')))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `mmo_import_object_map`
 --
 
@@ -1769,6 +1819,178 @@ CREATE TABLE `mmo_server_character_read_model` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `mmo_server_content_archive_mounts`
+--
+
+DROP TABLE IF EXISTS `mmo_server_content_archive_mounts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_server_content_archive_mounts` (
+  `content_archive_mount_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `content_file_id` binary(16) NOT NULL,
+  `content_revision_id` binary(16) NOT NULL,
+  `archive_logical_path` varchar(512) NOT NULL,
+  `archive_role` varchar(32) NOT NULL,
+  `mount_strategy` varchar(32) NOT NULL DEFAULT 'pre_extracted',
+  `mount_status` varchar(32) NOT NULL DEFAULT 'planned',
+  `extracted_root_label` varchar(512) NOT NULL DEFAULT '',
+  `extracted_file_count` int NOT NULL DEFAULT '0',
+  `extracted_total_bytes` bigint unsigned NOT NULL DEFAULT '0',
+  `extracted_manifest_hash` char(64) DEFAULT NULL,
+  `last_verified_at` timestamp(6) NULL DEFAULT NULL,
+  `mount_notes` json NOT NULL DEFAULT (json_object()),
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`content_archive_mount_id`),
+  UNIQUE KEY `mmo_content_archive_mount_file_uk` (`content_file_id`),
+  KEY `ix_mmo_content_archive_mount_revision` (`content_revision_id`,`archive_role`,`mount_status`),
+  KEY `ix_mmo_content_archive_mount_path` (`content_revision_id`,`archive_logical_path`),
+  CONSTRAINT `mmo_content_archive_mount_file_fk` FOREIGN KEY (`content_file_id`) REFERENCES `mmo_server_content_pack_files` (`content_file_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_content_archive_mount_revision_fk` FOREIGN KEY (`content_revision_id`) REFERENCES `content_revisions` (`content_revision_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_content_archive_mount_file_count_ck` CHECK ((`extracted_file_count` >= 0)),
+  CONSTRAINT `mmo_content_archive_mount_hash_ck` CHECK (((`extracted_manifest_hash` is null) or regexp_like(`extracted_manifest_hash`,_utf8mb4'^[0-9a-f]{64}$'))),
+  CONSTRAINT `mmo_content_archive_mount_notes_json_ck` CHECK (json_valid(`mount_notes`)),
+  CONSTRAINT `mmo_content_archive_mount_role_ck` CHECK ((`archive_role` in (_utf8mb4'archive_vdf',_utf8mb4'archive_mod'))),
+  CONSTRAINT `mmo_content_archive_mount_status_ck` CHECK ((`mount_status` in (_utf8mb4'planned',_utf8mb4'mounted',_utf8mb4'extracted',_utf8mb4'verified',_utf8mb4'failed',_utf8mb4'ignored'))),
+  CONSTRAINT `mmo_content_archive_mount_strategy_ck` CHECK ((`mount_strategy` in (_utf8mb4'pre_extracted',_utf8mb4'read_direct',_utf8mb4'extract_on_boot',_utf8mb4'external_mount',_utf8mb4'manual'))),
+  CONSTRAINT `mmo_content_archive_mount_total_bytes_ck` CHECK ((`extracted_total_bytes` >= 0))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_server_content_extracted_files`
+--
+
+DROP TABLE IF EXISTS `mmo_server_content_extracted_files`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_server_content_extracted_files` (
+  `content_extracted_file_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `content_archive_mount_id` binary(16) NOT NULL,
+  `content_revision_id` binary(16) NOT NULL,
+  `archive_logical_path` varchar(512) NOT NULL,
+  `extracted_logical_path` varchar(512) NOT NULL,
+  `mapped_content_file_id` binary(16) DEFAULT NULL,
+  `byte_size` bigint unsigned NOT NULL DEFAULT '0',
+  `sha256` char(64) DEFAULT NULL,
+  `extracted_status` varchar(32) NOT NULL DEFAULT 'discovered',
+  `raw_payload` json NOT NULL DEFAULT (json_object()),
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`content_extracted_file_id`),
+  UNIQUE KEY `mmo_content_extracted_file_uk` (`content_archive_mount_id`,`extracted_logical_path`),
+  KEY `ix_mmo_content_extracted_revision` (`content_revision_id`,`extracted_status`),
+  KEY `ix_mmo_content_extracted_path` (`content_revision_id`,`extracted_logical_path`),
+  KEY `ix_mmo_content_extracted_hash` (`content_revision_id`,`sha256`),
+  KEY `mmo_content_extracted_mapped_file_fk` (`mapped_content_file_id`),
+  CONSTRAINT `mmo_content_extracted_archive_fk` FOREIGN KEY (`content_archive_mount_id`) REFERENCES `mmo_server_content_archive_mounts` (`content_archive_mount_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_content_extracted_mapped_file_fk` FOREIGN KEY (`mapped_content_file_id`) REFERENCES `mmo_server_content_pack_files` (`content_file_id`) ON DELETE SET NULL,
+  CONSTRAINT `mmo_content_extracted_revision_fk` FOREIGN KEY (`content_revision_id`) REFERENCES `content_revisions` (`content_revision_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_content_extracted_hash_ck` CHECK (((`sha256` is null) or regexp_like(`sha256`,_utf8mb4'^[0-9a-f]{64}$'))),
+  CONSTRAINT `mmo_content_extracted_payload_json_ck` CHECK (json_valid(`raw_payload`)),
+  CONSTRAINT `mmo_content_extracted_size_ck` CHECK ((`byte_size` >= 0)),
+  CONSTRAINT `mmo_content_extracted_status_ck` CHECK ((`extracted_status` in (_utf8mb4'discovered',_utf8mb4'hashed',_utf8mb4'linked',_utf8mb4'missing',_utf8mb4'hash_mismatch',_utf8mb4'ignored')))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_server_content_pack_files`
+--
+
+DROP TABLE IF EXISTS `mmo_server_content_pack_files`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_server_content_pack_files` (
+  `content_file_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `content_revision_id` binary(16) NOT NULL,
+  `logical_path` varchar(512) NOT NULL,
+  `source_kind` varchar(32) NOT NULL DEFAULT 'other',
+  `byte_size` bigint unsigned NOT NULL DEFAULT '0',
+  `sha256` char(64) NOT NULL,
+  `mtime_utc` timestamp(6) NULL DEFAULT NULL,
+  `required` tinyint(1) NOT NULL DEFAULT '1',
+  `raw_payload` json NOT NULL DEFAULT (json_object()),
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`content_file_id`),
+  UNIQUE KEY `mmo_server_content_pack_files_uk` (`content_revision_id`,`logical_path`),
+  KEY `ix_mmo_server_content_pack_files_hash` (`content_revision_id`,`sha256`),
+  KEY `ix_mmo_server_content_pack_files_kind` (`content_revision_id`,`source_kind`),
+  CONSTRAINT `mmo_server_content_pack_files_revision_fk` FOREIGN KEY (`content_revision_id`) REFERENCES `content_revisions` (`content_revision_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_server_content_pack_files_kind_ck` CHECK ((`source_kind` in (_utf8mb4'zen',_utf8mb4'dat',_utf8mb4'ou',_utf8mb4'vdf',_utf8mb4'mod',_utf8mb4'script',_utf8mb4'ini',_utf8mb4'texture',_utf8mb4'mesh',_utf8mb4'sound',_utf8mb4'video',_utf8mb4'font',_utf8mb4'other'))),
+  CONSTRAINT `mmo_server_content_pack_files_payload_json_ck` CHECK (json_valid(`raw_payload`)),
+  CONSTRAINT `mmo_server_content_pack_files_sha_ck` CHECK (regexp_like(`sha256`,_utf8mb4'^[0-9a-f]{64}$')),
+  CONSTRAINT `mmo_server_content_pack_files_size_ck` CHECK ((`byte_size` >= 0))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_server_content_pack_inventory`
+--
+
+DROP TABLE IF EXISTS `mmo_server_content_pack_inventory`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_server_content_pack_inventory` (
+  `content_inventory_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `content_file_id` binary(16) NOT NULL,
+  `content_revision_id` binary(16) NOT NULL,
+  `logical_path` varchar(512) NOT NULL,
+  `file_role` varchar(48) NOT NULL DEFAULT 'other',
+  `loader_stage` varchar(48) NOT NULL DEFAULT 'unknown',
+  `import_priority` int NOT NULL DEFAULT '1000',
+  `required_for_server_authority` tinyint(1) NOT NULL DEFAULT '0',
+  `import_status` varchar(32) NOT NULL DEFAULT 'not_started',
+  `import_notes` json NOT NULL DEFAULT (json_object()),
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`content_inventory_id`),
+  UNIQUE KEY `mmo_server_content_pack_inventory_file_uk` (`content_file_id`),
+  KEY `ix_mmo_content_pack_inventory_revision_role` (`content_revision_id`,`file_role`),
+  KEY `ix_mmo_content_pack_inventory_revision_stage` (`content_revision_id`,`loader_stage`),
+  KEY `ix_mmo_content_pack_inventory_revision_status` (`content_revision_id`,`import_status`),
+  KEY `ix_mmo_content_pack_inventory_path` (`content_revision_id`,`logical_path`),
+  CONSTRAINT `mmo_content_pack_inventory_file_fk` FOREIGN KEY (`content_file_id`) REFERENCES `mmo_server_content_pack_files` (`content_file_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_content_pack_inventory_revision_fk` FOREIGN KEY (`content_revision_id`) REFERENCES `content_revisions` (`content_revision_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_content_pack_inventory_notes_json_ck` CHECK (json_valid(`import_notes`)),
+  CONSTRAINT `mmo_content_pack_inventory_priority_ck` CHECK ((`import_priority` >= 0)),
+  CONSTRAINT `mmo_content_pack_inventory_role_ck` CHECK ((`file_role` in (_utf8mb4'world_zen',_utf8mb4'scripts_dat',_utf8mb4'dialog_ou',_utf8mb4'archive_vdf',_utf8mb4'archive_mod',_utf8mb4'script_source',_utf8mb4'config_ini',_utf8mb4'asset_texture',_utf8mb4'asset_mesh',_utf8mb4'asset_sound',_utf8mb4'asset_video',_utf8mb4'font',_utf8mb4'other'))),
+  CONSTRAINT `mmo_content_pack_inventory_stage_ck` CHECK ((`loader_stage` in (_utf8mb4'archive_mount',_utf8mb4'world_loader',_utf8mb4'script_vm',_utf8mb4'dialog_output',_utf8mb4'source_reference',_utf8mb4'server_config',_utf8mb4'asset_lookup',_utf8mb4'ignore',_utf8mb4'unknown'))),
+  CONSTRAINT `mmo_content_pack_inventory_status_ck` CHECK ((`import_status` in (_utf8mb4'not_started',_utf8mb4'planned',_utf8mb4'ready_for_parser',_utf8mb4'unsupported',_utf8mb4'imported',_utf8mb4'failed',_utf8mb4'ignored')))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mmo_server_content_pack_manifests`
+--
+
+DROP TABLE IF EXISTS `mmo_server_content_pack_manifests`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mmo_server_content_pack_manifests` (
+  `content_manifest_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `content_revision_id` binary(16) NOT NULL,
+  `manifest_hash` char(64) NOT NULL,
+  `file_count` int NOT NULL DEFAULT '0',
+  `required_file_count` int NOT NULL DEFAULT '0',
+  `total_bytes` bigint unsigned NOT NULL DEFAULT '0',
+  `source_root_label` varchar(512) NOT NULL DEFAULT '',
+  `source_payload` json NOT NULL DEFAULT (json_object()),
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`content_manifest_id`),
+  UNIQUE KEY `mmo_server_content_pack_manifests_revision_uk` (`content_revision_id`),
+  KEY `ix_mmo_server_content_pack_manifests_hash` (`manifest_hash`),
+  CONSTRAINT `mmo_server_content_pack_manifests_revision_fk` FOREIGN KEY (`content_revision_id`) REFERENCES `content_revisions` (`content_revision_id`) ON DELETE CASCADE,
+  CONSTRAINT `mmo_server_content_pack_manifests_file_count_ck` CHECK ((`file_count` >= 0)),
+  CONSTRAINT `mmo_server_content_pack_manifests_hash_ck` CHECK (regexp_like(`manifest_hash`,_utf8mb4'^[0-9a-f]{64}$')),
+  CONSTRAINT `mmo_server_content_pack_manifests_payload_json_ck` CHECK (json_valid(`source_payload`)),
+  CONSTRAINT `mmo_server_content_pack_manifests_required_count_ck` CHECK ((`required_file_count` >= 0)),
+  CONSTRAINT `mmo_server_content_pack_manifests_total_bytes_ck` CHECK ((`total_bytes` >= 0))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `mmo_server_interactive_read_model`
 --
 
@@ -2389,6 +2611,81 @@ SET @saved_cs_client     = @@character_set_client;
 SET character_set_client = @saved_cs_client;
 
 --
+-- Temporary view structure for view `v_mmo_content_manifest_reject_audit`
+--
+
+DROP TABLE IF EXISTS `v_mmo_content_manifest_reject_audit`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_content_manifest_reject_audit`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_content_manifest_reject_audit` AS SELECT 
+ 1 AS `reject_uuid`,
+ 1 AS `created_at`,
+ 1 AS `session_uuid`,
+ 1 AS `realm_uuid`,
+ 1 AS `realm_key`,
+ 1 AS `account_uuid`,
+ 1 AS `account_name`,
+ 1 AS `character_uuid`,
+ 1 AS `character_key`,
+ 1 AS `world_instance_uuid`,
+ 1 AS `world_instance_key`,
+ 1 AS `content_revision_uuid`,
+ 1 AS `content_revision_key`,
+ 1 AS `remote_endpoint`,
+ 1 AS `packet_session_key`,
+ 1 AS `target_key`,
+ 1 AS `packet_sequence`,
+ 1 AS `local_sequence`,
+ 1 AS `phase`,
+ 1 AS `reason`,
+ 1 AS `client_manifest_hash`,
+ 1 AS `server_manifest_hash`,
+ 1 AS `message`,
+ 1 AS `payload_json`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_content_manifest_reject_health`
+--
+
+DROP TABLE IF EXISTS `v_mmo_content_manifest_reject_health`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_content_manifest_reject_health`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_content_manifest_reject_health` AS SELECT 
+ 1 AS `total_rejects`,
+ 1 AS `last_hour_rejects`,
+ 1 AS `last_15m_rejects`,
+ 1 AS `total_hash_mismatches`,
+ 1 AS `last_hour_hash_mismatches`,
+ 1 AS `total_missing_client_manifests`,
+ 1 AS `total_missing_server_manifests`,
+ 1 AS `distinct_remote_endpoints`,
+ 1 AS `distinct_client_hashes`,
+ 1 AS `last_reject_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_content_manifest_reject_summary`
+--
+
+DROP TABLE IF EXISTS `v_mmo_content_manifest_reject_summary`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_content_manifest_reject_summary`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_content_manifest_reject_summary` AS SELECT 
+ 1 AS `reason`,
+ 1 AS `content_revision_key`,
+ 1 AS `server_manifest_hash`,
+ 1 AS `total_count`,
+ 1 AS `last_hour_count`,
+ 1 AS `last_15m_count`,
+ 1 AS `first_seen_at`,
+ 1 AS `last_seen_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
 -- Temporary view structure for view `v_mmo_import_runs`
 --
 
@@ -2531,6 +2828,191 @@ SET @saved_cs_client     = @@character_set_client;
  1 AS `world_entity_rows`,
  1 AS `world_inventory_rows`,
  1 AS `mover_rows`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_server_content_archive_health`
+--
+
+DROP TABLE IF EXISTS `v_mmo_server_content_archive_health`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_archive_health`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_server_content_archive_health` AS SELECT 
+ 1 AS `content_revision_key`,
+ 1 AS `is_active`,
+ 1 AS `inventory_archive_count`,
+ 1 AS `archive_mount_count`,
+ 1 AS `missing_mount_count`,
+ 1 AS `planned_count`,
+ 1 AS `mounted_count`,
+ 1 AS `extracted_count`,
+ 1 AS `verified_count`,
+ 1 AS `failed_count`,
+ 1 AS `extracted_file_count`,
+ 1 AS `extracted_total_bytes`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_server_content_archive_mounts`
+--
+
+DROP TABLE IF EXISTS `v_mmo_server_content_archive_mounts`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_archive_mounts`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_server_content_archive_mounts` AS SELECT 
+ 1 AS `content_archive_mount_uuid`,
+ 1 AS `content_file_uuid`,
+ 1 AS `content_revision_uuid`,
+ 1 AS `game_code`,
+ 1 AS `content_revision_key`,
+ 1 AS `is_active`,
+ 1 AS `archive_logical_path`,
+ 1 AS `source_kind`,
+ 1 AS `archive_byte_size`,
+ 1 AS `archive_sha256`,
+ 1 AS `archive_role`,
+ 1 AS `mount_strategy`,
+ 1 AS `mount_status`,
+ 1 AS `extracted_root_label`,
+ 1 AS `extracted_file_count`,
+ 1 AS `extracted_total_bytes`,
+ 1 AS `extracted_manifest_hash`,
+ 1 AS `last_verified_at`,
+ 1 AS `mount_notes`,
+ 1 AS `created_at`,
+ 1 AS `updated_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_server_content_extracted_files`
+--
+
+DROP TABLE IF EXISTS `v_mmo_server_content_extracted_files`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_extracted_files`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_server_content_extracted_files` AS SELECT 
+ 1 AS `content_extracted_file_uuid`,
+ 1 AS `content_archive_mount_uuid`,
+ 1 AS `content_revision_uuid`,
+ 1 AS `game_code`,
+ 1 AS `content_revision_key`,
+ 1 AS `is_active`,
+ 1 AS `archive_logical_path`,
+ 1 AS `extracted_logical_path`,
+ 1 AS `mapped_content_file_uuid`,
+ 1 AS `mapped_manifest_logical_path`,
+ 1 AS `byte_size`,
+ 1 AS `sha256`,
+ 1 AS `extracted_status`,
+ 1 AS `raw_payload`,
+ 1 AS `created_at`,
+ 1 AS `updated_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_server_content_pack_files`
+--
+
+DROP TABLE IF EXISTS `v_mmo_server_content_pack_files`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_pack_files`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_server_content_pack_files` AS SELECT 
+ 1 AS `content_file_uuid`,
+ 1 AS `content_revision_uuid`,
+ 1 AS `game_code`,
+ 1 AS `content_revision_key`,
+ 1 AS `is_active`,
+ 1 AS `logical_path`,
+ 1 AS `source_kind`,
+ 1 AS `byte_size`,
+ 1 AS `sha256`,
+ 1 AS `mtime_utc`,
+ 1 AS `required`,
+ 1 AS `raw_payload`,
+ 1 AS `created_at`,
+ 1 AS `updated_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_server_content_pack_inventory`
+--
+
+DROP TABLE IF EXISTS `v_mmo_server_content_pack_inventory`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_pack_inventory`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_server_content_pack_inventory` AS SELECT 
+ 1 AS `content_inventory_uuid`,
+ 1 AS `content_file_uuid`,
+ 1 AS `content_revision_uuid`,
+ 1 AS `game_code`,
+ 1 AS `content_revision_key`,
+ 1 AS `is_active`,
+ 1 AS `logical_path`,
+ 1 AS `source_kind`,
+ 1 AS `byte_size`,
+ 1 AS `sha256`,
+ 1 AS `file_role`,
+ 1 AS `loader_stage`,
+ 1 AS `import_priority`,
+ 1 AS `required_for_server_authority`,
+ 1 AS `import_status`,
+ 1 AS `import_notes`,
+ 1 AS `created_at`,
+ 1 AS `updated_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_server_content_pack_inventory_health`
+--
+
+DROP TABLE IF EXISTS `v_mmo_server_content_pack_inventory_health`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_pack_inventory_health`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_server_content_pack_inventory_health` AS SELECT 
+ 1 AS `content_revision_key`,
+ 1 AS `is_active`,
+ 1 AS `manifest_file_count`,
+ 1 AS `inventoried_file_count`,
+ 1 AS `missing_inventory_count`,
+ 1 AS `world_zen_count`,
+ 1 AS `scripts_dat_count`,
+ 1 AS `dialog_ou_count`,
+ 1 AS `archive_count`,
+ 1 AS `required_for_authority_count`,
+ 1 AS `ready_for_parser_count`,
+ 1 AS `unsupported_count`,
+ 1 AS `failed_count`,
+ 1 AS `imported_count`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_mmo_server_content_pack_manifests`
+--
+
+DROP TABLE IF EXISTS `v_mmo_server_content_pack_manifests`;
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_pack_manifests`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_mmo_server_content_pack_manifests` AS SELECT 
+ 1 AS `content_manifest_uuid`,
+ 1 AS `content_revision_uuid`,
+ 1 AS `game_code`,
+ 1 AS `content_revision_key`,
+ 1 AS `is_active`,
+ 1 AS `manifest_hash`,
+ 1 AS `file_count`,
+ 1 AS `required_file_count`,
+ 1 AS `total_bytes`,
+ 1 AS `source_root_label`,
+ 1 AS `source_payload`,
+ 1 AS `created_at`,
+ 1 AS `updated_at`*/;
 SET character_set_client = @saved_cs_client;
 
 --
@@ -4175,6 +4657,163 @@ BEGIN
            result_payload=JSON_MERGE_PATCH(COALESCE(result_payload, JSON_OBJECT()), JSON_OBJECT('claimed_by', p_worker_id))
      WHERE action_id=o_action_id;
   END IF;
+
+  COMMIT;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_consume_character_item` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_consume_character_item`(
+  IN p_session_id BINARY(16),
+  IN p_item_instance_id BINARY(16),
+  IN p_amount_requested INT,
+  IN p_reason VARCHAR(128),
+  IN p_server_tick BIGINT,
+  IN p_metadata JSON,
+  IN p_idempotency_key VARCHAR(512),
+  OUT o_event_id BINARY(16),
+  OUT o_amount_remaining INT,
+  OUT o_amount_consumed INT
+)
+proc: BEGIN
+  DECLARE v_realm_id BINARY(16);
+  DECLARE v_world_instance_id BINARY(16);
+  DECLARE v_character_id BINARY(16);
+  DECLARE v_current_amount INT DEFAULT NULL;
+  DECLARE v_amount INT DEFAULT 1;
+  DECLARE v_reason VARCHAR(128);
+  DECLARE v_payload JSON;
+
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    RESIGNAL;
+  END;
+
+  SET o_event_id = NULL;
+  SET o_amount_remaining = 0;
+  SET o_amount_consumed = 0;
+  SET v_reason = LEFT(COALESCE(NULLIF(p_reason, ''), 'item_consumed'), 128);
+
+  SELECT event_id, amount
+    INTO o_event_id, o_amount_consumed
+    FROM character_inventory_audit
+   WHERE idempotency_key = p_idempotency_key
+     AND audit_type = 'consume'
+   LIMIT 1;
+  IF o_event_id IS NOT NULL THEN
+    SELECT COALESCE(ci.amount, 0)
+      INTO o_amount_remaining
+      FROM character_inventory ci
+     WHERE ci.item_instance_id = p_item_instance_id
+     LIMIT 1;
+    LEAVE proc;
+  END IF;
+
+  SELECT ss.realm_id, ss.world_instance_id, ss.character_id
+    INTO v_realm_id, v_world_instance_id, v_character_id
+    FROM server_sessions ss
+   WHERE ss.session_id = p_session_id
+     AND ss.lifecycle_state = 'active'
+   LIMIT 1;
+  IF v_character_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_consume_character_item: active session not found';
+  END IF;
+
+  START TRANSACTION;
+
+  SELECT ci.amount
+    INTO v_current_amount
+    FROM character_inventory ci
+    JOIN item_instances ii ON ii.item_instance_id = ci.item_instance_id
+   WHERE ci.character_id = v_character_id
+     AND ci.item_instance_id = p_item_instance_id
+     AND ii.realm_id = v_realm_id
+     AND ii.owner_type = 'character'
+     AND ii.owner_id = v_character_id
+     AND ii.lifecycle_state = 'active'
+   LIMIT 1
+   FOR UPDATE;
+  IF v_current_amount IS NULL OR v_current_amount <= 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_consume_character_item: character item not found';
+  END IF;
+
+  SET v_amount = GREATEST(1, LEAST(COALESCE(NULLIF(p_amount_requested, 0), 1), v_current_amount));
+  SET o_amount_consumed = v_amount;
+  SET o_amount_remaining = v_current_amount - v_amount;
+
+  IF o_amount_remaining = 0 THEN
+    DELETE FROM character_equipment
+     WHERE character_id = v_character_id
+       AND item_instance_id = p_item_instance_id;
+
+    DELETE FROM character_inventory
+     WHERE character_id = v_character_id
+       AND item_instance_id = p_item_instance_id;
+
+    UPDATE item_instances
+       SET quantity = 0,
+           lifecycle_state = 'consumed',
+           raw_payload = JSON_MERGE_PATCH(
+             COALESCE(raw_payload, JSON_OBJECT()),
+             JSON_OBJECT(
+               'consumed_by_character', BIN_TO_UUID(v_character_id, 1),
+               'consumed_at_tick', COALESCE(p_server_tick, 0),
+               'consume_reason', v_reason
+             )
+           ),
+           updated_at = CURRENT_TIMESTAMP(6)
+     WHERE item_instance_id = p_item_instance_id;
+  ELSE
+    UPDATE character_inventory
+       SET amount = o_amount_remaining,
+           source_amount = o_amount_remaining,
+           source_iterator_count = o_amount_remaining,
+           updated_at = CURRENT_TIMESTAMP(6)
+     WHERE character_id = v_character_id
+       AND item_instance_id = p_item_instance_id;
+
+    UPDATE item_instances
+       SET quantity = o_amount_remaining,
+           updated_at = CURRENT_TIMESTAMP(6)
+     WHERE item_instance_id = p_item_instance_id;
+  END IF;
+
+  SET v_payload = JSON_OBJECT(
+    'item_instance_id', BIN_TO_UUID(p_item_instance_id, 1),
+    'amount_consumed', o_amount_consumed,
+    'amount_remaining', o_amount_remaining,
+    'reason', v_reason,
+    'metadata', COALESCE(p_metadata, JSON_OBJECT())
+  );
+
+  CALL mmo_append_world_event(
+    v_realm_id, v_world_instance_id, v_character_id,
+    'character_item_consumed', 'inventory', COALESCE(p_server_tick, 0),
+    BIN_TO_UUID(p_item_instance_id, 1), v_reason,
+    v_payload, p_idempotency_key, 'server', NULL, NULL, o_event_id
+  );
+
+  INSERT INTO character_inventory_audit(
+    event_id, character_id, item_instance_id, audit_type, amount,
+    equipment_slot, idempotency_key, metadata
+  )
+  VALUES(
+    o_event_id, v_character_id, p_item_instance_id, 'consume', o_amount_consumed,
+    NULL, p_idempotency_key, v_payload
+  );
 
   COMMIT;
 END ;;
@@ -6129,6 +6768,118 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_record_content_manifest_reject` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_record_content_manifest_reject`(
+  IN p_session_id BINARY(16),
+  IN p_remote_endpoint VARCHAR(191),
+  IN p_packet_session_key VARCHAR(191),
+  IN p_target_key VARCHAR(191),
+  IN p_packet_sequence BIGINT UNSIGNED,
+  IN p_local_sequence BIGINT UNSIGNED,
+  IN p_phase VARCHAR(64),
+  IN p_reason VARCHAR(191),
+  IN p_client_manifest_hash VARCHAR(128),
+  IN p_server_manifest_hash CHAR(64),
+  IN p_content_revision_key VARCHAR(191),
+  IN p_message TEXT,
+  IN p_payload_json JSON,
+  OUT o_reject_id BINARY(16)
+)
+proc: BEGIN
+  DECLARE v_reject_id BINARY(16) DEFAULT UUID_TO_BIN(UUID(), 1);
+  DECLARE v_session_id BINARY(16) DEFAULT NULL;
+  DECLARE v_realm_id BINARY(16) DEFAULT NULL;
+  DECLARE v_account_id BINARY(16) DEFAULT NULL;
+  DECLARE v_character_id BINARY(16) DEFAULT NULL;
+  DECLARE v_world_instance_id BINARY(16) DEFAULT NULL;
+  DECLARE v_content_revision_id BINARY(16) DEFAULT NULL;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
+
+  SET o_reject_id = v_reject_id;
+
+  IF p_session_id IS NOT NULL THEN
+    SELECT ss.session_id,
+           ss.realm_id,
+           ss.account_id,
+           ss.character_id,
+           ss.world_instance_id,
+           rr.active_content_revision_id
+      INTO v_session_id,
+           v_realm_id,
+           v_account_id,
+           v_character_id,
+           v_world_instance_id,
+           v_content_revision_id
+      FROM server_sessions ss
+      LEFT JOIN realm_realms rr ON rr.realm_id = ss.realm_id
+     WHERE ss.session_id = p_session_id
+     LIMIT 1;
+  END IF;
+
+  IF v_content_revision_id IS NULL AND COALESCE(p_content_revision_key, '') <> '' THEN
+    SELECT content_revision_id
+      INTO v_content_revision_id
+      FROM content_revisions
+     WHERE content_revision_key = p_content_revision_key
+     LIMIT 1;
+  END IF;
+
+  INSERT INTO mmo_content_manifest_reject_audit(
+    reject_id,
+    session_id,
+    realm_id,
+    account_id,
+    character_id,
+    world_instance_id,
+    content_revision_id,
+    remote_endpoint,
+    packet_session_key,
+    target_key,
+    packet_sequence,
+    local_sequence,
+    phase,
+    reason,
+    client_manifest_hash,
+    server_manifest_hash,
+    content_revision_key,
+    message,
+    payload_json
+  ) VALUES (
+    v_reject_id,
+    v_session_id,
+    v_realm_id,
+    v_account_id,
+    v_character_id,
+    v_world_instance_id,
+    v_content_revision_id,
+    COALESCE(p_remote_endpoint, ''),
+    COALESCE(p_packet_session_key, ''),
+    COALESCE(p_target_key, ''),
+    COALESCE(p_packet_sequence, 0),
+    COALESCE(p_local_sequence, 0),
+    COALESCE(p_phase, ''),
+    COALESCE(NULLIF(p_reason, ''), 'content_manifest_rejected'),
+    NULLIF(LOWER(COALESCE(p_client_manifest_hash, '')), ''),
+    NULLIF(LOWER(COALESCE(p_server_manifest_hash, '')), ''),
+    NULLIF(p_content_revision_key, ''),
+    LEFT(COALESCE(p_message, ''), 1024),
+    COALESCE(p_payload_json, JSON_OBJECT())
+  );
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!50003 DROP PROCEDURE IF EXISTS `mmo_record_interactive_use` */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -7338,6 +8089,77 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_set_server_content_pack_manifest` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_set_server_content_pack_manifest`(
+  IN p_content_revision_key VARCHAR(191),
+  IN p_manifest_hash CHAR(64),
+  IN p_file_count INT,
+  IN p_required_file_count INT,
+  IN p_total_bytes BIGINT UNSIGNED,
+  IN p_source_root_label VARCHAR(512),
+  IN p_source_payload JSON,
+  OUT o_content_manifest_id BINARY(16)
+)
+proc: BEGIN
+  DECLARE v_content_revision_id BINARY(16) DEFAULT NULL;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
+
+  SET o_content_manifest_id = NULL;
+
+  SELECT content_revision_id
+    INTO v_content_revision_id
+    FROM content_revisions
+   WHERE content_revision_key = p_content_revision_key
+   LIMIT 1;
+  IF v_content_revision_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_set_server_content_pack_manifest: content revision not found';
+  END IF;
+
+  IF COALESCE(p_manifest_hash, '') NOT REGEXP '^[0-9a-f]{64}$' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_set_server_content_pack_manifest: manifest hash must be lowercase hex';
+  END IF;
+
+  INSERT INTO mmo_server_content_pack_manifests(
+    content_revision_id, manifest_hash, file_count, required_file_count, total_bytes, source_root_label, source_payload
+  )
+  VALUES (
+    v_content_revision_id,
+    LOWER(p_manifest_hash),
+    COALESCE(p_file_count, 0),
+    COALESCE(p_required_file_count, 0),
+    COALESCE(p_total_bytes, 0),
+    COALESCE(p_source_root_label, ''),
+    COALESCE(p_source_payload, JSON_OBJECT())
+  )
+  ON DUPLICATE KEY UPDATE
+    manifest_hash = VALUES(manifest_hash),
+    file_count = VALUES(file_count),
+    required_file_count = VALUES(required_file_count),
+    total_bytes = VALUES(total_bytes),
+    source_root_label = VALUES(source_root_label),
+    source_payload = VALUES(source_payload),
+    updated_at = CURRENT_TIMESTAMP(6);
+
+  SELECT content_manifest_id
+    INTO o_content_manifest_id
+    FROM mmo_server_content_pack_manifests
+   WHERE content_revision_id = v_content_revision_id
+   LIMIT 1;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!50003 DROP PROCEDURE IF EXISTS `mmo_spend_learning_points` */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -7431,6 +8253,480 @@ BEGIN
        SET status='running', started_at=CURRENT_TIMESTAMP(6), finished_at=NULL, metadata=COALESCE(p_metadata, JSON_OBJECT())
      WHERE worker_run_id=o_worker_run_id;
   END IF;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_trade_buy_from_npc` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_trade_buy_from_npc`(
+  IN p_session_id BINARY(16),
+  IN p_npc_entity_key VARCHAR(512),
+  IN p_item_instance_id BINARY(16),
+  IN p_price_total BIGINT,
+  IN p_currency_key VARCHAR(128),
+  IN p_target_bag_index INT,
+  IN p_server_tick BIGINT UNSIGNED,
+  IN p_metadata JSON,
+  IN p_idempotency_key VARCHAR(512),
+  OUT o_event_id BINARY(16),
+  OUT o_wallet_after DECIMAL(20,0),
+  OUT o_bag_index INT
+)
+proc: BEGIN
+  DECLARE v_realm_id BINARY(16);
+  DECLARE v_world_instance_id BINARY(16);
+  DECLARE v_character_id BINARY(16);
+  DECLARE v_current_amount INT DEFAULT NULL;
+  DECLARE v_amount INT DEFAULT 1;
+  DECLARE v_amount_requested BIGINT DEFAULT 1;
+  DECLARE v_remaining INT DEFAULT 0;
+  DECLARE v_old_item_key VARCHAR(191);
+  DECLARE v_new_item_key VARCHAR(191);
+  DECLARE v_character_item_instance_id BINARY(16);
+  DECLARE v_wallet_before DECIMAL(20,0) DEFAULT 0;
+  DECLARE v_payload JSON;
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    RESIGNAL;
+  END;
+
+  SET o_event_id = NULL;
+  SET o_wallet_after = NULL;
+  SET o_bag_index = NULL;
+
+  SELECT cia.event_id, cia.character_id
+    INTO o_event_id, v_character_id
+    FROM character_inventory_audit cia
+   WHERE cia.idempotency_key = p_idempotency_key
+     AND cia.audit_type = 'trade_buy_from_npc'
+   LIMIT 1;
+  IF o_event_id IS NOT NULL THEN
+    SELECT COALESCE(cw.amount, 0)
+      INTO o_wallet_after
+      FROM character_wallets cw
+     WHERE cw.character_id = v_character_id
+       AND cw.currency_key = p_currency_key
+     LIMIT 1;
+    SELECT ci.bag_index
+      INTO o_bag_index
+      FROM character_inventory ci
+      JOIN character_inventory_audit cia ON cia.item_instance_id = ci.item_instance_id
+     WHERE cia.idempotency_key = p_idempotency_key
+       AND cia.audit_type = 'trade_buy_from_npc'
+     LIMIT 1;
+    SET o_wallet_after = COALESCE(o_wallet_after, 0);
+    LEAVE proc;
+  END IF;
+
+  SELECT ss.realm_id, ss.world_instance_id, ss.character_id
+    INTO v_realm_id, v_world_instance_id, v_character_id
+    FROM server_sessions ss
+   WHERE ss.session_id = p_session_id
+     AND ss.lifecycle_state = 'active'
+   LIMIT 1;
+  IF v_character_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_trade_buy_from_npc: active session not found';
+  END IF;
+
+  SET v_amount_requested = COALESCE(
+    CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p_metadata, '$.amount')), '') AS SIGNED),
+    CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p_metadata, '$.client_payload.amount')), '') AS SIGNED),
+    1
+  );
+
+  START TRANSACTION;
+
+  SELECT wi.amount, ii.item_instance_key
+    INTO v_current_amount, v_old_item_key
+    FROM world_inventory wi
+    JOIN item_instances ii ON ii.item_instance_id = wi.item_instance_id
+   WHERE wi.world_instance_id = v_world_instance_id
+     AND wi.owner_entity_key = p_npc_entity_key
+     AND wi.item_instance_id = p_item_instance_id
+     AND ii.realm_id = v_realm_id
+     AND ii.lifecycle_state = 'active'
+   LIMIT 1
+   FOR UPDATE;
+  IF v_current_amount IS NULL OR v_current_amount <= 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_trade_buy_from_npc: npc item not found';
+  END IF;
+
+  SET v_amount = GREATEST(1, LEAST(COALESCE(NULLIF(v_amount_requested, 0), v_current_amount), v_current_amount));
+  SET v_remaining = v_current_amount - v_amount;
+  SET o_bag_index = COALESCE(
+    p_target_bag_index,
+    (SELECT COALESCE(MAX(ci.bag_index), -1) + 1 FROM character_inventory ci WHERE ci.character_id = v_character_id)
+  );
+
+  INSERT INTO character_wallets(character_id, currency_key, amount)
+  VALUES(v_character_id, p_currency_key, 0)
+  ON DUPLICATE KEY UPDATE amount = amount;
+
+  SELECT cw.amount
+    INTO v_wallet_before
+    FROM character_wallets cw
+   WHERE cw.character_id = v_character_id
+     AND cw.currency_key = p_currency_key
+   LIMIT 1
+   FOR UPDATE;
+
+  IF v_wallet_before - p_price_total < 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_trade_buy_from_npc: insufficient wallet';
+  END IF;
+  SET o_wallet_after = v_wallet_before - p_price_total;
+
+  UPDATE character_wallets
+     SET amount = o_wallet_after,
+         updated_at = CURRENT_TIMESTAMP(6)
+   WHERE character_id = v_character_id
+     AND currency_key = p_currency_key;
+
+  IF v_remaining = 0 THEN
+    SET v_character_item_instance_id = p_item_instance_id;
+
+    DELETE FROM world_inventory
+     WHERE world_instance_id = v_world_instance_id
+       AND owner_entity_key = p_npc_entity_key
+       AND item_instance_id = p_item_instance_id;
+
+    UPDATE item_instances
+       SET owner_type = 'character',
+           owner_id = v_character_id,
+           quantity = v_amount,
+           lifecycle_state = 'active',
+           raw_payload = JSON_MERGE_PATCH(
+             COALESCE(raw_payload, JSON_OBJECT()),
+             JSON_OBJECT(
+               'trade_bought_from_npc_entity_key', p_npc_entity_key,
+               'trade_bought_by_character', BIN_TO_UUID(v_character_id, 1),
+               'trade_price_total', p_price_total,
+               'trade_currency_key', p_currency_key,
+               'trade_tick', COALESCE(p_server_tick, 0)
+             )
+           ),
+           updated_at = CURRENT_TIMESTAMP(6)
+     WHERE item_instance_id = p_item_instance_id;
+  ELSE
+    SET v_character_item_instance_id = UUID_TO_BIN(UUID(), 1);
+    SET v_new_item_key = LEFT(CONCAT(v_old_item_key, ':trade-buy:', REPLACE(UUID(), '-', '')), 191);
+
+    UPDATE world_inventory
+       SET amount = v_remaining,
+           source_amount = v_remaining,
+           source_iterator_count = v_remaining,
+           updated_at = CURRENT_TIMESTAMP(6)
+     WHERE world_instance_id = v_world_instance_id
+       AND owner_entity_key = p_npc_entity_key
+       AND item_instance_id = p_item_instance_id;
+
+    UPDATE item_instances
+       SET quantity = v_remaining,
+           updated_at = CURRENT_TIMESTAMP(6)
+     WHERE item_instance_id = p_item_instance_id;
+
+    INSERT INTO item_instances(
+      item_instance_id, realm_id, item_template_id, item_instance_key,
+      owner_type, owner_id, quantity, bind_state, lifecycle_state, raw_payload
+    )
+    SELECT
+      v_character_item_instance_id, realm_id, item_template_id, v_new_item_key,
+      'character', v_character_id, v_amount, bind_state, 'active',
+      JSON_MERGE_PATCH(
+        COALESCE(raw_payload, JSON_OBJECT()),
+        JSON_OBJECT(
+          'split_from_item_instance_id', BIN_TO_UUID(p_item_instance_id, 1),
+          'trade_bought_from_npc_entity_key', p_npc_entity_key,
+          'trade_bought_by_character', BIN_TO_UUID(v_character_id, 1),
+          'trade_price_total', p_price_total,
+          'trade_currency_key', p_currency_key,
+          'trade_tick', COALESCE(p_server_tick, 0)
+        )
+      )
+      FROM item_instances
+     WHERE item_instance_id = p_item_instance_id;
+  END IF;
+
+  INSERT INTO character_inventory(character_id, item_instance_id, bag_index, amount, source_amount, source_iterator_count)
+  VALUES(v_character_id, v_character_item_instance_id, o_bag_index, v_amount, v_amount, v_amount);
+
+  SET v_payload = JSON_OBJECT(
+    'npc_entity_key', p_npc_entity_key,
+    'source_item_instance_id', BIN_TO_UUID(p_item_instance_id, 1),
+    'item_instance_id', BIN_TO_UUID(v_character_item_instance_id, 1),
+    'amount', v_amount,
+    'price_total', p_price_total,
+    'currency_key', p_currency_key,
+    'wallet_before', v_wallet_before,
+    'wallet_after', o_wallet_after,
+    'bag_index', o_bag_index,
+    'metadata', COALESCE(p_metadata, JSON_OBJECT())
+  );
+
+  CALL mmo_append_world_event(
+    v_realm_id, v_world_instance_id, v_character_id,
+    'trade_buy_from_npc', 'trade', COALESCE(p_server_tick, 0),
+    p_npc_entity_key, BIN_TO_UUID(v_character_item_instance_id, 1),
+    v_payload, LEFT(p_idempotency_key, 191), 'server', NULL, NULL, o_event_id
+  );
+
+  INSERT INTO character_inventory_audit(
+    event_id, character_id, item_instance_id, audit_type, amount, idempotency_key, metadata
+  )
+  VALUES(o_event_id, v_character_id, v_character_item_instance_id, 'trade_buy_from_npc', v_amount, p_idempotency_key, p_metadata);
+
+  INSERT INTO world_item_audit(
+    event_id, world_instance_id, character_id, entity_key, item_instance_id, audit_type, amount, idempotency_key, metadata
+  )
+  VALUES(o_event_id, v_world_instance_id, v_character_id, p_npc_entity_key, p_item_instance_id,
+         'trade_buy_from_npc', v_amount, LEFT(CONCAT(p_idempotency_key, ':world'), 512), p_metadata);
+
+  COMMIT;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_trade_sell_to_npc` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_trade_sell_to_npc`(
+  IN p_session_id BINARY(16),
+  IN p_npc_entity_key VARCHAR(512),
+  IN p_item_instance_id BINARY(16),
+  IN p_price_total BIGINT,
+  IN p_currency_key VARCHAR(128),
+  IN p_server_tick BIGINT UNSIGNED,
+  IN p_metadata JSON,
+  IN p_idempotency_key VARCHAR(512),
+  OUT o_event_id BINARY(16),
+  OUT o_wallet_after DECIMAL(20,0)
+)
+proc: BEGIN
+  DECLARE v_realm_id BINARY(16);
+  DECLARE v_world_instance_id BINARY(16);
+  DECLARE v_character_id BINARY(16);
+  DECLARE v_current_amount INT DEFAULT NULL;
+  DECLARE v_amount INT DEFAULT 1;
+  DECLARE v_amount_requested BIGINT DEFAULT 1;
+  DECLARE v_remaining INT DEFAULT 0;
+  DECLARE v_item_template_id BINARY(16);
+  DECLARE v_old_item_key VARCHAR(191);
+  DECLARE v_new_item_key VARCHAR(191);
+  DECLARE v_world_item_instance_id BINARY(16);
+  DECLARE v_wallet_before DECIMAL(20,0) DEFAULT 0;
+  DECLARE v_payload JSON;
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    RESIGNAL;
+  END;
+
+  SET o_event_id = NULL;
+  SET o_wallet_after = NULL;
+
+  SELECT cia.event_id, cia.character_id
+    INTO o_event_id, v_character_id
+    FROM character_inventory_audit cia
+   WHERE cia.idempotency_key = p_idempotency_key
+     AND cia.audit_type = 'trade_sell_to_npc'
+   LIMIT 1;
+  IF o_event_id IS NOT NULL THEN
+    SELECT COALESCE(cw.amount, 0)
+      INTO o_wallet_after
+      FROM character_wallets cw
+     WHERE cw.character_id = v_character_id
+       AND cw.currency_key = p_currency_key
+     LIMIT 1;
+    SET o_wallet_after = COALESCE(o_wallet_after, 0);
+    LEAVE proc;
+  END IF;
+
+  SELECT ss.realm_id, ss.world_instance_id, ss.character_id
+    INTO v_realm_id, v_world_instance_id, v_character_id
+    FROM server_sessions ss
+   WHERE ss.session_id = p_session_id
+     AND ss.lifecycle_state = 'active'
+   LIMIT 1;
+  IF v_character_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_trade_sell_to_npc: active session not found';
+  END IF;
+
+  SET v_amount_requested = COALESCE(
+    CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p_metadata, '$.amount')), '') AS SIGNED),
+    CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p_metadata, '$.client_payload.amount')), '') AS SIGNED),
+    1
+  );
+
+  START TRANSACTION;
+
+  SELECT ci.amount, ii.item_template_id, ii.item_instance_key
+    INTO v_current_amount, v_item_template_id, v_old_item_key
+    FROM character_inventory ci
+    JOIN item_instances ii ON ii.item_instance_id = ci.item_instance_id
+   WHERE ci.character_id = v_character_id
+     AND ci.item_instance_id = p_item_instance_id
+     AND ii.realm_id = v_realm_id
+     AND ii.owner_type = 'character'
+     AND ii.owner_id = v_character_id
+     AND ii.lifecycle_state = 'active'
+   LIMIT 1
+   FOR UPDATE;
+  IF v_current_amount IS NULL OR v_current_amount <= 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_trade_sell_to_npc: character item not found';
+  END IF;
+
+  SET v_amount = GREATEST(1, LEAST(COALESCE(NULLIF(v_amount_requested, 0), v_current_amount), v_current_amount));
+  SET v_remaining = v_current_amount - v_amount;
+
+  INSERT INTO character_wallets(character_id, currency_key, amount)
+  VALUES(v_character_id, p_currency_key, 0)
+  ON DUPLICATE KEY UPDATE amount = amount;
+
+  SELECT cw.amount
+    INTO v_wallet_before
+    FROM character_wallets cw
+   WHERE cw.character_id = v_character_id
+     AND cw.currency_key = p_currency_key
+   LIMIT 1
+   FOR UPDATE;
+
+  IF v_wallet_before + p_price_total < 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_trade_sell_to_npc: wallet would become negative';
+  END IF;
+  SET o_wallet_after = v_wallet_before + p_price_total;
+
+  UPDATE character_wallets
+     SET amount = o_wallet_after,
+         updated_at = CURRENT_TIMESTAMP(6)
+   WHERE character_id = v_character_id
+     AND currency_key = p_currency_key;
+
+  IF v_remaining = 0 THEN
+    SET v_world_item_instance_id = p_item_instance_id;
+
+    DELETE FROM character_equipment
+     WHERE character_id = v_character_id
+       AND item_instance_id = p_item_instance_id;
+
+    DELETE FROM character_inventory
+     WHERE character_id = v_character_id
+       AND item_instance_id = p_item_instance_id;
+
+    UPDATE item_instances
+       SET owner_type = 'world_entity',
+           owner_id = NULL,
+           quantity = v_amount,
+           lifecycle_state = 'active',
+           raw_payload = JSON_MERGE_PATCH(
+             COALESCE(raw_payload, JSON_OBJECT()),
+             JSON_OBJECT(
+               'trade_sold_to_npc_entity_key', p_npc_entity_key,
+               'trade_sold_by_character', BIN_TO_UUID(v_character_id, 1),
+               'trade_price_total', p_price_total,
+               'trade_currency_key', p_currency_key,
+               'trade_tick', COALESCE(p_server_tick, 0)
+             )
+           ),
+           updated_at = CURRENT_TIMESTAMP(6)
+     WHERE item_instance_id = p_item_instance_id;
+  ELSE
+    SET v_world_item_instance_id = UUID_TO_BIN(UUID(), 1);
+    SET v_new_item_key = LEFT(CONCAT(v_old_item_key, ':trade-sell:', REPLACE(UUID(), '-', '')), 191);
+
+    UPDATE character_inventory
+       SET amount = v_remaining,
+           source_amount = v_remaining,
+           source_iterator_count = v_remaining,
+           updated_at = CURRENT_TIMESTAMP(6)
+     WHERE character_id = v_character_id
+       AND item_instance_id = p_item_instance_id;
+
+    UPDATE item_instances
+       SET quantity = v_remaining,
+           updated_at = CURRENT_TIMESTAMP(6)
+     WHERE item_instance_id = p_item_instance_id;
+
+    INSERT INTO item_instances(
+      item_instance_id, realm_id, item_template_id, item_instance_key,
+      owner_type, owner_id, quantity, bind_state, lifecycle_state, raw_payload
+    )
+    SELECT
+      v_world_item_instance_id, realm_id, item_template_id, v_new_item_key,
+      'world_entity', NULL, v_amount, bind_state, 'active',
+      JSON_MERGE_PATCH(
+        COALESCE(raw_payload, JSON_OBJECT()),
+        JSON_OBJECT(
+          'split_from_item_instance_id', BIN_TO_UUID(p_item_instance_id, 1),
+          'trade_sold_to_npc_entity_key', p_npc_entity_key,
+          'trade_sold_by_character', BIN_TO_UUID(v_character_id, 1),
+          'trade_price_total', p_price_total,
+          'trade_currency_key', p_currency_key,
+          'trade_tick', COALESCE(p_server_tick, 0)
+        )
+      )
+      FROM item_instances
+     WHERE item_instance_id = p_item_instance_id;
+  END IF;
+
+  INSERT INTO world_inventory(world_instance_id, owner_entity_key, item_instance_id, amount, source_amount, source_iterator_count)
+  VALUES(v_world_instance_id, p_npc_entity_key, v_world_item_instance_id, v_amount, v_amount, v_amount)
+  ON DUPLICATE KEY UPDATE
+    amount = world_inventory.amount + VALUES(amount),
+    source_amount = COALESCE(world_inventory.source_amount, 0) + VALUES(source_amount),
+    source_iterator_count = COALESCE(world_inventory.source_iterator_count, 0) + VALUES(source_iterator_count),
+    updated_at = CURRENT_TIMESTAMP(6);
+
+  SET v_payload = JSON_OBJECT(
+    'npc_entity_key', p_npc_entity_key,
+    'source_item_instance_id', BIN_TO_UUID(p_item_instance_id, 1),
+    'world_item_instance_id', BIN_TO_UUID(v_world_item_instance_id, 1),
+    'amount', v_amount,
+    'price_total', p_price_total,
+    'currency_key', p_currency_key,
+    'wallet_before', v_wallet_before,
+    'wallet_after', o_wallet_after,
+    'metadata', COALESCE(p_metadata, JSON_OBJECT())
+  );
+
+  CALL mmo_append_world_event(
+    v_realm_id, v_world_instance_id, v_character_id,
+    'trade_sell_to_npc', 'trade', COALESCE(p_server_tick, 0),
+    p_npc_entity_key, BIN_TO_UUID(v_world_item_instance_id, 1),
+    v_payload, LEFT(p_idempotency_key, 191), 'server', NULL, NULL, o_event_id
+  );
+
+  INSERT INTO character_inventory_audit(
+    event_id, character_id, item_instance_id, audit_type, amount, idempotency_key, metadata
+  )
+  VALUES(o_event_id, v_character_id, v_world_item_instance_id, 'trade_sell_to_npc', v_amount, p_idempotency_key, p_metadata);
+
+  INSERT INTO world_item_audit(
+    event_id, world_instance_id, character_id, entity_key, item_instance_id, audit_type, amount, idempotency_key, metadata
+  )
+  VALUES(o_event_id, v_world_instance_id, v_character_id, p_npc_entity_key, v_world_item_instance_id,
+         'trade_sell_to_npc', v_amount, LEFT(CONCAT(p_idempotency_key, ':world'), 512), p_metadata);
+
+  COMMIT;
 END ;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
@@ -7885,6 +9181,586 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_upsert_server_content_archive_mount` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_upsert_server_content_archive_mount`(
+  IN p_content_revision_key VARCHAR(191),
+  IN p_archive_logical_path VARCHAR(512),
+  IN p_archive_role VARCHAR(32),
+  IN p_mount_strategy VARCHAR(32),
+  IN p_mount_status VARCHAR(32),
+  IN p_extracted_root_label VARCHAR(512),
+  IN p_extracted_file_count INT,
+  IN p_extracted_total_bytes BIGINT UNSIGNED,
+  IN p_extracted_manifest_hash CHAR(64),
+  IN p_last_verified_at TIMESTAMP(6),
+  IN p_mount_notes JSON,
+  OUT o_content_archive_mount_id BINARY(16)
+)
+proc: BEGIN
+  DECLARE v_content_revision_id BINARY(16) DEFAULT NULL;
+  DECLARE v_content_file_id BINARY(16) DEFAULT NULL;
+  DECLARE v_archive_logical_path VARCHAR(512) DEFAULT '';
+  DECLARE v_archive_role VARCHAR(32) DEFAULT 'archive_vdf';
+  DECLARE v_mount_strategy VARCHAR(32) DEFAULT 'pre_extracted';
+  DECLARE v_mount_status VARCHAR(32) DEFAULT 'planned';
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
+
+  SET o_content_archive_mount_id = NULL;
+  SET v_archive_logical_path = LOWER(REPLACE(COALESCE(p_archive_logical_path, ''), '\\', '/'));
+
+  SELECT content_revision_id
+    INTO v_content_revision_id
+    FROM content_revisions
+   WHERE content_revision_key = p_content_revision_key
+   LIMIT 1;
+  IF v_content_revision_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_archive_mount: content revision not found';
+  END IF;
+
+  SELECT content_file_id
+    INTO v_content_file_id
+    FROM mmo_server_content_pack_files
+   WHERE content_revision_id = v_content_revision_id
+     AND logical_path = v_archive_logical_path
+   LIMIT 1;
+  IF v_content_file_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_archive_mount: archive file not found in content manifest';
+  END IF;
+
+  SET v_archive_role = COALESCE(NULLIF(p_archive_role, ''), 'archive_vdf');
+  IF v_archive_role NOT IN ('archive_vdf', 'archive_mod') THEN
+    SET v_archive_role = 'archive_vdf';
+  END IF;
+
+  SET v_mount_strategy = COALESCE(NULLIF(p_mount_strategy, ''), 'pre_extracted');
+  IF v_mount_strategy NOT IN ('pre_extracted', 'read_direct', 'extract_on_boot', 'external_mount', 'manual') THEN
+    SET v_mount_strategy = 'pre_extracted';
+  END IF;
+
+  SET v_mount_status = COALESCE(NULLIF(p_mount_status, ''), 'planned');
+  IF v_mount_status NOT IN ('planned', 'mounted', 'extracted', 'verified', 'failed', 'ignored') THEN
+    SET v_mount_status = 'planned';
+  END IF;
+
+  IF p_extracted_manifest_hash IS NOT NULL AND p_extracted_manifest_hash NOT REGEXP '^[0-9a-f]{64}$' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_archive_mount: extracted manifest hash must be lowercase hex';
+  END IF;
+
+  INSERT INTO mmo_server_content_archive_mounts(
+    content_file_id,
+    content_revision_id,
+    archive_logical_path,
+    archive_role,
+    mount_strategy,
+    mount_status,
+    extracted_root_label,
+    extracted_file_count,
+    extracted_total_bytes,
+    extracted_manifest_hash,
+    last_verified_at,
+    mount_notes
+  )
+  VALUES (
+    v_content_file_id,
+    v_content_revision_id,
+    v_archive_logical_path,
+    v_archive_role,
+    v_mount_strategy,
+    v_mount_status,
+    COALESCE(p_extracted_root_label, ''),
+    COALESCE(p_extracted_file_count, 0),
+    COALESCE(p_extracted_total_bytes, 0),
+    LOWER(NULLIF(p_extracted_manifest_hash, '')),
+    p_last_verified_at,
+    COALESCE(p_mount_notes, JSON_OBJECT())
+  )
+  ON DUPLICATE KEY UPDATE
+    content_revision_id = VALUES(content_revision_id),
+    archive_logical_path = VALUES(archive_logical_path),
+    archive_role = VALUES(archive_role),
+    mount_strategy = VALUES(mount_strategy),
+    mount_status = VALUES(mount_status),
+    extracted_root_label = VALUES(extracted_root_label),
+    extracted_file_count = VALUES(extracted_file_count),
+    extracted_total_bytes = VALUES(extracted_total_bytes),
+    extracted_manifest_hash = VALUES(extracted_manifest_hash),
+    last_verified_at = VALUES(last_verified_at),
+    mount_notes = VALUES(mount_notes),
+    updated_at = CURRENT_TIMESTAMP(6);
+
+  SELECT content_archive_mount_id
+    INTO o_content_archive_mount_id
+    FROM mmo_server_content_archive_mounts
+   WHERE content_file_id = v_content_file_id
+   LIMIT 1;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_upsert_server_content_extracted_file` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_upsert_server_content_extracted_file`(
+  IN p_content_revision_key VARCHAR(191),
+  IN p_archive_logical_path VARCHAR(512),
+  IN p_extracted_logical_path VARCHAR(512),
+  IN p_byte_size BIGINT UNSIGNED,
+  IN p_sha256 CHAR(64),
+  IN p_extracted_status VARCHAR(32),
+  IN p_mapped_content_logical_path VARCHAR(512),
+  IN p_raw_payload JSON,
+  OUT o_content_extracted_file_id BINARY(16)
+)
+proc: BEGIN
+  DECLARE v_content_revision_id BINARY(16) DEFAULT NULL;
+  DECLARE v_content_archive_mount_id BINARY(16) DEFAULT NULL;
+  DECLARE v_mapped_content_file_id BINARY(16) DEFAULT NULL;
+  DECLARE v_archive_logical_path VARCHAR(512) DEFAULT '';
+  DECLARE v_extracted_logical_path VARCHAR(512) DEFAULT '';
+  DECLARE v_mapped_content_logical_path VARCHAR(512) DEFAULT '';
+  DECLARE v_extracted_status VARCHAR(32) DEFAULT 'discovered';
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
+
+  SET o_content_extracted_file_id = NULL;
+  SET v_archive_logical_path = LOWER(REPLACE(COALESCE(p_archive_logical_path, ''), '\\', '/'));
+  SET v_extracted_logical_path = LOWER(REPLACE(COALESCE(p_extracted_logical_path, ''), '\\', '/'));
+  SET v_mapped_content_logical_path = LOWER(REPLACE(COALESCE(p_mapped_content_logical_path, ''), '\\', '/'));
+
+  SELECT content_revision_id
+    INTO v_content_revision_id
+    FROM content_revisions
+   WHERE content_revision_key = p_content_revision_key
+   LIMIT 1;
+  IF v_content_revision_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_extracted_file: content revision not found';
+  END IF;
+
+  SELECT content_archive_mount_id
+    INTO v_content_archive_mount_id
+    FROM mmo_server_content_archive_mounts
+   WHERE content_revision_id = v_content_revision_id
+     AND archive_logical_path = v_archive_logical_path
+   LIMIT 1;
+  IF v_content_archive_mount_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_extracted_file: archive mount not found';
+  END IF;
+
+  IF COALESCE(TRIM(v_extracted_logical_path), '') = '' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_extracted_file: extracted logical path is required';
+  END IF;
+
+  IF p_sha256 IS NOT NULL AND p_sha256 NOT REGEXP '^[0-9a-f]{64}$' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_extracted_file: sha256 must be lowercase hex';
+  END IF;
+
+  IF v_mapped_content_logical_path <> '' THEN
+    SELECT content_file_id
+      INTO v_mapped_content_file_id
+      FROM mmo_server_content_pack_files
+     WHERE content_revision_id = v_content_revision_id
+       AND logical_path = v_mapped_content_logical_path
+     LIMIT 1;
+  END IF;
+
+  SET v_extracted_status = COALESCE(NULLIF(p_extracted_status, ''), 'discovered');
+  IF v_extracted_status NOT IN ('discovered', 'hashed', 'linked', 'missing', 'hash_mismatch', 'ignored') THEN
+    SET v_extracted_status = 'discovered';
+  END IF;
+
+  INSERT INTO mmo_server_content_extracted_files(
+    content_archive_mount_id,
+    content_revision_id,
+    archive_logical_path,
+    extracted_logical_path,
+    mapped_content_file_id,
+    byte_size,
+    sha256,
+    extracted_status,
+    raw_payload
+  )
+  VALUES (
+    v_content_archive_mount_id,
+    v_content_revision_id,
+    v_archive_logical_path,
+    v_extracted_logical_path,
+    v_mapped_content_file_id,
+    COALESCE(p_byte_size, 0),
+    LOWER(NULLIF(p_sha256, '')),
+    v_extracted_status,
+    COALESCE(p_raw_payload, JSON_OBJECT())
+  )
+  ON DUPLICATE KEY UPDATE
+    mapped_content_file_id = VALUES(mapped_content_file_id),
+    byte_size = VALUES(byte_size),
+    sha256 = VALUES(sha256),
+    extracted_status = VALUES(extracted_status),
+    raw_payload = VALUES(raw_payload),
+    updated_at = CURRENT_TIMESTAMP(6);
+
+  SELECT content_extracted_file_id
+    INTO o_content_extracted_file_id
+    FROM mmo_server_content_extracted_files
+   WHERE content_archive_mount_id = v_content_archive_mount_id
+     AND extracted_logical_path = v_extracted_logical_path
+   LIMIT 1;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_upsert_server_content_pack_file` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_upsert_server_content_pack_file`(
+  IN p_content_revision_key VARCHAR(191),
+  IN p_logical_path VARCHAR(512),
+  IN p_source_kind VARCHAR(32),
+  IN p_byte_size BIGINT UNSIGNED,
+  IN p_sha256 CHAR(64),
+  IN p_mtime_utc TIMESTAMP(6),
+  IN p_required TINYINT(1),
+  IN p_raw_payload JSON,
+  OUT o_content_file_id BINARY(16)
+)
+proc: BEGIN
+  DECLARE v_content_revision_id BINARY(16) DEFAULT NULL;
+  DECLARE v_source_kind VARCHAR(32) DEFAULT 'other';
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
+
+  SET o_content_file_id = NULL;
+
+  SELECT content_revision_id
+    INTO v_content_revision_id
+    FROM content_revisions
+   WHERE content_revision_key = p_content_revision_key
+   LIMIT 1;
+  IF v_content_revision_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_pack_file: content revision not found';
+  END IF;
+
+  IF COALESCE(TRIM(p_logical_path), '') = '' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_pack_file: logical path is required';
+  END IF;
+  IF COALESCE(p_sha256, '') NOT REGEXP '^[0-9a-f]{64}$' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_pack_file: sha256 must be lowercase hex';
+  END IF;
+
+  SET v_source_kind = COALESCE(NULLIF(p_source_kind, ''), 'other');
+  IF v_source_kind NOT IN ('zen', 'dat', 'ou', 'vdf', 'mod', 'script', 'ini', 'texture', 'mesh', 'sound', 'video', 'font', 'other') THEN
+    SET v_source_kind = 'other';
+  END IF;
+
+  INSERT INTO mmo_server_content_pack_files(
+    content_revision_id, logical_path, source_kind, byte_size, sha256, mtime_utc, required, raw_payload
+  )
+  VALUES (
+    v_content_revision_id,
+    LOWER(REPLACE(p_logical_path, '\\', '/')),
+    v_source_kind,
+    COALESCE(p_byte_size, 0),
+    LOWER(p_sha256),
+    p_mtime_utc,
+    COALESCE(p_required, 1),
+    COALESCE(p_raw_payload, JSON_OBJECT())
+  )
+  ON DUPLICATE KEY UPDATE
+    source_kind = VALUES(source_kind),
+    byte_size = VALUES(byte_size),
+    sha256 = VALUES(sha256),
+    mtime_utc = VALUES(mtime_utc),
+    required = VALUES(required),
+    raw_payload = VALUES(raw_payload),
+    updated_at = CURRENT_TIMESTAMP(6);
+
+  SELECT content_file_id
+    INTO o_content_file_id
+    FROM mmo_server_content_pack_files
+   WHERE content_revision_id = v_content_revision_id
+     AND logical_path = LOWER(REPLACE(p_logical_path, '\\', '/'))
+   LIMIT 1;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_upsert_server_content_pack_inventory` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_upsert_server_content_pack_inventory`(
+  IN p_content_revision_key VARCHAR(191),
+  IN p_logical_path VARCHAR(512),
+  IN p_file_role VARCHAR(48),
+  IN p_loader_stage VARCHAR(48),
+  IN p_import_priority INT,
+  IN p_required_for_server_authority TINYINT(1),
+  IN p_import_status VARCHAR(32),
+  IN p_import_notes JSON,
+  OUT o_content_inventory_id BINARY(16)
+)
+proc: BEGIN
+  DECLARE v_content_revision_id BINARY(16) DEFAULT NULL;
+  DECLARE v_content_file_id BINARY(16) DEFAULT NULL;
+  DECLARE v_logical_path VARCHAR(512) DEFAULT '';
+  DECLARE v_file_role VARCHAR(48) DEFAULT 'other';
+  DECLARE v_loader_stage VARCHAR(48) DEFAULT 'unknown';
+  DECLARE v_import_status VARCHAR(32) DEFAULT 'not_started';
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
+
+  SET o_content_inventory_id = NULL;
+  SET v_logical_path = LOWER(REPLACE(COALESCE(p_logical_path, ''), '\\', '/'));
+
+  SELECT content_revision_id
+    INTO v_content_revision_id
+    FROM content_revisions
+   WHERE content_revision_key = p_content_revision_key
+   LIMIT 1;
+  IF v_content_revision_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_pack_inventory: content revision not found';
+  END IF;
+
+  IF COALESCE(TRIM(v_logical_path), '') = '' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_pack_inventory: logical path is required';
+  END IF;
+
+  SELECT content_file_id
+    INTO v_content_file_id
+    FROM mmo_server_content_pack_files
+   WHERE content_revision_id = v_content_revision_id
+     AND logical_path = v_logical_path
+   LIMIT 1;
+  IF v_content_file_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mmo_upsert_server_content_pack_inventory: content pack file not found';
+  END IF;
+
+  SET v_file_role = COALESCE(NULLIF(p_file_role, ''), 'other');
+  IF v_file_role NOT IN ('world_zen','scripts_dat','dialog_ou','archive_vdf','archive_mod','script_source','config_ini','asset_texture','asset_mesh','asset_sound','asset_video','font','other') THEN
+    SET v_file_role = 'other';
+  END IF;
+
+  SET v_loader_stage = COALESCE(NULLIF(p_loader_stage, ''), 'unknown');
+  IF v_loader_stage NOT IN ('archive_mount','world_loader','script_vm','dialog_output','source_reference','server_config','asset_lookup','ignore','unknown') THEN
+    SET v_loader_stage = 'unknown';
+  END IF;
+
+  SET v_import_status = COALESCE(NULLIF(p_import_status, ''), 'not_started');
+  IF v_import_status NOT IN ('not_started','planned','ready_for_parser','unsupported','imported','failed','ignored') THEN
+    SET v_import_status = 'not_started';
+  END IF;
+
+  INSERT INTO mmo_server_content_pack_inventory(
+    content_file_id,
+    content_revision_id,
+    logical_path,
+    file_role,
+    loader_stage,
+    import_priority,
+    required_for_server_authority,
+    import_status,
+    import_notes
+  )
+  VALUES (
+    v_content_file_id,
+    v_content_revision_id,
+    v_logical_path,
+    v_file_role,
+    v_loader_stage,
+    COALESCE(p_import_priority, 1000),
+    COALESCE(p_required_for_server_authority, 0),
+    v_import_status,
+    COALESCE(p_import_notes, JSON_OBJECT())
+  )
+  ON DUPLICATE KEY UPDATE
+    content_revision_id = VALUES(content_revision_id),
+    logical_path = VALUES(logical_path),
+    file_role = VALUES(file_role),
+    loader_stage = VALUES(loader_stage),
+    import_priority = VALUES(import_priority),
+    required_for_server_authority = VALUES(required_for_server_authority),
+    import_status = VALUES(import_status),
+    import_notes = VALUES(import_notes),
+    updated_at = CURRENT_TIMESTAMP(6);
+
+  SELECT content_inventory_id
+    INTO o_content_inventory_id
+    FROM mmo_server_content_pack_inventory
+   WHERE content_file_id = v_content_file_id
+   LIMIT 1;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_validate_client_content_pack` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_validate_client_content_pack`(
+  IN p_realm_key VARCHAR(191),
+  IN p_client_manifest_hash CHAR(64),
+  OUT o_accepted TINYINT(1),
+  OUT o_reason VARCHAR(191),
+  OUT o_server_manifest_hash CHAR(64),
+  OUT o_content_revision_key VARCHAR(191)
+)
+proc: BEGIN
+  DECLARE v_realm_id BINARY(16) DEFAULT NULL;
+  DECLARE v_content_revision_id BINARY(16) DEFAULT NULL;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
+
+  SET o_accepted = 0;
+  SET o_reason = 'unknown';
+  SET o_server_manifest_hash = NULL;
+  SET o_content_revision_key = NULL;
+
+  SELECT rr.realm_id, rr.active_content_revision_id, cr.content_revision_key
+    INTO v_realm_id, v_content_revision_id, o_content_revision_key
+    FROM realm_realms rr
+    JOIN content_revisions cr ON cr.content_revision_id = rr.active_content_revision_id
+   WHERE rr.realm_key = p_realm_key
+   LIMIT 1;
+  IF v_realm_id IS NULL THEN
+    SET o_reason = 'realm_not_found';
+    LEAVE proc;
+  END IF;
+
+  SELECT manifest_hash
+    INTO o_server_manifest_hash
+    FROM mmo_server_content_pack_manifests
+   WHERE content_revision_id = v_content_revision_id
+   LIMIT 1;
+  IF o_server_manifest_hash IS NULL THEN
+    SET o_reason = 'server_manifest_missing';
+    LEAVE proc;
+  END IF;
+
+  IF COALESCE(p_client_manifest_hash, '') = '' THEN
+    SET o_reason = 'client_manifest_missing';
+    LEAVE proc;
+  END IF;
+
+  IF LOWER(p_client_manifest_hash) <> LOWER(o_server_manifest_hash) THEN
+    SET o_reason = 'content_hash_mismatch';
+    LEAVE proc;
+  END IF;
+
+  SET o_accepted = 1;
+  SET o_reason = 'ok';
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_validate_client_content_pack_for_session` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_validate_client_content_pack_for_session`(
+  IN p_session_id BINARY(16),
+  IN p_client_manifest_hash CHAR(64),
+  OUT o_accepted TINYINT(1),
+  OUT o_reason VARCHAR(191),
+  OUT o_server_manifest_hash CHAR(64),
+  OUT o_content_revision_key VARCHAR(191)
+)
+proc: BEGIN
+  DECLARE v_realm_id BINARY(16) DEFAULT NULL;
+  DECLARE v_content_revision_id BINARY(16) DEFAULT NULL;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
+
+  SET o_accepted = 0;
+  SET o_reason = 'unknown';
+  SET o_server_manifest_hash = NULL;
+  SET o_content_revision_key = NULL;
+
+  SELECT ss.realm_id, rr.active_content_revision_id, cr.content_revision_key
+    INTO v_realm_id, v_content_revision_id, o_content_revision_key
+    FROM server_sessions ss
+    JOIN realm_realms rr ON rr.realm_id = ss.realm_id
+    JOIN content_revisions cr ON cr.content_revision_id = rr.active_content_revision_id
+   WHERE ss.session_id = p_session_id
+     AND ss.lifecycle_state = 'active'
+   LIMIT 1;
+  IF v_realm_id IS NULL THEN
+    SET o_reason = 'active_session_not_found';
+    LEAVE proc;
+  END IF;
+
+  SELECT manifest_hash
+    INTO o_server_manifest_hash
+    FROM mmo_server_content_pack_manifests
+   WHERE content_revision_id = v_content_revision_id
+   LIMIT 1;
+  IF o_server_manifest_hash IS NULL THEN
+    SET o_reason = 'server_manifest_missing';
+    LEAVE proc;
+  END IF;
+
+  IF COALESCE(p_client_manifest_hash, '') = '' THEN
+    SET o_reason = 'client_manifest_missing';
+    LEAVE proc;
+  END IF;
+
+  IF LOWER(p_client_manifest_hash) <> LOWER(o_server_manifest_hash) THEN
+    SET o_reason = 'content_hash_mismatch';
+    LEAVE proc;
+  END IF;
+
+  SET o_accepted = 1;
+  SET o_reason = 'ok';
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!50003 DROP PROCEDURE IF EXISTS `mmo_validate_latest_save_checkpoint_restore_v1` */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -8159,6 +10035,60 @@ USE `gothic_mmo_ch1_clean`;
 /*!50001 SET collation_connection      = @saved_col_connection */;
 
 --
+-- Final view structure for view `v_mmo_content_manifest_reject_audit`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_content_manifest_reject_audit`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_content_manifest_reject_audit` AS select bin_to_uuid(`a`.`reject_id`,1) AS `reject_uuid`,`a`.`created_at` AS `created_at`,bin_to_uuid(`a`.`session_id`,1) AS `session_uuid`,bin_to_uuid(`a`.`realm_id`,1) AS `realm_uuid`,`rr`.`realm_key` AS `realm_key`,bin_to_uuid(`a`.`account_id`,1) AS `account_uuid`,`aa`.`account_name` AS `account_name`,bin_to_uuid(`a`.`character_id`,1) AS `character_uuid`,`c`.`character_key` AS `character_key`,bin_to_uuid(`a`.`world_instance_id`,1) AS `world_instance_uuid`,`rwi`.`world_instance_key` AS `world_instance_key`,bin_to_uuid(`a`.`content_revision_id`,1) AS `content_revision_uuid`,coalesce(`cr`.`content_revision_key`,`a`.`content_revision_key`) AS `content_revision_key`,`a`.`remote_endpoint` AS `remote_endpoint`,`a`.`packet_session_key` AS `packet_session_key`,`a`.`target_key` AS `target_key`,`a`.`packet_sequence` AS `packet_sequence`,`a`.`local_sequence` AS `local_sequence`,`a`.`phase` AS `phase`,`a`.`reason` AS `reason`,`a`.`client_manifest_hash` AS `client_manifest_hash`,`a`.`server_manifest_hash` AS `server_manifest_hash`,`a`.`message` AS `message`,`a`.`payload_json` AS `payload_json` from (((((`mmo_content_manifest_reject_audit` `a` left join `realm_realms` `rr` on((`rr`.`realm_id` = `a`.`realm_id`))) left join `account_accounts` `aa` on((`aa`.`account_id` = `a`.`account_id`))) left join `characters` `c` on((`c`.`character_id` = `a`.`character_id`))) left join `realm_world_instances` `rwi` on((`rwi`.`world_instance_id` = `a`.`world_instance_id`))) left join `content_revisions` `cr` on((`cr`.`content_revision_id` = `a`.`content_revision_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_content_manifest_reject_health`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_content_manifest_reject_health`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_content_manifest_reject_health` AS select count(0) AS `total_rejects`,sum((case when (`mmo_content_manifest_reject_audit`.`created_at` >= (utc_timestamp(6) - interval 1 hour)) then 1 else 0 end)) AS `last_hour_rejects`,sum((case when (`mmo_content_manifest_reject_audit`.`created_at` >= (utc_timestamp(6) - interval 15 minute)) then 1 else 0 end)) AS `last_15m_rejects`,sum((case when (`mmo_content_manifest_reject_audit`.`reason` = 'content_hash_mismatch') then 1 else 0 end)) AS `total_hash_mismatches`,sum((case when ((`mmo_content_manifest_reject_audit`.`reason` = 'content_hash_mismatch') and (`mmo_content_manifest_reject_audit`.`created_at` >= (utc_timestamp(6) - interval 1 hour))) then 1 else 0 end)) AS `last_hour_hash_mismatches`,sum((case when (`mmo_content_manifest_reject_audit`.`reason` = 'client_manifest_missing') then 1 else 0 end)) AS `total_missing_client_manifests`,sum((case when (`mmo_content_manifest_reject_audit`.`reason` = 'server_manifest_missing') then 1 else 0 end)) AS `total_missing_server_manifests`,count(distinct `mmo_content_manifest_reject_audit`.`remote_endpoint`) AS `distinct_remote_endpoints`,count(distinct `mmo_content_manifest_reject_audit`.`client_manifest_hash`) AS `distinct_client_hashes`,max(`mmo_content_manifest_reject_audit`.`created_at`) AS `last_reject_at` from `mmo_content_manifest_reject_audit` */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_content_manifest_reject_summary`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_content_manifest_reject_summary`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_content_manifest_reject_summary` AS select coalesce(`mmo_content_manifest_reject_audit`.`reason`,'<empty>') AS `reason`,coalesce(`mmo_content_manifest_reject_audit`.`content_revision_key`,'<empty>') AS `content_revision_key`,coalesce(`mmo_content_manifest_reject_audit`.`server_manifest_hash`,'<empty>') AS `server_manifest_hash`,count(0) AS `total_count`,sum((case when (`mmo_content_manifest_reject_audit`.`created_at` >= (utc_timestamp(6) - interval 1 hour)) then 1 else 0 end)) AS `last_hour_count`,sum((case when (`mmo_content_manifest_reject_audit`.`created_at` >= (utc_timestamp(6) - interval 15 minute)) then 1 else 0 end)) AS `last_15m_count`,min(`mmo_content_manifest_reject_audit`.`created_at`) AS `first_seen_at`,max(`mmo_content_manifest_reject_audit`.`created_at`) AS `last_seen_at` from `mmo_content_manifest_reject_audit` group by coalesce(`mmo_content_manifest_reject_audit`.`reason`,'<empty>'),coalesce(`mmo_content_manifest_reject_audit`.`content_revision_key`,'<empty>'),coalesce(`mmo_content_manifest_reject_audit`.`server_manifest_hash`,'<empty>') */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
 -- Final view structure for view `v_mmo_import_runs`
 --
 
@@ -8249,6 +10179,132 @@ USE `gothic_mmo_ch1_clean`;
 /*!50001 SET collation_connection      = @saved_col_connection */;
 
 --
+-- Final view structure for view `v_mmo_server_content_archive_health`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_archive_health`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_server_content_archive_health` AS select `cr`.`content_revision_key` AS `content_revision_key`,`cr`.`is_active` AS `is_active`,sum((case when (`i`.`file_role` in ('archive_vdf','archive_mod')) then 1 else 0 end)) AS `inventory_archive_count`,count(`am`.`content_archive_mount_id`) AS `archive_mount_count`,sum((case when ((`am`.`content_archive_mount_id` is null) and (`i`.`file_role` in ('archive_vdf','archive_mod'))) then 1 else 0 end)) AS `missing_mount_count`,sum((case when (`am`.`mount_status` = 'planned') then 1 else 0 end)) AS `planned_count`,sum((case when (`am`.`mount_status` = 'mounted') then 1 else 0 end)) AS `mounted_count`,sum((case when (`am`.`mount_status` = 'extracted') then 1 else 0 end)) AS `extracted_count`,sum((case when (`am`.`mount_status` = 'verified') then 1 else 0 end)) AS `verified_count`,sum((case when (`am`.`mount_status` = 'failed') then 1 else 0 end)) AS `failed_count`,coalesce(sum(`am`.`extracted_file_count`),0) AS `extracted_file_count`,coalesce(sum(`am`.`extracted_total_bytes`),0) AS `extracted_total_bytes` from ((`content_revisions` `cr` join `mmo_server_content_pack_inventory` `i` on((`i`.`content_revision_id` = `cr`.`content_revision_id`))) left join `mmo_server_content_archive_mounts` `am` on((`am`.`content_file_id` = `i`.`content_file_id`))) where (`i`.`file_role` in ('archive_vdf','archive_mod')) group by `cr`.`content_revision_key`,`cr`.`is_active` */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_server_content_archive_mounts`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_archive_mounts`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_server_content_archive_mounts` AS select bin_to_uuid(`am`.`content_archive_mount_id`,1) AS `content_archive_mount_uuid`,bin_to_uuid(`am`.`content_file_id`,1) AS `content_file_uuid`,bin_to_uuid(`cr`.`content_revision_id`,1) AS `content_revision_uuid`,`cgt`.`game_code` AS `game_code`,`cr`.`content_revision_key` AS `content_revision_key`,`cr`.`is_active` AS `is_active`,`am`.`archive_logical_path` AS `archive_logical_path`,`cpf`.`source_kind` AS `source_kind`,`cpf`.`byte_size` AS `archive_byte_size`,`cpf`.`sha256` AS `archive_sha256`,`am`.`archive_role` AS `archive_role`,`am`.`mount_strategy` AS `mount_strategy`,`am`.`mount_status` AS `mount_status`,`am`.`extracted_root_label` AS `extracted_root_label`,`am`.`extracted_file_count` AS `extracted_file_count`,`am`.`extracted_total_bytes` AS `extracted_total_bytes`,`am`.`extracted_manifest_hash` AS `extracted_manifest_hash`,`am`.`last_verified_at` AS `last_verified_at`,`am`.`mount_notes` AS `mount_notes`,`am`.`created_at` AS `created_at`,`am`.`updated_at` AS `updated_at` from (((`mmo_server_content_archive_mounts` `am` join `mmo_server_content_pack_files` `cpf` on((`cpf`.`content_file_id` = `am`.`content_file_id`))) join `content_revisions` `cr` on((`cr`.`content_revision_id` = `am`.`content_revision_id`))) join `content_game_targets` `cgt` on((`cgt`.`game_target_id` = `cr`.`game_target_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_server_content_extracted_files`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_extracted_files`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_server_content_extracted_files` AS select bin_to_uuid(`ef`.`content_extracted_file_id`,1) AS `content_extracted_file_uuid`,bin_to_uuid(`ef`.`content_archive_mount_id`,1) AS `content_archive_mount_uuid`,bin_to_uuid(`cr`.`content_revision_id`,1) AS `content_revision_uuid`,`cgt`.`game_code` AS `game_code`,`cr`.`content_revision_key` AS `content_revision_key`,`cr`.`is_active` AS `is_active`,`ef`.`archive_logical_path` AS `archive_logical_path`,`ef`.`extracted_logical_path` AS `extracted_logical_path`,bin_to_uuid(`ef`.`mapped_content_file_id`,1) AS `mapped_content_file_uuid`,`mapped`.`logical_path` AS `mapped_manifest_logical_path`,`ef`.`byte_size` AS `byte_size`,`ef`.`sha256` AS `sha256`,`ef`.`extracted_status` AS `extracted_status`,`ef`.`raw_payload` AS `raw_payload`,`ef`.`created_at` AS `created_at`,`ef`.`updated_at` AS `updated_at` from (((`mmo_server_content_extracted_files` `ef` join `content_revisions` `cr` on((`cr`.`content_revision_id` = `ef`.`content_revision_id`))) join `content_game_targets` `cgt` on((`cgt`.`game_target_id` = `cr`.`game_target_id`))) left join `mmo_server_content_pack_files` `mapped` on((`mapped`.`content_file_id` = `ef`.`mapped_content_file_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_server_content_pack_files`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_pack_files`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_server_content_pack_files` AS select bin_to_uuid(`f`.`content_file_id`,1) AS `content_file_uuid`,bin_to_uuid(`cr`.`content_revision_id`,1) AS `content_revision_uuid`,`cgt`.`game_code` AS `game_code`,`cr`.`content_revision_key` AS `content_revision_key`,`cr`.`is_active` AS `is_active`,`f`.`logical_path` AS `logical_path`,`f`.`source_kind` AS `source_kind`,`f`.`byte_size` AS `byte_size`,`f`.`sha256` AS `sha256`,`f`.`mtime_utc` AS `mtime_utc`,`f`.`required` AS `required`,`f`.`raw_payload` AS `raw_payload`,`f`.`created_at` AS `created_at`,`f`.`updated_at` AS `updated_at` from ((`mmo_server_content_pack_files` `f` join `content_revisions` `cr` on((`cr`.`content_revision_id` = `f`.`content_revision_id`))) join `content_game_targets` `cgt` on((`cgt`.`game_target_id` = `cr`.`game_target_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_server_content_pack_inventory`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_pack_inventory`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_server_content_pack_inventory` AS select bin_to_uuid(`i`.`content_inventory_id`,1) AS `content_inventory_uuid`,bin_to_uuid(`i`.`content_file_id`,1) AS `content_file_uuid`,bin_to_uuid(`cr`.`content_revision_id`,1) AS `content_revision_uuid`,`cgt`.`game_code` AS `game_code`,`cr`.`content_revision_key` AS `content_revision_key`,`cr`.`is_active` AS `is_active`,`i`.`logical_path` AS `logical_path`,`f`.`source_kind` AS `source_kind`,`f`.`byte_size` AS `byte_size`,`f`.`sha256` AS `sha256`,`i`.`file_role` AS `file_role`,`i`.`loader_stage` AS `loader_stage`,`i`.`import_priority` AS `import_priority`,`i`.`required_for_server_authority` AS `required_for_server_authority`,`i`.`import_status` AS `import_status`,`i`.`import_notes` AS `import_notes`,`i`.`created_at` AS `created_at`,`i`.`updated_at` AS `updated_at` from (((`mmo_server_content_pack_inventory` `i` join `mmo_server_content_pack_files` `f` on((`f`.`content_file_id` = `i`.`content_file_id`))) join `content_revisions` `cr` on((`cr`.`content_revision_id` = `i`.`content_revision_id`))) join `content_game_targets` `cgt` on((`cgt`.`game_target_id` = `cr`.`game_target_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_server_content_pack_inventory_health`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_pack_inventory_health`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_server_content_pack_inventory_health` AS select `cr`.`content_revision_key` AS `content_revision_key`,`cr`.`is_active` AS `is_active`,count(`f`.`content_file_id`) AS `manifest_file_count`,count(`i`.`content_inventory_id`) AS `inventoried_file_count`,sum((case when (`i`.`content_inventory_id` is null) then 1 else 0 end)) AS `missing_inventory_count`,sum((case when (`i`.`file_role` = 'world_zen') then 1 else 0 end)) AS `world_zen_count`,sum((case when (`i`.`file_role` = 'scripts_dat') then 1 else 0 end)) AS `scripts_dat_count`,sum((case when (`i`.`file_role` = 'dialog_ou') then 1 else 0 end)) AS `dialog_ou_count`,sum((case when (`i`.`file_role` in ('archive_vdf','archive_mod')) then 1 else 0 end)) AS `archive_count`,sum((case when (`i`.`required_for_server_authority` = 1) then 1 else 0 end)) AS `required_for_authority_count`,sum((case when (`i`.`import_status` = 'ready_for_parser') then 1 else 0 end)) AS `ready_for_parser_count`,sum((case when (`i`.`import_status` = 'unsupported') then 1 else 0 end)) AS `unsupported_count`,sum((case when (`i`.`import_status` = 'failed') then 1 else 0 end)) AS `failed_count`,sum((case when (`i`.`import_status` = 'imported') then 1 else 0 end)) AS `imported_count` from ((`content_revisions` `cr` join `mmo_server_content_pack_files` `f` on((`f`.`content_revision_id` = `cr`.`content_revision_id`))) left join `mmo_server_content_pack_inventory` `i` on((`i`.`content_file_id` = `f`.`content_file_id`))) group by `cr`.`content_revision_key`,`cr`.`is_active` */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_mmo_server_content_pack_manifests`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_mmo_server_content_pack_manifests`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_mmo_server_content_pack_manifests` AS select bin_to_uuid(`m`.`content_manifest_id`,1) AS `content_manifest_uuid`,bin_to_uuid(`cr`.`content_revision_id`,1) AS `content_revision_uuid`,`cgt`.`game_code` AS `game_code`,`cr`.`content_revision_key` AS `content_revision_key`,`cr`.`is_active` AS `is_active`,`m`.`manifest_hash` AS `manifest_hash`,`m`.`file_count` AS `file_count`,`m`.`required_file_count` AS `required_file_count`,`m`.`total_bytes` AS `total_bytes`,`m`.`source_root_label` AS `source_root_label`,`m`.`source_payload` AS `source_payload`,`m`.`created_at` AS `created_at`,`m`.`updated_at` AS `updated_at` from ((`mmo_server_content_pack_manifests` `m` join `content_revisions` `cr` on((`cr`.`content_revision_id` = `m`.`content_revision_id`))) join `content_game_targets` `cgt` on((`cgt`.`game_target_id` = `cr`.`game_target_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
 -- Final view structure for view `v_pending_server_actions`
 --
 
@@ -8329,4 +10385,4 @@ USE `gothic_mmo_ch1_clean`;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-07-05 10:59:46
+-- Dump completed on 2026-07-06 22:58:19

@@ -68,6 +68,14 @@
                        optionalJsonString(payload, "weapon_state",
                        packet.kind == Mmo::SemanticActionKind::HolsterWeapon ? "no_weapon" : "ready_weapon"));
     const bool ready = optionalJsonBool(payload, "ready", packet.kind == Mmo::SemanticActionKind::ReadyWeapon);
+    recordPerceptionEvent({
+      .perceptionId = static_cast<std::uint8_t>(ready ? 24 : 11),
+      .sourceKey = actorKey,
+      .otherKey = actorKey,
+      .reason = ready ? "weapon_draw_observed" : "weapon_remove_observed",
+      .originPosition = optionalGameplayVec3(payload, "actor_position"),
+      .serverTickMs = tick,
+    }, &target, sessionUuid, packet.idempotencyKey);
     if(ready) {
       const auto targetKey = optionalJsonString(payload, "target_entity_key",
                            optionalJsonString(payload, "threat_key", ""));
@@ -100,3 +108,5 @@
 
   return {false, true, false, "unhandled"};
 }
+
+

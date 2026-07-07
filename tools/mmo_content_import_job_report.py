@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""Summarize local and DB-backed MMO server content import jobs."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    return Target(parsed.hostname or "localhost", parsed.port or 3306, unquote(parsed.username or ""), unquote(parsed.password or ""), (parsed.path or "/").lstrip("/"))
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [exe, "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci", "--batch", "--raw", "--skip-column-names", "-h", target.host, "-P", str(target.port), "-u", target.user]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(ROOT))
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def scalar_int(target: Target, sql: str) -> int:
+    output = run_mysql(target, sql).splitlines()
+    if not output:
+        return 0
+    try:
+        return int(output[-1].strip() or "0")
+    except ValueError:
+        return 0
+
+
+def json_query(target: Target, sql: str) -> object:
+    output = run_mysql(target, sql)
+    if not output:
+        return None
+    return json.loads(output.splitlines()[-1])
+
+
+def read_local_jobs(path: Path | None) -> dict[str, object] | None:
+    if path is None:
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("import jobs JSON must be an object")
+    return {
+        "path": str(path),
+        "content_revision_key": data.get("content_revision_key"),
+        "manifest_hash": data.get("manifest_hash"),
+        "summary": data.get("summary"),
+    }
+
+
+def db_report(target: Target, limit: int) -> dict[str, object]:
+    table_count = scalar_int(target, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='mmo_server_content_import_jobs';")
+    if table_count != 1:
+        return {"available": False, "reason": "mmo_server_content_import_jobs_missing"}
+    report: dict[str, object] = {"available": True}
+    report["health"] = json_query(
+        target,
+        "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+        "'content_revision_key',content_revision_key,"
+        "'is_active',is_active,"
+        "'total_jobs',total_jobs,"
+        "'queued_count',queued_count,"
+        "'running_count',running_count,"
+        "'succeeded_count',succeeded_count,"
+        "'failed_count',failed_count,"
+        "'blocked_count',blocked_count,"
+        "'archive_jobs',archive_jobs,"
+        "'world_zen_jobs',world_zen_jobs,"
+        "'scripts_dat_jobs',scripts_dat_jobs,"
+        "'dialog_ou_jobs',dialog_ou_jobs"
+        ")),JSON_ARRAY()) FROM v_mmo_server_content_import_job_health;",
+    )
+    report["jobs"] = json_query(
+        target,
+        "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+        "'content_revision_key',content_revision_key,"
+        "'importer_key',importer_key,"
+        "'source_kind',source_kind,"
+        "'source_logical_path',source_logical_path,"
+        "'job_priority',job_priority,"
+        "'job_status',job_status,"
+        "'attempt_count',attempt_count"
+        ")),JSON_ARRAY()) FROM ("
+        "SELECT content_revision_key,importer_key,source_kind,source_logical_path,job_priority,job_status,attempt_count "
+        "FROM v_mmo_server_content_import_jobs ORDER BY job_priority, source_logical_path LIMIT " + str(max(0, limit)) +
+        ") job_rows;",
+    )
+    return report
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Report local/DB MMO server content import jobs.")
+    parser.add_argument("--jobs", default="", help="Import jobs JSON generated by enqueue_server_content_import_jobs.py")
+    parser.add_argument("--url", default="", help="Optional mysql://user:password@host:port/database")
+    parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    jobs_path = Path(args.jobs) if args.jobs else None
+    if jobs_path is not None and not jobs_path.is_absolute():
+        jobs_path = ROOT / jobs_path
+    report = {
+        "tool": "mmo_content_import_job_report.py",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "local_jobs": read_local_jobs(jobs_path) if jobs_path else None,
+        "db_import_jobs": db_report(parse_mysql_url(args.url), args.limit) if args.url else None,
+    }
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

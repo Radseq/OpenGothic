@@ -59,9 +59,11 @@ Kind parseKind(std::string_view actionKey) noexcept {
     return Kind::Sleeping;
   if(key == "using_mob" || key == "use_mob" || key == "mobsi")
     return Kind::UsingMob;
-  if(key == "alert" || key == "threat" || key == "weapon_ready" || key == "ready_weapon" || key == "draw_weapon")
+  if(key == "alert" || key == "threat" || key == "weapon_ready" || key == "ready_weapon" || key == "draw_weapon" ||
+     key == "warn" || key == "interrupt" || key == "suspect_crime" || key == "call_help" || key == "queue_script")
     return Kind::Alert;
-  if(key == "combat" || key == "fight" || key == "attacking" || key == "engaged" || key == "aggro" || key == "agro")
+  if(key == "combat" || key == "fight" || key == "attacking" || key == "engaged" || key == "aggro" || key == "agro" ||
+     key == "start_combat")
     return Kind::Combat;
   if(key == "down" || key == "unconscious")
     return Kind::Down;
@@ -304,3 +306,5 @@ void Registry::setActivity(ActivityInput input, Kind kind) {
 }
 
 } // namespace Mmo::Server::NpcActivity
+
+

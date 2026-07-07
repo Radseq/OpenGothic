@@ -54,11 +54,30 @@ Read these files by default, in order:
 50. `ai/63-mmo-server-combat-swing-timeline-audit-step152.md`
 51. `ai/64-mmo-server-combat-timeline-registry-step153.md`
 52. `ai/65-mmo-server-combat-animation-observation-step154.md`
+53. `ai/66-mmo-server-combat-animation-windows-step155.md`
+54. `ai/67-mmo-server-combat-spatial-validation-step156.md`
+55. `ai/68-mmo-server-combat-range-model-step157.md`
+56. `ai/69-mmo-server-fight-move-model-step158.md`
+57. `ai/70-mmo-server-fight-intent-authority-step159.md`
+58. `ai/71-mmo-server-observed-fight-intent-validation-step160.md`
+59. `ai/72-mmo-server-explicit-combat-intent-step161.md`
+60. `ai/73-mmo-server-combat-intent-proposed-accepted-step162.md`
+61. `ai/74-mmo-server-combat-intent-correlation-step163.md`
+62. `ai/75-mmo-server-npc-ai-explicit-combat-intent-step164.md`
+63. `ai/76-mmo-server-ranged-magic-combat-intents-step165.md`
+64. `ai/77-mmo-server-ranged-authority-profile-step166.md`
+65. `ai/82-mmo-server-damage-roll-authority-step171.md`
+66. `ai/83-mmo-server-perception-reaction-migration-map-step172.md`
+67. `ai/84-mmo-server-perception-queue-step173.md`
+68. `ai/85-mmo-server-perception-sensor-step174.md`
+69. `ai/86-mmo-server-perception-witness-registry-step175.md`
+70. `ai/91-mmo-server-perception-reaction-planner-step180.md`
+71. `ai/92-mmo-server-perception-reaction-udp-step181.md`
 
 Do not load old numbered step files during normal work. They are archaeology.
 Keep their hard facts only when they became durable project rules below.
 
-Target: Gothic II NotR first, later Gothic 1/Gothic 2 vanilla.
+Target: Gothic II NotR only. Gothic 1 is not a project target.
 
 Durable engineering requirements:
 - C++23.
@@ -66,6 +85,10 @@ Durable engineering requirements:
 - Maximum runtime performance is a priority, especially on server hot paths.
 - Code must be safe, explicit, readable and production-shaped.
 - Build a solid base for a future Gothic MMO and server-authoritative gameplay.
+- Client-server gameplay communication should use UDP. Do not route real-time
+  authority, AI or replication decisions through the database/outbox.
+- Gothic 1 compatibility is not a goal. Do not spend design or implementation
+  complexity on Gothic 1 unless the user explicitly reopens that scope.
 - Write senior-level C++: relatively small functions, clear module boundaries,
   separation of concerns and replaceable components.
 - Old single-player behavior must remain unchanged unless an explicit

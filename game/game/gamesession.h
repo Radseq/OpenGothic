@@ -195,6 +195,7 @@ class GameSession final {
     void        waitForMmoServerSnapshotRestoreDuringLoad() noexcept;
     void        pollMmoServerSnapshotRestore() noexcept;
     bool        tryApplyMmoServerWorldSnapshotRefresh() noexcept;
+    void        pollMmoServerLiveDeltas() noexcept;
     void        markMmoServerSnapshotStoryDirty() noexcept;
 
     uint64_t                       ticks = 0, wrldTimePart = 0;
@@ -214,6 +215,10 @@ class GameSession final {
     static const uint64_t          multTime;
     static const uint64_t          divTime;
   };
+
+
+
+
 
 
 

@@ -351,6 +351,10 @@ struct JsonVec3 final {
   double z = 0.0;
 };
 
+[[nodiscard]] constexpr Mmo::Server::Gameplay::Vec3 toGameplayVec3(JsonVec3 value) noexcept {
+  return {value.x, value.y, value.z};
+}
+
 [[nodiscard]] std::optional<JsonVec3> optionalJsonVec3(std::string_view json, std::string_view objectKey) {
   const auto object = jsonObjectField(json, objectKey);
   if(!object)
@@ -369,6 +373,14 @@ struct JsonVec3 final {
     return std::nullopt;
 
   return JsonVec3{finiteOrThrow(*x, "x"), finiteOrThrow(*y, "y"), finiteOrThrow(*z, "z")};
+}
+
+[[nodiscard]] std::optional<Mmo::Server::Gameplay::Vec3> optionalGameplayVec3(std::string_view json,
+                                                                              std::string_view objectKey) {
+  const auto value = optionalJsonVec3(json, objectKey);
+  if(!value)
+    return std::nullopt;
+  return toGameplayVec3(*value);
 }
 
 [[nodiscard]] std::optional<Mmo::Server::Gameplay::Vec3> optionalFlatGameplayVec3(std::string_view json,
@@ -496,13 +508,10 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
 }
 
 [[nodiscard]] std::string equipmentSlotName(std::string_view raw) {
-  auto slot = parseInt(raw);
+  if(Mmo::Server::InventoryAuthority::isKnownEquipmentSlot(raw))
+    return std::string(raw);
+  auto slot = parseI64(raw);
   if(!slot)
-    return "unknown";
-  if(*slot == 1)
-    return "weapon_melee";
-  if(*slot == 2)
-    return "weapon_ranged";
-  return "unknown";
+    return std::string(Mmo::Server::InventoryAuthority::SlotUnknown);
+  return std::string(Mmo::Server::InventoryAuthority::normalizedNumericEquipmentSlot(*slot));
 }
-

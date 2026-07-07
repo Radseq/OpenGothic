@@ -2,16 +2,47 @@
 // Owns small payload normalizers for story/equipment/world identity.
 
 [[nodiscard]] std::string normalizedEquipmentSlot(std::string_view payload) {
-  if(auto slot = jsonStringField(payload, "equipment_slot"); slot && !slot->empty())
+  if(auto slot = jsonStringField(payload, "equipment_slot"); slot && !slot->empty()) {
+    if(auto numeric = parseI64(*slot))
+      return std::string(Mmo::Server::InventoryAuthority::normalizedNumericEquipmentSlot(*numeric));
     return *slot;
-  if(auto slot = jsonStringField(payload, "slot"); slot && !slot->empty())
+  }
+  if(auto slot = jsonStringField(payload, "slot"); slot && !slot->empty()) {
+    if(auto numeric = parseI64(*slot))
+      return std::string(Mmo::Server::InventoryAuthority::normalizedNumericEquipmentSlot(*numeric));
     return *slot;
+  }
   const auto numeric = optionalJsonI64(payload, "slot", 0);
-  if(numeric == 1)
-    return "weapon_melee";
-  if(numeric == 2)
-    return "weapon_ranged";
-  return "unknown";
+  return std::string(Mmo::Server::InventoryAuthority::normalizedNumericEquipmentSlot(numeric));
+}
+
+[[nodiscard]] std::string questStatus(std::string_view payload) {
+  std::string value = optionalJsonString(payload, "status", "running");
+  for(char& ch : value)
+    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  if(value == "1" || value == "run" || value == "in_progress")
+    return "running";
+  if(value == "2" || value == "completed_success" || value == "succeeded")
+    return "success";
+  if(value == "3" || value == "failure" || value == "completed_failed")
+    return "failed";
+  if(value == "4" || value == "closed")
+    return "obsolete";
+  return value.empty() ? "running" : value;
+}
+
+[[nodiscard]] std::string scriptKeyFromPayload(const Mmo::Net::ClientActionPacket& packet) {
+  const std::string_view payload = packet.payloadJson;
+  if(auto key = jsonStringField(payload, "script_key"); key && !key->empty())
+    return *key;
+  if(auto key = jsonStringField(payload, "global_key"); key && !key->empty())
+    return *key;
+  if(auto key = jsonStringField(payload, "symbol_name"); key && !key->empty())
+    return *key;
+  if(!packet.targetKey.empty())
+    return packet.targetKey;
+  return "script-int:" + std::to_string(optionalJsonI64(payload, "symbol_index", 0)) + ":" +
+         std::to_string(optionalJsonI64(payload, "value_index", 0));
 }
 
 [[nodiscard]] std::optional<std::int64_t> parseI64Segment(std::string_view text) noexcept {
@@ -150,3 +181,4 @@ void fillWorldNpcIdentityFromPayload(WorldNpcIdentity& identity, std::string_vie
     out.symbol = *sym;
   return out;
 }
+

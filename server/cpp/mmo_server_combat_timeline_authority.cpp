@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 namespace Mmo::Server::CombatTimeline {
 
@@ -100,6 +101,36 @@ ApplyResult Registry::applyObservedFight(const ObservedFightInput& input) {
   state.attackAnimationElapsedMs = input.attackAnimationElapsedMs;
   state.animationTotalMs = input.animationTotalMs;
   state.attackTotalMs = input.attackTotalMs;
+  state.attackOptimalMs = input.attackOptimalMs;
+  state.attackHitEndMs = input.attackHitEndMs;
+  state.parryWindowStartMs = input.parryWindowStartMs;
+  state.parryWindowEndMs = input.parryWindowEndMs;
+  state.comboWindowStartMs = input.comboWindowStartMs;
+  state.comboWindowEndMs = input.comboWindowEndMs;
+  state.attackerCenter = input.attackerCenter;
+  state.opponentCenter = input.opponentCenter;
+  state.attackerYawRad = input.attackerYawRad;
+  state.opponentYawRad = input.opponentYawRad;
+  state.attackRange = input.attackRange;
+  state.opponentAttackRange = input.opponentAttackRange;
+  state.attackerBaseRange = input.attackerBaseRange;
+  state.opponentBaseRange = input.opponentBaseRange;
+  state.weaponRange = input.weaponRange;
+  state.fightTableChoice = std::string(FightMove::tableChoiceName(FightMove::selectTable(selectionFromInput(input))));
+  state.hasAttackerCenter = input.hasAttackerCenter;
+  state.hasOpponentCenter = input.hasOpponentCenter;
+  state.hasAttackerYaw = input.hasAttackerYaw;
+  state.hasOpponentYaw = input.hasOpponentYaw;
+  state.hasAttackRange = input.hasAttackRange;
+  state.hasOpponentAttackRange = input.hasOpponentAttackRange;
+  state.hasAttackerBaseRange = input.hasAttackerBaseRange;
+  state.hasOpponentBaseRange = input.hasOpponentBaseRange;
+  state.hasWeaponRange = input.hasWeaponRange;
+  state.actorRunning = input.actorRunning;
+  state.opponentRunning = input.opponentRunning;
+  state.opponentPrehit = input.opponentPrehit;
+  state.opponentInWRange = input.opponentInWRange;
+  state.opponentInFocus = input.opponentInFocus;
   state.comboIndex = input.comboIndex;
   state.bodyState = input.bodyState;
   state.weaponStateId = input.weaponStateId;
@@ -132,6 +163,26 @@ DamageEvidence Registry::evaluateDamageEvidence(const DamageEvidenceInput& input
   const auto& state = it->second;
   if(!input.targetKey.empty() && !state.opponentKey.empty() && state.opponentKey != trimAscii(input.targetKey))
     return {.hasAttackerTimeline = true, .plausibleMeleeHit = false, .reason = "target_mismatch"};
+
+  const auto spatial = CombatSpatial::evaluate(spatialFromSnapshot(state));
+  if(spatial.hasSpatial) {
+    if(!spatial.inRange)
+      return {.hasAttackerTimeline = true, .plausibleMeleeHit = false, .reason = "outside_fight_range"};
+    if(!spatial.inFocusAngle)
+      return {.hasAttackerTimeline = true, .plausibleMeleeHit = false, .reason = "outside_focus_angle"};
+  }
+
+  const auto timing = timingFromSnapshot(state);
+  const auto elapsedNow = state.attackAnimationElapsedMs + (input.serverTickMs > state.updatedServerTickMs ?
+                          input.serverTickMs - state.updatedServerTickMs : 0);
+  const auto animation = CombatAnimation::evaluateAt(timing, elapsedNow);
+  if(animation.knownAttackWindow) {
+    if(animation.inHitWindow)
+      return {.hasAttackerTimeline = true, .plausibleMeleeHit = true, .reason = "animation_hit_window"};
+    if(animation.beforeHit)
+      return {.hasAttackerTimeline = true, .plausibleMeleeHit = false, .reason = "before_animation_hit_window"};
+    return {.hasAttackerTimeline = true, .plausibleMeleeHit = false, .reason = "after_animation_hit_window"};
+  }
 
   const bool recentHitCandidate = state.lastHitCandidateTickMs > 0 &&
                                   input.serverTickMs <= state.lastHitCandidateTickMs + ObservedAttackGraceMs;
@@ -179,6 +230,17 @@ Phase Registry::classify(const ObservedFightInput& input) noexcept {
     return Phase::Down;
   if(bodyState == BodyStateParade)
     return Phase::Defence;
+  if(input.attackAnim) {
+    const auto animation = CombatAnimation::evaluateAt(timingFromInput(input), input.attackAnimationElapsedMs);
+    if(animation.knownAttackWindow) {
+      if(animation.beforeHit)
+        return Phase::Windup;
+      if(animation.inHitWindow)
+        return Phase::HitFrameCandidate;
+      if(animation.afterHit)
+        return Phase::Recovery;
+    }
+  }
   if(input.prehit)
     return Phase::Windup;
   if(input.attackAnim || bodyState == BodyStateHit)
@@ -200,12 +262,133 @@ Phase Registry::classify(const ObservedFightInput& input) noexcept {
   return Phase::Ready;
 }
 
+CombatAnimation::Timing Registry::timingFromInput(const ObservedFightInput& input) noexcept {
+  return {
+    .attackOptimalMs = input.attackOptimalMs,
+    .attackHitEndMs = input.attackHitEndMs,
+    .attackTotalMs = input.attackTotalMs,
+    .parryWindowStartMs = input.parryWindowStartMs,
+    .parryWindowEndMs = input.parryWindowEndMs,
+    .comboWindowStartMs = input.comboWindowStartMs,
+    .comboWindowEndMs = input.comboWindowEndMs,
+  };
+}
+
+CombatAnimation::Timing Registry::timingFromSnapshot(const Snapshot& snapshot) noexcept {
+  return {
+    .attackOptimalMs = snapshot.attackOptimalMs,
+    .attackHitEndMs = snapshot.attackHitEndMs,
+    .attackTotalMs = snapshot.attackTotalMs,
+    .parryWindowStartMs = snapshot.parryWindowStartMs,
+    .parryWindowEndMs = snapshot.parryWindowEndMs,
+    .comboWindowStartMs = snapshot.comboWindowStartMs,
+    .comboWindowEndMs = snapshot.comboWindowEndMs,
+  };
+}
+
+CombatSpatial::Input Registry::spatialFromInput(const ObservedFightInput& input) noexcept {
+  return {
+    .attackerCenter = input.attackerCenter,
+    .targetCenter = input.opponentCenter,
+    .attackerYawRad = input.attackerYawRad,
+    .attackRange = input.attackRange,
+    .attackerBaseRange = input.attackerBaseRange,
+    .targetBaseRange = input.opponentBaseRange,
+    .weaponRange = input.weaponRange,
+    .minFocusDot = CombatSpatial::GothicFocusAngleCos30,
+    .hasAttackerCenter = input.hasAttackerCenter,
+    .hasTargetCenter = input.hasOpponentCenter,
+    .hasYaw = input.hasAttackerYaw,
+    .hasAttackRange = input.hasAttackRange,
+    .hasAttackerBaseRange = input.hasAttackerBaseRange,
+    .hasTargetBaseRange = input.hasOpponentBaseRange,
+    .hasWeaponRange = input.hasWeaponRange,
+  };
+}
+
+CombatSpatial::Input Registry::spatialFromSnapshot(const Snapshot& snapshot) noexcept {
+  return {
+    .attackerCenter = snapshot.attackerCenter,
+    .targetCenter = snapshot.opponentCenter,
+    .attackerYawRad = snapshot.attackerYawRad,
+    .attackRange = snapshot.attackRange,
+    .attackerBaseRange = snapshot.attackerBaseRange,
+    .targetBaseRange = snapshot.opponentBaseRange,
+    .weaponRange = snapshot.weaponRange,
+    .minFocusDot = CombatSpatial::GothicFocusAngleCos30,
+    .hasAttackerCenter = snapshot.hasAttackerCenter,
+    .hasTargetCenter = snapshot.hasOpponentCenter,
+    .hasYaw = snapshot.hasAttackerYaw,
+    .hasAttackRange = snapshot.hasAttackRange,
+    .hasAttackerBaseRange = snapshot.hasAttackerBaseRange,
+    .hasTargetBaseRange = snapshot.hasOpponentBaseRange,
+    .hasWeaponRange = snapshot.hasWeaponRange,
+  };
+}
+
+FightMove::SelectionInput Registry::selectionFromInput(const ObservedFightInput& input) noexcept {
+  const auto actorSpatial = CombatSpatial::evaluate(spatialFromInput(input));
+  const auto opponentSpatial = CombatSpatial::evaluate({
+    .attackerCenter = input.opponentCenter,
+    .targetCenter = input.attackerCenter,
+    .attackerYawRad = input.opponentYawRad,
+    .attackRange = input.opponentAttackRange,
+    .minFocusDot = CombatSpatial::GothicFocusAngleCos30,
+    .hasAttackerCenter = input.hasOpponentCenter,
+    .hasTargetCenter = input.hasAttackerCenter,
+    .hasYaw = input.hasOpponentYaw,
+    .hasAttackRange = input.hasOpponentAttackRange,
+  });
+
+  return {
+    .weaponMode = FightMove::weaponModeFromName(input.weaponState),
+    .hitFlag = false,
+    .focus = actorSpatial.hasSpatial ? actorSpatial.inFocusAngle : false,
+    .inWRange = actorSpatial.hasSpatial ? actorSpatial.inRange : false,
+    .inGRange = actorSpatial.hasSpatial ? actorSpatial.inRange : false,
+    .actorRunning = input.actorRunning,
+    .targetPrehit = input.opponentPrehit,
+    .targetInWRange = opponentSpatial.hasSpatial ? opponentSpatial.inRange : input.opponentInWRange,
+    .targetFocus = opponentSpatial.hasSpatial ? opponentSpatial.inFocusAngle : input.opponentInFocus,
+    .targetRunning = input.opponentRunning,
+  };
+}
+
 bool Registry::validInput(const ObservedFightInput& input) noexcept {
   if(input.comboIndex < 0 || input.comboIndex > MaxObservedComboIndex)
     return false;
   if(input.bodyState < 0 || input.bodyState > MaxObservedBodyState)
     return false;
   if(input.weaponStateId < 0 || input.weaponStateId > MaxObservedWeaponState)
+    return false;
+  if(input.animationElapsedMs > CombatAnimation::MaxAnimationWindowMs ||
+     input.attackAnimationElapsedMs > CombatAnimation::MaxAnimationWindowMs ||
+     input.animationTotalMs > CombatAnimation::MaxAnimationWindowMs ||
+     input.attackTotalMs > CombatAnimation::MaxAnimationWindowMs ||
+     input.attackOptimalMs > CombatAnimation::MaxAnimationWindowMs ||
+     input.attackHitEndMs > CombatAnimation::MaxAnimationWindowMs ||
+     input.parryWindowStartMs > CombatAnimation::MaxAnimationWindowMs ||
+     input.parryWindowEndMs > CombatAnimation::MaxAnimationWindowMs ||
+     input.comboWindowStartMs > CombatAnimation::MaxAnimationWindowMs ||
+     input.comboWindowEndMs > CombatAnimation::MaxAnimationWindowMs)
+    return false;
+  if(input.hasAttackerCenter && !Gameplay::finitePosition(input.attackerCenter))
+    return false;
+  if(input.hasOpponentCenter && !Gameplay::finitePosition(input.opponentCenter))
+    return false;
+  if(input.hasAttackerYaw && !std::isfinite(input.attackerYawRad))
+    return false;
+  if(input.hasOpponentYaw && !std::isfinite(input.opponentYawRad))
+    return false;
+  if(input.hasAttackRange && !CombatSpatial::validRange(input.attackRange))
+    return false;
+  if(input.hasOpponentAttackRange && !CombatSpatial::validRange(input.opponentAttackRange))
+    return false;
+  if(input.hasAttackerBaseRange && !CombatRange::validRangePart(input.attackerBaseRange))
+    return false;
+  if(input.hasOpponentBaseRange && !CombatRange::validRangePart(input.opponentBaseRange))
+    return false;
+  if(input.hasWeaponRange && !CombatRange::validRangePart(input.weaponRange))
     return false;
   return true;
 }

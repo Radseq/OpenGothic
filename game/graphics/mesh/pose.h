@@ -75,6 +75,12 @@ class Pose final {
     uint64_t           primaryAttackAnimationElapsed(uint64_t tickCount) const;
     uint64_t           animationTotalTime() const;
     uint64_t           atkTotalTime() const;
+    uint64_t           primaryAttackOptimalTime() const;
+    uint64_t           primaryAttackHitEndTime() const;
+    uint64_t           primaryParryWindowStart() const;
+    uint64_t           primaryParryWindowEnd() const;
+    uint64_t           primaryComboWindowStart() const;
+    uint64_t           primaryComboWindowEnd() const;
 
     auto               continueCombo(const AnimationSolver &solver, const Animation::Sequence *sq, BodyState bs, uint64_t tickCount) -> const Animation::Sequence*;
     uint16_t           comboLength() const;

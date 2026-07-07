@@ -314,6 +314,17 @@
   return resolveWorldNpcEntityKey(target, sessionUuid, packet, worldNpcFallbackRawKey(packet));
 }
 
+[[nodiscard]] ResolvedWorldNpcEntity resolveTradeNpcEntityKey(const MySqlTarget& target,
+                                                             std::string_view sessionUuid,
+                                                             const Mmo::Net::ClientActionPacket& packet) {
+  const std::string_view payload = packet.payloadJson;
+  const auto raw = optionalJsonString(payload, "npc_entity_key",
+                   optionalJsonString(payload, "target_npc_entity_key",
+                   optionalJsonString(payload, "npc_key",
+                   optionalJsonString(payload, "target_key", packet.targetKey))));
+  return resolveWorldNpcEntityKey(target, sessionUuid, packet, raw);
+}
+
 [[nodiscard]] std::string resolveWorldInventoryOwnerEntityKey(const MySqlTarget& target,
                                                               std::string_view sessionUuid,
                                                               const Mmo::Net::ClientActionPacket& packet) {
@@ -338,3 +349,4 @@
     return std::numeric_limits<std::int64_t>::max();
   return amount < 0 ? -amount : amount;
 }
+

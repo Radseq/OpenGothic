@@ -23,6 +23,28 @@
   };
 }
 
+[[nodiscard]] std::int64_t tradePriceTotalFromPayload(std::string_view payload, std::int64_t amount) noexcept {
+  const auto explicitTotal = optionalJsonI64(payload, "price_total", 0);
+  if(explicitTotal != 0)
+    return explicitTotal;
+
+  const auto unitPrice = optionalJsonI64(payload, "unit_price", 0);
+  const auto safeAmount = std::max<std::int64_t>(1, amount);
+  constexpr auto MaxAbs = Mmo::Server::InventoryAuthority::MaxTradePriceAbs;
+  if(unitPrice > 0 && unitPrice > MaxAbs / safeAmount)
+    return MaxAbs + 1;
+  if(unitPrice < 0 && unitPrice < -MaxAbs / safeAmount)
+    return -MaxAbs - 1;
+  return unitPrice * safeAmount;
+}
+
+[[nodiscard]] std::string tradeCurrencyKeyFromPayload(std::string_view payload) {
+  auto currency = optionalJsonString(payload, "currency_key", "g2notr:gold");
+  if(currency.empty())
+    currency = "g2notr:gold";
+  return currency;
+}
+
 [[nodiscard]] DirectApplyResult applyInventoryDirectDb(const Mmo::Server::DirectApplyRequest& request) {
   const MySqlTarget& target = request.target;
   const std::string_view sessionUuid = request.sessionUuid;
@@ -84,6 +106,18 @@
     });
     if(!validation.accepted)
       return {true, false, false, validation.reason};
+    if(packet.kind == Mmo::SemanticActionKind::TakeContainerItem) {
+      const auto actorKey = optionalJsonString(payload, "actor_key", optionalJsonString(payload, "source_actor_key", ""));
+      recordPerceptionEvent({
+        .perceptionId = 17,
+        .sourceKey = actorKey,
+        .otherKey = actorKey,
+        .itemKey = ownerHint,
+        .reason = "container_item_take_observed",
+        .originPosition = optionalGameplayVec3(payload, "actor_position"),
+        .serverTickMs = tick,
+      }, &target, sessionUuid, packet.idempotencyKey);
+    }
 
     try {
       const auto sourceEntityKey = resolveWorldInventoryOwnerEntityKey(target, sessionUuid, packet);
@@ -152,6 +186,16 @@
     });
     if(!pickupValidation.accepted)
       return {true, false, false, pickupValidation.reason};
+    const auto actorKey = optionalJsonString(payload, "actor_key", optionalJsonString(payload, "source_actor_key", ""));
+    recordPerceptionEvent({
+      .perceptionId = 17,
+      .sourceKey = actorKey,
+      .otherKey = actorKey,
+      .itemKey = worldItemKey,
+      .reason = "world_item_pickup_observed",
+      .originPosition = optionalGameplayVec3(payload, "actor_position"),
+      .serverTickMs = tick,
+    }, &target, sessionUuid, packet.idempotencyKey);
 
     try {
       Mmo::Server::pickupWorldItem(target, {
@@ -204,14 +248,100 @@
     return directApplied();
   }
 
-  if(packet.kind == Mmo::SemanticActionKind::EquipCharacterItem) {
-    const auto slot = normalizedEquipmentSlot(payload);
-    const auto validation = Mmo::Server::InventoryAuthority::validateEquipment({.slot = slot});
+  if(packet.kind == Mmo::SemanticActionKind::ConsumeItem) {
+    const auto amount = optionalJsonI64(payload, "amount", 1);
+    const auto validation = Mmo::Server::InventoryAuthority::validateConsume({.amount = amount});
     if(!validation.accepted)
       return {true, false, false, validation.reason};
-    Mmo::Server::equipCharacterItem(target, {
+    Mmo::Server::consumeCharacterItem(target, {
       .sessionUuid = sessionUuid,
       .itemUuid = resolveCharacterItemUuid(target, sessionUuid, packet),
+      .amount = amount,
+      .reason = optionalJsonString(payload, "reason", "item_consumed"),
+      .serverTick = tick,
+      .dbPayload = dbPayload,
+      .idempotencyKey = packet.idempotencyKey,
+    });
+    return directApplied();
+  }
+
+  if(packet.kind == Mmo::SemanticActionKind::TradeSellToNpc) {
+    const auto amount = optionalJsonI64(payload, "amount", 1);
+    const auto priceTotal = tradePriceTotalFromPayload(payload, amount);
+    const auto currencyKey = tradeCurrencyKeyFromPayload(payload);
+    const auto npcHint = optionalJsonString(payload, "npc_entity_key",
+                        optionalJsonString(payload, "target_npc_entity_key",
+                        optionalJsonString(payload, "npc_key", packet.targetKey)));
+    const auto validation = Mmo::Server::InventoryAuthority::validateTrade({
+      .npcKey = npcHint,
+      .currencyKey = currencyKey,
+      .amount = amount,
+      .priceTotal = priceTotal,
+      .bagIndex = -1,
+    });
+    if(!validation.accepted)
+      return {true, false, false, validation.reason};
+
+    const auto npc = resolveTradeNpcEntityKey(target, sessionUuid, packet);
+    Mmo::Server::tradeSellToNpc(target, {
+      .sessionUuid = sessionUuid,
+      .npcKey = npc.entityKey,
+      .itemUuid = resolveCharacterItemUuid(target, sessionUuid, packet),
+      .priceTotal = priceTotal,
+      .currencyKey = currencyKey,
+      .serverTick = tick,
+      .dbPayload = dbPayload,
+      .idempotencyKey = packet.idempotencyKey,
+    });
+    return directApplied();
+  }
+
+  if(packet.kind == Mmo::SemanticActionKind::TradeBuyFromNpc) {
+    const auto amount = optionalJsonI64(payload, "amount", 1);
+    const auto priceTotal = tradePriceTotalFromPayload(payload, amount);
+    const auto currencyKey = tradeCurrencyKeyFromPayload(payload);
+    auto bagIndex = optionalJsonI64(payload, "target_bag_index",
+                    optionalJsonI64(payload, "server_bag_index", -1));
+    if(bagIndex < 0)
+      bagIndex = nextBagIndex(target, sessionUuid);
+    const auto npcHint = optionalJsonString(payload, "npc_entity_key",
+                        optionalJsonString(payload, "target_npc_entity_key",
+                        optionalJsonString(payload, "npc_key", packet.targetKey)));
+    const auto validation = Mmo::Server::InventoryAuthority::validateTrade({
+      .npcKey = npcHint,
+      .currencyKey = currencyKey,
+      .amount = amount,
+      .priceTotal = priceTotal,
+      .bagIndex = bagIndex,
+    });
+    if(!validation.accepted)
+      return {true, false, false, validation.reason};
+
+    const auto npc = resolveTradeNpcEntityKey(target, sessionUuid, packet);
+    Mmo::Server::tradeBuyFromNpc(target, {
+      .sessionUuid = sessionUuid,
+      .npcKey = npc.entityKey,
+      .itemUuid = resolveNpcInventoryItemUuid(target, sessionUuid, npc.entityKey, packet),
+      .priceTotal = priceTotal,
+      .currencyKey = currencyKey,
+      .bagIndex = bagIndex,
+      .serverTick = tick,
+      .dbPayload = dbPayload,
+      .idempotencyKey = packet.idempotencyKey,
+    });
+    return directApplied();
+  }
+
+  if(packet.kind == Mmo::SemanticActionKind::EquipCharacterItem) {
+    const auto requestedSlot = normalizedEquipmentSlot(payload);
+    const auto validation = Mmo::Server::InventoryAuthority::validateEquipment({.slot = requestedSlot});
+    if(!validation.accepted)
+      return {true, false, false, validation.reason};
+    const auto itemUuid = resolveCharacterItemUuid(target, sessionUuid, packet);
+    const auto slot = resolveEquipmentSlotForEquip(target, sessionUuid, itemUuid, requestedSlot);
+    Mmo::Server::equipCharacterItem(target, {
+      .sessionUuid = sessionUuid,
+      .itemUuid = itemUuid,
       .equipmentSlot = slot,
       .serverTick = tick,
       .dbPayload = dbPayload,
@@ -221,10 +351,12 @@
   }
 
   if(packet.kind == Mmo::SemanticActionKind::UnequipCharacterItem) {
-    const auto slot = normalizedEquipmentSlot(payload);
-    const auto validation = Mmo::Server::InventoryAuthority::validateEquipment({.slot = slot});
+    const auto requestedSlot = normalizedEquipmentSlot(payload);
+    const auto validation = Mmo::Server::InventoryAuthority::validateEquipment({.slot = requestedSlot});
     if(!validation.accepted)
       return {true, false, false, validation.reason};
+    const auto itemUuid = resolveCharacterItemUuid(target, sessionUuid, packet);
+    const auto slot = resolveEquipmentSlotForUnequip(target, sessionUuid, itemUuid, requestedSlot);
     Mmo::Server::unequipCharacterItem(target, {
       .sessionUuid = sessionUuid,
       .equipmentSlot = slot,
@@ -266,3 +398,5 @@
 
   return {false, true, false, "unhandled"};
 }
+
+

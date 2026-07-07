@@ -2,6 +2,7 @@
 
 #include <Tempest/Log>
 #include <cctype>
+#include <limits>
 
 #include "world/objects/npc.h"
 #include "world/objects/interactive.h"
@@ -255,6 +256,40 @@ float Animation::Sequence::atkTotalTime(uint16_t comboLen) const {
     return float(time);
     }
   return totalTime();
+  }
+
+std::optional<uint64_t> Animation::Sequence::optimalFrameTime() const {
+  if(data->fpsRate<=0.f)
+    return std::nullopt;
+  uint64_t best = std::numeric_limits<uint64_t>::max();
+  for(auto& e:data->events) {
+    if(e.type != zenkit::MdsEventType::OPTIMAL_FRAME)
+      continue;
+    for(auto frame:e.frames)
+      best = std::min(best, uint64_t(float(frame)*1000.f/data->fpsRate));
+    }
+  if(best == std::numeric_limits<uint64_t>::max())
+    return std::nullopt;
+  return best;
+  }
+
+std::optional<uint64_t> Animation::Sequence::hitEndTime(uint16_t comboLen) const {
+  if(comboLen>=data->defHitEnd.size())
+    return std::nullopt;
+  return data->defHitEnd[comboLen];
+  }
+
+std::optional<std::pair<uint64_t, uint64_t>> Animation::Sequence::parryWindow() const {
+  if(data->defParFrame.size()!=2)
+    return std::nullopt;
+  return std::pair<uint64_t, uint64_t>{data->defParFrame[0], data->defParFrame[1]};
+  }
+
+std::optional<std::pair<uint64_t, uint64_t>> Animation::Sequence::comboWindow(uint16_t comboLen) const {
+  const uint16_t id = uint16_t(comboLen*2u);
+  if(size_t(id+1)>=data->defWindow.size())
+    return std::nullopt;
+  return std::pair<uint64_t, uint64_t>{data->defWindow[id+0], data->defWindow[id+1]};
   }
 
 bool Animation::Sequence::canInterrupt(uint64_t now, uint64_t sTime, uint16_t comboLen) const {

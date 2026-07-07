@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
-from _tool_entrypoint import run
+from pathlib import Path
+import runpy
+import sys
 
-run("bootstrap/apply_current_mmo_db_state.py")
+target = Path(__file__).resolve().parent / "bootstrap" / "apply_current_mmo_db_state.py"
+sys.path.insert(0, str(target.parent.parent))
+runpy.run_path(str(target), run_name="__main__")

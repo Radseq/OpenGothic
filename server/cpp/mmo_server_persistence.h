@@ -3,8 +3,10 @@
 #include <cstdint>
 #include <initializer_list>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "mmo_server_types.h"
@@ -18,6 +20,43 @@ inline constexpr int DbBridgeVersion = 7;
 inline constexpr std::string_view MysqlSessionPreamble =
     "SET SESSION group_concat_max_len=104857600; "
     "SET SESSION max_execution_time=0; ";
+
+struct ContentManifestValidationError final : std::runtime_error {
+  ContentManifestValidationError(std::string decision,
+                                 std::string clientHash,
+                                 std::string serverHash,
+                                 std::string revisionKey,
+                                 std::string phase)
+    : std::runtime_error("client content manifest rejected: " + decision),
+      decision(std::move(decision)),
+      clientHash(std::move(clientHash)),
+      serverHash(std::move(serverHash)),
+      revisionKey(std::move(revisionKey)),
+      phase(std::move(phase)) {
+  }
+
+  std::string decision;
+  std::string clientHash;
+  std::string serverHash;
+  std::string revisionKey;
+  std::string phase;
+};
+
+struct ContentManifestRejectAuditRecord final {
+  std::string_view sessionUuid;
+  std::string_view remoteEndpoint;
+  std::string_view packetSessionKey;
+  std::string_view targetKey;
+  std::uint64_t packetSequence = 0;
+  std::uint64_t localSequence = 0;
+  std::string_view phase;
+  std::string_view reason;
+  std::string_view clientManifestHash;
+  std::string_view serverManifestHash;
+  std::string_view contentRevisionKey;
+  std::string_view message;
+  std::string_view payloadJson;
+};
 
 [[nodiscard]] std::string sqlLiteral(std::string_view text);
 [[nodiscard]] std::string sqlJson(std::string_view json);
@@ -38,6 +77,12 @@ inline constexpr std::string_view MysqlSessionPreamble =
                                                     std::string_view label);
 [[nodiscard]] std::string concatenateJsonArrays(std::initializer_list<std::string_view> arrays);
 [[nodiscard]] std::string dbLogin(const MySqlTarget& target, const Options& opt);
+void validateClientContentManifestForSession(const MySqlTarget& target,
+                                             std::string_view sessionUuid,
+                                             const Options& opt,
+                                             std::string_view reason);
+void recordContentManifestRejectAudit(const MySqlTarget& target,
+                                      const ContentManifestRejectAuditRecord& record);
 [[nodiscard]] bool isActiveDbSession(const MySqlTarget& target, std::string_view sessionUuid);
 [[nodiscard]] bool ensureActiveDbSession(const MySqlTarget& target,
                                          const Options& opt,
@@ -457,6 +502,39 @@ struct UnequipCharacterItemRecord final {
   std::string_view idempotencyKey;
 };
 
+struct ConsumeCharacterItemRecord final {
+  std::string_view sessionUuid;
+  std::string_view itemUuid;
+  std::int64_t amount = 1;
+  std::string_view reason;
+  std::uint64_t serverTick = 0;
+  std::string_view dbPayload;
+  std::string_view idempotencyKey;
+};
+
+struct TradeSellToNpcRecord final {
+  std::string_view sessionUuid;
+  std::string_view npcKey;
+  std::string_view itemUuid;
+  std::int64_t priceTotal = 0;
+  std::string_view currencyKey;
+  std::uint64_t serverTick = 0;
+  std::string_view dbPayload;
+  std::string_view idempotencyKey;
+};
+
+struct TradeBuyFromNpcRecord final {
+  std::string_view sessionUuid;
+  std::string_view npcKey;
+  std::string_view itemUuid;
+  std::int64_t priceTotal = 0;
+  std::string_view currencyKey;
+  std::int64_t bagIndex = -1;
+  std::uint64_t serverTick = 0;
+  std::string_view dbPayload;
+  std::string_view idempotencyKey;
+};
+
 struct DropCharacterItemRecord final {
   std::string_view sessionUuid;
   std::string_view itemUuid;
@@ -502,6 +580,13 @@ void pickupWorldItem(const MySqlTarget& target, const PickupWorldItemRecord& rec
 void removeWorldItem(const MySqlTarget& target, const RemoveWorldItemRecord& record);
 void equipCharacterItem(const MySqlTarget& target, const EquipCharacterItemRecord& record);
 void unequipCharacterItem(const MySqlTarget& target, const UnequipCharacterItemRecord& record);
+void consumeCharacterItem(const MySqlTarget& target, const ConsumeCharacterItemRecord& record);
+void tradeSellToNpc(const MySqlTarget& target, const TradeSellToNpcRecord& record);
+void tradeBuyFromNpc(const MySqlTarget& target, const TradeBuyFromNpcRecord& record);
 void dropCharacterItem(const MySqlTarget& target, const DropCharacterItemRecord& record);
 
 } // namespace Mmo::Server
+
+
+
+

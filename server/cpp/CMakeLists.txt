@@ -4,16 +4,26 @@ project(OpenGothicMmoServerCpp LANGUAGES CXX)
 
 add_executable(mmo_udp_server
   mmo_udp_server.cpp
+  mmo_server_combat_animation_profile.cpp
+  mmo_server_combat_range_model.cpp
+  mmo_server_combat_spatial_authority.cpp
   mmo_server_combat_timeline_authority.cpp
+  mmo_server_damage_calculator.cpp
+  mmo_server_fight_intent_authority.cpp
+  mmo_server_fight_move_model.cpp
   mmo_server_conversation_authority.cpp
   mmo_server_dialog_authority.cpp
   mmo_server_movement_authority.cpp
   mmo_server_npc_activity_authority.cpp
   mmo_server_npc_action_authority.cpp
+  mmo_server_perception_authority.cpp
+  mmo_server_perception_queue.cpp
+  mmo_server_perception_reaction_planner.cpp
+  mmo_server_perception_sensor.cpp
+  mmo_server_perception_witness_registry.cpp
   mmo_server_persistence.cpp
-  mmo_server_persistence_direct_ops.cpp
-  mmo_server_persistence_item_ops.cpp
   mmo_server_quest_authority.cpp
+  mmo_server_ranged_combat_authority.cpp
   mmo_server_script_authority.cpp
   mmo_server_waypoint_authority.cpp
   mmo_server_waypoint_bootstrap.cpp

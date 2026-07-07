@@ -70,6 +70,8 @@ void clearMmoBootstrapSnapshotFiles(std::string_view snapshotPath) {
   }
   std::filesystem::remove("runtime/mmo_server_bootstrap_snapshot_manifest.json", ec);
   std::filesystem::remove("runtime/mmo_server_bootstrap_snapshot_manifest.json.tmp", ec);
+  std::filesystem::remove("runtime/mmo_server_bootstrap_reject.json", ec);
+  std::filesystem::remove("runtime/mmo_server_bootstrap_reject.json.tmp", ec);
 }
 
 bool requestMmoPreWorldDbContinueSnapshot(std::string_view slot) noexcept {
@@ -97,6 +99,10 @@ bool requestMmoPreWorldDbContinueSnapshot(std::string_view slot) noexcept {
   payload.append(",\"server_bound_client_mode\":true");
   payload.append(",\"server_endpoint\":");
   payload.append(Mmo::jsonEscape(CommandLine::inst().mmoServerEndpoint()));
+  if(const auto hash = CommandLine::inst().mmoClientContentManifestHash(); !hash.empty()) {
+    payload.append(",\"client_content_manifest_hash\":");
+    payload.append(Mmo::jsonEscape(hash));
+  }
   payload.append(",\"reason\":\"db_continue_pre_world_request\"");
   payload.append(",\"source_location\":\"MainWindow::loadGame\"");
   payload.append(",\"requested_save_slot\":");
@@ -143,6 +149,10 @@ std::optional<std::string> mmoDbContinueWorldFromServerSnapshot(std::string_view
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2500);
   while(std::chrono::steady_clock::now() < deadline) {
     std::error_code ec;
+    if(std::filesystem::is_regular_file("runtime/mmo_server_bootstrap_reject.json", ec)) {
+      Log::e("MMO DB continue pre-world bootstrap rejected by content manifest gate; see runtime/mmo_server_bootstrap_reject.json");
+      return std::nullopt;
+    }
     if(std::filesystem::is_regular_file(snapshotPath, ec)) {
       auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(snapshotPath, cmd.mmoCharacterKey());
       if(!result.ok) {
@@ -1500,6 +1510,8 @@ void MainWindow::BenchmarkData::clear() {
   numFrames = 0;
   fpsSum = 0;
   }
+
+
 
 
 

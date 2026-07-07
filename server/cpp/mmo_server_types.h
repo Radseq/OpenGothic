@@ -13,12 +13,16 @@ struct Options final {
   std::string characterDisplayName = "Ja";
   std::string sessionKey = "local-dev-PC_HERO_TEST";
   std::string dbSessionUuid;
+  std::string clientContentManifestHash;
   int outboxPriority = 100;
   int outboxMaxAttempts = 5;
+  int npcActionWorkerMaxPerPacket = 4;
   int maxPackets = 0;
   bool directDb = true;
   bool enqueueOutbox = false;
+  bool npcActionWorker = true;
   bool forwardBootstrapOutbox = false;
+  bool requireClientContentManifest = false;
   bool requireDbSaveCheckpointRestore = false;
 };
 
@@ -61,5 +65,9 @@ struct WorldItemIdentity final {
 };
 
 } // namespace Mmo::Server
+
+
+
+
 
 

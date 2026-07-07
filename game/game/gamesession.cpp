@@ -2,6 +2,7 @@
 #include "savegameheader.h"
 #include "mmoruntimesqlite.h"
 #include "mmosemantichooks.h"
+#include "mmosemanticactionsink.h"
 #include "mmorestoresnapshot.h"
 
 #include <Tempest/Log>
@@ -64,6 +65,7 @@ constexpr float    MmoNpcAuthoritySampleRadius = 12000.f;
 constexpr size_t   MmoNpcAuthoritySampleMaxPerSweep = 8;
 constexpr float    MmoNpcAuthoritySaveSampleRadius = 60000.f;
 constexpr size_t   MmoNpcAuthoritySaveSampleMaxPerSweep = 512;
+constexpr float    MmoServerLiveDeltaMovementDriftSq = 1500.f * 1500.f;
 
 void hashCombine(std::uint64_t& seed, std::uint64_t value) noexcept {
   seed ^= value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2);
@@ -391,6 +393,23 @@ Npc::PersistentStats toPersistentStats(const Mmo::RestoreSnapshot::CharacterStat
   out.dexterity = stats.dexterity;
   out.guild = stats.guild;
   out.trueGuild = stats.trueGuild;
+  return out;
+}
+
+Npc::PersistentStats toPersistentStats(const Mmo::Net::ServerLiveDeltaPacket& delta) noexcept {
+  Npc::PersistentStats out;
+  out.level = delta.level;
+  out.experience = delta.experience;
+  out.experienceNext = delta.experienceNext;
+  out.learningPoints = delta.learningPoints;
+  out.healthCurrent = delta.healthCurrent;
+  out.healthMax = delta.healthMax;
+  out.manaCurrent = delta.manaCurrent;
+  out.manaMax = delta.manaMax;
+  out.strength = delta.strength;
+  out.dexterity = delta.dexterity;
+  out.guild = delta.guild;
+  out.trueGuild = delta.trueGuild;
   return out;
 }
 
@@ -1598,6 +1617,7 @@ void GameSession::pollMmoServerSnapshotRestore() noexcept {
     return;
     }
   (void)tryApplyMmoServerWorldSnapshotRefresh();
+  pollMmoServerLiveDeltas();
 }
 
 bool GameSession::tryApplyMmoServerWorldSnapshotRefresh() noexcept {
@@ -1728,6 +1748,74 @@ bool GameSession::tryApplyMmoServerWorldSnapshotRefresh() noexcept {
            " error=unknown exception");
     state.lastAppliedSnapshotId = snapshotId;
     return true;
+    }
+}
+
+void GameSession::pollMmoServerLiveDeltas() noexcept {
+  const auto& cmd = CommandLine::inst();
+  if(!cmd.mmoClientUsesServer())
+    return;
+  if(mmoServerFreshNewGameSession || wrld == nullptr)
+    return;
+
+  auto& state = mmoServerSnapshotRestore;
+  if(state.requested && !state.completed)
+    return;
+
+  auto* hero = player();
+  if(hero == nullptr)
+    return;
+
+  const auto deltas = Mmo::drainServerLiveDeltas();
+  if(deltas.empty())
+    return;
+
+  try {
+    Mmo::Hooks::ScopedCaptureSuppression suppressServerMaterializationEcho;
+    std::size_t appliedStats = 0;
+    std::size_t appliedPosition = 0;
+    std::size_t snapshotRefreshHints = 0;
+
+    for(const auto& delta : deltas) {
+      if((delta.flags & Mmo::Net::ServerLiveDeltaHasStats) != 0 && cmd.mmoServerSnapshotApplyStats()) {
+        hero->restorePersistentStats(toPersistentStats(delta));
+        ++appliedStats;
+        }
+
+      if((delta.flags & Mmo::Net::ServerLiveDeltaHasPosition) != 0 && cmd.mmoServerSnapshotApplyPosition()) {
+        const auto current = hero->position();
+        const float dx = current.x - static_cast<float>(delta.posX);
+        const float dy = current.y - static_cast<float>(delta.posY);
+        const float dz = current.z - static_cast<float>(delta.posZ);
+        const float driftSq = dx * dx + dy * dy + dz * dz;
+        if(driftSq >= MmoServerLiveDeltaMovementDriftSq ||
+           checkpointYawDelta(hero->rotationY(), static_cast<float>(delta.yaw)) >= 45.f) {
+          hero->setPosition(static_cast<float>(delta.posX),
+                            static_cast<float>(delta.posY),
+                            static_cast<float>(delta.posZ));
+          hero->setDirectionY(static_cast<float>(delta.yaw));
+          hero->clearSpeed();
+          hero->updateTransform();
+          ++appliedPosition;
+          }
+        }
+
+      if((delta.flags & Mmo::Net::ServerLiveDeltaRequiresSnapshotRefresh) != 0)
+        ++snapshotRefreshHints;
+      }
+
+    if(appliedStats != 0 || appliedPosition != 0 || snapshotRefreshHints != 0) {
+      Log::i("MMO server live deltas applied: received=", deltas.size(),
+             " stats=", appliedStats,
+             " position=", appliedPosition,
+             " snapshot_refresh_hints=", snapshotRefreshHints);
+      }
+    }
+  catch(const std::exception& e) {
+    Log::e("MMO server live delta apply failed: error=", e.what());
+    }
+  catch(...) {
+    Log::e("MMO server live delta apply failed: error=unknown exception");
     }
 }
 
@@ -2033,5 +2121,9 @@ void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
          " reason=", reason,
          " path=", std::string(path));
   }
+
+
+
+
 
 

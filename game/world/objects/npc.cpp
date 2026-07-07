@@ -27,6 +27,20 @@ using namespace Tempest;
 
 static std::string_view humansTorchOverlay = "_TORCH.MDS";
 
+static std::string_view combatIntentActionName(FightAlgo::Action action) noexcept {
+  switch(action) {
+    case FightAlgo::MV_ATTACK:
+      return "attack";
+    case FightAlgo::MV_ATTACKL:
+      return "attack_left";
+    case FightAlgo::MV_ATTACKR:
+      return "attack_right";
+    default:
+      break;
+  }
+  return "attack";
+}
+
 std::string_view Npc::Routine::wayPointName() const {
   return point!=nullptr ? point->name : fallbackName;
   }
@@ -1459,6 +1473,10 @@ int32_t Npc::diveTime() const {
   return mvAlgo.diveTime();
   }
 
+const DamageCalculator::Val* Npc::pendingDamageObservation() const noexcept {
+  return hasPendingDamage ? &pendingDamage : nullptr;
+  }
+
 void Npc::setAttitude(Attitude att) {
   permAttitude = att;
   }
@@ -1830,7 +1848,11 @@ bool Npc::implAttack(uint64_t dt) {
         return true;
         }
       const auto atkType = (ws==WeaponState::Fist) ? Anim::Attack : ani[act-FightAlgo::MV_ATTACK];
+      const auto intentAction = combatIntentActionName(act);
+      Mmo::Hooks::onCombatIntent(*this, intentAction, "proposed", "Npc::implFightAi");
       const bool atk     = doAttack(atkType, BS_HIT);
+      if(atk)
+        Mmo::Hooks::onCombatIntent(*this, intentAction, "accepted", "Npc::implFightAi");
 
       if(atk || mvAlgo.isSwim() || mvAlgo.isDive()) {
         uint64_t aniTime = visual.pose().atkTotalTime()+1;
@@ -2237,7 +2259,11 @@ void Npc::takeDamage(Npc& other, const Bullet* b, const CollideMask bMask, int32
 
   if(hitResult.value>0) {
     currentOther = &other;
+    pendingDamage = hitResult;
+    hasPendingDamage = true;
     changeAttribute(ATR_HITPOINTS,-hitResult.value,dontKill);
+    hasPendingDamage = false;
+    pendingDamage = {};
 
     if(bMask&(COLL_APPLYVICTIMSTATE|COLL_DOEVERYTHING)) {
       owner.sendPassivePerc(*this,other,*this,PERC_ASSESSOTHERSDAMAGE);
@@ -2278,7 +2304,11 @@ void Npc::takeFallDamage(const Vec3& fallSpeed) {
     emitSoundSVM("SVM_%d_AARGH");
     clearState(true);
     }
+  pendingDamage = dmg;
+  hasPendingDamage = true;
   changeAttribute(ATR_HITPOINTS,-dmg.value,false);
+  hasPendingDamage = false;
+  pendingDamage = {};
   }
 
 void Npc::takeDrownDamage() {
@@ -4063,28 +4093,42 @@ void Npc::swingSword() {
   auto active=invent.activeWeapon();
   if(active==nullptr)
     return;
-  doAttack(Anim::Attack,BS_HIT);
+  Mmo::Hooks::onCombatIntent(*this, "attack", "proposed", "Npc::swingSword");
+  if(doAttack(Anim::Attack,BS_HIT))
+    Mmo::Hooks::onCombatIntent(*this, "attack", "accepted", "Npc::swingSword");
   }
 
 bool Npc::swingSwordL() {
   auto active=invent.activeWeapon();
   if(active==nullptr)
     return false;
-  return doAttack(Anim::AttackL,BS_HIT);
+  Mmo::Hooks::onCombatIntent(*this, "attack_left", "proposed", "Npc::swingSwordL");
+  const bool accepted = doAttack(Anim::AttackL,BS_HIT);
+  if(accepted)
+    Mmo::Hooks::onCombatIntent(*this, "attack_left", "accepted", "Npc::swingSwordL");
+  return accepted;
   }
 
 bool Npc::swingSwordR() {
   auto active=invent.activeWeapon();
   if(active==nullptr)
     return false;
-  return doAttack(Anim::AttackR,BS_HIT);
+  Mmo::Hooks::onCombatIntent(*this, "attack_right", "proposed", "Npc::swingSwordR");
+  const bool accepted = doAttack(Anim::AttackR,BS_HIT);
+  if(accepted)
+    Mmo::Hooks::onCombatIntent(*this, "attack_right", "accepted", "Npc::swingSwordR");
+  return accepted;
   }
 
 bool Npc::blockSword() {
   auto active=invent.activeWeapon();
   if(active==nullptr)
     return false;
-  return doAttack(Anim::AttackBlock,BS_PARADE);
+  Mmo::Hooks::onCombatIntent(*this, "block", "proposed", "Npc::blockSword");
+  const bool accepted = doAttack(Anim::AttackBlock,BS_PARADE);
+  if(accepted)
+    Mmo::Hooks::onCombatIntent(*this, "block", "accepted", "Npc::blockSword");
+  return accepted;
   // return setAnimAngGet(Anim::AttackBlock,calcAniComb())!=nullptr;
   }
 
@@ -4106,6 +4150,8 @@ Npc::BeginCastResult Npc::beginCastSpell() {
     return BeginCastResult::BC_NoMana;
     }
 
+  Mmo::Hooks::onCombatIntent(*this, "cast_spell", "proposed", "Npc::beginCastSpell");
+
   // castLevel        = CS_Invest_0;
   currentSpellCast = active->clsId();
   castNextTime     = owner.tickCount();
@@ -4120,6 +4166,7 @@ Npc::BeginCastResult Npc::beginCastSpell() {
       castLevel        = CS_NoCast;
       currentSpellCast = size_t(-1);
       castNextTime     = 0;
+      Mmo::Hooks::onCombatIntent(*this, "cast_spell", "rejected", "Npc::beginCastSpell");
       return BeginCastResult::BC_NoMana;
     case SPL_STATUS_CANINVEST_NO_MANADEC:
     case SPL_RECEIVEINVEST:
@@ -4129,15 +4176,18 @@ Npc::BeginCastResult Npc::beginCastSpell() {
       if(!visual.startAnimSpell(*this,ani,true))
         Log::d("Couldn't start animation for spell '",currentSpellCast,"'");
       castLevel = CS_Invest_0;
+      Mmo::Hooks::onCombatIntent(*this, "cast_spell", "accepted", "Npc::beginCastSpell");
       return BeginCastResult::BC_Invest;
       }
     case SPL_SENDCAST: {
       castLevel = CS_Cast_0;
+      Mmo::Hooks::onCombatIntent(*this, "cast_spell", "accepted", "Npc::beginCastSpell");
       return BeginCastResult::BC_Cast;
       }
     default:
       Log::d("unexpected Spell_ProcessMana result: '",int(code),"' for spell '",currentSpellCast,"'");
       endCastSpell();
+      Mmo::Hooks::onCombatIntent(*this, "cast_spell", "rejected", "Npc::beginCastSpell");
       return BeginCastResult::BC_No;
     }
 
@@ -4299,6 +4349,8 @@ bool Npc::shootBow(Interactive* focOverride) {
   if(!hasAmmunition())
     return false;
 
+  Mmo::Hooks::onCombatIntent(*this, "shoot_ranged", "proposed", "Npc::shootBow");
+
   if(!setAnim(Anim::Attack))
     return false;
 
@@ -4328,6 +4380,7 @@ bool Npc::shootBow(Interactive* focOverride) {
       b.setHitChance(float(hnpc->hitchance[TALENT_CROSSBOW])/100.f); else
       b.setHitChance(float(hnpc->hitchance[TALENT_BOW]     )/100.f);
     }
+  Mmo::Hooks::onCombatIntent(*this, "shoot_ranged", "accepted", "Npc::shootBow");
   return true;
   }
 
@@ -4403,6 +4456,30 @@ uint64_t Npc::animationTotalTime() const {
 
 uint64_t Npc::attackTotalTime() const {
   return visual.pose().atkTotalTime();
+  }
+
+uint64_t Npc::attackOptimalTime() const {
+  return visual.pose().primaryAttackOptimalTime();
+  }
+
+uint64_t Npc::attackHitEndTime() const {
+  return visual.pose().primaryAttackHitEndTime();
+  }
+
+uint64_t Npc::parryWindowStart() const {
+  return visual.pose().primaryParryWindowStart();
+  }
+
+uint64_t Npc::parryWindowEnd() const {
+  return visual.pose().primaryParryWindowEnd();
+  }
+
+uint64_t Npc::comboWindowStart() const {
+  return visual.pose().primaryComboWindowStart();
+  }
+
+uint64_t Npc::comboWindowEnd() const {
+  return visual.pose().primaryComboWindowEnd();
   }
 
 uint16_t Npc::comboLength() const {
@@ -5085,6 +5162,8 @@ void Npc::updateAnimation(uint64_t dt, bool force) {
   if(syncAtt)
     visual.syncAttaches();
   }
+
+
 
 
 

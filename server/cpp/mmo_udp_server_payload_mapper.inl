@@ -38,6 +38,7 @@
   if(action == "client_bootstrap_request") {
     appendJsonField(out, "character_key", jsonStringField(payload, "character_key").value_or("PC_HERO"));
     appendPayloadStringAlias(out, payload, "server_endpoint", "server_endpoint");
+    appendPayloadStringAlias(out, payload, "client_content_manifest_hash", "client_content_manifest_hash");
     appendJsonRawField(out, "server_bound_client_mode", jsonBoolField(payload, "server_bound_client_mode").value_or(true) ? "true" : "false");
     appendJsonField(out, "reason", jsonStringField(payload, "reason").value_or("client_bootstrap_request"));
   } else if(action == "movement_proposal" || action == "character_checkpoint") {
@@ -77,7 +78,13 @@
   } else if(action == "equip_character_item" || action == "unequip_character_item") {
     appendPayloadStringAlias(out, payload, "item_instance_id", "item_instance_id");
     appendPayloadStringAlias(out, payload, "item_persistent_id", "item_persistent_id");
-    if(auto slot = jsonNumberTextField(payload, "slot")) {
+    if(auto slot = jsonStringField(payload, "equipment_slot"); slot && !slot->empty()) {
+      appendJsonField(out, "equipment_slot", equipmentSlotName(*slot));
+      appendJsonField(out, "engine_equipment_slot", *slot);
+    } else if(auto slot = jsonStringField(payload, "slot"); slot && !slot->empty()) {
+      appendJsonField(out, "equipment_slot", equipmentSlotName(*slot));
+      appendJsonField(out, "engine_equipment_slot", *slot);
+    } else if(auto slot = jsonNumberTextField(payload, "slot")) {
       appendJsonField(out, "equipment_slot", equipmentSlotName(*slot));
       appendJsonRawField(out, "engine_equipment_slot", *slot);
     }
@@ -97,71 +104,17 @@
     appendJsonField(out, "quest_key", jsonStringField(payload, "quest_key").value_or(jsonStringField(payload, "topic").value_or(p.targetKey)));
     appendPayloadStringAlias(out, payload, "quest_name", "quest_name");
     appendPayloadStringAlias(out, payload, "status", "status");
-    appendPayloadStringAlias(out, payload, "previous_status", "previous_status");
     appendPayloadNumberAlias(out, payload, "entry_count", "entry_count");
-    appendPayloadBoolAlias(out, payload, "allow_terminal_reopen", "allow_terminal_reopen");
   } else if(action == "set_known_dialog") {
     appendPayloadStringAlias(out, payload, "npc_key", "npc_key");
-    appendPayloadStringAlias(out, payload, "npc_symbol_name", "npc_symbol_name");
     appendPayloadStringAlias(out, payload, "info_key", "info_key");
-    appendPayloadStringAlias(out, payload, "info_symbol_name", "info_symbol_name");
-    appendPayloadStringAlias(out, payload, "availability_state", "availability_state");
     appendPayloadBoolAlias(out, payload, "known", "known");
     appendPayloadBoolAlias(out, payload, "removed", "removed");
-    appendPayloadBoolAlias(out, payload, "permanent", "permanent");
-    appendPayloadBoolAlias(out, payload, "repeatable", "repeatable");
     appendJsonField(out, "reason", jsonStringField(payload, "reason").value_or("script_dialog_known"));
   } else if(action == "adjust_progression" || action == "apply_experience_reward") {
     appendPayloadNumberAlias(out, payload, "experience_delta", "experience_delta");
     appendPayloadNumberAlias(out, payload, "learning_points_delta", "learning_points_delta");
     appendJsonField(out, "reason", jsonStringField(payload, "reason").value_or("script_progression"));
-  } else if(action == "record_npc_routine_state" || action == "record_npc_path_state") {
-    appendPayloadStringAlias(out, payload, "npc_entity_key", "npc_entity_key");
-    appendPayloadStringAlias(out, payload, "actor_npc_key", "actor_npc_key");
-    appendPayloadStringAlias(out, payload, "routine_state", "routine_state");
-    appendPayloadStringAlias(out, payload, "path_state", "path_state");
-    appendPayloadStringAlias(out, payload, "schedule_key", "schedule_key");
-    appendPayloadStringAlias(out, payload, "route_key", "route_key");
-    appendPayloadStringAlias(out, payload, "current_waypoint_key", "current_waypoint_key");
-    appendPayloadStringAlias(out, payload, "current_waypoint_name", "current_waypoint_name");
-    appendPayloadStringAlias(out, payload, "current_waypoint", "current_waypoint");
-    appendPayloadStringAlias(out, payload, "next_waypoint_key", "next_waypoint_key");
-    appendPayloadStringAlias(out, payload, "next_waypoint_name", "next_waypoint_name");
-    appendPayloadStringAlias(out, payload, "next_waypoint", "next_waypoint");
-    appendPayloadStringAlias(out, payload, "target_waypoint_key", "target_waypoint_key");
-    appendPayloadStringAlias(out, payload, "target_waypoint_name", "target_waypoint_name");
-    appendPayloadStringAlias(out, payload, "target_waypoint", "target_waypoint");
-    appendPayloadNumberAlias(out, payload, "remaining_path_points", "remaining_path_points");
-    appendPayloadStringAlias(out, payload, "move_hint", "move_hint");
-    appendJsonField(out, "reason", jsonStringField(payload, "reason").value_or(std::string(action)));
-  } else if(action == "record_npc_action_state") {
-    appendPayloadStringAlias(out, payload, "actor_key", "actor_key");
-    appendPayloadStringAlias(out, payload, "npc_entity_key", "npc_entity_key");
-    appendPayloadStringAlias(out, payload, "action_key", "action_key");
-    appendPayloadStringAlias(out, payload, "action_name", "action_name");
-    appendPayloadStringAlias(out, payload, "action_state", "action_state");
-    appendPayloadStringAlias(out, payload, "state", "state");
-    appendPayloadStringAlias(out, payload, "action_target_key", "action_target_key");
-    appendPayloadStringAlias(out, payload, "target_entity_key", "target_entity_key");
-    appendPayloadStringAlias(out, payload, "sync_group", "sync_group");
-    appendPayloadStringAlias(out, payload, "conversation_key", "conversation_key");
-    appendJsonField(out, "reason", jsonStringField(payload, "reason").value_or("npc_action_state"));
-  } else if(action == "record_npc_dialog_line") {
-    appendPayloadStringAlias(out, payload, "conversation_key", "conversation_key");
-    appendPayloadStringAlias(out, payload, "sync_group", "sync_group");
-    appendPayloadStringAlias(out, payload, "speaker_key", "speaker_key");
-    appendPayloadStringAlias(out, payload, "listener_key", "listener_key");
-    appendPayloadStringAlias(out, payload, "actor_key", "actor_key");
-    appendPayloadStringAlias(out, payload, "target_key", "target_key");
-    appendPayloadStringAlias(out, payload, "info_key", "info_key");
-    appendPayloadStringAlias(out, payload, "output_name", "output_name");
-    appendPayloadStringAlias(out, payload, "message_name", "message_name");
-    appendPayloadStringAlias(out, payload, "subtitle_text", "subtitle_text");
-    appendPayloadStringAlias(out, payload, "text", "text");
-    appendPayloadNumberAlias(out, payload, "line_duration_ms", "line_duration_ms");
-    appendPayloadNumberAlias(out, payload, "duration_ms", "duration_ms");
-    appendPayloadNumberAlias(out, payload, "message_time_ms", "message_time_ms");
-    appendJsonField(out, "reason", jsonStringField(payload, "reason").value_or("npc_dialog_line"));
   }
 
   out += ",\"resolver_ready\":true,\"resolver_missing_fields\":[],\"dispatch_ready\":true,\"dispatch_missing_fields\":[]}";
@@ -185,3 +138,6 @@
             << "\n";
   return {true, true, true, validation.reason};
 }
+
+
+

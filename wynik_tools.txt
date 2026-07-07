@@ -1,5 +1,5 @@
 # OpenGothic tools snapshot
-# Generated: 2026-07-05T10:59:26
+# Generated: 2026-07-06T22:57:56
 # Project root: C:\Users\admin\Desktop\OpenGothic
 # MAX_BYTES per file: 1500000
 
@@ -61,11 +61,26 @@ def run(relative_target: str) -> None:
     runpy.run_path(str(target), run_name="__main__")
 
 
+===== tools\analyze_server_content_pack_inventory.py =====
+#!/usr/bin/env python3
+from pathlib import Path
+import runpy
+import sys
+
+target = Path(__file__).resolve().parent / "bootstrap" / "analyze_server_content_pack_inventory.py"
+sys.path.insert(0, str(target.parent.parent))
+runpy.run_path(str(target), run_name="__main__")
+
+
 ===== tools\apply_current_mmo_db_state.py =====
 #!/usr/bin/env python3
-from _tool_entrypoint import run
+from pathlib import Path
+import runpy
+import sys
 
-run("bootstrap/apply_current_mmo_db_state.py")
+target = Path(__file__).resolve().parent / "bootstrap" / "apply_current_mmo_db_state.py"
+sys.path.insert(0, str(target.parent.parent))
+runpy.run_path(str(target), run_name="__main__")
 
 
 ===== tools\apply_mmo_step83_combat_lifecycle_bridge.py =====
@@ -94,6 +109,419 @@ run("_archive/apply_mmo_step92_identity_admin_views.py")
 from _tool_entrypoint import run
 
 run("validation/audit_runtime_sqlite.py")
+
+
+===== tools\bootstrap\analyze_server_content_pack_inventory.py =====
+#!/usr/bin/env python3
+"""Classify a Step188 server content manifest into importer inventory roles.
+
+This tool is the bridge between "the server has its own files" and "the server
+knows which files future ZEN/DAT/OU loaders must read". It consumes the JSON
+manifest produced by register_server_content_pack_manifest.py and writes:
+
+* an inventory JSON report, usable without a DB;
+* an optional SQL script that calls Step201 procedures;
+* optionally applies that SQL to MySQL.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - standalone patch bundle fallback.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+TEXTURE_EXTENSIONS = {".tex", ".tga", ".dds", ".png", ".jpg", ".jpeg"}
+MESH_EXTENSIONS = {".mrm", ".3ds", ".asc", ".mdm", ".mdh", ".mmb", ".msh"}
+SOUND_EXTENSIONS = {".wav", ".ogg", ".mp3"}
+VIDEO_EXTENSIONS = {".bik", ".avi"}
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+@dataclass(frozen=True)
+class InventoryItem:
+    logical_path: str
+    source_kind: str
+    byte_size: int
+    sha256: str
+    file_role: str
+    loader_stage: str
+    import_priority: int
+    required_for_server_authority: bool
+    import_status: str
+    reason: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def redact_cmd(cmd: list[str]) -> list[str]:
+    return ["-p***" if item.startswith("-p") and len(item) > 2 else item for item in cmd]
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return "'" + text.replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def sql_json(value: object) -> str:
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "CAST(" + sql_literal(text) + " AS JSON)"
+
+
+def rel(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def normalize_path(raw: object) -> str:
+    return str(raw or "").replace("\\", "/").lower().strip("/")
+
+
+def classify(logical_path: str, source_kind: str, byte_size: int, sha256: str) -> InventoryItem:
+    path = normalize_path(logical_path)
+    name = Path(path).name.lower()
+    suffix = Path(path).suffix.lower()
+    source_kind = (source_kind or "other").lower()
+
+    if suffix == ".zen" or source_kind == "zen":
+        role = "world_zen"
+        stage = "world_loader"
+        priority = 10
+        required = True
+        status = "ready_for_parser"
+        reason = "ZEN world file; future server importer must extract vobs, waypoints, freepoints and spawn positions."
+    elif name in {"gothic.dat", "fight.dat"} or suffix == ".dat" or source_kind == "dat":
+        role = "scripts_dat"
+        stage = "script_vm"
+        priority = 20
+        required = True
+        status = "ready_for_parser"
+        reason = "Compiled Daedalus DAT; future server VM/indexer must read NPC, guild, perception, routine and dialog symbols."
+    elif name in {"ou.bin", "ou.csl"} or suffix in {".ou", ".csl"} or source_kind == "ou":
+        role = "dialog_ou"
+        stage = "dialog_output"
+        priority = 30
+        required = True
+        status = "ready_for_parser"
+        reason = "Dialog/output unit data; future server/client handshake needs stable output IDs, subtitles and audio references."
+    elif suffix == ".vdf" or source_kind == "vdf":
+        role = "archive_vdf"
+        stage = "archive_mount"
+        priority = 5
+        required = True
+        status = "planned"
+        reason = "VDF archive; server should mount or pre-extract it before parsing game data."
+    elif suffix == ".mod" or source_kind == "mod":
+        role = "archive_mod"
+        stage = "archive_mount"
+        priority = 5
+        required = True
+        status = "planned"
+        reason = "MOD archive; server should mount or pre-extract it before parsing game data."
+    elif suffix in {".d", ".src"} or source_kind == "script":
+        role = "script_source"
+        stage = "source_reference"
+        priority = 80
+        required = False
+        status = "planned"
+        reason = "Script source/reference file; useful for tooling and symbol explanations, not the first runtime source of truth."
+    elif suffix == ".ini" or source_kind == "ini":
+        role = "config_ini"
+        stage = "server_config"
+        priority = 60
+        required = False
+        status = "planned"
+        reason = "Configuration file; useful for content pack metadata and future server launch policy."
+    elif suffix in TEXTURE_EXTENSIONS or source_kind == "texture":
+        role = "asset_texture"
+        stage = "asset_lookup"
+        priority = 200
+        required = False
+        status = "unsupported"
+        reason = "Texture asset; server normally validates it by hash but does not need to parse it for gameplay authority."
+    elif suffix in MESH_EXTENSIONS or source_kind == "mesh":
+        role = "asset_mesh"
+        stage = "asset_lookup"
+        priority = 210
+        required = False
+        status = "unsupported"
+        reason = "Mesh/animation asset; useful for collision/export later, not part of the first authority importer."
+    elif suffix in SOUND_EXTENSIONS or source_kind == "sound":
+        role = "asset_sound"
+        stage = "asset_lookup"
+        priority = 220
+        required = False
+        status = "unsupported"
+        reason = "Sound asset; client presents it, server validates version only."
+    elif suffix in VIDEO_EXTENSIONS or source_kind == "video":
+        role = "asset_video"
+        stage = "asset_lookup"
+        priority = 230
+        required = False
+        status = "unsupported"
+        reason = "Video asset; client presentation data, not server gameplay authority."
+    elif suffix in {".fnt", ".ttf"} or source_kind == "font":
+        role = "font"
+        stage = "asset_lookup"
+        priority = 240
+        required = False
+        status = "unsupported"
+        reason = "Font asset; presentation-only for the current server authority roadmap."
+    else:
+        role = "other"
+        stage = "unknown"
+        priority = 1000
+        required = False
+        status = "not_started"
+        reason = "Unclassified file; keep it in the manifest hash, but do not feed it to an importer yet."
+
+    return InventoryItem(
+        logical_path=path,
+        source_kind=source_kind,
+        byte_size=int(byte_size or 0),
+        sha256=str(sha256 or "").lower(),
+        file_role=role,
+        loader_stage=stage,
+        import_priority=priority,
+        required_for_server_authority=required,
+        import_status=status,
+        reason=reason,
+    )
+
+
+def load_manifest(path: Path) -> dict[str, object]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("manifest root must be a JSON object")
+    files = data.get("files")
+    if not isinstance(files, list):
+        raise ValueError("manifest JSON must contain a files array")
+    return data
+
+
+def build_inventory(manifest: dict[str, object]) -> list[InventoryItem]:
+    out: list[InventoryItem] = []
+    for raw in manifest.get("files", []):
+        if not isinstance(raw, dict):
+            continue
+        out.append(classify(
+            normalize_path(raw.get("logical_path")),
+            str(raw.get("source_kind") or "other"),
+            int(raw.get("byte_size") or 0),
+            str(raw.get("sha256") or ""),
+        ))
+    return sorted(out, key=lambda item: (item.import_priority, item.logical_path))
+
+
+def summarize(items: list[InventoryItem]) -> dict[str, object]:
+    by_role: dict[str, int] = {}
+    by_stage: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    total_bytes = 0
+    required = 0
+    for item in items:
+        by_role[item.file_role] = by_role.get(item.file_role, 0) + 1
+        by_stage[item.loader_stage] = by_stage.get(item.loader_stage, 0) + 1
+        by_status[item.import_status] = by_status.get(item.import_status, 0) + 1
+        total_bytes += item.byte_size
+        required += 1 if item.required_for_server_authority else 0
+    return {
+        "file_count": len(items),
+        "required_for_server_authority_count": required,
+        "total_bytes": total_bytes,
+        "by_role": dict(sorted(by_role.items())),
+        "by_stage": dict(sorted(by_stage.items())),
+        "by_status": dict(sorted(by_status.items())),
+    }
+
+
+def build_sql(content_revision_key: str, manifest_hash: str, items: list[InventoryItem]) -> str:
+    lines = [
+        "SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci;",
+        "SET @mmo_content_inventory_id=NULL;",
+    ]
+    for item in items:
+        notes = {
+            "schema": "mmo.server_content_pack_inventory_item.v1",
+            "reason": item.reason,
+            "manifest_hash": manifest_hash,
+            "source_kind": item.source_kind,
+            "sha256": item.sha256,
+        }
+        lines.append(
+            "CALL mmo_upsert_server_content_pack_inventory("
+            + sql_literal(content_revision_key) + ","
+            + sql_literal(item.logical_path) + ","
+            + sql_literal(item.file_role) + ","
+            + sql_literal(item.loader_stage) + ","
+            + str(item.import_priority) + ","
+            + ("1" if item.required_for_server_authority else "0") + ","
+            + sql_literal(item.import_status) + ","
+            + sql_json(notes) + ","
+            + "@mmo_content_inventory_id);"
+        )
+    lines.append("SELECT COUNT(*) AS inventoried_file_count FROM mmo_server_content_pack_inventory;")
+    return "\n".join(lines) + "\n"
+
+
+def run_mysql_file(target: Target, sql_path: Path, dry_run: bool) -> dict[str, object]:
+    cmd = mysql_cmd(target)
+    shown = redact_cmd(cmd)
+    if dry_run:
+        return {"status": "dry_run", "cmd": shown, "stdout": "", "stderr": "", "returncode": 0}
+    proc = subprocess.run(
+        cmd,
+        input=sql_path.read_text(encoding="utf-8"),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(ROOT),
+    )
+    return {
+        "status": "applied" if proc.returncode == 0 else "failed",
+        "returncode": proc.returncode,
+        "cmd": shown,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Analyze a server content pack manifest into Step201 inventory roles.")
+    parser.add_argument("--manifest", required=True, help="Step188 manifest.json produced by register_server_content_pack_manifest.py")
+    parser.add_argument("--content-revision-key", default="", help="Override manifest content_revision_key.")
+    parser.add_argument("--url", default="", help="mysql://user:password@host:port/database. If omitted, only artifacts are written.")
+    parser.add_argument("--output", default="runtime/step202_server_content_pack_inventory/inventory.json")
+    parser.add_argument("--sql-output", default="runtime/step202_server_content_pack_inventory/register_inventory.sql")
+    parser.add_argument("--dry-run", action="store_true", help="Generate artifacts but do not run MySQL.")
+    args = parser.parse_args()
+
+    manifest_path = Path(args.manifest)
+    if not manifest_path.is_absolute():
+        manifest_path = ROOT / manifest_path
+    manifest = load_manifest(manifest_path)
+    content_revision_key = args.content_revision_key or str(manifest.get("content_revision_key") or "")
+    if not content_revision_key:
+        raise SystemExit("content revision key missing; pass --content-revision-key or use a Step188 manifest with content_revision_key")
+    manifest_hash = str(manifest.get("manifest_hash") or "")
+    items = build_inventory(manifest)
+
+    output_path = Path(args.output)
+    if not output_path.is_absolute():
+        output_path = ROOT / output_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    report = {
+        "schema": "mmo.server_content_pack_inventory.v1",
+        "tool": "analyze_server_content_pack_inventory.py",
+        "content_revision_key": content_revision_key,
+        "manifest_hash": manifest_hash,
+        "manifest_path": rel(manifest_path),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "summary": summarize(items),
+        "items": [item.__dict__ for item in items],
+    }
+    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    sql_path = Path(args.sql_output)
+    if not sql_path.is_absolute():
+        sql_path = ROOT / sql_path
+    sql_path.parent.mkdir(parents=True, exist_ok=True)
+    sql_path.write_text(build_sql(content_revision_key, manifest_hash, items), encoding="utf-8")
+
+    result: dict[str, object] = {
+        "status": "generated",
+        "inventory_path": rel(output_path),
+        "sql_path": rel(sql_path),
+        "summary": report["summary"],
+    }
+    if args.url:
+        mysql_result = run_mysql_file(parse_mysql_url(args.url), sql_path, args.dry_run)
+        result["mysql"] = mysql_result
+        result["status"] = mysql_result["status"]
+        if mysql_result.get("stdout"):
+            print(mysql_result["stdout"], end="")
+        if mysql_result.get("stderr"):
+            print(mysql_result["stderr"], file=sys.stderr, end="")
+
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if result["status"] in {"generated", "applied", "dry_run"} else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 
 ===== tools\bootstrap\apply_current_mmo_db_state.py =====
@@ -126,7 +554,11 @@ from pathlib import Path as _MysqlCliPath
 _MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
 if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
-from _mysql_cli import resolve_mysql_exe
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -168,6 +600,13 @@ CURRENT_SQL_SURFACES = (
     SqlSurface("world_clock_foundation_finalize", ROOT / "server" / "sql" / "step108_db_checkpoint_world_clock_foundation.sql", "world-clock foundation final pass after script-state export"),
     SqlSurface("npc_authority_restore", ROOT / "server" / "sql" / "step120_npc_authority_restore_bridge.sql", "NPC routine/AI/path/fight current/history and recorder procedures"),
     SqlSurface("server_parity_state", ROOT / "server" / "sql" / "step121_server_parity_state_bridge.sql", "trigger queue, world transition and client correction current/history"),
+    SqlSurface("server_content_pack_manifest", ROOT / "server" / "sql" / "step188_server_content_pack_manifest.sql", "server-owned content pack file manifest and client hash validation"),
+    SqlSurface("server_content_pack_inventory", ROOT / "server" / "sql" / "step201_server_content_pack_inventory.sql", "server-owned content pack file roles for future ZEN/DAT/OU importers"),
+    SqlSurface("server_content_archive_mounts", ROOT / "server" / "sql" / "step203_server_content_archive_mounts.sql", "server-owned VDF/MOD archive mount and pre-extract registry"),
+    SqlSurface("server_content_import_jobs", ROOT / "server" / "sql" / "step206_server_content_import_jobs.sql", "server-owned content import job queue for future ZEN/DAT/OU importers"),
+    SqlSurface("server_content_pack_session_gate", ROOT / "server" / "sql" / "step189_server_content_pack_session_gate.sql", "session-scoped server content pack validation gate"),
+    SqlSurface("content_manifest_reject_audit", ROOT / "server" / "sql" / "step198_content_manifest_reject_audit.sql", "DB audit table/procedure/view for content manifest bootstrap rejects"),
+    SqlSurface("content_manifest_reject_health_views", ROOT / "server" / "sql" / "step199_content_manifest_reject_health_views.sql", "aggregate health views for content manifest reject audits"),
 )
 
 
@@ -299,6 +738,12 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
+
+
+
 
 
 ===== tools\bootstrap\capture_mmo_chapter1_start_sqlite_baseline.py =====
@@ -881,6 +1326,330 @@ def main() -> int:
         print(f"[{status}] {check.name}: {check.detail}")
         ok = ok and check.ok
     return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\bootstrap\enqueue_server_content_import_jobs.py =====
+#!/usr/bin/env python3
+"""Generate Step206 import jobs from content inventory and archive plans."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def redact_cmd(cmd: list[str]) -> list[str]:
+    return ["-p***" if item.startswith("-p") and len(item) > 2 else item for item in cmd]
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return "'" + text.replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def sql_json(value: object) -> str:
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "CAST(" + sql_literal(text) + " AS JSON)"
+
+
+def rel(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def normalize_path(value: object) -> str:
+    return str(value or "").replace("\\", "/").lower().strip("/")
+
+
+def load_json(path: Path) -> dict[str, object]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"expected JSON object: {path}")
+    return data
+
+
+def importer_for_role(role: str) -> tuple[str, str, int] | None:
+    if role == "world_zen":
+        return ("zen_world_import", "world_zen", 10)
+    if role == "scripts_dat":
+        return ("daedalus_dat_index", "scripts_dat", 20)
+    if role == "dialog_ou":
+        return ("dialog_ou_index", "dialog_ou", 30)
+    return None
+
+
+def build_jobs(inventory: dict[str, object], archive_plan: dict[str, object] | None) -> list[dict[str, object]]:
+    jobs: list[dict[str, object]] = []
+
+    if archive_plan is not None:
+        for raw in archive_plan.get("archive_plans", []):
+            if not isinstance(raw, dict):
+                continue
+            path = normalize_path(raw.get("archive_logical_path"))
+            if not path:
+                continue
+            status = str(raw.get("mount_status") or "planned")
+            jobs.append({
+                "importer_key": "archive_mount_verify",
+                "source_kind": "archive",
+                "source_logical_path": path,
+                "source_sha256": raw.get("archive_sha256"),
+                "job_priority": 5,
+                "job_status": "queued" if status in {"mounted", "extracted", "verified"} else "blocked",
+                "input_payload": {
+                    "schema": "mmo.server_content_import_job_input.v1",
+                    "archive_role": raw.get("archive_role"),
+                    "mount_strategy": raw.get("mount_strategy"),
+                    "mount_status": status,
+                    "extracted_root_label": raw.get("extracted_root_label"),
+                    "extracted_manifest_hash": raw.get("extracted_manifest_hash"),
+                },
+            })
+
+    for raw in inventory.get("items", []):
+        if not isinstance(raw, dict):
+            continue
+        role = str(raw.get("file_role") or "")
+        importer = importer_for_role(role)
+        if importer is None:
+            continue
+        importer_key, source_kind, priority = importer
+        path = normalize_path(raw.get("logical_path"))
+        if not path:
+            continue
+        jobs.append({
+            "importer_key": importer_key,
+            "source_kind": source_kind,
+            "source_logical_path": path,
+            "source_sha256": raw.get("sha256"),
+            "job_priority": priority,
+            "job_status": "queued",
+            "input_payload": {
+                "schema": "mmo.server_content_import_job_input.v1",
+                "file_role": role,
+                "loader_stage": raw.get("loader_stage"),
+                "import_status": raw.get("import_status"),
+                "byte_size": raw.get("byte_size", 0),
+            },
+        })
+
+    return sorted(jobs, key=lambda item: (int(item["job_priority"]), str(item["source_logical_path"])))
+
+
+def summarize(jobs: list[dict[str, object]]) -> dict[str, object]:
+    by_importer: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    by_source_kind: dict[str, int] = {}
+    for job in jobs:
+        importer = str(job.get("importer_key") or "")
+        status = str(job.get("job_status") or "queued")
+        source_kind = str(job.get("source_kind") or "")
+        by_importer[importer] = by_importer.get(importer, 0) + 1
+        by_status[status] = by_status.get(status, 0) + 1
+        by_source_kind[source_kind] = by_source_kind.get(source_kind, 0) + 1
+    return {
+        "job_count": len(jobs),
+        "by_importer": dict(sorted(by_importer.items())),
+        "by_source_kind": dict(sorted(by_source_kind.items())),
+        "by_status": dict(sorted(by_status.items())),
+    }
+
+
+def build_sql(content_revision_key: str, jobs: list[dict[str, object]]) -> str:
+    lines = [
+        "SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci;",
+        "SET @mmo_content_import_job_id=NULL;",
+    ]
+    for job in jobs:
+        lines.append(
+            "CALL mmo_enqueue_server_content_import_job("
+            + sql_literal(content_revision_key) + ","
+            + sql_literal(job.get("importer_key")) + ","
+            + sql_literal(job.get("source_kind")) + ","
+            + sql_literal(job.get("source_logical_path")) + ","
+            + sql_literal(job.get("source_sha256")) + ","
+            + str(int(job.get("job_priority") or 1000)) + ","
+            + sql_literal(job.get("job_status")) + ","
+            + sql_json(job.get("input_payload") or {}) + ","
+            + "@mmo_content_import_job_id);"
+        )
+    lines.append("SELECT COUNT(*) AS content_import_job_count FROM mmo_server_content_import_jobs;")
+    return "\n".join(lines) + "\n"
+
+
+def run_mysql_file(target: Target, sql_path: Path, dry_run: bool) -> dict[str, object]:
+    cmd = mysql_cmd(target)
+    shown = redact_cmd(cmd)
+    if dry_run:
+        return {"status": "dry_run", "cmd": shown, "stdout": "", "stderr": "", "returncode": 0}
+    proc = subprocess.run(
+        cmd,
+        input=sql_path.read_text(encoding="utf-8"),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(ROOT),
+    )
+    return {
+        "status": "applied" if proc.returncode == 0 else "failed",
+        "returncode": proc.returncode,
+        "cmd": shown,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Generate server content import jobs from inventory/archive plans.")
+    parser.add_argument("--inventory", required=True, help="Inventory JSON generated by analyze_server_content_pack_inventory.py")
+    parser.add_argument("--archive-plan", default="", help="Optional archive mount plan JSON generated by plan_server_content_archive_mounts.py")
+    parser.add_argument("--content-revision-key", default="", help="Override content revision key.")
+    parser.add_argument("--url", default="", help="mysql://user:password@host:port/database. If omitted, only artifacts are written.")
+    parser.add_argument("--output", default="runtime/step207_server_content_import_jobs/import_jobs.json")
+    parser.add_argument("--sql-output", default="runtime/step207_server_content_import_jobs/enqueue_import_jobs.sql")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+
+    inventory_path = Path(args.inventory)
+    if not inventory_path.is_absolute():
+        inventory_path = ROOT / inventory_path
+    inventory = load_json(inventory_path)
+
+    archive_plan = None
+    archive_plan_path = None
+    if args.archive_plan:
+        archive_plan_path = Path(args.archive_plan)
+        if not archive_plan_path.is_absolute():
+            archive_plan_path = ROOT / archive_plan_path
+        archive_plan = load_json(archive_plan_path)
+
+    content_revision_key = args.content_revision_key or str(inventory.get("content_revision_key") or "")
+    if not content_revision_key:
+        raise SystemExit("content revision key missing; pass --content-revision-key or use inventory with content_revision_key")
+
+    jobs = build_jobs(inventory, archive_plan)
+    report = {
+        "schema": "mmo.server_content_import_jobs.v1",
+        "tool": "enqueue_server_content_import_jobs.py",
+        "content_revision_key": content_revision_key,
+        "manifest_hash": inventory.get("manifest_hash"),
+        "inventory_path": rel(inventory_path),
+        "archive_plan_path": rel(archive_plan_path) if archive_plan_path else "",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "summary": summarize(jobs),
+        "jobs": jobs,
+    }
+
+    output_path = Path(args.output)
+    if not output_path.is_absolute():
+        output_path = ROOT / output_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    sql_path = Path(args.sql_output)
+    if not sql_path.is_absolute():
+        sql_path = ROOT / sql_path
+    sql_path.parent.mkdir(parents=True, exist_ok=True)
+    sql_path.write_text(build_sql(content_revision_key, jobs), encoding="utf-8")
+
+    result: dict[str, object] = {
+        "status": "generated",
+        "summary": report["summary"],
+        "output": rel(output_path),
+        "sql_output": rel(sql_path),
+    }
+    if args.url:
+        mysql_result = run_mysql_file(parse_mysql_url(args.url), sql_path, args.dry_run)
+        result["mysql"] = mysql_result
+        result["status"] = mysql_result["status"]
+        if mysql_result.get("stdout"):
+            print(mysql_result["stdout"], end="")
+        if mysql_result.get("stderr"):
+            print(mysql_result["stderr"], file=sys.stderr, end="")
+
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if result["status"] in {"generated", "applied", "dry_run"} else 1
 
 
 if __name__ == "__main__":
@@ -1973,6 +2742,818 @@ def main() -> int:
 
     print("status=" + status)
     return 0 if status in {"passed", "dry_run"} else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\bootstrap\plan_server_content_archive_mounts.py =====
+#!/usr/bin/env python3
+"""Create a server archive mount/pre-extract plan from Step202 inventory.
+
+The tool does not implement a VDF/MOD reader. It records the operational plan:
+which server-owned archives exist, how they should be mounted/extracted, and
+optionally what files were found in a pre-extracted directory.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+DEFAULT_EXCLUDED_DIRS = {
+    ".git",
+    ".vs",
+    "build",
+    "cmake-build-debug",
+    "cmake-build-release",
+    "runtime",
+    "savegame",
+    "savegames",
+    "saves",
+    "screens",
+    "systempack",
+}
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+@dataclass(frozen=True)
+class ExtractedFile:
+    logical_path: str
+    byte_size: int
+    sha256: str
+    physical_path: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def redact_cmd(cmd: list[str]) -> list[str]:
+    return ["-p***" if item.startswith("-p") and len(item) > 2 else item for item in cmd]
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return "'" + text.replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def sql_json(value: object) -> str:
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "CAST(" + sql_literal(text) + " AS JSON)"
+
+
+def rel(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def normalize_path(raw: object) -> str:
+    return str(raw or "").replace("\\", "/").lower().strip("/")
+
+
+def load_inventory(path: Path) -> dict[str, object]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("inventory root must be a JSON object")
+    if not isinstance(data.get("items"), list):
+        raise ValueError("inventory JSON must contain an items array")
+    return data
+
+
+def parse_excluded_dirs(raw: str) -> set[str]:
+    out = set(DEFAULT_EXCLUDED_DIRS)
+    for item in raw.split(","):
+        item = item.strip().lower()
+        if item:
+            out.add(item)
+    return out
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def scan_extracted_root(root: Path, excluded_dirs: set[str]) -> list[ExtractedFile]:
+    files: list[ExtractedFile] = []
+    for current, dirs, names in os.walk(root):
+        dirs[:] = [name for name in dirs if name.lower() not in excluded_dirs]
+        base = Path(current)
+        for name in names:
+            path = base / name
+            stat = path.stat()
+            files.append(ExtractedFile(
+                logical_path=path.relative_to(root).as_posix().lower(),
+                byte_size=stat.st_size,
+                sha256=file_sha256(path),
+                physical_path=str(path),
+            ))
+    return sorted(files, key=lambda item: item.logical_path)
+
+
+def extracted_manifest_hash(files: list[ExtractedFile]) -> str | None:
+    if not files:
+        return None
+    digest = hashlib.sha256()
+    for item in files:
+        digest.update(f"{item.logical_path}\t{item.byte_size}\t{item.sha256}\n".encode("utf-8"))
+    return digest.hexdigest()
+
+
+def find_archives(inventory: dict[str, object]) -> list[dict[str, object]]:
+    archives: list[dict[str, object]] = []
+    for raw in inventory.get("items", []):
+        if not isinstance(raw, dict):
+            continue
+        role = str(raw.get("file_role") or "")
+        if role in {"archive_vdf", "archive_mod"}:
+            item = dict(raw)
+            item["logical_path"] = normalize_path(item.get("logical_path"))
+            archives.append(item)
+    return sorted(archives, key=lambda item: str(item.get("logical_path") or ""))
+
+
+def build_plan(inventory: dict[str, object],
+               extracted_root: Path | None,
+               extracted_archive_logical_path: str,
+               mount_strategy: str,
+               mount_status: str,
+               extracted_root_label: str,
+               excluded_dirs: set[str]) -> dict[str, object]:
+    archives = find_archives(inventory)
+    extracted_files: list[ExtractedFile] = []
+    if extracted_root is not None:
+        extracted_files = scan_extracted_root(extracted_root, excluded_dirs)
+
+    selected_archive = normalize_path(extracted_archive_logical_path)
+    if extracted_files and not selected_archive and len(archives) == 1:
+        selected_archive = normalize_path(archives[0].get("logical_path"))
+
+    manifest_hash = extracted_manifest_hash(extracted_files)
+    total_bytes = sum(item.byte_size for item in extracted_files)
+    root_label = extracted_root_label or (extracted_root.name if extracted_root is not None else "")
+
+    archive_plans: list[dict[str, object]] = []
+    for archive in archives:
+        logical_path = normalize_path(archive.get("logical_path"))
+        receives_extracted_files = bool(extracted_files and selected_archive == logical_path)
+        effective_status = mount_status
+        if not effective_status:
+            effective_status = "verified" if receives_extracted_files else "planned"
+        archive_plans.append({
+            "archive_logical_path": logical_path,
+            "archive_role": archive.get("file_role"),
+            "archive_sha256": archive.get("sha256"),
+            "archive_byte_size": archive.get("byte_size", 0),
+            "mount_strategy": mount_strategy,
+            "mount_status": effective_status,
+            "extracted_root_label": root_label if receives_extracted_files else "",
+            "extracted_file_count": len(extracted_files) if receives_extracted_files else 0,
+            "extracted_total_bytes": total_bytes if receives_extracted_files else 0,
+            "extracted_manifest_hash": manifest_hash if receives_extracted_files else None,
+            "receives_extracted_files": receives_extracted_files,
+        })
+
+    mapping_note = "none"
+    if extracted_files and not selected_archive:
+        mapping_note = "skipped: multiple archives or no --extracted-archive-logical-path"
+    elif extracted_files:
+        mapping_note = "mapped_to:" + selected_archive
+
+    return {
+        "schema": "mmo.server_content_archive_mount_plan.v1",
+        "tool": "plan_server_content_archive_mounts.py",
+        "content_revision_key": inventory.get("content_revision_key"),
+        "manifest_hash": inventory.get("manifest_hash"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "archive_count": len(archives),
+        "archive_plans": archive_plans,
+        "extracted_root": str(extracted_root) if extracted_root is not None else "",
+        "extracted_root_label": root_label,
+        "extracted_file_count": len(extracted_files),
+        "extracted_total_bytes": total_bytes,
+        "extracted_manifest_hash": manifest_hash,
+        "extracted_mapping_note": mapping_note,
+        "extracted_files": [item.__dict__ for item in extracted_files],
+    }
+
+
+def build_sql(content_revision_key: str, plan: dict[str, object]) -> str:
+    lines = [
+        "SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci;",
+        "SET @mmo_content_archive_mount_id=NULL;",
+        "SET @mmo_content_extracted_file_id=NULL;",
+    ]
+    for archive in plan.get("archive_plans", []):
+        if not isinstance(archive, dict):
+            continue
+        notes = {
+            "schema": "mmo.server_content_archive_mount.v1",
+            "tool": "plan_server_content_archive_mounts.py",
+            "archive_sha256": archive.get("archive_sha256"),
+            "receives_extracted_files": archive.get("receives_extracted_files"),
+            "extracted_mapping_note": plan.get("extracted_mapping_note"),
+        }
+        lines.append(
+            "CALL mmo_upsert_server_content_archive_mount("
+            + sql_literal(content_revision_key) + ","
+            + sql_literal(archive.get("archive_logical_path")) + ","
+            + sql_literal(archive.get("archive_role")) + ","
+            + sql_literal(archive.get("mount_strategy")) + ","
+            + sql_literal(archive.get("mount_status")) + ","
+            + sql_literal(archive.get("extracted_root_label") or "") + ","
+            + str(int(archive.get("extracted_file_count") or 0)) + ","
+            + str(int(archive.get("extracted_total_bytes") or 0)) + ","
+            + sql_literal(archive.get("extracted_manifest_hash")) + ","
+            + ("UTC_TIMESTAMP(6)" if archive.get("receives_extracted_files") else "NULL") + ","
+            + sql_json(notes) + ","
+            + "@mmo_content_archive_mount_id);"
+        )
+
+    selected_archive = ""
+    for archive in plan.get("archive_plans", []):
+        if isinstance(archive, dict) and archive.get("receives_extracted_files"):
+            selected_archive = normalize_path(archive.get("archive_logical_path"))
+            break
+    if selected_archive:
+        for item in plan.get("extracted_files", []):
+            if not isinstance(item, dict):
+                continue
+            raw_payload = {
+                "schema": "mmo.server_content_extracted_file.v1",
+                "physical_path": item.get("physical_path"),
+                "extracted_root_label": plan.get("extracted_root_label"),
+            }
+            lines.append(
+                "CALL mmo_upsert_server_content_extracted_file("
+                + sql_literal(content_revision_key) + ","
+                + sql_literal(selected_archive) + ","
+                + sql_literal(item.get("logical_path")) + ","
+                + str(int(item.get("byte_size") or 0)) + ","
+                + sql_literal(item.get("sha256")) + ","
+                + sql_literal("hashed") + ","
+                + sql_literal(item.get("logical_path")) + ","
+                + sql_json(raw_payload) + ","
+                + "@mmo_content_extracted_file_id);"
+            )
+    lines.append("SELECT COUNT(*) AS archive_mount_count FROM mmo_server_content_archive_mounts;")
+    return "\n".join(lines) + "\n"
+
+
+def run_mysql_file(target: Target, sql_path: Path, dry_run: bool) -> dict[str, object]:
+    cmd = mysql_cmd(target)
+    shown = redact_cmd(cmd)
+    if dry_run:
+        return {"status": "dry_run", "cmd": shown, "stdout": "", "stderr": "", "returncode": 0}
+    proc = subprocess.run(
+        cmd,
+        input=sql_path.read_text(encoding="utf-8"),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(ROOT),
+    )
+    return {
+        "status": "applied" if proc.returncode == 0 else "failed",
+        "returncode": proc.returncode,
+        "cmd": shown,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Plan server content archive mounts/pre-extract state.")
+    parser.add_argument("--inventory", required=True, help="Inventory JSON generated by analyze_server_content_pack_inventory.py")
+    parser.add_argument("--content-revision-key", default="", help="Override inventory content_revision_key.")
+    parser.add_argument("--extracted-root", default="", help="Optional server-side pre-extracted content directory to hash.")
+    parser.add_argument("--extracted-archive-logical-path", default="", help="Archive logical path that produced --extracted-root.")
+    parser.add_argument("--exclude-dir", default="", help="Additional comma-separated directory names skipped when scanning --extracted-root.")
+    parser.add_argument("--extracted-root-label", default="", help="Stable label stored in DB instead of machine-specific path.")
+    parser.add_argument("--mount-strategy", default="pre_extracted", choices=["pre_extracted", "read_direct", "extract_on_boot", "external_mount", "manual"])
+    parser.add_argument("--mount-status", default="", choices=["", "planned", "mounted", "extracted", "verified", "failed", "ignored"])
+    parser.add_argument("--url", default="", help="mysql://user:password@host:port/database. If omitted, only artifacts are written.")
+    parser.add_argument("--output", default="runtime/step204_server_content_archive_mounts/archive_mount_plan.json")
+    parser.add_argument("--sql-output", default="runtime/step204_server_content_archive_mounts/register_archive_mounts.sql")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+
+    inventory_path = Path(args.inventory)
+    if not inventory_path.is_absolute():
+        inventory_path = ROOT / inventory_path
+    inventory = load_inventory(inventory_path)
+    content_revision_key = args.content_revision_key or str(inventory.get("content_revision_key") or "")
+    if not content_revision_key:
+        raise SystemExit("content revision key missing; pass --content-revision-key or use inventory with content_revision_key")
+
+    extracted_root = Path(args.extracted_root).resolve() if args.extracted_root else None
+    if extracted_root is not None and (not extracted_root.exists() or not extracted_root.is_dir()):
+        raise SystemExit(f"extracted root does not exist or is not a directory: {extracted_root}")
+
+    plan = build_plan(
+        inventory,
+        extracted_root,
+        args.extracted_archive_logical_path,
+        args.mount_strategy,
+        args.mount_status,
+        args.extracted_root_label,
+        parse_excluded_dirs(args.exclude_dir),
+    )
+    plan["content_revision_key"] = content_revision_key
+    plan["inventory_path"] = rel(inventory_path)
+
+    output_path = Path(args.output)
+    if not output_path.is_absolute():
+        output_path = ROOT / output_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    sql_path = Path(args.sql_output)
+    if not sql_path.is_absolute():
+        sql_path = ROOT / sql_path
+    sql_path.parent.mkdir(parents=True, exist_ok=True)
+    sql_path.write_text(build_sql(content_revision_key, plan), encoding="utf-8")
+
+    result: dict[str, object] = {
+        "status": "generated",
+        "archive_count": plan["archive_count"],
+        "extracted_file_count": plan["extracted_file_count"],
+        "extracted_mapping_note": plan["extracted_mapping_note"],
+        "output": rel(output_path),
+        "sql_output": rel(sql_path),
+    }
+    if args.url:
+        mysql_result = run_mysql_file(parse_mysql_url(args.url), sql_path, args.dry_run)
+        result["mysql"] = mysql_result
+        result["status"] = mysql_result["status"]
+        if mysql_result.get("stdout"):
+            print(mysql_result["stdout"], end="")
+        if mysql_result.get("stderr"):
+            print(mysql_result["stderr"], file=sys.stderr, end="")
+
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if result["status"] in {"generated", "applied", "dry_run"} else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\bootstrap\register_server_content_pack_manifest.py =====
+#!/usr/bin/env python3
+"""Register a server-owned Gothic content pack manifest in MySQL.
+
+This is the first practical step toward a fully authoritative MMO server that
+loads its own content pack instead of trusting client files. The tool scans a
+server-side Gothic/mod directory, hashes selected content files, writes a local
+JSON manifest, and optionally registers the manifest in MySQL through Step188
+procedures.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+DEFAULT_EXTENSIONS = {
+    ".zen",
+    ".bin",
+    ".dat",
+    ".ou",
+    ".csl",
+    ".vdf",
+    ".mod",
+    ".d",
+    ".src",
+    ".ini",
+}
+
+DEFAULT_EXCLUDED_DIRS = {
+    ".git",
+    ".vs",
+    "build",
+    "cmake-build-debug",
+    "cmake-build-release",
+    "runtime",
+    "savegame",
+    "savegames",
+    "saves",
+    "screens",
+    "systempack",
+}
+
+KIND_BY_EXTENSION = {
+    ".zen": "zen",
+    ".dat": "dat",
+    ".ou": "ou",
+    ".csl": "ou",
+    ".vdf": "vdf",
+    ".mod": "mod",
+    ".d": "script",
+    ".src": "script",
+    ".ini": "ini",
+}
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+@dataclass(frozen=True)
+class ManifestFile:
+    logical_path: str
+    source_kind: str
+    byte_size: int
+    sha256: str
+    mtime_utc: str
+    physical_path: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    return [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+        *( [f"-p{target.password}"] if target.password else [] ),
+        target.database,
+    ]
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return "'" + text.replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def sql_json(value: object) -> str:
+    return "CAST(" + sql_literal(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))) + " AS JSON)"
+
+
+def rel(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def normalize_logical_path(root: Path, path: Path) -> str:
+    return path.relative_to(root).as_posix().replace("\\", "/").lower()
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def source_kind_for(path: Path) -> str:
+    if path.name.lower() == "ou.bin":
+        return "ou"
+    return KIND_BY_EXTENSION.get(path.suffix.lower(), "other")
+
+
+def parse_extensions(raw: str, include_all: bool) -> set[str] | None:
+    if include_all:
+        return None
+    if not raw:
+        return set(DEFAULT_EXTENSIONS)
+    out: set[str] = set()
+    for item in raw.split(","):
+        item = item.strip().lower()
+        if not item:
+            continue
+        out.add(item if item.startswith(".") else "." + item)
+    return out
+
+
+def parse_excluded_dirs(raw: str) -> set[str]:
+    out = set(DEFAULT_EXCLUDED_DIRS)
+    for item in raw.split(","):
+        item = item.strip().lower()
+        if item:
+            out.add(item)
+    return out
+
+
+def iter_files(root: Path, extensions: set[str] | None, excluded_dirs: set[str]) -> list[Path]:
+    found: list[Path] = []
+    for current, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d.lower() not in excluded_dirs]
+        base = Path(current)
+        for name in files:
+            path = base / name
+            if extensions is not None and path.suffix.lower() not in extensions:
+                continue
+            found.append(path)
+    return sorted(found, key=lambda p: normalize_logical_path(root, p))
+
+
+def build_manifest_files(root: Path, paths: list[Path]) -> list[ManifestFile]:
+    out: list[ManifestFile] = []
+    for path in paths:
+        stat = path.stat()
+        out.append(ManifestFile(
+            logical_path=normalize_logical_path(root, path),
+            source_kind=source_kind_for(path),
+            byte_size=stat.st_size,
+            sha256=file_sha256(path),
+            mtime_utc=datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+            physical_path=str(path),
+        ))
+    return out
+
+
+def manifest_hash(files: list[ManifestFile]) -> str:
+    digest = hashlib.sha256()
+    for item in files:
+        line = f"{item.logical_path}\t{item.source_kind}\t{item.byte_size}\t{item.sha256}\t1\n"
+        digest.update(line.encode("utf-8"))
+    return digest.hexdigest()
+
+
+def build_sql(content_revision_key: str,
+              source_root_label: str,
+              files: list[ManifestFile],
+              hash_value: str,
+              source_payload: dict[str, object]) -> str:
+    total_bytes = sum(item.byte_size for item in files)
+    lines = [
+        "SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci;",
+        "SET @mmo_content_file_id=NULL;",
+        "SET @mmo_content_manifest_id=NULL;",
+    ]
+    for item in files:
+        raw_payload = {
+            "schema": "mmo.server_content_pack_file.v1",
+            "physical_path": item.physical_path,
+            "mtime_utc": item.mtime_utc,
+        }
+        lines.append(
+            "CALL mmo_upsert_server_content_pack_file("
+            + sql_literal(content_revision_key) + ","
+            + sql_literal(item.logical_path) + ","
+            + sql_literal(item.source_kind) + ","
+            + str(item.byte_size) + ","
+            + sql_literal(item.sha256) + ","
+            + sql_literal(item.mtime_utc.replace("T", " ").replace("+00:00", "")) + ","
+            + "1,"
+            + sql_json(raw_payload) + ","
+            + "@mmo_content_file_id);"
+        )
+    lines.append(
+        "CALL mmo_set_server_content_pack_manifest("
+        + sql_literal(content_revision_key) + ","
+        + sql_literal(hash_value) + ","
+        + str(len(files)) + ","
+        + str(len(files)) + ","
+        + str(total_bytes) + ","
+        + sql_literal(source_root_label) + ","
+        + sql_json(source_payload) + ","
+        + "@mmo_content_manifest_id);"
+    )
+    lines.append("SELECT BIN_TO_UUID(@mmo_content_manifest_id,1) AS content_manifest_uuid;")
+    return "\n".join(lines) + "\n"
+
+
+def run_mysql_file(target: Target, sql_path: Path, dry_run: bool) -> dict[str, object]:
+    cmd = mysql_cmd(target)
+    shown = ["-p***" if part.startswith("-p") and len(part) > 2 else part for part in cmd]
+    if dry_run:
+        return {"status": "dry_run", "cmd": shown, "stdout": "", "stderr": ""}
+    proc = subprocess.run(
+        cmd,
+        input=sql_path.read_text(encoding="utf-8"),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(ROOT),
+    )
+    return {
+        "status": "applied" if proc.returncode == 0 else "failed",
+        "returncode": proc.returncode,
+        "cmd": shown,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Register server-owned Gothic content pack manifest.")
+    parser.add_argument("--url", default="", help="mysql://user:password@host:port/database. If omitted, only local artifacts are written.")
+    parser.add_argument("--content-root", required=True, help="Server-side Gothic/mod content root to scan.")
+    parser.add_argument("--content-revision-key", required=True, help="Existing content_revisions.content_revision_key to attach the manifest to.")
+    parser.add_argument("--extensions", default="", help="Comma-separated extensions. Defaults to Gothic content-critical files.")
+    parser.add_argument("--include-all", action="store_true", help="Hash all regular files except excluded directories.")
+    parser.add_argument("--exclude-dir", default="", help="Additional comma-separated directory names to skip.")
+    parser.add_argument("--source-root-label", default="", help="Stable label stored in DB instead of a machine-specific absolute path.")
+    parser.add_argument("--output", default="runtime/step188_server_content_pack_manifest/manifest.json")
+    parser.add_argument("--sql-output", default="runtime/step188_server_content_pack_manifest/register.sql")
+    parser.add_argument("--dry-run", action="store_true", help="Generate manifest/SQL but do not run MySQL.")
+    args = parser.parse_args()
+
+    root = Path(args.content_root).resolve()
+    if not root.exists() or not root.is_dir():
+        raise SystemExit(f"content root does not exist or is not a directory: {root}")
+
+    extensions = parse_extensions(args.extensions, args.include_all)
+    excluded_dirs = parse_excluded_dirs(args.exclude_dir)
+    files = build_manifest_files(root, iter_files(root, extensions, excluded_dirs))
+    hash_value = manifest_hash(files)
+    source_root_label = args.source_root_label or root.name
+    total_bytes = sum(item.byte_size for item in files)
+    source_payload = {
+        "schema": "mmo.server_content_pack_manifest.v1",
+        "tool": "register_server_content_pack_manifest.py",
+        "content_root_label": source_root_label,
+        "extensions": sorted(extensions) if extensions is not None else ["*"],
+        "excluded_dirs": sorted(excluded_dirs),
+    }
+
+    manifest = {
+        "schema": "mmo.server_content_pack_manifest.v1",
+        "content_revision_key": args.content_revision_key,
+        "content_root": str(root),
+        "source_root_label": source_root_label,
+        "manifest_hash": hash_value,
+        "file_count": len(files),
+        "required_file_count": len(files),
+        "total_bytes": total_bytes,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "files": [item.__dict__ for item in files],
+    }
+
+    output_path = Path(args.output)
+    if not output_path.is_absolute():
+        output_path = ROOT / output_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    sql_path = Path(args.sql_output)
+    if not sql_path.is_absolute():
+        sql_path = ROOT / sql_path
+    sql_path.parent.mkdir(parents=True, exist_ok=True)
+    sql_path.write_text(build_sql(args.content_revision_key, source_root_label, files, hash_value, source_payload), encoding="utf-8")
+
+    result: dict[str, object] = {
+        "status": "generated",
+        "manifest_hash": hash_value,
+        "file_count": len(files),
+        "total_bytes": total_bytes,
+        "manifest_path": rel(output_path),
+        "sql_path": rel(sql_path),
+    }
+    if args.url:
+        mysql_result = run_mysql_file(parse_mysql_url(args.url), sql_path, args.dry_run)
+        result["mysql"] = mysql_result
+        result["status"] = mysql_result["status"]
+        if mysql_result.get("stdout"):
+            print(mysql_result["stdout"], end="")
+        if mysql_result.get("stderr"):
+            print(mysql_result["stderr"], file=sys.stderr, end="")
+
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if result["status"] in {"generated", "applied", "dry_run"} else 1
 
 
 if __name__ == "__main__":
@@ -3415,6 +4996,192 @@ from _tool_entrypoint import run
 run("bootstrap/capture_mmo_chapter1_start_sqlite_baseline.py")
 
 
+===== tools\check_mmo_content_manifest_reject_health.py =====
+#!/usr/bin/env python3
+"""Healthcheck content manifest reject rates from Step199 DB views."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "--skip-column-names",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(
+        mysql_cmd(target),
+        input=sql,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def scalar_json(target: Target, sql: str) -> dict[str, object]:
+    raw = run_mysql(target, sql)
+    line = raw.splitlines()[-1] if raw else "{}"
+    value = json.loads(line)
+    if not isinstance(value, dict):
+        raise RuntimeError("health query did not return a JSON object")
+    return value
+
+
+def as_int(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check MMO content manifest reject health.")
+    parser.add_argument("--url", required=True, help="mysql://user:password@host:port/database")
+    parser.add_argument("--max-last-15m-rejects", type=int, default=50)
+    parser.add_argument("--max-last-hour-rejects", type=int, default=200)
+    parser.add_argument("--max-last-hour-hash-mismatches", type=int, default=100)
+    parser.add_argument("--fail-on-server-manifest-missing", action="store_true", default=True)
+    parser.add_argument("--no-fail-on-server-manifest-missing", dest="fail_on_server_manifest_missing", action="store_false")
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    target = parse_mysql_url(args.url)
+    sql = (
+        "SELECT JSON_OBJECT("
+        "'total_rejects',total_rejects,"
+        "'last_hour_rejects',last_hour_rejects,"
+        "'last_15m_rejects',last_15m_rejects,"
+        "'total_hash_mismatches',total_hash_mismatches,"
+        "'last_hour_hash_mismatches',last_hour_hash_mismatches,"
+        "'total_missing_client_manifests',total_missing_client_manifests,"
+        "'total_missing_server_manifests',total_missing_server_manifests,"
+        "'distinct_remote_endpoints',distinct_remote_endpoints,"
+        "'distinct_client_hashes',distinct_client_hashes,"
+        "'last_reject_at',DATE_FORMAT(last_reject_at,'%Y-%m-%dT%H:%i:%s.%fZ')"
+        ") FROM v_mmo_content_manifest_reject_health;"
+    )
+    health = scalar_json(target, sql)
+
+    checks: list[dict[str, object]] = []
+    checks.append({
+        "name": "last_15m_rejects",
+        "value": as_int(health.get("last_15m_rejects")),
+        "threshold": args.max_last_15m_rejects,
+        "status": "passed" if as_int(health.get("last_15m_rejects")) <= args.max_last_15m_rejects else "failed",
+    })
+    checks.append({
+        "name": "last_hour_rejects",
+        "value": as_int(health.get("last_hour_rejects")),
+        "threshold": args.max_last_hour_rejects,
+        "status": "passed" if as_int(health.get("last_hour_rejects")) <= args.max_last_hour_rejects else "failed",
+    })
+    checks.append({
+        "name": "last_hour_hash_mismatches",
+        "value": as_int(health.get("last_hour_hash_mismatches")),
+        "threshold": args.max_last_hour_hash_mismatches,
+        "status": "passed" if as_int(health.get("last_hour_hash_mismatches")) <= args.max_last_hour_hash_mismatches else "failed",
+    })
+    if args.fail_on_server_manifest_missing:
+        missing_server = as_int(health.get("total_missing_server_manifests"))
+        checks.append({
+            "name": "server_manifest_missing",
+            "value": missing_server,
+            "threshold": 0,
+            "status": "passed" if missing_server == 0 else "failed",
+        })
+
+    failed = [check for check in checks if check["status"] == "failed"]
+    report = {
+        "tool": "check_mmo_content_manifest_reject_health.py",
+        "status": "failed" if failed else "passed",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "health": health,
+        "checks": checks,
+    }
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["status"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
 ===== tools\check_mmo_step101_db_continue_end_to_end.py =====
 #!/usr/bin/env python3
 from _tool_entrypoint import run
@@ -3448,6 +5215,65 @@ run("validation/check_mmo_step104_db_checkpoint_export.py")
 from _tool_entrypoint import run
 
 run("validation/check_mmo_step121_server_parity_state_bridge.py")
+
+
+===== tools\check_mmo_step188_server_content_pack_manifest.py =====
+#!/usr/bin/env python3
+from pathlib import Path
+import runpy
+import sys
+
+target = Path(__file__).resolve().parent / "validation" / "check_mmo_step188_server_content_pack_manifest.py"
+sys.path.insert(0, str(target.parent.parent))
+runpy.run_path(str(target), run_name="__main__")
+
+
+
+
+
+
+===== tools\check_mmo_step198_content_manifest_reject_audit.py =====
+#!/usr/bin/env python3
+from pathlib import Path
+import runpy
+import sys
+
+target = Path(__file__).resolve().parent / "validation" / "check_mmo_step198_content_manifest_reject_audit.py"
+sys.path.insert(0, str(target.parent.parent))
+runpy.run_path(str(target), run_name="__main__")
+
+
+===== tools\check_mmo_step201_server_content_pack_inventory.py =====
+#!/usr/bin/env python3
+from pathlib import Path
+import runpy
+import sys
+
+target = Path(__file__).resolve().parent / "validation" / "check_mmo_step201_server_content_pack_inventory.py"
+sys.path.insert(0, str(target.parent.parent))
+runpy.run_path(str(target), run_name="__main__")
+
+
+===== tools\check_mmo_step203_server_content_archive_mounts.py =====
+#!/usr/bin/env python3
+from pathlib import Path
+import runpy
+import sys
+
+target = Path(__file__).resolve().parent / "validation" / "check_mmo_step203_server_content_archive_mounts.py"
+sys.path.insert(0, str(target.parent.parent))
+runpy.run_path(str(target), run_name="__main__")
+
+
+===== tools\check_mmo_step206_server_content_import_jobs.py =====
+#!/usr/bin/env python3
+from pathlib import Path
+import runpy
+import sys
+
+target = Path(__file__).resolve().parent / "validation" / "check_mmo_step206_server_content_import_jobs.py"
+sys.path.insert(0, str(target.parent.parent))
+runpy.run_path(str(target), run_name="__main__")
 
 
 ===== tools\check_mmo_step95_save_slot_catalog_db_continue_bridge.py =====
@@ -3490,6 +5316,17 @@ run("validation/check_mysql_bootstrap_import.py")
 from _tool_entrypoint import run
 
 run("validation/check_runtime_sqlite.py")
+
+
+===== tools\enqueue_server_content_import_jobs.py =====
+#!/usr/bin/env python3
+from pathlib import Path
+import runpy
+import sys
+
+target = Path(__file__).resolve().parent / "bootstrap" / "enqueue_server_content_import_jobs.py"
+sys.path.insert(0, str(target.parent.parent))
+runpy.run_path(str(target), run_name="__main__")
 
 
 ===== tools\migration\export_mmo_pc_hero_test_restore_snapshot.py =====
@@ -6572,6 +8409,1044 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+===== tools\mmo_content_archive_mount_report.py =====
+#!/usr/bin/env python3
+"""Summarize local and DB-backed MMO server content archive mount plans."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+ROOT = Path(__file__).resolve().parents[1]
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parent
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "--skip-column-names",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(
+        mysql_cmd(target),
+        input=sql,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(ROOT),
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def scalar_int(target: Target, sql: str) -> int:
+    output = run_mysql(target, sql).splitlines()
+    if not output:
+        return 0
+    try:
+        return int(output[-1].strip() or "0")
+    except ValueError:
+        return 0
+
+
+def json_query(target: Target, sql: str) -> object:
+    output = run_mysql(target, sql)
+    if not output:
+        return None
+    return json.loads(output.splitlines()[-1])
+
+
+def summarize_local_plan(plan: dict[str, object]) -> dict[str, object]:
+    by_status: dict[str, int] = {}
+    by_strategy: dict[str, int] = {}
+    for raw in plan.get("archive_plans", []):
+        if not isinstance(raw, dict):
+            continue
+        status = str(raw.get("mount_status") or "planned")
+        strategy = str(raw.get("mount_strategy") or "pre_extracted")
+        by_status[status] = by_status.get(status, 0) + 1
+        by_strategy[strategy] = by_strategy.get(strategy, 0) + 1
+    return {
+        "archive_count": int(plan.get("archive_count") or 0),
+        "extracted_file_count": int(plan.get("extracted_file_count") or 0),
+        "extracted_total_bytes": int(plan.get("extracted_total_bytes") or 0),
+        "extracted_manifest_hash": plan.get("extracted_manifest_hash"),
+        "extracted_mapping_note": plan.get("extracted_mapping_note"),
+        "by_status": dict(sorted(by_status.items())),
+        "by_strategy": dict(sorted(by_strategy.items())),
+    }
+
+
+def read_local_plan(path: Path | None) -> dict[str, object] | None:
+    if path is None:
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("archive mount plan JSON must be an object")
+    return {
+        "path": str(path),
+        "content_revision_key": data.get("content_revision_key"),
+        "manifest_hash": data.get("manifest_hash"),
+        "summary": summarize_local_plan(data),
+    }
+
+
+def db_report(target: Target, limit: int) -> dict[str, object]:
+    table_count = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM information_schema.tables "
+        "WHERE table_schema=DATABASE() AND table_name='mmo_server_content_archive_mounts';",
+    )
+    if table_count != 1:
+        return {"available": False, "reason": "mmo_server_content_archive_mounts_missing"}
+
+    health_exists = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM information_schema.views "
+        "WHERE table_schema=DATABASE() AND table_name='v_mmo_server_content_archive_health';",
+    )
+    mount_view_exists = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM information_schema.views "
+        "WHERE table_schema=DATABASE() AND table_name='v_mmo_server_content_archive_mounts';",
+    )
+
+    report: dict[str, object] = {"available": True}
+    if health_exists == 1:
+        report["health"] = json_query(
+            target,
+            "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+            "'content_revision_key',content_revision_key,"
+            "'is_active',is_active,"
+            "'inventory_archive_count',inventory_archive_count,"
+            "'archive_mount_count',archive_mount_count,"
+            "'missing_mount_count',missing_mount_count,"
+            "'planned_count',planned_count,"
+            "'mounted_count',mounted_count,"
+            "'extracted_count',extracted_count,"
+            "'verified_count',verified_count,"
+            "'failed_count',failed_count,"
+            "'extracted_file_count',extracted_file_count,"
+            "'extracted_total_bytes',extracted_total_bytes"
+            ")),JSON_ARRAY()) FROM v_mmo_server_content_archive_health;",
+        )
+    if mount_view_exists == 1:
+        report["by_status"] = json_query(
+            target,
+            "SELECT COALESCE(JSON_OBJECTAGG(mount_status,cnt),JSON_OBJECT()) FROM ("
+            "SELECT mount_status, COUNT(*) AS cnt FROM v_mmo_server_content_archive_mounts GROUP BY mount_status"
+            ") status_counts;",
+        )
+        report["archives"] = json_query(
+            target,
+            "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+            "'content_revision_key',content_revision_key,"
+            "'archive_logical_path',archive_logical_path,"
+            "'archive_role',archive_role,"
+            "'mount_strategy',mount_strategy,"
+            "'mount_status',mount_status,"
+            "'extracted_root_label',extracted_root_label,"
+            "'extracted_file_count',extracted_file_count,"
+            "'extracted_manifest_hash',extracted_manifest_hash"
+            ")),JSON_ARRAY()) FROM ("
+            "SELECT content_revision_key,archive_logical_path,archive_role,mount_strategy,mount_status,"
+            "extracted_root_label,extracted_file_count,extracted_manifest_hash "
+            "FROM v_mmo_server_content_archive_mounts "
+            "ORDER BY content_revision_key, archive_logical_path LIMIT " + str(max(0, limit)) +
+            ") archive_rows;",
+        )
+    return report
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Report local/DB MMO server content archive mount state.")
+    parser.add_argument("--plan", default="", help="Archive mount plan JSON generated by plan_server_content_archive_mounts.py")
+    parser.add_argument("--url", default="", help="Optional mysql://user:password@host:port/database")
+    parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    plan_path = Path(args.plan) if args.plan else None
+    if plan_path is not None and not plan_path.is_absolute():
+        plan_path = ROOT / plan_path
+
+    report: dict[str, object] = {
+        "tool": "mmo_content_archive_mount_report.py",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "local_plan": read_local_plan(plan_path) if plan_path else None,
+        "db_archive_mounts": db_report(parse_mysql_url(args.url), args.limit) if args.url else None,
+    }
+
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\mmo_content_import_job_report.py =====
+#!/usr/bin/env python3
+"""Summarize local and DB-backed MMO server content import jobs."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    return Target(parsed.hostname or "localhost", parsed.port or 3306, unquote(parsed.username or ""), unquote(parsed.password or ""), (parsed.path or "/").lstrip("/"))
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [exe, "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci", "--batch", "--raw", "--skip-column-names", "-h", target.host, "-P", str(target.port), "-u", target.user]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(ROOT))
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def scalar_int(target: Target, sql: str) -> int:
+    output = run_mysql(target, sql).splitlines()
+    if not output:
+        return 0
+    try:
+        return int(output[-1].strip() or "0")
+    except ValueError:
+        return 0
+
+
+def json_query(target: Target, sql: str) -> object:
+    output = run_mysql(target, sql)
+    if not output:
+        return None
+    return json.loads(output.splitlines()[-1])
+
+
+def read_local_jobs(path: Path | None) -> dict[str, object] | None:
+    if path is None:
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("import jobs JSON must be an object")
+    return {
+        "path": str(path),
+        "content_revision_key": data.get("content_revision_key"),
+        "manifest_hash": data.get("manifest_hash"),
+        "summary": data.get("summary"),
+    }
+
+
+def db_report(target: Target, limit: int) -> dict[str, object]:
+    table_count = scalar_int(target, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='mmo_server_content_import_jobs';")
+    if table_count != 1:
+        return {"available": False, "reason": "mmo_server_content_import_jobs_missing"}
+    report: dict[str, object] = {"available": True}
+    report["health"] = json_query(
+        target,
+        "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+        "'content_revision_key',content_revision_key,"
+        "'is_active',is_active,"
+        "'total_jobs',total_jobs,"
+        "'queued_count',queued_count,"
+        "'running_count',running_count,"
+        "'succeeded_count',succeeded_count,"
+        "'failed_count',failed_count,"
+        "'blocked_count',blocked_count,"
+        "'archive_jobs',archive_jobs,"
+        "'world_zen_jobs',world_zen_jobs,"
+        "'scripts_dat_jobs',scripts_dat_jobs,"
+        "'dialog_ou_jobs',dialog_ou_jobs"
+        ")),JSON_ARRAY()) FROM v_mmo_server_content_import_job_health;",
+    )
+    report["jobs"] = json_query(
+        target,
+        "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+        "'content_revision_key',content_revision_key,"
+        "'importer_key',importer_key,"
+        "'source_kind',source_kind,"
+        "'source_logical_path',source_logical_path,"
+        "'job_priority',job_priority,"
+        "'job_status',job_status,"
+        "'attempt_count',attempt_count"
+        ")),JSON_ARRAY()) FROM ("
+        "SELECT content_revision_key,importer_key,source_kind,source_logical_path,job_priority,job_status,attempt_count "
+        "FROM v_mmo_server_content_import_jobs ORDER BY job_priority, source_logical_path LIMIT " + str(max(0, limit)) +
+        ") job_rows;",
+    )
+    return report
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Report local/DB MMO server content import jobs.")
+    parser.add_argument("--jobs", default="", help="Import jobs JSON generated by enqueue_server_content_import_jobs.py")
+    parser.add_argument("--url", default="", help="Optional mysql://user:password@host:port/database")
+    parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    jobs_path = Path(args.jobs) if args.jobs else None
+    if jobs_path is not None and not jobs_path.is_absolute():
+        jobs_path = ROOT / jobs_path
+    report = {
+        "tool": "mmo_content_import_job_report.py",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "local_jobs": read_local_jobs(jobs_path) if jobs_path else None,
+        "db_import_jobs": db_report(parse_mysql_url(args.url), args.limit) if args.url else None,
+    }
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\mmo_content_manifest_reject_report.py =====
+#!/usr/bin/env python3
+"""Summarize MMO content manifest bootstrap rejects.
+
+Reads the client-side runtime/mmo_server_bootstrap_reject.json file and the
+server-side runtime/mmo_server_content_manifest_rejects.jsonl audit file.
+The output is JSON so tests, launchers, or CI glue can consume it directly.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone copies.
+    def resolve_mysql_exe() -> str | None:
+        import shutil
+        return shutil.which("mysql")
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            value = json.load(handle)
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError as exc:
+        return {"_parse_error": str(exc), "_path": str(path)}
+    if isinstance(value, dict):
+        return value
+    return {"_parse_error": "top-level JSON value is not an object", "_path": str(path)}
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    try:
+        handle = path.open("r", encoding="utf-8")
+    except FileNotFoundError:
+        return records
+
+    with handle:
+        for line_number, line in enumerate(handle, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError as exc:
+                records.append({
+                    "_parse_error": str(exc),
+                    "_line": line_number,
+                    "_path": str(path),
+                })
+                continue
+            if isinstance(value, dict):
+                records.append(value)
+            else:
+                records.append({
+                    "_parse_error": "JSONL line is not an object",
+                    "_line": line_number,
+                    "_path": str(path),
+                })
+    return records
+
+
+def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
+    by_reason: Counter[str] = Counter()
+    by_revision: Counter[str] = Counter()
+    by_required_hash: Counter[str] = Counter()
+    parse_errors = 0
+
+    for record in records:
+        if "_parse_error" in record:
+            parse_errors += 1
+            continue
+        by_reason[str(record.get("reason") or "<empty>")] += 1
+        by_revision[str(record.get("content_revision_key") or "<empty>")] += 1
+        by_required_hash[str(record.get("server_required_content_hash") or "<empty>")] += 1
+
+    return {
+        "total_records": len(records),
+        "valid_records": len(records) - parse_errors,
+        "parse_errors": parse_errors,
+        "by_reason": dict(by_reason.most_common()),
+        "by_content_revision_key": dict(by_revision.most_common()),
+        "by_server_required_content_hash": dict(by_required_hash.most_common()),
+    }
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "--skip-column-names",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(
+        mysql_cmd(target),
+        input=sql,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return "'" + text.replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def mysql_rows(target: Target, sql: str) -> list[list[str]]:
+    raw = run_mysql(target, sql)
+    if not raw:
+        return []
+    return [line.split("\t") for line in raw.splitlines() if line.strip()]
+
+
+def db_audit_report(url: str, limit: int) -> dict[str, Any]:
+    target = parse_mysql_url(url)
+    try:
+        table_count = mysql_rows(
+            target,
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_schema=DATABASE() AND table_type='BASE TABLE' "
+            "AND table_name='mmo_content_manifest_reject_audit';",
+        )
+        if not table_count or table_count[0][0] != "1":
+            return {"available": False, "reason": "mmo_content_manifest_reject_audit_missing"}
+
+        health_view = mysql_rows(
+            target,
+            "SELECT COUNT(*) FROM information_schema.views "
+            "WHERE table_schema=DATABASE() AND table_name='v_mmo_content_manifest_reject_health';",
+        )
+        summary_view = mysql_rows(
+            target,
+            "SELECT COUNT(*) FROM information_schema.views "
+            "WHERE table_schema=DATABASE() AND table_name='v_mmo_content_manifest_reject_summary';",
+        )
+        health = None
+        if health_view and health_view[0][0] == "1":
+            rows = mysql_rows(
+                target,
+                "SELECT JSON_OBJECT("
+                "'total_rejects',total_rejects,"
+                "'last_hour_rejects',last_hour_rejects,"
+                "'last_15m_rejects',last_15m_rejects,"
+                "'total_hash_mismatches',total_hash_mismatches,"
+                "'last_hour_hash_mismatches',last_hour_hash_mismatches,"
+                "'total_missing_client_manifests',total_missing_client_manifests,"
+                "'total_missing_server_manifests',total_missing_server_manifests,"
+                "'distinct_remote_endpoints',distinct_remote_endpoints,"
+                "'distinct_client_hashes',distinct_client_hashes,"
+                "'last_reject_at',DATE_FORMAT(last_reject_at,'%Y-%m-%dT%H:%i:%s.%fZ')"
+                ") FROM v_mmo_content_manifest_reject_health;",
+            )
+            if rows:
+                try:
+                    health = json.loads(rows[0][0])
+                except json.JSONDecodeError:
+                    health = {"_parse_error": "invalid health JSON_OBJECT result", "raw": rows[0][0]}
+
+        by_reason = {
+            row[0]: int(row[1] or "0")
+            for row in mysql_rows(
+                target,
+                "SELECT COALESCE(reason,'<empty>'), COUNT(*) "
+                "FROM mmo_content_manifest_reject_audit GROUP BY COALESCE(reason,'<empty>') ORDER BY COUNT(*) DESC, 1;",
+            )
+        }
+        by_revision = {
+            row[0]: int(row[1] or "0")
+            for row in mysql_rows(
+                target,
+                "SELECT COALESCE(content_revision_key,'<empty>'), COUNT(*) "
+                "FROM mmo_content_manifest_reject_audit GROUP BY COALESCE(content_revision_key,'<empty>') ORDER BY COUNT(*) DESC, 1;",
+            )
+        }
+        summary_rows = []
+        if summary_view and summary_view[0][0] == "1":
+            for row in mysql_rows(
+                target,
+                "SELECT JSON_OBJECT("
+                "'reason',reason,"
+                "'content_revision_key',content_revision_key,"
+                "'server_required_content_hash',server_manifest_hash,"
+                "'total_count',total_count,"
+                "'last_hour_count',last_hour_count,"
+                "'last_15m_count',last_15m_count,"
+                "'first_seen_at',DATE_FORMAT(first_seen_at,'%Y-%m-%dT%H:%i:%s.%fZ'),"
+                "'last_seen_at',DATE_FORMAT(last_seen_at,'%Y-%m-%dT%H:%i:%s.%fZ')"
+                ") FROM v_mmo_content_manifest_reject_summary ORDER BY total_count DESC, reason LIMIT "
+                + str(max(0, limit))
+                + ";",
+            ):
+                try:
+                    summary_rows.append(json.loads(row[0]))
+                except json.JSONDecodeError:
+                    summary_rows.append({"_parse_error": "invalid summary JSON_OBJECT result", "raw": row[0]})
+        latest_sql = (
+            "SELECT JSON_OBJECT("
+            "'reject_uuid',reject_uuid,"
+            "'created_at',DATE_FORMAT(created_at,'%Y-%m-%dT%H:%i:%s.%fZ'),"
+            "'session_uuid',session_uuid,"
+            "'realm_key',realm_key,"
+            "'character_key',character_key,"
+            "'remote_endpoint',remote_endpoint,"
+            "'reason',reason,"
+            "'phase',phase,"
+            "'client_content_manifest_hash',client_manifest_hash,"
+            "'server_required_content_hash',server_manifest_hash,"
+            "'content_revision_key',content_revision_key,"
+            "'packet_sequence',packet_sequence,"
+            "'local_sequence',local_sequence,"
+            "'target_key',target_key"
+            ") FROM v_mmo_content_manifest_reject_audit ORDER BY created_at DESC LIMIT "
+            + str(max(0, limit))
+            + ";"
+        )
+        latest = []
+        for row in mysql_rows(target, latest_sql):
+            try:
+                latest.append(json.loads(row[0]))
+            except json.JSONDecodeError:
+                latest.append({"_parse_error": "invalid JSON_OBJECT result", "raw": row[0]})
+        return {
+            "available": True,
+            "health": health,
+            "by_reason": by_reason,
+            "by_content_revision_key": by_revision,
+            "summary_rows": summary_rows,
+            "latest_records": latest,
+        }
+    except Exception as exc:
+        return {"available": False, "reason": str(exc)}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--runtime-dir",
+        default="runtime",
+        help="Directory containing MMO runtime diagnostic files.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of latest server audit records to include.",
+    )
+    parser.add_argument(
+        "--url",
+        default="",
+        help="Optional mysql:// URL. When set, include Step198 DB audit summary.",
+    )
+    args = parser.parse_args()
+
+    runtime_dir = Path(args.runtime_dir)
+    client_reject_path = runtime_dir / "mmo_server_bootstrap_reject.json"
+    server_audit_path = runtime_dir / "mmo_server_content_manifest_rejects.jsonl"
+
+    client_reject = read_json(client_reject_path)
+    server_records = read_jsonl(server_audit_path)
+    limit = max(0, args.limit)
+    latest = server_records[-limit:] if limit else []
+
+    report = {
+        "client_reject_path": str(client_reject_path),
+        "server_audit_path": str(server_audit_path),
+        "client_reject_present": client_reject is not None,
+        "client_reject": client_reject,
+        "server_audit_summary": summarize(server_records),
+        "latest_server_audit_records": latest,
+        "db_audit": db_audit_report(args.url, limit) if args.url else None,
+    }
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\mmo_content_pack_inventory_report.py =====
+#!/usr/bin/env python3
+"""Summarize local and DB-backed MMO server content pack inventory."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+ROOT = Path(__file__).resolve().parents[1]
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parent
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "--skip-column-names",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return "'" + text.replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(
+        mysql_cmd(target),
+        input=sql,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(ROOT),
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def scalar_int(target: Target, sql: str) -> int:
+    output = run_mysql(target, sql).splitlines()
+    if not output:
+        return 0
+    try:
+        return int(output[-1].strip() or "0")
+    except ValueError:
+        return 0
+
+
+def json_query(target: Target, sql: str) -> object:
+    output = run_mysql(target, sql)
+    if not output:
+        return None
+    return json.loads(output.splitlines()[-1])
+
+
+def summarize_items(items: list[dict[str, object]]) -> dict[str, object]:
+    by_role: dict[str, int] = {}
+    by_stage: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    required = 0
+    total_bytes = 0
+    for item in items:
+        role = str(item.get("file_role") or "other")
+        stage = str(item.get("loader_stage") or "unknown")
+        status = str(item.get("import_status") or "not_started")
+        by_role[role] = by_role.get(role, 0) + 1
+        by_stage[stage] = by_stage.get(stage, 0) + 1
+        by_status[status] = by_status.get(status, 0) + 1
+        required += 1 if item.get("required_for_server_authority") else 0
+        try:
+            total_bytes += int(item.get("byte_size") or 0)
+        except (TypeError, ValueError):
+            pass
+    return {
+        "file_count": len(items),
+        "required_for_server_authority_count": required,
+        "total_bytes": total_bytes,
+        "by_role": dict(sorted(by_role.items())),
+        "by_stage": dict(sorted(by_stage.items())),
+        "by_status": dict(sorted(by_status.items())),
+    }
+
+
+def read_local_inventory(path: Path | None) -> dict[str, object] | None:
+    if path is None:
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        raise ValueError("inventory JSON must contain an items array")
+    return {
+        "path": str(path),
+        "content_revision_key": data.get("content_revision_key"),
+        "manifest_hash": data.get("manifest_hash"),
+        "summary": data.get("summary") or summarize_items([item for item in items if isinstance(item, dict)]),
+    }
+
+
+def db_inventory_report(target: Target, limit: int) -> dict[str, object]:
+    table_count = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM information_schema.tables "
+        "WHERE table_schema=DATABASE() AND table_name='mmo_server_content_pack_inventory';",
+    )
+    if table_count != 1:
+        return {"available": False, "reason": "mmo_server_content_pack_inventory_missing"}
+
+    health_exists = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM information_schema.views "
+        "WHERE table_schema=DATABASE() AND table_name='v_mmo_server_content_pack_inventory_health';",
+    )
+    detail_exists = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM information_schema.views "
+        "WHERE table_schema=DATABASE() AND table_name='v_mmo_server_content_pack_inventory';",
+    )
+
+    report: dict[str, object] = {"available": True}
+    if health_exists == 1:
+        report["health"] = json_query(
+            target,
+            "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+            "'content_revision_key',content_revision_key,"
+            "'is_active',is_active,"
+            "'manifest_file_count',manifest_file_count,"
+            "'inventoried_file_count',inventoried_file_count,"
+            "'missing_inventory_count',missing_inventory_count,"
+            "'world_zen_count',world_zen_count,"
+            "'scripts_dat_count',scripts_dat_count,"
+            "'dialog_ou_count',dialog_ou_count,"
+            "'archive_count',archive_count,"
+            "'required_for_authority_count',required_for_authority_count,"
+            "'ready_for_parser_count',ready_for_parser_count,"
+            "'unsupported_count',unsupported_count,"
+            "'failed_count',failed_count"
+            ")),JSON_ARRAY()) FROM v_mmo_server_content_pack_inventory_health;",
+        )
+    if detail_exists == 1:
+        report["by_role"] = json_query(
+            target,
+            "SELECT COALESCE(JSON_OBJECTAGG(file_role,cnt),JSON_OBJECT()) FROM ("
+            "SELECT file_role, COUNT(*) AS cnt FROM v_mmo_server_content_pack_inventory GROUP BY file_role"
+            ") role_counts;",
+        )
+        report["latest_required"] = json_query(
+            target,
+            "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+            "'content_revision_key',content_revision_key,"
+            "'logical_path',logical_path,"
+            "'file_role',file_role,"
+            "'loader_stage',loader_stage,"
+            "'import_status',import_status,"
+            "'sha256',sha256"
+            ")),JSON_ARRAY()) FROM ("
+            "SELECT content_revision_key,logical_path,file_role,loader_stage,import_status,sha256 "
+            "FROM v_mmo_server_content_pack_inventory "
+            "WHERE required_for_server_authority=1 "
+            "ORDER BY import_priority ASC, logical_path ASC LIMIT " + str(max(0, limit)) +
+            ") latest_required;",
+        )
+    return report
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Report local/DB MMO server content pack inventory.")
+    parser.add_argument("--inventory", default="", help="Inventory JSON generated by analyze_server_content_pack_inventory.py")
+    parser.add_argument("--url", default="", help="Optional mysql://user:password@host:port/database")
+    parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    inventory_path = Path(args.inventory) if args.inventory else None
+    if inventory_path is not None and not inventory_path.is_absolute():
+        inventory_path = ROOT / inventory_path
+
+    report: dict[str, object] = {
+        "tool": "mmo_content_pack_inventory_report.py",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "local_inventory": read_local_inventory(inventory_path) if inventory_path else None,
+        "db_inventory": db_inventory_report(parse_mysql_url(args.url), args.limit) if args.url else None,
+    }
+
+    if args.output:
+        output = Path(args.output)
+        if not output.is_absolute():
+            output = ROOT / output
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(output))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\plan_server_content_archive_mounts.py =====
+#!/usr/bin/env python3
+from pathlib import Path
+import runpy
+import sys
+
+target = Path(__file__).resolve().parent / "bootstrap" / "plan_server_content_archive_mounts.py"
+sys.path.insert(0, str(target.parent.parent))
+runpy.run_path(str(target), run_name="__main__")
 
 
 ===== tools\production\run_mmo_action_receiver.py =====
@@ -10751,6 +13626,17 @@ truth replaces native save state in `-mmo-client-server` flows, while old
 single-player behavior stays unchanged without the MMO flag.
 
 
+===== tools\register_server_content_pack_manifest.py =====
+#!/usr/bin/env python3
+from pathlib import Path
+import runpy
+import sys
+
+target = Path(__file__).resolve().parent / "bootstrap" / "register_server_content_pack_manifest.py"
+sys.path.insert(0, str(target.parent.parent))
+runpy.run_path(str(target), run_name="__main__")
+
+
 ===== tools\reset_mmo_mysql_from_chapter1_start.py =====
 #!/usr/bin/env python3
 from _tool_entrypoint import run
@@ -14166,6 +17052,1097 @@ def main() -> int:
         print(f"artifact={out}")
     print("status=" + str(result["status"]))
     return 0 if result["status"] == "ok" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\validation\check_mmo_step188_server_content_pack_manifest.py =====
+#!/usr/bin/env python3
+"""Check Step188 server content pack manifest state."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "--skip-column-names",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return "'" + text.replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(
+        mysql_cmd(target),
+        input=sql,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(ROOT),
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def scalar_int(target: Target, sql: str) -> int:
+    text = run_mysql(target, sql).splitlines()
+    if not text:
+        return 0
+    try:
+        return int(text[-1].strip() or "0")
+    except ValueError:
+        return 0
+
+
+def validate_hash(target: Target, realm_key: str, client_hash: str) -> dict[str, object]:
+    sql = (
+        "SET @accepted=0; SET @reason=''; SET @server_hash=NULL; SET @revision_key=NULL;"
+        "CALL mmo_validate_client_content_pack("
+        + sql_literal(realm_key) + ","
+        + sql_literal(client_hash) + ","
+        + "@accepted,@reason,@server_hash,@revision_key);"
+        "SELECT CONCAT(@accepted,'\\t',COALESCE(@reason,''),'\\t',COALESCE(@server_hash,''),'\\t',COALESCE(@revision_key,''));"
+    )
+    output = run_mysql(target, sql)
+    parts = (output.splitlines()[-1] if output else "").split("\t")
+    return {
+        "accepted": parts[0] == "1" if len(parts) > 0 else False,
+        "reason": parts[1] if len(parts) > 1 else "missing_result",
+        "server_manifest_hash": parts[2] if len(parts) > 2 else "",
+        "content_revision_key": parts[3] if len(parts) > 3 else "",
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check Step188 server content pack manifest.")
+    parser.add_argument("--url", required=True, help="mysql://user:password@host:port/database")
+    parser.add_argument("--realm-key", default="", help="Realm key to validate against.")
+    parser.add_argument("--client-manifest-hash", default="", help="Client-declared manifest hash to validate.")
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    target = parse_mysql_url(args.url)
+    checks: list[dict[str, object]] = []
+    for name in ("mmo_server_content_pack_files", "mmo_server_content_pack_manifests"):
+        count = scalar_int(
+            target,
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_schema=DATABASE() AND table_name=" + sql_literal(name) + ";",
+        )
+        checks.append({"name": name, "status": "passed" if count == 1 else "failed", "count": count})
+
+    for name in ("mmo_upsert_server_content_pack_file", "mmo_set_server_content_pack_manifest", "mmo_validate_client_content_pack"):
+        count = scalar_int(
+            target,
+            "SELECT COUNT(*) FROM information_schema.routines "
+            "WHERE routine_schema=DATABASE() AND routine_type='PROCEDURE' AND routine_name=" + sql_literal(name) + ";",
+        )
+        checks.append({"name": name, "status": "passed" if count == 1 else "failed", "count": count})
+
+    manifest_count = scalar_int(target, "SELECT COUNT(*) FROM mmo_server_content_pack_manifests;")
+    file_count = scalar_int(target, "SELECT COUNT(*) FROM mmo_server_content_pack_files;")
+    checks.append({"name": "manifest_rows", "status": "passed" if manifest_count > 0 else "warning", "count": manifest_count})
+    checks.append({"name": "manifest_file_rows", "status": "passed" if file_count > 0 else "warning", "count": file_count})
+
+    validation = None
+    if args.realm_key or args.client_manifest_hash:
+        validation = validate_hash(target, args.realm_key, args.client_manifest_hash)
+        checks.append({
+            "name": "client_manifest_validation",
+            "status": "passed" if validation["accepted"] else "failed",
+            "details": validation,
+        })
+
+    failed = [item for item in checks if item["status"] == "failed"]
+    report = {
+        "tool": "check_mmo_step188_server_content_pack_manifest.py",
+        "status": "failed" if failed else "passed",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checks": checks,
+        "validation": validation,
+    }
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["status"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\validation\check_mmo_step198_content_manifest_reject_audit.py =====
+#!/usr/bin/env python3
+"""Check Step198/199 content manifest reject DB audit state."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "--skip-column-names",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return "'" + text.replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(
+        mysql_cmd(target),
+        input=sql,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(ROOT),
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def scalar_int(target: Target, sql: str) -> int:
+    text = run_mysql(target, sql).splitlines()
+    if not text:
+        return 0
+    try:
+        return int(text[-1].strip() or "0")
+    except ValueError:
+        return 0
+
+
+def exists_count(target: Target, kind: str, name: str) -> int:
+    if kind == "table":
+        return scalar_int(
+            target,
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_schema=DATABASE() AND table_type='BASE TABLE' AND table_name="
+            + sql_literal(name)
+            + ";",
+        )
+    if kind == "view":
+        return scalar_int(
+            target,
+            "SELECT COUNT(*) FROM information_schema.views "
+            "WHERE table_schema=DATABASE() AND table_name="
+            + sql_literal(name)
+            + ";",
+        )
+    if kind == "procedure":
+        return scalar_int(
+            target,
+            "SELECT COUNT(*) FROM information_schema.routines "
+            "WHERE routine_schema=DATABASE() AND routine_type='PROCEDURE' AND routine_name="
+            + sql_literal(name)
+            + ";",
+        )
+    raise ValueError(f"unknown object kind: {kind}")
+
+
+def call_sample_record(target: Target, session_uuid: str) -> dict[str, object]:
+    session_expr = "NULL" if not session_uuid else "UUID_TO_BIN(" + sql_literal(session_uuid) + ",1)"
+    sql = (
+        "SET @reject_id=NULL;"
+        "CALL mmo_record_content_manifest_reject("
+        + session_expr
+        + ","
+        + sql_literal("127.0.0.1:0")
+        + ","
+        + sql_literal("step198-check")
+        + ","
+        + sql_literal("character:PC_HERO:check")
+        + ",1,1,"
+        + sql_literal("check")
+        + ","
+        + sql_literal("client_manifest_missing")
+        + ",NULL,NULL,NULL,"
+        + sql_literal("step198 checker sample")
+        + ",JSON_OBJECT('tool','check_mmo_step198_content_manifest_reject_audit.py'),@reject_id);"
+        "SELECT BIN_TO_UUID(@reject_id,1);"
+    )
+    output = run_mysql(target, sql)
+    reject_uuid = output.splitlines()[-1] if output else ""
+    return {"reject_uuid": reject_uuid, "inserted": bool(reject_uuid)}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check Step198/199 content manifest reject audit DB objects.")
+    parser.add_argument("--url", required=True, help="mysql://user:password@host:port/database")
+    parser.add_argument("--session-uuid", default="", help="Optional session UUID for --write-sample.")
+    parser.add_argument("--write-sample", action="store_true", help="Insert one sample audit row through the procedure.")
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    target = parse_mysql_url(args.url)
+    checks: list[dict[str, object]] = []
+    expected = [
+        ("table", "mmo_content_manifest_reject_audit"),
+        ("view", "v_mmo_content_manifest_reject_audit"),
+        ("view", "v_mmo_content_manifest_reject_summary"),
+        ("view", "v_mmo_content_manifest_reject_health"),
+        ("procedure", "mmo_record_content_manifest_reject"),
+    ]
+    for kind, name in expected:
+        count = exists_count(target, kind, name)
+        checks.append({"name": name, "kind": kind, "status": "passed" if count == 1 else "failed", "count": count})
+
+    marker_count = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM mmo_schema_versions WHERE migration_key='server/sql/step198_content_manifest_reject_audit.sql';",
+    )
+    checks.append({"name": "schema_marker_step198", "kind": "schema_marker", "status": "passed" if marker_count == 1 else "failed", "count": marker_count})
+    marker_199_count = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM mmo_schema_versions WHERE migration_key='server/sql/step199_content_manifest_reject_health_views.sql';",
+    )
+    checks.append({"name": "schema_marker_step199", "kind": "schema_marker", "status": "passed" if marker_199_count == 1 else "failed", "count": marker_199_count})
+
+    row_count = scalar_int(target, "SELECT COUNT(*) FROM mmo_content_manifest_reject_audit;")
+    checks.append({"name": "audit_rows", "kind": "row_count", "status": "passed", "count": row_count})
+
+    sample = None
+    if args.write_sample:
+        sample = call_sample_record(target, args.session_uuid)
+        checks.append({"name": "sample_record", "kind": "procedure_call", "status": "passed" if sample["inserted"] else "failed", "details": sample})
+
+    failed = [item for item in checks if item["status"] == "failed"]
+    report = {
+        "tool": "check_mmo_step198_content_manifest_reject_audit.py",
+        "status": "failed" if failed else "passed",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checks": checks,
+        "sample": sample,
+    }
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["status"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\validation\check_mmo_step201_server_content_pack_inventory.py =====
+#!/usr/bin/env python3
+"""Check Step201 server content pack inventory DB objects and data."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - standalone patch bundle fallback.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "--skip-column-names",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return "'" + text.replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(
+        mysql_cmd(target),
+        input=sql,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(ROOT),
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def scalar_int(target: Target, sql: str) -> int:
+    output = run_mysql(target, sql).splitlines()
+    if not output:
+        return 0
+    try:
+        return int(output[-1].strip() or "0")
+    except ValueError:
+        return 0
+
+
+def json_value(target: Target, sql: str) -> object:
+    output = run_mysql(target, sql)
+    if not output:
+        return None
+    return json.loads(output.splitlines()[-1])
+
+
+def object_exists(target: Target, kind: str, name: str) -> int:
+    if kind == "table":
+        return scalar_int(
+            target,
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_schema=DATABASE() AND table_name=" + sql_literal(name) + ";",
+        )
+    if kind == "view":
+        return scalar_int(
+            target,
+            "SELECT COUNT(*) FROM information_schema.views "
+            "WHERE table_schema=DATABASE() AND table_name=" + sql_literal(name) + ";",
+        )
+    if kind == "procedure":
+        return scalar_int(
+            target,
+            "SELECT COUNT(*) FROM information_schema.routines "
+            "WHERE routine_schema=DATABASE() AND routine_type='PROCEDURE' AND routine_name=" + sql_literal(name) + ";",
+        )
+    raise ValueError(kind)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check Step201 server content pack inventory DB state.")
+    parser.add_argument("--url", required=True, help="mysql://user:password@host:port/database")
+    parser.add_argument("--expect-world-zen", action="store_true")
+    parser.add_argument("--expect-scripts-dat", action="store_true")
+    parser.add_argument("--expect-dialog-ou", action="store_true")
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    target = parse_mysql_url(args.url)
+    checks: list[dict[str, object]] = []
+    for kind, name in (
+        ("table", "mmo_server_content_pack_inventory"),
+        ("view", "v_mmo_server_content_pack_inventory"),
+        ("view", "v_mmo_server_content_pack_inventory_health"),
+        ("procedure", "mmo_upsert_server_content_pack_inventory"),
+    ):
+        count = object_exists(target, kind, name)
+        checks.append({"name": name, "kind": kind, "status": "passed" if count == 1 else "failed", "count": count})
+
+    migration_count = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM mmo_schema_versions "
+        "WHERE migration_key='server/sql/step201_server_content_pack_inventory.sql';",
+    )
+    checks.append({
+        "name": "step201_schema_version_marker",
+        "kind": "migration",
+        "status": "passed" if migration_count == 1 else "failed",
+        "count": migration_count,
+    })
+
+    inventory_count = scalar_int(target, "SELECT COUNT(*) FROM mmo_server_content_pack_inventory;")
+    checks.append({
+        "name": "inventory_rows",
+        "kind": "data",
+        "status": "passed" if inventory_count > 0 else "warning",
+        "count": inventory_count,
+    })
+
+    role_counts = json_value(
+        target,
+        "SELECT COALESCE(JSON_OBJECTAGG(file_role,cnt),JSON_OBJECT()) FROM ("
+        "SELECT file_role, COUNT(*) AS cnt FROM mmo_server_content_pack_inventory GROUP BY file_role"
+        ") role_counts;",
+    )
+    checks.append({"name": "role_counts", "kind": "data", "status": "passed", "details": role_counts})
+
+    health = json_value(
+        target,
+        "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+        "'content_revision_key',content_revision_key,"
+        "'is_active',is_active,"
+        "'manifest_file_count',manifest_file_count,"
+        "'inventoried_file_count',inventoried_file_count,"
+        "'missing_inventory_count',missing_inventory_count,"
+        "'world_zen_count',world_zen_count,"
+        "'scripts_dat_count',scripts_dat_count,"
+        "'dialog_ou_count',dialog_ou_count,"
+        "'archive_count',archive_count,"
+        "'required_for_authority_count',required_for_authority_count,"
+        "'ready_for_parser_count',ready_for_parser_count,"
+        "'unsupported_count',unsupported_count,"
+        "'failed_count',failed_count"
+        ")),JSON_ARRAY()) FROM v_mmo_server_content_pack_inventory_health;",
+    )
+    checks.append({"name": "inventory_health", "kind": "data", "status": "passed", "details": health})
+
+    expectations = (
+        ("world_zen", args.expect_world_zen),
+        ("scripts_dat", args.expect_scripts_dat),
+        ("dialog_ou", args.expect_dialog_ou),
+    )
+    role_counts_dict = role_counts if isinstance(role_counts, dict) else {}
+    for role, expected in expectations:
+        if not expected:
+            continue
+        count = int(role_counts_dict.get(role, 0) or 0)
+        checks.append({
+            "name": "expected_" + role,
+            "kind": "data_expectation",
+            "status": "passed" if count > 0 else "failed",
+            "count": count,
+        })
+
+    failed = [item for item in checks if item["status"] == "failed"]
+    report = {
+        "tool": "check_mmo_step201_server_content_pack_inventory.py",
+        "status": "failed" if failed else "passed",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checks": checks,
+    }
+
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["status"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\validation\check_mmo_step203_server_content_archive_mounts.py =====
+#!/usr/bin/env python3
+"""Check Step203 server content archive mount DB objects and health."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 3306,
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        database=database,
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "--skip-column-names",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return "'" + text.replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(
+        mysql_cmd(target),
+        input=sql,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(ROOT),
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def scalar_int(target: Target, sql: str) -> int:
+    output = run_mysql(target, sql).splitlines()
+    if not output:
+        return 0
+    try:
+        return int(output[-1].strip() or "0")
+    except ValueError:
+        return 0
+
+
+def json_value(target: Target, sql: str) -> object:
+    output = run_mysql(target, sql)
+    if not output:
+        return None
+    return json.loads(output.splitlines()[-1])
+
+
+def object_exists(target: Target, kind: str, name: str) -> int:
+    if kind == "table":
+        return scalar_int(
+            target,
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_schema=DATABASE() AND table_name=" + sql_literal(name) + ";",
+        )
+    if kind == "view":
+        return scalar_int(
+            target,
+            "SELECT COUNT(*) FROM information_schema.views "
+            "WHERE table_schema=DATABASE() AND table_name=" + sql_literal(name) + ";",
+        )
+    if kind == "procedure":
+        return scalar_int(
+            target,
+            "SELECT COUNT(*) FROM information_schema.routines "
+            "WHERE routine_schema=DATABASE() AND routine_type='PROCEDURE' AND routine_name=" + sql_literal(name) + ";",
+        )
+    raise ValueError(kind)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check Step203 server content archive mount DB state.")
+    parser.add_argument("--url", required=True, help="mysql://user:password@host:port/database")
+    parser.add_argument("--expect-mounted-or-extracted", action="store_true")
+    parser.add_argument("--fail-on-missing-mount", action="store_true")
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    target = parse_mysql_url(args.url)
+    checks: list[dict[str, object]] = []
+    for kind, name in (
+        ("table", "mmo_server_content_archive_mounts"),
+        ("table", "mmo_server_content_extracted_files"),
+        ("view", "v_mmo_server_content_archive_mounts"),
+        ("view", "v_mmo_server_content_extracted_files"),
+        ("view", "v_mmo_server_content_archive_health"),
+        ("procedure", "mmo_upsert_server_content_archive_mount"),
+        ("procedure", "mmo_upsert_server_content_extracted_file"),
+    ):
+        count = object_exists(target, kind, name)
+        checks.append({"name": name, "kind": kind, "status": "passed" if count == 1 else "failed", "count": count})
+
+    migration_count = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM mmo_schema_versions "
+        "WHERE migration_key='server/sql/step203_server_content_archive_mounts.sql';",
+    )
+    checks.append({
+        "name": "step203_schema_version_marker",
+        "kind": "migration",
+        "status": "passed" if migration_count == 1 else "failed",
+        "count": migration_count,
+    })
+
+    mount_count = scalar_int(target, "SELECT COUNT(*) FROM mmo_server_content_archive_mounts;")
+    extracted_count = scalar_int(target, "SELECT COUNT(*) FROM mmo_server_content_extracted_files;")
+    checks.append({"name": "archive_mount_rows", "kind": "data", "status": "passed" if mount_count > 0 else "warning", "count": mount_count})
+    checks.append({"name": "extracted_file_rows", "kind": "data", "status": "passed" if extracted_count > 0 else "warning", "count": extracted_count})
+
+    health = json_value(
+        target,
+        "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+        "'content_revision_key',content_revision_key,"
+        "'is_active',is_active,"
+        "'inventory_archive_count',inventory_archive_count,"
+        "'archive_mount_count',archive_mount_count,"
+        "'missing_mount_count',missing_mount_count,"
+        "'planned_count',planned_count,"
+        "'mounted_count',mounted_count,"
+        "'extracted_count',extracted_count,"
+        "'verified_count',verified_count,"
+        "'failed_count',failed_count,"
+        "'extracted_file_count',extracted_file_count,"
+        "'extracted_total_bytes',extracted_total_bytes"
+        ")),JSON_ARRAY()) FROM v_mmo_server_content_archive_health;",
+    )
+    checks.append({"name": "archive_health", "kind": "data", "status": "passed", "details": health})
+
+    if args.fail_on_missing_mount:
+        missing = 0
+        if isinstance(health, list):
+            missing = sum(int(row.get("missing_mount_count", 0) or 0) for row in health if isinstance(row, dict))
+        checks.append({"name": "missing_archive_mounts", "kind": "data_expectation", "status": "passed" if missing == 0 else "failed", "count": missing})
+
+    if args.expect_mounted_or_extracted:
+        ready = scalar_int(
+            target,
+            "SELECT COUNT(*) FROM mmo_server_content_archive_mounts "
+            "WHERE mount_status IN ('mounted','extracted','verified');",
+        )
+        checks.append({"name": "mounted_or_extracted_archives", "kind": "data_expectation", "status": "passed" if ready > 0 else "failed", "count": ready})
+
+    failed = [item for item in checks if item["status"] == "failed"]
+    report = {
+        "tool": "check_mmo_step203_server_content_archive_mounts.py",
+        "status": "failed" if failed else "passed",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checks": checks,
+    }
+
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["status"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+===== tools\validation\check_mmo_step206_server_content_import_jobs.py =====
+#!/usr/bin/env python3
+"""Check Step206 server content import jobs DB objects and health."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    database = (parsed.path or "/").lstrip("/")
+    if not database:
+        raise ValueError("database missing in MySQL URL")
+    return Target(parsed.hostname or "localhost", parsed.port or 3306, unquote(parsed.username or ""), unquote(parsed.password or ""), database)
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [exe, "--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci", "--batch", "--raw", "--skip-column-names", "-h", target.host, "-P", str(target.port), "-u", target.user]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return "'" + text.replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(mysql_cmd(target), input=sql, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(ROOT))
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def scalar_int(target: Target, sql: str) -> int:
+    output = run_mysql(target, sql).splitlines()
+    if not output:
+        return 0
+    try:
+        return int(output[-1].strip() or "0")
+    except ValueError:
+        return 0
+
+
+def json_value(target: Target, sql: str) -> object:
+    output = run_mysql(target, sql)
+    if not output:
+        return None
+    return json.loads(output.splitlines()[-1])
+
+
+def object_exists(target: Target, kind: str, name: str) -> int:
+    if kind == "table":
+        return scalar_int(target, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=" + sql_literal(name) + ";")
+    if kind == "view":
+        return scalar_int(target, "SELECT COUNT(*) FROM information_schema.views WHERE table_schema=DATABASE() AND table_name=" + sql_literal(name) + ";")
+    if kind == "procedure":
+        return scalar_int(target, "SELECT COUNT(*) FROM information_schema.routines WHERE routine_schema=DATABASE() AND routine_type='PROCEDURE' AND routine_name=" + sql_literal(name) + ";")
+    raise ValueError(kind)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check Step206 server content import job DB state.")
+    parser.add_argument("--url", required=True, help="mysql://user:password@host:port/database")
+    parser.add_argument("--expect-jobs", action="store_true")
+    parser.add_argument("--fail-on-failed-jobs", action="store_true")
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    target = parse_mysql_url(args.url)
+    checks: list[dict[str, object]] = []
+    for kind, name in (
+        ("table", "mmo_server_content_import_jobs"),
+        ("view", "v_mmo_server_content_import_jobs"),
+        ("view", "v_mmo_server_content_import_job_health"),
+        ("procedure", "mmo_enqueue_server_content_import_job"),
+    ):
+        count = object_exists(target, kind, name)
+        checks.append({"name": name, "kind": kind, "status": "passed" if count == 1 else "failed", "count": count})
+
+    migration_count = scalar_int(target, "SELECT COUNT(*) FROM mmo_schema_versions WHERE migration_key='server/sql/step206_server_content_import_jobs.sql';")
+    checks.append({"name": "step206_schema_version_marker", "kind": "migration", "status": "passed" if migration_count == 1 else "failed", "count": migration_count})
+
+    job_count = scalar_int(target, "SELECT COUNT(*) FROM mmo_server_content_import_jobs;")
+    checks.append({"name": "content_import_job_rows", "kind": "data", "status": "passed" if job_count > 0 else "warning", "count": job_count})
+
+    health = json_value(
+        target,
+        "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+        "'content_revision_key',content_revision_key,"
+        "'is_active',is_active,"
+        "'total_jobs',total_jobs,"
+        "'queued_count',queued_count,"
+        "'running_count',running_count,"
+        "'succeeded_count',succeeded_count,"
+        "'failed_count',failed_count,"
+        "'blocked_count',blocked_count,"
+        "'archive_jobs',archive_jobs,"
+        "'world_zen_jobs',world_zen_jobs,"
+        "'scripts_dat_jobs',scripts_dat_jobs,"
+        "'dialog_ou_jobs',dialog_ou_jobs"
+        ")),JSON_ARRAY()) FROM v_mmo_server_content_import_job_health;",
+    )
+    checks.append({"name": "content_import_job_health", "kind": "data", "status": "passed", "details": health})
+
+    if args.expect_jobs:
+        checks.append({"name": "expected_content_import_jobs", "kind": "data_expectation", "status": "passed" if job_count > 0 else "failed", "count": job_count})
+    if args.fail_on_failed_jobs:
+        failed_jobs = scalar_int(target, "SELECT COUNT(*) FROM mmo_server_content_import_jobs WHERE job_status='failed';")
+        checks.append({"name": "failed_content_import_jobs", "kind": "data_expectation", "status": "passed" if failed_jobs == 0 else "failed", "count": failed_jobs})
+
+    failed = [item for item in checks if item["status"] == "failed"]
+    report = {"tool": "check_mmo_step206_server_content_import_jobs.py", "status": "failed" if failed else "passed", "checked_at": datetime.now(timezone.utc).isoformat(), "checks": checks}
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["status"] == "passed" else 1
 
 
 if __name__ == "__main__":

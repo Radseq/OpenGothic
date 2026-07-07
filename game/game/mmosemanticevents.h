@@ -50,6 +50,7 @@ enum class SemanticActionKind : std::uint8_t {
   RecordNpcAiState,
   RecordNpcPathState,
   RecordNpcFightState,
+  RecordCombatIntent,
   RecordNpcActionState,
   RecordNpcDialogLine,
   RecordTriggerQueueState,
@@ -70,7 +71,7 @@ struct SemanticActionDef final {
   bool               serverAuthoritative = true;
 };
 
-inline constexpr std::array<SemanticActionDef, 48> SemanticActionDefs {{
+inline constexpr std::array<SemanticActionDef, 49> SemanticActionDefs {{
   {SemanticActionKind::ClientBootstrapRequest,"client_bootstrap_request", "client_bootstrap_requested",  "session",      "mmo_client_bootstrap_request",        true, true},
   {SemanticActionKind::MovementProposal,      "movement_proposal",       "movement_proposal_submitted",     "movement",     "server_validate_movement_proposal",     true, true},
   {SemanticActionKind::CharacterCheckpoint,   "character_checkpoint",      "character_position_checkpoint",    "character",    "mmo_checkpoint_character_state",        true, true},
@@ -111,6 +112,7 @@ inline constexpr std::array<SemanticActionDef, 48> SemanticActionDefs {{
   {SemanticActionKind::RecordNpcAiState,      "record_npc_ai_state",       "npc_ai_state_recorded",           "world_entity", "mmo_record_npc_ai_state",               true, true},
   {SemanticActionKind::RecordNpcPathState,    "record_npc_path_state",     "npc_path_state_recorded",         "world_entity", "mmo_record_npc_path_state",             true, true},
   {SemanticActionKind::RecordNpcFightState,   "record_npc_fight_state",    "npc_fight_state_recorded",        "combat",       "mmo_record_npc_fight_state",            true, true},
+  {SemanticActionKind::RecordCombatIntent,    "record_combat_intent",      "combat_intent_recorded",          "combat",       "mmo_record_combat_intent",              true, true},
   {SemanticActionKind::RecordNpcActionState,  "record_npc_action_state",   "npc_action_state_recorded",       "world_entity", "mmo_record_npc_action_state",           true, true},
   {SemanticActionKind::RecordNpcDialogLine,   "record_npc_dialog_line",    "npc_dialog_line_recorded",        "dialog",       "mmo_record_npc_dialog_line",            true, true},
   {SemanticActionKind::RecordTriggerQueueState,"record_trigger_queue_state","trigger_queue_state_recorded",    "world_entity", "mmo_record_trigger_queue_state",        true, true},
