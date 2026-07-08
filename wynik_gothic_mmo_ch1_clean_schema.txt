@@ -12904,4 +12904,4 @@ USE `mmo_content_build`;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-07-08  8:10:16
+-- Dump completed on 2026-07-08 10:12:45

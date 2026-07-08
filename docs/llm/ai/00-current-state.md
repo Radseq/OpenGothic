@@ -300,7 +300,3 @@ Step98 notes:
 - C++ server strict guard `--require-db-save-checkpoint-restore` NACKs bootstrap when no DB save checkpoint snapshot can be exported, instead of silently falling back to live projections.
 - Live movement-triggered world refreshes intentionally bypass DB save checkpoint export and use current projections only. Save checkpoint restore is for boot/continue; live refresh must not replay an old save snapshot over active movement/item interest updates.
 - `mmo_validate_latest_save_checkpoint_restore_v1`, `mmo_assert_latest_save_checkpoint_restore_v1` and `v_mmo_latest_save_checkpoint_strict_restore` are the DB-side evidence surface for proving DB-native Continue readiness.
-
-
-
-

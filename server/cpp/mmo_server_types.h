@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 namespace Mmo::Server {
@@ -18,6 +20,27 @@ struct Options final {
   std::string contentRevisionKey;
   std::string worldInstanceKey;
   std::string worldName;
+  std::string worldInstanceAiDatabaseName = "mmo_ai_runtime";
+  std::string worldInstanceAiPerceptionKind = "PERC_ASSESSPLAYER";
+  double worldInstanceAiMaxDistance = 1500.0;
+  std::uint64_t worldInstanceAiServerTick = 0;
+  std::uint64_t worldInstanceAiCooldownTicks = 250;
+  int worldInstanceAiPriorityValue = 100;
+  std::size_t worldInstanceAiMaxNpcs = 32;
+  std::size_t worldInstanceAiMaxPlayers = 16;
+  std::size_t worldInstanceAiMinAcceptedNpcs = 0;
+  std::size_t worldInstanceAiMinPlayerActors = 0;
+  std::size_t worldInstanceAiMinDecisions = 0;
+  std::size_t worldInstanceAiMaxSkippedWeakNpcIdentity = std::numeric_limits<std::size_t>::max();
+  std::size_t worldInstanceAiMaxSkippedMissingNpcInstance = std::numeric_limits<std::size_t>::max();
+  bool worldInstanceAiStartupDryRun = false;
+  bool worldInstanceAiStartupFailOnEvidence = false;
+  bool worldInstanceAiRepairWeakNpcEntityKeys = true;
+  bool worldInstanceAiIncludeWeakNpcIdentity = false;
+  bool worldInstanceAiRequireActorPair = false;
+  bool worldInstanceAiRequireDecision = false;
+  bool worldInstanceAiRequireCleanNpcIdentity = false;
+  bool worldInstanceAiRequireNoRecordLimitSkip = false;
   int outboxPriority = 100;
   int outboxMaxAttempts = 5;
   int maxPackets = 0;
@@ -69,6 +92,8 @@ struct WorldItemIdentity final {
 };
 
 } // namespace Mmo::Server
+
+
 
 
 

@@ -23,12 +23,23 @@ struct RuntimeActorQueryOptions final {
   std::string worldName;
   std::size_t maxNpcs = 32;
   std::size_t maxPlayers = 16;
+  bool repairWeakNpcEntityKeys = true;
+  bool includeWeakNpcIdentity = false;
+};
+
+struct RuntimeNpcIdentityStats final {
+  std::size_t npcRowsRead = 0;
+  std::size_t acceptedNpcs = 0;
+  std::size_t repairedEntityKeys = 0;
+  std::size_t skippedWeakEntityKeys = 0;
+  std::size_t skippedMissingNpcInstance = 0;
 };
 
 struct RuntimeActorSnapshot final {
   RuntimeWorldInstance world;
   std::vector<NpcPerception::NpcActor> npcs;
   std::vector<NpcPerception::PlayerActor> players;
+  RuntimeNpcIdentityStats npcIdentity;
 };
 
 [[nodiscard]] RuntimeWorldInstance resolveRuntimeWorldInstance(
@@ -41,3 +52,5 @@ struct RuntimeActorSnapshot final {
     const RuntimeActorQueryOptions& options);
 
 } // namespace Mmo::NpcPerceptionRuntime
+
+

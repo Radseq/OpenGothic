@@ -50,6 +50,7 @@
 #include "mmo_server_types.h"
 #include "mmo_server_identity.h"
 #include "mmo_world_instance_content_cache.h"
+#include "mmo_world_instance_ai_scheduler_boundary.h"
 
 namespace {
 
@@ -106,6 +107,8 @@ using Mmo::Server::Options;
 using Mmo::Server::WorldItemIdentity;
 using Mmo::WorldInstanceContent::WorldInstanceContentCache;
 using Mmo::WorldInstanceContent::WorldInstanceContentCacheOptions;
+using Mmo::WorldInstanceAiTick::WorldInstanceAiSchedulerBoundaryOptions;
+using Mmo::WorldInstanceAiTick::WorldInstanceAiSchedulerBoundaryResult;
 
 void stopHandler(int) {
   gRunning.store(false, std::memory_order_relaxed);
@@ -721,6 +724,87 @@ void printWorldInstanceContentCacheReady(const WorldInstanceContentCache& cache)
             << " dialog_infos=" << stats.dialogInfos
             << " dialog_outputs=" << stats.dialogOutputs
             << " warnings=" << cache.readModel().inspection.warnings.size()
+            << "\n";
+}
+
+[[nodiscard]] bool worldInstanceAiStartupDryRunEnabled(const Options& opt) noexcept {
+  return opt.worldInstanceAiStartupDryRun || opt.worldInstanceAiStartupFailOnEvidence;
+}
+
+[[nodiscard]] std::size_t parseSizeOr(std::string_view text, std::size_t fallback) noexcept {
+  const auto parsed = parseU64OrZero(text);
+  if(parsed == 0 && text != "0")
+    return fallback;
+  return static_cast<std::size_t>(parsed);
+}
+
+[[nodiscard]] std::string logToken(std::string_view text) {
+  std::string out;
+  out.reserve(text.size());
+  for(const unsigned char c : text) {
+    if(c <= ' ' || c == '"' || c == '\'' || c == '`') {
+      out.push_back('_');
+    } else {
+      out.push_back(static_cast<char>(c));
+    }
+  }
+  return out;
+}
+
+[[nodiscard]] WorldInstanceAiSchedulerBoundaryOptions makeWorldInstanceAiStartupOptions(const Options& opt) {
+  WorldInstanceAiSchedulerBoundaryOptions options;
+  options.enabled = true;
+  options.tick.runtimeReadModelPath = opt.runtimeReadModelPath;
+  options.tick.contentRevisionKey = opt.contentRevisionKey;
+  options.tick.worldInstanceKey = opt.worldInstanceKey;
+  options.tick.worldName = opt.worldName;
+  options.tick.aiDatabaseName = opt.worldInstanceAiDatabaseName;
+  options.tick.perceptionKind = opt.worldInstanceAiPerceptionKind;
+  options.tick.maxDistance = opt.worldInstanceAiMaxDistance;
+  options.tick.serverTick = opt.worldInstanceAiServerTick;
+  options.tick.cooldownTicks = opt.worldInstanceAiCooldownTicks;
+  options.tick.priorityValue = opt.worldInstanceAiPriorityValue;
+  options.tick.maxNpcs = opt.worldInstanceAiMaxNpcs;
+  options.tick.maxPlayers = opt.worldInstanceAiMaxPlayers;
+  options.tick.maxRecords = 0;
+  options.tick.repairWeakNpcEntityKeys = opt.worldInstanceAiRepairWeakNpcEntityKeys;
+  options.tick.includeWeakNpcIdentity = opt.worldInstanceAiIncludeWeakNpcIdentity;
+  options.tick.enqueueAction = false;
+  options.tick.dryRun = true;
+
+  options.evidence.minAcceptedNpcs = opt.worldInstanceAiMinAcceptedNpcs;
+  options.evidence.minPlayerActors = opt.worldInstanceAiMinPlayerActors;
+  options.evidence.minDecisions = opt.worldInstanceAiMinDecisions;
+  options.evidence.maxSkippedWeakEntityKeys = opt.worldInstanceAiMaxSkippedWeakNpcIdentity;
+  options.evidence.maxSkippedMissingNpcInstance = opt.worldInstanceAiMaxSkippedMissingNpcInstance;
+  options.evidence.requireActorPair = opt.worldInstanceAiRequireActorPair;
+  options.evidence.requireDecision = opt.worldInstanceAiRequireDecision;
+  options.evidence.requireCleanNpcIdentity = opt.worldInstanceAiRequireCleanNpcIdentity;
+  options.evidence.requireNoRecordLimitSkip = opt.worldInstanceAiRequireNoRecordLimitSkip;
+  return options;
+}
+
+void printWorldInstanceAiStartupDryRunResult(const WorldInstanceAiSchedulerBoundaryResult& result) {
+  const auto& evidence = result.evidence;
+  const auto& tick = result.dryRunTick;
+  std::cout << "[world_instance_ai_startup_dry_run]"
+            << " enabled=" << (result.enabled ? 1 : 0)
+            << " executed=" << (result.executed ? 1 : 0)
+            << " write_executed=" << (result.writeExecuted ? 1 : 0)
+            << " accepted=" << (evidence.accepted ? 1 : 0)
+            << " status=" << logToken(evidence.status)
+            << " reason=" << logToken(evidence.reason)
+            << " world_instance_uuid=" << logToken(tick.world.worldInstanceUuid)
+            << " world_instance_key=" << logToken(tick.world.worldInstanceKey)
+            << " world_name=" << logToken(tick.world.worldName)
+            << " server_tick=" << tick.world.serverTick
+            << " accepted_npcs=" << evidence.acceptedNpcs
+            << " player_actors=" << evidence.playerActors
+            << " decisions=" << evidence.decisions
+            << " weak_identity_skips=" << evidence.weakIdentitySkips
+            << " missing_npc_instance_skips=" << evidence.missingNpcInstanceSkips
+            << " record_limit_skips=" << evidence.recordLimitSkips
+            << " accepted_npc_ratio=" << evidence.acceptedNpcRatio
             << "\n";
 }
 
@@ -3744,6 +3828,44 @@ Options parseArgs(int argc, char** argv) {
     else if(arg == "--content-revision-key") opt.contentRevisionKey = need(i, arg);
     else if(arg == "--world-instance-key") opt.worldInstanceKey = need(i, arg);
     else if(arg == "--world-name") opt.worldName = need(i, arg);
+    else if(arg == "--world-instance-ai-db-name") opt.worldInstanceAiDatabaseName = need(i, arg);
+    else if(arg == "--world-instance-ai-perception-kind") opt.worldInstanceAiPerceptionKind = need(i, arg);
+    else if(arg == "--world-instance-ai-max-distance") opt.worldInstanceAiMaxDistance = parseDouble(need(i, arg)).value_or(opt.worldInstanceAiMaxDistance);
+    else if(arg == "--world-instance-ai-server-tick") opt.worldInstanceAiServerTick = parseU64OrZero(need(i, arg));
+    else if(arg == "--world-instance-ai-cooldown-ticks") opt.worldInstanceAiCooldownTicks = parseU64OrZero(need(i, arg));
+    else if(arg == "--world-instance-ai-priority") opt.worldInstanceAiPriorityValue = parseInt(need(i, arg)).value_or(opt.worldInstanceAiPriorityValue);
+    else if(arg == "--world-instance-ai-max-npcs") opt.worldInstanceAiMaxNpcs = parseSizeOr(need(i, arg), opt.worldInstanceAiMaxNpcs);
+    else if(arg == "--world-instance-ai-max-players") opt.worldInstanceAiMaxPlayers = parseSizeOr(need(i, arg), opt.worldInstanceAiMaxPlayers);
+    else if(arg == "--world-instance-ai-min-accepted-npcs") opt.worldInstanceAiMinAcceptedNpcs = parseSizeOr(need(i, arg), opt.worldInstanceAiMinAcceptedNpcs);
+    else if(arg == "--world-instance-ai-min-player-actors") opt.worldInstanceAiMinPlayerActors = parseSizeOr(need(i, arg), opt.worldInstanceAiMinPlayerActors);
+    else if(arg == "--world-instance-ai-min-decisions") opt.worldInstanceAiMinDecisions = parseSizeOr(need(i, arg), opt.worldInstanceAiMinDecisions);
+    else if(arg == "--world-instance-ai-max-skipped-weak-npc-identity") opt.worldInstanceAiMaxSkippedWeakNpcIdentity = parseSizeOr(need(i, arg), opt.worldInstanceAiMaxSkippedWeakNpcIdentity);
+    else if(arg == "--world-instance-ai-max-skipped-missing-npc-instance") opt.worldInstanceAiMaxSkippedMissingNpcInstance = parseSizeOr(need(i, arg), opt.worldInstanceAiMaxSkippedMissingNpcInstance);
+    else if(arg == "--world-instance-ai-startup-dry-run") opt.worldInstanceAiStartupDryRun = true;
+    else if(arg == "--world-instance-ai-startup-fail-on-evidence") { opt.worldInstanceAiStartupDryRun = true; opt.worldInstanceAiStartupFailOnEvidence = true; }
+    else if(arg == "--world-instance-ai-startup-strict-evidence") {
+      opt.worldInstanceAiStartupDryRun = true;
+      opt.worldInstanceAiStartupFailOnEvidence = true;
+      opt.worldInstanceAiRequireActorPair = true;
+      opt.worldInstanceAiRequireDecision = true;
+      opt.worldInstanceAiRequireCleanNpcIdentity = true;
+      opt.worldInstanceAiMinAcceptedNpcs = std::max<std::size_t>(opt.worldInstanceAiMinAcceptedNpcs, 1);
+      opt.worldInstanceAiMinPlayerActors = std::max<std::size_t>(opt.worldInstanceAiMinPlayerActors, 1);
+      opt.worldInstanceAiMinDecisions = std::max<std::size_t>(opt.worldInstanceAiMinDecisions, 1);
+    }
+    else if(arg == "--world-instance-ai-require-actor-pair") {
+      opt.worldInstanceAiRequireActorPair = true;
+      opt.worldInstanceAiMinAcceptedNpcs = std::max<std::size_t>(opt.worldInstanceAiMinAcceptedNpcs, 1);
+      opt.worldInstanceAiMinPlayerActors = std::max<std::size_t>(opt.worldInstanceAiMinPlayerActors, 1);
+    }
+    else if(arg == "--world-instance-ai-require-decision") {
+      opt.worldInstanceAiRequireDecision = true;
+      opt.worldInstanceAiMinDecisions = std::max<std::size_t>(opt.worldInstanceAiMinDecisions, 1);
+    }
+    else if(arg == "--world-instance-ai-require-clean-npc-identity") opt.worldInstanceAiRequireCleanNpcIdentity = true;
+    else if(arg == "--world-instance-ai-require-no-record-limit-skip") opt.worldInstanceAiRequireNoRecordLimitSkip = true;
+    else if(arg == "--world-instance-ai-no-repair-weak-npc-entity-keys") opt.worldInstanceAiRepairWeakNpcEntityKeys = false;
+    else if(arg == "--world-instance-ai-include-weak-npc-identity") opt.worldInstanceAiIncludeWeakNpcIdentity = true;
     else if(arg == "--outbox-priority") opt.outboxPriority = parseInt(need(i, arg)).value_or(opt.outboxPriority);
     else if(arg == "--outbox-max-attempts") opt.outboxMaxAttempts = parseInt(need(i, arg)).value_or(opt.outboxMaxAttempts);
     else if(arg == "--max-packets") opt.maxPackets = parseInt(need(i, arg)).value_or(0);
@@ -3758,7 +3880,7 @@ Options parseArgs(int argc, char** argv) {
     else if(arg == "--no-require-runtime-read-model-content-revision-match") opt.requireRuntimeReadModelContentRevisionMatch = false;
     else if(arg == "--startup-check-only") opt.startupCheckOnly = true;
     else if(arg == "--help" || arg == "-h") {
-      std::cout << "Usage: mmo_udp_server --bind 127.0.0.1:29777 --mysql-url mysql://user:pass@host:3306/db [--session-key local-dev-PC_HERO_TEST] [--enqueue-outbox] [--no-direct-db] [--runtime-read-model PATH --content-revision-key KEY --world-instance-key KEY --world-name NAME] [--startup-check-only] [--require-db-save-checkpoint-restore]\n";
+      std::cout << "Usage: mmo_udp_server --bind 127.0.0.1:29777 --mysql-url mysql://user:pass@host:3306/db [--session-key local-dev-PC_HERO_TEST] [--enqueue-outbox] [--no-direct-db] [--runtime-read-model PATH --content-revision-key KEY --world-instance-key KEY --world-name NAME] [--world-instance-ai-startup-dry-run|--world-instance-ai-startup-strict-evidence] [--startup-check-only] [--require-db-save-checkpoint-restore]\n";
       std::exit(0);
     } else {
       throw std::runtime_error("unknown argument: " + std::string(arg));
@@ -3795,11 +3917,35 @@ int main(int argc, char** argv) {
       worldContentCache.emplace(loadWorldInstanceContentCache(opt));
       printWorldInstanceContentCacheReady(*worldContentCache);
     }
+
+    std::optional<WorldInstanceAiSchedulerBoundaryResult> worldInstanceAiStartupDryRun;
+    if(worldInstanceAiStartupDryRunEnabled(opt)) {
+      if(opt.mysqlUrl.empty()) {
+        throw std::runtime_error("--mysql-url is required for --world-instance-ai-startup-dry-run");
+      }
+      if(!worldContentCache) {
+        throw std::runtime_error("--runtime-read-model, --content-revision-key, --world-instance-key and --world-name are required for --world-instance-ai-startup-dry-run");
+      }
+      const auto aiTarget = mysql ? *mysql : parseMysqlUrl(opt.mysqlUrl);
+      worldInstanceAiStartupDryRun.emplace(
+          Mmo::WorldInstanceAiTick::runWorldInstanceAiSchedulerBoundary(aiTarget, makeWorldInstanceAiStartupOptions(opt)));
+      printWorldInstanceAiStartupDryRunResult(*worldInstanceAiStartupDryRun);
+      if(opt.worldInstanceAiStartupFailOnEvidence && !worldInstanceAiStartupDryRun->evidence.accepted) {
+        std::cout << "startup_check=evidence_failed"
+                  << " world_instance_ai_status=" << logToken(worldInstanceAiStartupDryRun->evidence.status)
+                  << " world_instance_ai_reason=" << logToken(worldInstanceAiStartupDryRun->evidence.reason)
+                  << "\n";
+        return 3;
+      }
+    }
+
     if(opt.startupCheckOnly) {
       std::cout << "startup_check=ok"
                 << " direct_db=" << (opt.directDb ? "on" : "off")
                 << " enqueue_outbox=" << (opt.enqueueOutbox ? "on" : "off")
                 << " world_instance_content_cache=" << (worldContentCache ? "ready" : "off")
+                << " world_instance_ai_startup_dry_run="
+                << (!worldInstanceAiStartupDryRun ? "off" : (worldInstanceAiStartupDryRun->evidence.accepted ? "accepted" : "evidence_failed"))
                 << "\n";
       return 0;
     }
@@ -4137,6 +4283,8 @@ int main(int argc, char** argv) {
     return 2;
   }
 }
+
+
 
 
 

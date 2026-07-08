@@ -1,5 +1,5 @@
 # OpenGothic docs/llm snapshot
-# Generated: 2026-07-08T08:10:08
+# Generated: 2026-07-08T10:12:36
 # Project root: /home/radseq/Desktop/OpenGothic
 # MAX_BYTES per file: 1500000
 
@@ -84,6 +84,11 @@ Domains with meaningful server/DB path:
 - direct C++ combat/lifecycle calls for character damage, NPC/world entity damage and NPC death.
 - direct C++ NPC routine/AI/path/fight observation recorder calls and bootstrap
   snapshot sections backed by the Step120 clean-DB bridge;
+- manual C++ world-instance AI tick/probe backed by content cache, guarded
+  runtime actor identity, perception policy and bounded `mmo_ai_runtime`
+  recording;
+- explicit `mmo_udp_server` startup-only AI evidence dry-run hook backed by the
+  same guard, without periodic scheduling or DB AI writes;
 - direct C++ trigger queue, world transition/visited-world and client correction
   recorder/ack calls backed by the Step121 clean-DB bridge.
 
@@ -309,6 +314,117 @@ Step98 notes:
 
 
 
+
+
+
+
+
+Step231 notes:
+- Runtime NPC actor-source no longer passes weak identity blindly into AI
+  recording. Keys such as `creature:None`, `npc:None`, `:null`/`:undefined`
+  suffixes and `pid:-1` aliases are considered weak.
+- When possible, weak NPC entity keys are repaired from a content-backed
+  template/instance plus `world_entity_state_id` into
+  `<entity_kind>:template:<template-or-instance>:state:<world_entity_state_uuid>`.
+- NPC rows without content-backed template/instance are skipped by default and
+  counted in `npc_identity`; `--include-weak-npc-identity` is diagnostic only.
+- This still is not an automatic AI scheduler, Daedalus VM, NPC movement or
+  dialog broadcast. The next edge is an explicit manual `world_instance` AI tick
+  boundary using the guarded actor-source.
+
+
+
+
+Step232 notes:
+- `mmo_world_instance_ai_tick` is now the reusable manual tick boundary for
+  `world_instance` NPC perception decisions.
+- `mmo_world_instance_ai_tick_probe` runs one explicit tick from CLI: load
+  `WorldInstanceContentCache`, read Step231 guarded runtime actors, run Step229
+  policy, and optionally record bounded Step230 decisions.
+- Default probe mode is dry-run; `--write --max-records N` is required to mutate
+  `mmo_ai_runtime`.
+- This is still not automatic UDP server scheduling, not Daedalus VM execution
+  and not live NPC movement/dialog/combat replication.
+
+
+Step233 notes:
+- `mmo_world_instance_ai_tick_evidence` evaluates a completed manual tick before
+  future scheduler code can trust it: accepted NPCs, player actors, decisions,
+  weak identity skips, missing NPC instance skips and record-limit skips.
+- `mmo_world_instance_ai_tick_probe` now emits an `evidence` object and supports
+  strict flags such as `--strict-evidence`, `--require-clean-npc-identity`,
+  `--require-actor-pair` and `--require-decision`. Evidence failure returns
+  `status=evidence_failed` and exit code `3`.
+- `mmo_world_instance_ai_scheduler_boundary` is a disabled-by-default future
+  scheduler seam. It dry-runs and checks evidence before any write tick.
+- No automatic `mmo_udp_server` AI scheduler is enabled. Step233 only prepares
+  the evidence boundary for a future disabled scheduler integration.
+
+
+Step234 notes:
+- `mmo_udp_server` can now run an explicit startup-only AI evidence dry-run with
+  `--world-instance-ai-startup-dry-run` or strict CI mode with
+  `--world-instance-ai-startup-strict-evidence`.
+- The startup hook routes through `mmo_world_instance_ai_scheduler_boundary`, but
+  forces `dryRun=true`, `maxRecords=0`, `enqueueAction=false`; log evidence must
+  show `write_executed=0`.
+- `--world-instance-ai-startup-fail-on-evidence` / strict mode return exit code
+  `3` on failed evidence. Plain dry-run only logs evidence.
+- `mmo_udp_server --startup-check-only` reports
+  `world_instance_ai_startup_dry_run=off|accepted|evidence_failed`.
+- Automatic periodic NPC AI scheduling remains disabled. This is a startup
+  evidence hook only.
+
+
+
+
+
+
+Step235 notes:
+- `mmo_npc_perception_action_queue_probe` is now the manual evidence surface for
+  `mmo_ai_runtime.npc_perception_action_queue` before any dispatcher exists.
+- Default probe mode is read-only and returns queue counts plus a bounded
+  `pending_actions` array.
+- `--claim-one` requires `--i-understand-this-mutates-db`; it claims one due
+  pending row through `mmo_ai_claim_next_npc_perception_action(...)` but does not
+  execute gameplay or broadcast packets.
+- `--skip-after-claim` can mark only the row claimed by the probe as skipped for
+  cleanup. It is still terminal queue mutation, not gameplay dispatch.
+- Automatic periodic NPC AI scheduling remains disabled. Next work is an action
+  dispatcher boundary/probe that validates action kinds and payloads without
+  applying live effects.
+
+
+Step236 notes:
+- `mmo_npc_perception_action_dispatcher_boundary.*` validates action-kind and
+  claimed-row contract shape before any dispatcher exists.
+- `mmo_npc_perception_action_dispatcher_probe` remains read-only by default and
+  can explicitly claim/validate/skip one row only with mutation flags.
+- The probe never calls `mmo_ai_mark_npc_perception_action_applied` and always
+  reports `live_dispatch_executed=false`.
+
+Step237 notes:
+- `mmo_npc_perception_effect_descriptor.*` describes valid `npc_greet_player`
+  and `npc_warn_player` rows as typed dialog-intent future effects.
+- The descriptor carries stable identity fields and explicit future requirements,
+  but reports `live_dispatch_implemented=false` and `live_dispatch_allowed=false`.
+
+Step238 notes:
+- `mmo_npc_perception_dialog_intent_preview.*` builds a deterministic log-only
+  preview for described greeting/warning dialog intents.
+- The preview path is disabled by default and requires explicit claim/preview
+  flags; it does not open dialog UI/audio, send packets or mark the action
+  applied.
+
+Step239 notes:
+- `mmo_npc_perception_dialog_intent_diagnostic_packet.*` builds a client-safe
+  diagnostic packet contract from a Step238 preview.
+- The dispatcher probe supports `--emit-preview-diagnostic-packet` and
+  `--require-preview-diagnostic-packet`; required diagnostic packet failures
+  return exit code `7`.
+- Step239 still does not send any packet, open dialog UI/audio or call
+  `mmo_ai_mark_npc_perception_action_applied`. It is a typed contract boundary
+  before future explicit fan-out/encoder work.
 
 
 
@@ -1300,6 +1416,45 @@ Step93 save-to-server roadmap notes:
 
 
 
+
+
+
+Step235 AI action queue probe expectations:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_queue_probe \
+  "$MYSQL_URL" \
+  --max-pending 8
+```
+
+Expected default result:
+
+```text
+mutated_db=false
+status=ready|empty
+```
+
+Manual claim is intentionally mutating and must be explicit:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_queue_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --skip-after-claim \
+  --worker-id step235-local-probe \
+  --i-understand-this-mutates-db
+```
+
+This validates claim/skip queue mechanics only. It must not trigger dialog,
+movement, combat, item changes, packet fan-out or a periodic scheduler.
+
+Next slice after Step235:
+1. Add a dispatcher-boundary probe that classifies claimed `npc_*` action kinds
+   and validates payload shape.
+2. Keep dispatcher execution disabled until each action kind has a typed
+   server-authoritative effect contract.
+3. Do not schedule world-instance AI automatically until startup evidence,
+   write tick idempotency and queue dispatch boundaries are all clean.
 
 
 ===== docs/llm/ai/06-save-to-server-roadmap.md =====
@@ -6500,6 +6655,1374 @@ There should not be a second immediate `client_bootstrap_request` for
 
 
 
+===== docs/llm/ai/140-mmo-runtime-npc-identity-step231.md =====
+# Step231 - Runtime NPC identity guard for AI recording
+
+## Powod
+
+Step230 potrafil zapisac kandydackie decyzje NPC perception do
+`mmo_ai_runtime`, ale live actor-source mogl pobrac z runtime DB NPC o zbyt
+slabej tozsamosci, np. `entity_key=creature:None` i pusty `npc_instance`.
+Takiego aktora nie wolno traktowac jako produkcyjnej prawdy AI, bo kolejne
+akcje moglyby zapisac decyzje dla niejednoznacznego NPC.
+
+Step231 uszczelnia tylko warstwe wejscia runtime actor-source. Nadal nie
+uruchamia automatycznego ticka serwera, nie wykonuje Daedalusa, nie rusza NPC
+movement i nie broadcastuje dialogu.
+
+## Zrobione
+
+Zmodyfikowano:
+
+- `server/cpp/mmo_npc_perception_runtime_source.h`
+- `server/cpp/mmo_npc_perception_runtime_source.cpp`
+- `server/cpp/mmo_npc_perception_record_probe.cpp`
+
+`RuntimeActorQueryOptions` dostal bezpieczne flagi:
+
+- `repairWeakNpcEntityKeys=true` - domyslnie probuje naprawic slaby
+  `entity_key` runtime NPC;
+- `includeWeakNpcIdentity=false` - domyslnie odrzuca aktorow bez stabilnej
+  tozsamosci.
+
+`RuntimeActorSnapshot` dostal `npcIdentity` z licznikami:
+
+- `npcRowsRead`
+- `acceptedNpcs`
+- `repairedEntityKeys`
+- `skippedWeakEntityKeys`
+- `skippedMissingNpcInstance`
+
+## Reguly identity
+
+Actor-source teraz czyta rowniez:
+
+- `world_entity_state_id` jako DB UUID;
+- `entity_kind`;
+- `content_entity_templates.engine_template_key`;
+- `content_entity_templates.script_name`;
+- znane pola JSON z `state_json`: `npc_instance`, `script_name`,
+  `symbol_name`, `instance_name`, `creature_template_key`.
+
+Slaby `entity_key`, np. `creature:None`, `npc:None`, koncowka `:None`, `:null`,
+`pid:-1`, nie jest przepuszczany bezwarunkowo.
+
+Jesli rekord ma content-backed template key albo sensowny `npc_instance` oraz
+stabilny `world_entity_state_id`, actor-source buduje naprawiony klucz:
+
+```text
+<entity_kind>:template:<template-or-instance>:state:<world_entity_state_uuid>
+```
+
+Jesli nie ma ani content-backed template key, ani `npc_instance`, aktor jest
+pomijany, chyba ze probe zostanie jawnie odpalony z
+`--include-weak-npc-identity` w trybie diagnostycznym.
+
+## Probe
+
+`mmo_npc_perception_record_probe` wypisuje teraz sekcje:
+
+```json
+"npc_identity": {
+  "npc_rows_read": 0,
+  "accepted_npcs": 0,
+  "repaired_entity_keys": 0,
+  "skipped_weak_entity_keys": 0,
+  "skipped_missing_npc_instance": 0
+}
+```
+
+Nowe opcje diagnostyczne:
+
+- `--no-repair-weak-npc-entity-keys` - sprawdza zachowanie bez naprawy;
+- `--include-weak-npc-identity` - przepuszcza slabe identity tylko do
+  diagnostyki, nie jako domyslny tryb.
+
+## Zweryfikowac lokalnie
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_record_probe -j
+cmake --build build/mmo_cpp_server --target mmo_udp_server -j
+```
+
+Live dry-run:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_record_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --dry-run \
+  --max-npcs 32 \
+  --max-players 4 \
+  --max-records 1
+```
+
+Oczekiwane:
+
+- `npc_identity.skipped_*` pokazuje, czy DB nadal ma slabe NPC identity;
+- decyzje pojawiaja sie tylko dla aktorow z zaakceptowanym albo naprawionym
+  stable identity;
+- `creature:None` bez template/instance nie powinien tworzyc decyzji.
+
+Regresja syntetyczna Step230 nadal powinna dzialac, bo nie korzysta z live NPC
+z DB:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_record_probe \
+  mysql://user:pass@127.0.0.1:3306/gothic_mmo_ch1_clean \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --synthetic \
+  --dry-run \
+  --world-instance-uuid 00000000-0000-0000-0000-000000000000
+```
+
+## Nastepny krok
+
+Step232 powinien dodac jawny, reczny `world_instance` AI tick/probe, ktory:
+
+- laduje `WorldInstanceContentCache`;
+- pobiera runtime aktorow przez Step231 actor-source;
+- zapisuje tylko decyzje z zaakceptowanym NPC identity przez Step230 writer;
+- nadal nie broadcastuje dialogu/ruchu i nie wykonuje pelnego Daedalus VM.
+
+
+===== docs/llm/ai/141-mmo-world-instance-ai-tick-probe-step232.md =====
+# Step232 - Manual World Instance AI Tick Probe
+
+## Cel
+
+Dodano jawny, reczny `world_instance` AI tick/probe przed jakimkolwiek
+automatycznym schedulerem w `mmo_udp_server`. Tick ma byc mala granica
+produkcyjna: mozna go uruchomic z CLI, sprawdzic identity/decision counters i
+dopiero pozniej zdecydowac, czy scheduler jest bezpieczny.
+
+## Zmienione pliki
+
+- `server/cpp/mmo_world_instance_ai_tick.h`
+- `server/cpp/mmo_world_instance_ai_tick.cpp`
+- `server/cpp/mmo_world_instance_ai_tick_probe.cpp`
+
+## Flow
+
+```text
+WorldInstanceContentCache
+-> Step231 loadRuntimeActors() identity guard
+-> Step229 assessNpcPerception()
+-> Step230 mmo_ai_record_npc_perception_decision(...) when --write
+-> JSON counters
+```
+
+## Kontrakt
+
+`mmo_world_instance_ai_tick` jest biblioteka/granica przyszlego schedulera.
+Nie zna UDP, nie broadcastuje pakietow i nie uruchamia Daedalus VM.
+
+`mmo_world_instance_ai_tick_probe` ma kontrakt:
+
+```bash
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --dry-run \
+  --max-npcs 32 \
+  --max-players 4 \
+  --max-records 1
+```
+
+Domyslnie probe jest bezpieczny (`dry_run=true`). Mutacja DB wymaga jawnego:
+
+```bash
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --write \
+  --max-records 1 \
+  --server-tick 123456
+```
+
+## JSON output
+
+Probe raportuje m.in.:
+
+```json
+{
+  "status": "ready_dry_run",
+  "npc_identity": {
+    "npc_rows_read": 0,
+    "accepted_npcs": 0,
+    "repaired_entity_keys": 0,
+    "skipped_weak_entity_keys": 0,
+    "skipped_missing_npc_instance": 0
+  },
+  "assessment": {
+    "npc_actors": 0,
+    "player_actors": 0,
+    "evaluated_pairs": 0,
+    "decisions": 0
+  },
+  "record_limit": 1,
+  "recorded_count": 0,
+  "skipped_by_record_limit": 0
+}
+```
+
+## Reguly bezpieczenstwa
+
+- `--dry-run` nie zapisuje do DB.
+- `--write` zapisuje tylko do `mmo_ai_runtime` przez
+  `mmo_ai_record_npc_perception_decision(...)`.
+- `--max-records` ogranicza liczbe zapisanych decyzji na tick.
+- Slabe NPC identity pozostaje domyslnie filtrowane przez Step231.
+- Re-run z tym samym `--server-tick` powinien byc idempotentny, bo
+  `DecisionCandidate.idempotencyKey` zawiera tick, NPC key, target key i
+  perception kind.
+
+## Build / smoke
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_world_instance_ai_tick_probe -j
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_record_probe -j
+cmake --build build/mmo_cpp_server --target mmo_udp_server -j
+```
+
+## Nastepny krok
+
+Step233 powinien zebrac live evidence z tego probe i dopiero potem przygotowac
+wyraznie wylaczony domyslnie hook schedulera. Nadal nie wlaczac automatycznego
+AI ticka w `mmo_udp_server`, dopoki identity/record counters nie sa czyste.
+
+
+===== docs/llm/ai/142-mmo-world-instance-ai-tick-evidence-step233.md =====
+# Step233 - World Instance AI Tick Evidence Guard
+
+Purpose: validate the Step232 manual `world_instance` AI tick with explicit live
+identity evidence before any automatic server-side scheduler is allowed to run.
+
+Step232 gave us the reusable tick boundary:
+
+```text
+WorldInstanceContentCache
+-> Step231 guarded loadRuntimeActors()
+-> Step229 assessNpcPerception()
+-> Step230 record decisions when --write
+```
+
+Step233 keeps this manual and adds a small evidence layer around it. The point is
+not to start NPC AI automatically. The point is to make the question measurable:
+are the runtime NPC rows stable enough to be scheduled later?
+
+## Changed files
+
+- `server/cpp/mmo_world_instance_ai_tick_evidence.h`
+- `server/cpp/mmo_world_instance_ai_tick_evidence.cpp`
+- `server/cpp/mmo_world_instance_ai_scheduler_boundary.h`
+- `server/cpp/mmo_world_instance_ai_scheduler_boundary.cpp`
+- `server/cpp/mmo_world_instance_ai_tick_probe.cpp`
+
+## Evidence guard
+
+`evaluateWorldInstanceAiTickEvidence(...)` checks a completed manual tick result
+against configurable gates:
+
+- minimum accepted NPC actors;
+- minimum active player actors;
+- minimum produced decisions;
+- maximum weak NPC entity-key skips;
+- maximum missing `npc_instance` skips;
+- optional clean identity requirement;
+- optional no-record-limit-skip requirement.
+
+The report is intentionally simple and scheduler-friendly:
+
+```json
+{
+  "accepted": true,
+  "status": "accepted",
+  "reason": "ok",
+  "accepted_npcs": 12,
+  "player_actors": 1,
+  "decisions": 1,
+  "weak_identity_skips": 0,
+  "missing_npc_instance_skips": 0,
+  "record_limit_skips": 0,
+  "accepted_npc_ratio": 1.0
+}
+```
+
+## Probe additions
+
+`mmo_world_instance_ai_tick_probe` still defaults to dry-run. New validation
+flags are additive:
+
+```bash
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  runtime/content_build_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --dry-run \
+  --max-npcs 64 \
+  --max-players 4 \
+  --max-records 1 \
+  --strict-evidence
+```
+
+Useful focused variants:
+
+```bash
+--require-actor-pair
+--require-decision
+--require-clean-npc-identity
+--min-accepted-npcs 1
+--min-player-actors 1
+--min-decisions 1
+--max-skipped-weak-npc-identity 0
+--max-skipped-missing-npc-instance 0
+--require-no-record-limit-skip
+```
+
+When evidence fails, the probe returns `status=evidence_failed` and exits with
+code `3`. Plain Step232 behavior remains unchanged unless one of the evidence
+requirements is requested.
+
+## Disabled scheduler boundary
+
+`mmo_world_instance_ai_scheduler_boundary.*` is a future integration seam. It is
+disabled by default. When enabled by a future caller, it first runs a dry-run
+tick, evaluates evidence, and only then may execute the configured write tick.
+This prevents future scheduler code from bypassing the same identity checks used
+by the manual probe.
+
+No automatic `mmo_udp_server` AI scheduler is enabled in Step233.
+
+
+## Acceptance checks
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_world_instance_ai_tick_probe -j
+cmake --build build/mmo_cpp_server --target mmo_udp_server -j
+```
+
+Dry-run evidence:
+
+```bash
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  runtime/content_build_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --dry-run \
+  --strict-evidence
+```
+
+Bounded idempotent write evidence:
+
+```bash
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  runtime/content_build_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --write \
+  --max-records 1 \
+  --server-tick 233001 \
+  --strict-evidence
+
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  runtime/content_build_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --write \
+  --max-records 1 \
+  --server-tick 233001 \
+  --strict-evidence
+```
+
+Expected:
+
+- evidence is accepted;
+- weak/missing NPC identity counters are inside the configured budget;
+- at least one actor pair and one decision exist;
+- repeated write with the same `--server-tick` is idempotent;
+- no UDP scheduler, movement replication, dialog fan-out or Daedalus VM executes.
+
+## Next step
+
+Step234 should use this evidence guard to add a still-disabled `mmo_udp_server`
+scheduler option or startup-only dry-run hook. Do not make periodic AI scheduling
+on by default.
+
+
+===== docs/llm/ai/143-mmo-udp-server-ai-startup-evidence-step234.md =====
+# Step234 - UDP Server AI Startup Evidence Hook
+
+Purpose: wire the Step233 evidence guard into `mmo_udp_server` as an explicit
+startup-only dry-run hook, without enabling periodic NPC AI scheduling.
+
+Step233 created a disabled scheduler boundary:
+
+```text
+WorldInstanceContentCache
+-> guarded runtime actor-source
+-> perception policy
+-> evidence guard
+-> optional write tick only after evidence passes
+```
+
+Step234 uses that boundary from `mmo_udp_server` only when the operator passes an
+explicit startup flag. The server performs a dry-run tick, prints a compact log
+line, and can optionally fail startup for CI/evidence checks. It never records
+AI decisions from this hook and never starts a periodic scheduler.
+
+## Changed files
+
+- `server/cpp/mmo_server_types.h`
+- `server/cpp/mmo_udp_server.cpp`
+- `server/cpp/mmo_world_instance_ai_tick_probe.cpp`
+
+## New server flags
+
+Startup dry-run evidence:
+
+```bash
+mmo_udp_server \
+  --mysql-url "$MYSQL_URL" \
+  --runtime-read-model runtime/content_build_runtime_read_model.json \
+  --content-revision-key gothic2-notr-steam-local \
+  --world-instance-key newworld \
+  --world-name newworld \
+  --world-instance-ai-startup-dry-run \
+  --startup-check-only
+```
+
+Strict CI/startup evidence:
+
+```bash
+mmo_udp_server \
+  --mysql-url "$MYSQL_URL" \
+  --runtime-read-model runtime/content_build_runtime_read_model.json \
+  --content-revision-key gothic2-notr-steam-local \
+  --world-instance-key newworld \
+  --world-name newworld \
+  --world-instance-ai-startup-strict-evidence \
+  --startup-check-only
+```
+
+Focused knobs:
+
+```text
+--world-instance-ai-startup-dry-run
+--world-instance-ai-startup-fail-on-evidence
+--world-instance-ai-startup-strict-evidence
+--world-instance-ai-require-actor-pair
+--world-instance-ai-require-decision
+--world-instance-ai-require-clean-npc-identity
+--world-instance-ai-require-no-record-limit-skip
+--world-instance-ai-min-accepted-npcs N
+--world-instance-ai-min-player-actors N
+--world-instance-ai-min-decisions N
+--world-instance-ai-max-skipped-weak-npc-identity N
+--world-instance-ai-max-skipped-missing-npc-instance N
+--world-instance-ai-max-npcs N
+--world-instance-ai-max-players N
+--world-instance-ai-max-distance VALUE
+--world-instance-ai-perception-kind KEY
+--world-instance-ai-server-tick N
+--world-instance-ai-cooldown-ticks N
+--world-instance-ai-priority N
+--world-instance-ai-no-repair-weak-npc-entity-keys
+--world-instance-ai-include-weak-npc-identity
+```
+
+`--world-instance-ai-startup-strict-evidence` implies dry-run, fail-on-evidence,
+actor-pair requirement, decision requirement and clean NPC identity requirement.
+
+## Runtime behavior
+
+The hook logs one compact line:
+
+```text
+[world_instance_ai_startup_dry_run] enabled=1 executed=1 write_executed=0 accepted=1 status=accepted reason=ok world_instance_uuid=... world_instance_key=newworld world_name=newworld server_tick=... accepted_npcs=... player_actors=... decisions=... weak_identity_skips=... missing_npc_instance_skips=... record_limit_skips=0 accepted_npc_ratio=...
+```
+
+Rules:
+
+- The hook requires `--mysql-url` and the runtime read-model/cache flags.
+- The hook runs through `mmo_world_instance_ai_scheduler_boundary` with
+  `tick.dryRun=true`, `tick.maxRecords=0` and `tick.enqueueAction=false`.
+- `write_executed` must stay `0` for this startup hook.
+- `--world-instance-ai-startup-dry-run` logs evidence but does not fail startup
+  by itself.
+- `--world-instance-ai-startup-fail-on-evidence` and
+  `--world-instance-ai-startup-strict-evidence` return exit code `3` when
+  evidence fails.
+- `--startup-check-only` now reports `world_instance_ai_startup_dry_run=off`,
+  `accepted` or `evidence_failed`.
+
+## Probe cleanup
+
+The Step233 probe JSON had a duplicated `record_limit_skips` field in the
+`evidence` object. Step234 removes the duplicate so strict parsers can consume
+one canonical field.
+
+## Non-goals
+
+- No automatic per-world AI scheduler is enabled.
+- No periodic timer is added to the UDP server loop.
+- No Daedalus VM, NPC movement, dialog fan-out, combat replication or item
+  replication is executed from this hook.
+- No new MySQL tables/procedures are required; existing `mmo_ai_runtime`
+  idempotency and queue tables remain the persistence contract for explicit
+  write probes only.
+
+## Acceptance checks
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_world_instance_ai_tick_probe -j
+cmake --build build/mmo_cpp_server --target mmo_udp_server -j
+```
+
+Startup dry-run:
+
+```bash
+build/mmo_cpp_server/mmo_udp_server \
+  --mysql-url "$MYSQL_URL" \
+  --runtime-read-model /tmp/opengothic_runtime_read_model.json \
+  --content-revision-key gothic2-notr-steam-local \
+  --world-instance-key newworld \
+  --world-name newworld \
+  --world-instance-ai-startup-dry-run \
+  --startup-check-only
+```
+
+Expected:
+
+- `[world_instance_content_cache_ready]` is printed;
+- `[world_instance_ai_startup_dry_run]` is printed;
+- `write_executed=0`;
+- `startup_check=ok` contains `world_instance_ai_startup_dry_run=accepted` or
+  `evidence_failed`;
+- no rows are written to `mmo_ai_runtime.npc_perception_decisions` by this
+  startup hook.
+
+Strict evidence variant:
+
+```bash
+build/mmo_cpp_server/mmo_udp_server \
+  --mysql-url "$MYSQL_URL" \
+  --runtime-read-model /tmp/opengothic_runtime_read_model.json \
+  --content-revision-key gothic2-notr-steam-local \
+  --world-instance-key newworld \
+  --world-name newworld \
+  --world-instance-ai-startup-strict-evidence \
+  --startup-check-only
+```
+
+Expected:
+
+- exit code `0` when evidence is accepted;
+- exit code `3` and `startup_check=evidence_failed` when strict evidence fails.
+
+## Next step
+
+Step235 should use the new startup evidence hook in local runs to collect real
+accepted/failed evidence, then add a manual AI action-queue inspection or claim
+probe. Do not enable periodic scheduling until startup evidence is consistently
+clean and the queued action dispatch path is inspectable.
+
+
+===== docs/llm/ai/144-mmo-ai-action-queue-probe-step235.md =====
+# Step235 - AI Action Queue Inspection/Claim Probe
+
+Purpose: make `mmo_ai_runtime.npc_perception_action_queue` inspectable and
+manually claimable before any dispatcher or periodic AI scheduler is introduced.
+
+Step234 proved that `mmo_udp_server` can run a startup-only dry-run evidence
+pass with `write_executed=0`. Step235 does not enable scheduling. It adds a
+small C++ probe for the other side of the contract: once a manual write tick
+creates queued actions, those rows must be visible, bounded and claimable in a
+controlled way.
+
+## Changed files
+
+- `server/cpp/mmo_ai_runtime_persistence.h`
+- `server/cpp/mmo_ai_runtime_persistence.cpp`
+- `server/cpp/mmo_npc_perception_action_queue_probe.cpp`
+- `docs/llm/*`
+
+## New C++ persistence helpers
+
+`mmo_ai_runtime_persistence.*` now exposes:
+
+- `inspectNpcPerceptionActionQueue(...)`
+- `claimNextNpcPerceptionAction(...)`
+- `skipNpcPerceptionAction(...)`
+
+The helpers keep AI-runtime SQL behind the existing persistence adapter and use
+fully-qualified `mmo_ai_runtime` identifiers. Database name remains explicit and
+is validated as a safe MySQL identifier.
+
+## New probe
+
+Read-only default inspection:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_queue_probe \
+  "$MYSQL_URL" \
+  --max-pending 8
+```
+
+Output includes:
+
+- total queue count;
+- pending / due pending / delayed retry counts;
+- claimed / applied / failed / skipped counts;
+- dispatch log count;
+- bounded `pending_actions` JSON array.
+
+Manual claim, explicit mutation only:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_queue_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --worker-id step235-local-probe \
+  --i-understand-this-mutates-db
+```
+
+Manual claim cleanup without gameplay execution:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_queue_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --skip-after-claim \
+  --worker-id step235-local-probe \
+  --i-understand-this-mutates-db
+```
+
+## Safety rules
+
+- Default probe mode is read-only.
+- `--claim-one` refuses to run unless `--i-understand-this-mutates-db` is
+  supplied.
+- Claiming calls only `mmo_ai_claim_next_npc_perception_action(...)` and returns
+  the claimed payload.
+- `--skip-after-claim` calls `mmo_ai_skip_npc_perception_action(...)` only for
+  the row claimed by this probe.
+- The probe never applies gameplay actions, never broadcasts packets and never
+  dispatches dialog/movement/combat.
+
+## Non-goals
+
+- No periodic scheduler.
+- No action dispatcher.
+- No dialog fan-out.
+- No NPC movement/path replication.
+- No Daedalus VM execution.
+- No SQL schema migration.
+
+## Acceptance checks
+
+Build focused server probes:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_world_instance_ai_tick_probe -j
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_queue_probe -j
+```
+
+Create a bounded queued action manually when evidence is clean:
+
+```bash
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --write \
+  --enqueue-action true \
+  --max-records 1 \
+  --server-tick 235000
+```
+
+Inspect queue:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_queue_probe \
+  "$MYSQL_URL" \
+  --max-pending 8
+```
+
+Expected:
+
+- `mutated_db=false` in default mode;
+- `pending_actions` is bounded;
+- `due_pending_count` reflects claimable rows.
+
+Claim/skip cleanup is optional and mutating:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_queue_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --skip-after-claim \
+  --worker-id step235-local-probe \
+  --i-understand-this-mutates-db
+```
+
+Expected:
+
+- status `claimed_and_skipped` when a due pending row exists;
+- exit code `2` when no due pending row exists;
+- no gameplay side effect beyond queue/log state.
+
+## Next step
+
+Step236 should define a dispatcher boundary/probe that validates action kinds and
+payload shape for claimed rows, but still does not fan out live dialog/movement
+or combat until those typed effects have explicit server-authoritative contracts.
+
+
+===== docs/llm/ai/145-mmo-ai-action-dispatcher-boundary-step236.md =====
+# Step236 - AI Action Dispatcher Boundary Probe
+
+Purpose: validate queued `mmo_ai_runtime.npc_perception_action_queue` rows as a
+future dispatcher contract, without executing gameplay effects or enabling any
+periodic scheduler.
+
+Step235 made the queue inspectable and manually claimable. Step236 adds the
+next boundary layer:
+
+```text
+pending action row
+-> action_kind classification
+-> payload/identity contract validation
+-> optional manual claim validation
+-> optional manual skip cleanup
+-> no mark_applied, no packet fan-out, no gameplay side effect
+```
+
+## Changed files
+
+- `server/cpp/mmo_ai_runtime_persistence.h`
+- `server/cpp/mmo_ai_runtime_persistence.cpp`
+- `server/cpp/mmo_npc_perception_action_dispatcher_boundary.h`
+- `server/cpp/mmo_npc_perception_action_dispatcher_boundary.cpp`
+- `server/cpp/mmo_npc_perception_action_dispatcher_probe.cpp`
+- `docs/llm/*`
+
+## New dispatcher boundary module
+
+`mmo_npc_perception_action_dispatcher_boundary.*` is a pure C++ contract layer.
+It classifies known action kinds:
+
+```text
+npc_assess_player   -> assessment_observation
+npc_turn_to_player  -> orientation_intent
+npc_approach_player -> movement_intent
+npc_greet_player    -> dialog_greeting_intent
+npc_warn_player     -> dialog_warning_intent
+npc_start_dialog    -> dialog_start_intent
+npc_attack_player   -> combat_intent
+npc_ignore_player   -> noop
+npc_noop            -> noop
+```
+
+All classified effects currently have `liveDispatchImplemented=false`. This is
+intentional. Step236 validates shape only; it does not claim that dialog,
+movement or combat fan-out exists.
+
+The per-row validation checks:
+
+- action queue UUID;
+- decision UUID;
+- world instance UUID;
+- target key where required;
+- idempotency key;
+- known `action_kind`;
+- JSON-object payload shape;
+- payload keys `decision_uuid`, `npc_entity_key`, `perception_kind`.
+
+## New read-only DB inspection helper
+
+`inspectNpcPerceptionActionDispatchContracts(...)` aggregates due pending rows
+without mutating DB. It reports:
+
+- due pending count;
+- known/unknown action-kind counts;
+- missing world/target/payload-key counts;
+- valid-shape count;
+- live-dispatch implemented count, currently always zero;
+- live-dispatch blocked count;
+- bounded invalid action sample.
+
+## New probe
+
+Read-only contract inspection:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --max-invalid 8
+```
+
+Strict read-only contract inspection:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --strict-contract \
+  --max-invalid 8
+```
+
+Manual claim + validation, still no dispatch:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --worker-id step236-local-dispatch-contract \
+  --i-understand-this-mutates-db
+```
+
+Manual claim + validation + skip cleanup:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --skip-after-claim \
+  --worker-id step236-local-dispatch-contract \
+  --i-understand-this-mutates-db
+```
+
+## Safety rules
+
+- Default mode is read-only.
+- `--claim-one` refuses to run without `--i-understand-this-mutates-db`.
+- The probe never calls `mmo_ai_mark_npc_perception_action_applied`.
+- The probe never broadcasts movement, dialog, combat or correction packets.
+- `live_dispatch_executed=false` is always emitted.
+- A claimed row can be skipped only by explicit `--skip-after-claim` cleanup.
+
+## Acceptance checks
+
+Build focused targets:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_queue_probe -j
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_dispatcher_probe -j
+```
+
+Create one queued action with Step232 when evidence is clean:
+
+```bash
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --write \
+  --enqueue-action true \
+  --max-records 1 \
+  --server-tick 236000
+```
+
+Inspect dispatcher contract:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --strict-contract \
+  --max-invalid 8
+```
+
+Expected:
+
+- `mutated_db=false`;
+- `live_dispatch_executed=false`;
+- due pending rows are either valid shape or explicitly listed under
+  `invalid_actions`;
+- strict mode returns exit code `3` when any invalid due pending contract exists.
+
+Claim validation with cleanup:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --skip-after-claim \
+  --worker-id step236-local-dispatch-contract \
+  --i-understand-this-mutates-db
+```
+
+Expected:
+
+- exit code `0` for a valid claimed row that is skipped successfully;
+- exit code `2` when no row is claimable;
+- exit code `3` when the claimed row violates the dispatch contract;
+- no gameplay side effects.
+
+## Next step
+
+Step237 should use this boundary to define typed effect descriptors for one
+safe action family, probably `npc_greet_player` or `npc_warn_player`, still
+without live fan-out until ACK/diagnostic/client UI contracts are explicit.
+
+
+===== docs/llm/ai/146-mmo-ai-typed-effect-descriptor-step237.md =====
+# Step237 - AI Typed Effect Descriptor Boundary
+
+Purpose: define a typed, non-live effect descriptor for one safe NPC perception
+action family before any dispatcher is allowed to execute gameplay effects.
+
+Step236 validated queued action rows. Step237 keeps the same safety boundary and
+adds a pure C++ descriptor for the first future-dispatch family:
+
+```text
+claimed npc_perception_action_queue row
+-> Step236 dispatch contract validation
+-> Step237 typed dialog-intent descriptor
+-> no mark_applied, no packet fan-out, no dialog UI/audio
+```
+
+## Changed files
+
+- `server/cpp/mmo_npc_perception_effect_descriptor.h`
+- `server/cpp/mmo_npc_perception_effect_descriptor.cpp`
+- `server/cpp/mmo_npc_perception_action_dispatcher_probe.cpp`
+- `docs/llm/*`
+
+## Typed descriptor scope
+
+The descriptor currently supports only the safe dialog-intent family:
+
+```text
+npc_greet_player -> dialog_intent / dialog_greeting_intent / greet_player
+npc_warn_player  -> dialog_intent / dialog_warning_intent / warn_player
+```
+
+The descriptor copies stable identity fields from the claimed action and extracts
+canonical payload fields from `request_payload`:
+
+- `action_queue_uuid`
+- `decision_uuid`
+- `world_instance_uuid`
+- `session_uuid`
+- `character_uuid`
+- `npc_entity_key`
+- `target_key`
+- `perception_kind`
+- `idempotency_key`
+
+The output explicitly marks future live surfaces:
+
+- `requires_dialog_ui=true`
+- `requires_audio=false`
+- `requires_npc_turn=false`
+- `requires_npc_movement=false`
+- `requires_combat=false`
+- `live_dispatch_implemented=false`
+- `live_dispatch_allowed=false`
+
+This is a contract descriptor only. It does not open dialog UI, play audio, move
+NPCs, start combat or mark the queue row applied.
+
+## Probe changes
+
+`mmo_npc_perception_action_dispatcher_probe` now builds a `typed_effect` section
+for claimed rows after Step236 validation.
+
+New option:
+
+```text
+--require-typed-effect
+```
+
+When set, the probe returns exit code `5` if the claimed action cannot be
+represented by the currently supported typed descriptor family. This is useful
+for proving that a selected queued action is a safe dialog-intent candidate.
+
+Manual claim + typed descriptor + cleanup:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --require-typed-effect \
+  --skip-after-claim \
+  --worker-id step237-local-typed-effect \
+  --i-understand-this-mutates-db
+```
+
+Expected:
+
+- exit code `0` for a valid `npc_greet_player` or `npc_warn_player` row that is
+  skipped successfully;
+- exit code `2` when no row is claimable;
+- exit code `3` when Step236 dispatch contract validation fails;
+- exit code `5` when the row is valid but not in the supported typed descriptor
+  family;
+- `live_dispatch_executed=false`;
+- `typed_effect_live_dispatch_executed=false`.
+
+## Safety rules
+
+- Default dispatcher probe inspection remains read-only.
+- Claiming still requires `--i-understand-this-mutates-db`.
+- `--skip-after-claim` is still explicit cleanup, not gameplay execution.
+- The probe does not call `mmo_ai_mark_npc_perception_action_applied`.
+- The descriptor is not a live dispatcher.
+- No packet fan-out, dialog UI/audio, movement replication or combat execution
+  is enabled.
+
+## Next step
+
+Step238 should use Step237 output to design an explicit disabled-by-default
+preview/logging boundary for typed dialog intents. It should still stop before
+client UI/audio fan-out or `mark_applied` until the ACK/diagnostic/client packet
+contract is explicit.
+
+
+===== docs/llm/ai/147-mmo-ai-dialog-intent-preview-step238.md =====
+# Step238 - AI Dialog Intent Preview Boundary
+
+Purpose: add a disabled-by-default preview/logging boundary for Step237 typed
+`dialog_intent` effects while still stopping before client UI/audio fan-out and
+before marking an AI action row applied.
+
+Step237 produced a typed descriptor for safe greeting/warning actions. Step238
+adds one more pure C++ boundary:
+
+```text
+claimed npc_perception_action_queue row
+-> Step236 dispatch contract validation
+-> Step237 typed dialog-intent descriptor
+-> Step238 dialog-intent preview/log record
+-> no mark_applied, no packet fan-out, no dialog UI/audio
+```
+
+## Changed files
+
+- `server/cpp/mmo_npc_perception_dialog_intent_preview.h`
+- `server/cpp/mmo_npc_perception_dialog_intent_preview.cpp`
+- `server/cpp/mmo_npc_perception_action_dispatcher_probe.cpp`
+- `docs/llm/*`
+
+## Preview scope
+
+The preview accepts only described Step237 dialog intents:
+
+```text
+npc_greet_player -> dialog_greeting_preview
+npc_warn_player  -> dialog_warning_preview
+```
+
+The preview copies stable identity from the typed descriptor:
+
+- `action_queue_uuid`
+- `decision_uuid`
+- `world_instance_uuid`
+- `session_uuid`
+- `character_uuid`
+- `npc_entity_key`
+- `target_key`
+- `perception_kind`
+- `idempotency_key`
+
+It emits a deterministic `log_line` and explicit safety fields:
+
+- `live_dispatch_executed=false`
+- `mark_applied_executed=false`
+- `packet_fanout_executed=false`
+
+This is still a preview/logging boundary only. It does not call
+`mmo_ai_mark_npc_perception_action_applied`, does not send packets, does not open
+client dialog UI and does not play audio.
+
+## Probe changes
+
+`mmo_npc_perception_action_dispatcher_probe` now has:
+
+```text
+--preview-dialog-intent
+--preview-typed-effect      # alias
+--require-preview
+--preview-source TEXT
+--preview-mode TEXT
+```
+
+`--preview-dialog-intent` requires `--claim-one` because the preview is built
+from an explicitly claimed queue row. Claiming still requires
+`--i-understand-this-mutates-db`.
+
+Manual claim + typed descriptor + preview + cleanup:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --require-typed-effect \
+  --preview-dialog-intent \
+  --require-preview \
+  --skip-after-claim \
+  --worker-id step238-local-dialog-preview \
+  --i-understand-this-mutates-db
+```
+
+Expected:
+
+- exit code `0` for a valid `npc_greet_player` or `npc_warn_player` row that is
+  previewed and skipped successfully;
+- exit code `2` when no row is claimable;
+- exit code `3` when Step236 dispatch contract validation fails;
+- exit code `5` when Step237 cannot describe the row as a supported typed
+  effect and `--require-typed-effect` is used;
+- exit code `6` when Step238 preview is required but rejected;
+- `dialog_intent_preview.previewed=true` only for supported dialog intents;
+- `live_dispatch_executed=false`;
+- `typed_effect_live_dispatch_executed=false`;
+- `dialog_intent_preview_live_dispatch_executed=false`;
+- `dialog_intent_preview_mark_applied_executed=false`;
+- `dialog_intent_preview_packet_fanout_executed=false`.
+
+## Safety rules
+
+- Default dispatcher probe inspection remains read-only.
+- Preview is disabled by default.
+- Preview requires an explicitly claimed row; claim mutation is still guarded.
+- Preview does not imply application of the action row.
+- The probe still never calls `mmo_ai_mark_npc_perception_action_applied`.
+- No dialog UI/audio, packet fan-out, movement replication or combat execution
+  is enabled.
+
+## Next step
+
+Step239 should define the next boundary before live dialog fan-out: either a
+client-safe diagnostic/packet contract for dialog-intent preview or an explicit
+server-side evidence record. It must still keep `mark_applied` disabled until the
+client ACK/rollback contract is explicit.
+
+
+===== docs/llm/ai/148-mmo-ai-dialog-intent-diagnostic-packet-step239.md =====
+# Step239 - AI Dialog Intent Diagnostic Packet Contract
+
+Step239 turns the Step238 dialog-intent preview into a client-safe diagnostic
+packet contract, but still does not send anything to the client.
+
+New C++ surface:
+
+- `server/cpp/mmo_npc_perception_dialog_intent_diagnostic_packet.h`
+- `server/cpp/mmo_npc_perception_dialog_intent_diagnostic_packet.cpp`
+
+Dispatcher probe integration:
+
+```text
+mmo_npc_perception_action_dispatcher_probe
+-> explicit claim
+-> Step236 dispatch contract validation
+-> Step237 typed dialog-intent descriptor
+-> Step238 dialog-intent preview
+-> Step239 diagnostic packet contract
+-> optional explicit skip cleanup
+-> no packet fan-out
+-> no dialog UI/audio
+-> no mmo_ai_mark_npc_perception_action_applied
+```
+
+New probe flags:
+
+```text
+--emit-preview-diagnostic-packet
+--build-preview-diagnostic-packet  # alias
+--require-preview-diagnostic-packet
+```
+
+The flags are intentionally chained:
+
+- `--emit-preview-diagnostic-packet` requires `--preview-dialog-intent`;
+- `--require-preview-diagnostic-packet` requires
+  `--emit-preview-diagnostic-packet`;
+- `--preview-dialog-intent` still requires `--claim-one`;
+- `--claim-one` still requires `--i-understand-this-mutates-db`.
+
+Supported preview kinds:
+
+```text
+dialog_greeting_preview
+dialog_warning_preview
+```
+
+The diagnostic packet contract emits a JSON object named
+`dialog_intent_diagnostic_packet`. It carries stable identity/evidence fields:
+
+- `contract_version`
+- `packet_kind`
+- `severity`
+- `diagnostic_action`
+- `diagnostic_reason`
+- `diagnostic_source`
+- `message_text`
+- `preview_kind`
+- `effect_family`
+- `effect_kind`
+- `intent_kind`
+- `action_kind`
+- `action_queue_uuid`
+- `decision_uuid`
+- `world_instance_uuid`
+- `session_uuid`
+- `character_uuid`
+- `npc_entity_key`
+- `target_key`
+- `perception_kind`
+- `idempotency_key`
+
+Safety fields are explicit and must remain false in Step239:
+
+- `live_dispatch_executed=false`
+- `packet_fanout_executed=false`
+- `dialog_ui_executed=false`
+- `audio_executed=false`
+- `mark_applied_executed=false`
+
+Probe-level booleans mirror this:
+
+- `dialog_intent_diagnostic_packet_live_dispatch_executed=false`
+- `dialog_intent_diagnostic_packet_fanout_executed=false`
+- `dialog_intent_diagnostic_packet_dialog_ui_executed=false`
+- `dialog_intent_diagnostic_packet_audio_executed=false`
+- `dialog_intent_diagnostic_packet_mark_applied_executed=false`
+
+Exit code `7` means a required Step239 diagnostic packet contract could not be
+built from the claimed Step238 preview.
+
+This is not live client fan-out. It is the last typed/evidence boundary before a
+future explicit adapter can decide whether and how to encode/send a diagnostic
+packet to the OpenGothic client.
+
+
+
+===== docs/llm/ai/149-mmo-ai-dialog-intent-diagnostic-encoding-step240.md =====
+# Step240 - AI Dialog Intent Diagnostic Encoding Boundary
+
+Step240 validates that the Step239 dialog-intent diagnostic packet contract can
+fit the existing client/server binary diagnostic packet boundary, but still does
+not send anything to the client.
+
+New C++ surface:
+
+- `server/cpp/mmo_npc_perception_dialog_intent_diagnostic_encoder.h`
+- `server/cpp/mmo_npc_perception_dialog_intent_diagnostic_encoder.cpp`
+
+Dispatcher probe integration:
+
+```text
+mmo_npc_perception_action_dispatcher_probe
+-> explicit claim
+-> Step236 dispatch contract validation
+-> Step237 typed dialog-intent descriptor
+-> Step238 dialog-intent preview
+-> Step239 diagnostic packet contract
+-> Step240 ServerDiagnosticPacket encode/decode adapter
+-> optional explicit skip cleanup
+-> no packet fan-out
+-> no dialog UI/audio
+-> no mmo_ai_mark_npc_perception_action_applied
+```
+
+New probe flags:
+
+```text
+--encode-preview-diagnostic-packet
+--adapt-preview-diagnostic-packet  # alias
+--require-preview-diagnostic-encoding
+--diagnostic-packet-sequence N
+--diagnostic-local-sequence N
+--max-diagnostic-message-bytes N
+```
+
+The flags are intentionally chained:
+
+- `--encode-preview-diagnostic-packet` requires
+  `--emit-preview-diagnostic-packet`;
+- `--require-preview-diagnostic-encoding` requires
+  `--encode-preview-diagnostic-packet`;
+- `--emit-preview-diagnostic-packet` still requires
+  `--preview-dialog-intent`;
+- `--preview-dialog-intent` still requires `--claim-one`;
+- `--claim-one` still requires `--i-understand-this-mutates-db`.
+
+The adapter maps a Step239 packet to `Mmo::Net::ServerDiagnosticPacket`:
+
+```text
+packet_sequence -> ServerDiagnosticPacket.packetSequence
+local_sequence  -> ServerDiagnosticPacket.localSequence
+severity        -> ServerDiagnosticPacket.severity
+action_kind     -> ServerDiagnosticPacket.actionKind
+diagnostic_reason -> ServerDiagnosticPacket.reason
+message_text    -> ServerDiagnosticPacket.message
+```
+
+It then calls the existing `encodeServerDiagnosticPacket(...)`, decodes the
+encoded bytes with `decodeServerDiagnosticPacket(...)`, and reports:
+
+- `encoded`
+- `encoded_bytes`
+- `fits_datagram`
+- `action_kind_within_client_limit`
+- `reason_within_client_limit`
+- `message_within_client_limit`
+- `decoded_round_trip`
+- `decoded_fields_match`
+
+Safety fields are explicit and must remain false in Step240:
+
+- `send_executed=false`
+- `packet_fanout_executed=false`
+- `dialog_ui_executed=false`
+- `audio_executed=false`
+- `mark_applied_executed=false`
+
+Probe-level booleans mirror this:
+
+- `dialog_intent_diagnostic_encoding_send_executed=false`
+- `dialog_intent_diagnostic_encoding_fanout_executed=false`
+- `dialog_intent_diagnostic_encoding_dialog_ui_executed=false`
+- `dialog_intent_diagnostic_encoding_audio_executed=false`
+- `dialog_intent_diagnostic_encoding_mark_applied_executed=false`
+
+Exit code `8` means a required Step240 diagnostic packet encoding/round-trip
+could not be produced.
+
+This is not live client fan-out. It is a binary contract and sizing boundary
+before a future explicit fan-out step can decide whether the encoded diagnostic
+packet may be sent to the OpenGothic client.
+
+
 ===== docs/llm/ai/14-db-continue-end-to-end-step101.md =====
 # 14 DB Continue End-To-End Step101
 
@@ -6592,6 +8115,225 @@ There should be no silent fallback to `current_projections_v1` in strict mode.
 
 
 
+
+
+===== docs/llm/ai/150-mmo-ai-dialog-intent-durable-evidence-step241.md =====
+# Step241 - AI Dialog Intent Durable Evidence Boundary
+
+Purpose: persist a disabled-by-default, server-side evidence line proving that a
+claimed safe AI dialog-intent action passed Step236 through Step240, while still
+not sending any packet, opening dialog UI/audio or marking the AI action applied.
+
+Step240 produced a binary `ServerDiagnosticPacket` adapter/round-trip for the
+Step239 diagnostic packet contract. Step241 adds a JSONL evidence seam after that
+adapter:
+
+```text
+claimed action row
+-> Step236 dispatch contract validation
+-> Step237 typed_effect descriptor
+-> Step238 dialog_intent_preview
+-> Step239 dialog_intent_diagnostic_packet contract
+-> Step240 ServerDiagnosticPacket encode/decode round-trip
+-> Step241 JSONL durable evidence record, only with explicit flags
+-> optional skip cleanup
+-> no UDP fan-out
+-> no dialog UI/audio
+-> no mark_applied
+```
+
+New C++ surface:
+
+- `mmo_npc_perception_dialog_intent_durable_evidence.*` - pure C++ builder/writer
+  for a JSONL evidence record. It accepts only encoded `npc_greet_player` and
+  `npc_warn_player` diagnostic contracts with successful datagram fit and
+  decode/field round-trip. It records stable action/world/NPC/target identity,
+  Step236/237/238/239/240 statuses and explicit no-side-effect booleans.
+
+`mmo_npc_perception_action_dispatcher_probe` now supports:
+
+```text
+--write-preview-evidence-jsonl PATH
+--record-preview-evidence-jsonl PATH
+--require-preview-evidence
+--evidence-source TEXT
+--evidence-mode TEXT
+--i-understand-this-writes-evidence
+```
+
+Rules:
+
+- durable evidence is disabled by default;
+- `--write-preview-evidence-jsonl` requires `--claim-one`;
+- `--write-preview-evidence-jsonl` requires
+  `--encode-preview-diagnostic-packet`;
+- `--write-preview-evidence-jsonl` requires the separate explicit file-write
+  consent flag `--i-understand-this-writes-evidence`;
+- `--require-preview-evidence` requires `--write-preview-evidence-jsonl`;
+- required evidence failure returns exit code `9`;
+- JSONL evidence writes do not mutate DB and do not call
+  `mmo_ai_mark_npc_perception_action_applied`;
+- optional claim/skip cleanup still mutates DB only through the existing explicit
+  claim/skip probe path.
+
+Safety fields must remain false:
+
+```text
+dialog_intent_durable_evidence_db_mutated=false
+dialog_intent_durable_evidence_live_dispatch_executed=false
+dialog_intent_durable_evidence_send_executed=false
+dialog_intent_durable_evidence_fanout_executed=false
+dialog_intent_durable_evidence_dialog_ui_executed=false
+dialog_intent_durable_evidence_audio_executed=false
+dialog_intent_durable_evidence_mark_applied_executed=false
+```
+
+Example explicit probe:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --require-typed-effect \
+  --preview-dialog-intent \
+  --require-preview \
+  --emit-preview-diagnostic-packet \
+  --require-preview-diagnostic-packet \
+  --encode-preview-diagnostic-packet \
+  --require-preview-diagnostic-encoding \
+  --write-preview-evidence-jsonl runtime/mmo_ai_dialog_intent_preview_evidence.jsonl \
+  --require-preview-evidence \
+  --skip-after-claim \
+  --worker-id step241-local-dialog-durable-evidence \
+  --i-understand-this-mutates-db \
+  --i-understand-this-writes-evidence
+```
+
+Expected valid output contains:
+
+```text
+status=claimed_dialog_intent_durable_evidence_written_and_skipped
+dialog_intent_durable_evidence.built=true
+dialog_intent_durable_evidence.written=true
+dialog_intent_durable_evidence.encoded_bytes > 0
+dialog_intent_durable_evidence.fits_datagram=true
+dialog_intent_durable_evidence.decoded_round_trip=true
+dialog_intent_durable_evidence.decoded_fields_match=true
+```
+
+Step241 still does not implement live fan-out. It is evidence-only and exists so
+future fan-out work can require a durable preview trail before sending anything
+to a client.
+
+
+===== docs/llm/ai/151-mmo-ai-dialog-intent-client-fanout-plan-step242.md =====
+# Step242 - AI Dialog Intent Client Fan-Out Plan Boundary
+
+Purpose: add the next disabled-by-default seam after Step241 durable JSONL
+preview evidence: a deterministic client fan-out plan for the already encoded
+`ServerDiagnosticPacket`, still without sending UDP, opening dialog UI/audio or
+marking the AI action applied.
+
+Step242 keeps the manual chain as evidence-only:
+
+```text
+claimed action row
+-> Step236 dispatch contract validation
+-> Step237 typed_effect descriptor
+-> Step238 dialog_intent_preview
+-> Step239 dialog_intent_diagnostic_packet contract
+-> Step240 ServerDiagnosticPacket encode/decode round-trip
+-> Step241 JSONL durable evidence record
+-> Step242 client_fanout_plan, plan only
+-> optional skip cleanup
+-> no UDP send
+-> no packet fan-out
+-> no dialog UI/audio
+-> no mark_applied
+```
+
+New C++ surface:
+
+- `mmo_npc_perception_dialog_intent_fanout_plan.*` - pure C++ plan builder for a
+  future target-session fan-out. It accepts only safe `npc_greet_player` /
+  `npc_warn_player` diagnostic encodings with a written Step241 evidence record,
+  stable world/session/character/NPC/target identity and a single datagram-sized
+  binary `ServerDiagnosticPacket`.
+
+`mmo_npc_perception_action_dispatcher_probe` now supports:
+
+```text
+--plan-preview-client-fanout
+--build-preview-client-fanout-plan
+--require-preview-client-fanout-plan
+--fanout-source TEXT
+--fanout-mode TEXT
+```
+
+Rules:
+
+- fan-out planning is disabled by default;
+- `--plan-preview-client-fanout` requires `--write-preview-evidence-jsonl`;
+- `--plan-preview-client-fanout` requires `--require-preview-evidence`;
+- `--require-preview-client-fanout-plan` requires
+  `--plan-preview-client-fanout`;
+- required fan-out plan failure returns exit code `10`;
+- the plan is not a dispatcher and does not call send/broadcast APIs;
+- the plan does not call `mmo_ai_mark_npc_perception_action_applied`;
+- the plan records target session/character UUIDs, packet kind, encoded size,
+  datagram count, and all no-side-effect booleans.
+
+Safety fields must remain false:
+
+```text
+dialog_intent_client_fanout_plan_db_mutated=false
+dialog_intent_client_fanout_plan_send_executed=false
+dialog_intent_client_fanout_plan_fanout_executed=false
+dialog_intent_client_fanout_plan_dialog_ui_executed=false
+dialog_intent_client_fanout_plan_audio_executed=false
+dialog_intent_client_fanout_plan_mark_applied_executed=false
+```
+
+Example explicit probe:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --require-typed-effect \
+  --preview-dialog-intent \
+  --require-preview \
+  --emit-preview-diagnostic-packet \
+  --require-preview-diagnostic-packet \
+  --encode-preview-diagnostic-packet \
+  --require-preview-diagnostic-encoding \
+  --write-preview-evidence-jsonl runtime/mmo_ai_dialog_intent_preview_evidence.jsonl \
+  --require-preview-evidence \
+  --plan-preview-client-fanout \
+  --require-preview-client-fanout-plan \
+  --skip-after-claim \
+  --worker-id step242-local-dialog-fanout-plan \
+  --i-understand-this-mutates-db \
+  --i-understand-this-writes-evidence
+```
+
+Expected output for a valid greeting/warning row:
+
+```text
+dialog_intent_client_fanout_plan.built=true
+dialog_intent_client_fanout_plan.status=client_fanout_plan_built_no_send
+dialog_intent_client_fanout_plan.packet_kind=server_diagnostic
+dialog_intent_client_fanout_plan.recipient_kind=target_session
+dialog_intent_client_fanout_plan.planned_datagrams=1
+dialog_intent_client_fanout_plan.fits_single_datagram=true
+dialog_intent_client_fanout_plan.send_executed=false
+dialog_intent_client_fanout_plan.packet_fanout_executed=false
+dialog_intent_client_fanout_plan.mark_applied_executed=false
+```
+
+This is still not live fan-out. A future step may adapt this plan into an
+explicit disabled-by-default send probe, but only after the plan is proven on a
+real claimed row and still skipped as cleanup.
 
 
 ===== docs/llm/ai/15-db-checkpoint-parity-step102.md =====
@@ -7701,6 +9443,25 @@ Useful current archive entry points:
 - `137-mmo-server-content-cache-startup-integration-step228.md`
 - `138-mmo-npc-perception-policy-candidate-step229.md`
 - `139-mmo-ai-runtime-recording-probe-step230.md`
+- `140-mmo-runtime-npc-identity-step231.md`
+- `141-mmo-world-instance-ai-tick-probe-step232.md`
+- `142-mmo-world-instance-ai-tick-evidence-step233.md`
+- `143-mmo-udp-server-ai-startup-evidence-step234.md`
+- `144-mmo-ai-action-queue-probe-step235.md`
+- `145-mmo-ai-action-dispatcher-boundary-step236.md`
+- `146-mmo-ai-typed-effect-descriptor-step237.md`
+- `147-mmo-ai-dialog-intent-preview-step238.md`
+- `148-mmo-ai-dialog-intent-diagnostic-packet-step239.md`
+- `149-mmo-ai-dialog-intent-diagnostic-encoding-step240.md`
+- `150-mmo-ai-dialog-intent-durable-evidence-step241.md`
+- `151-mmo-ai-dialog-intent-client-fanout-plan-step242.md`
+
+
+
+
+
+
+
 
 
 ===== docs/llm/api-contracts.md =====
@@ -7734,11 +9495,37 @@ Stable C++ server flags:
 - `--world-name NAME` - world name bound to the cache.
 - `--startup-check-only` - validate startup/cache and exit before UDP loop.
 
+Step234 AI startup evidence flags:
+
+- `--world-instance-ai-startup-dry-run` - run one startup-only dry-run evidence
+  pass through the Step233 scheduler boundary and continue startup/check output.
+- `--world-instance-ai-startup-fail-on-evidence` - return exit code `3` when
+  the dry-run evidence fails.
+- `--world-instance-ai-startup-strict-evidence` - strict CI mode; implies
+  dry-run, fail-on-evidence, actor pair, decision and clean NPC identity
+  requirements.
+- `--world-instance-ai-require-actor-pair` - require at least one accepted NPC
+  and one player actor.
+- `--world-instance-ai-require-decision` - require at least one candidate
+  decision.
+- `--world-instance-ai-require-clean-npc-identity` - fail if weak/missing NPC
+  identity was skipped.
+- `--world-instance-ai-min-accepted-npcs N`,
+  `--world-instance-ai-min-player-actors N`,
+  `--world-instance-ai-min-decisions N` - evidence floors.
+- `--world-instance-ai-max-skipped-weak-npc-identity N`,
+  `--world-instance-ai-max-skipped-missing-npc-instance N` - identity skip
+  budgets.
+
 Rules:
 
 - No content cache is loaded unless `--runtime-read-model*` is provided.
 - `content_revision_key` mismatch is fatal by default.
 - Loading the cache does not mutate DB and does not execute scripts.
+- AI startup evidence is never automatic; it requires explicit
+  `--world-instance-ai-startup-*` flags.
+- The Step234 startup hook is dry-run only: it sets `maxRecords=0`,
+  `enqueueAction=false`, and must log `write_executed=0`.
 
 ## UDP/Bootstrap
 
@@ -7874,8 +9661,15 @@ mmo_npc_perception_record_probe \
 Rules:
 
 - Default probe mode reads active actors from runtime DB.
+- Runtime NPC identity is guarded: weak keys such as `creature:None` are skipped
+  unless repaired from content-backed template/instance plus
+  `world_entity_state_id`.
+- The probe emits `npc_identity` counters for accepted, repaired and skipped NPC
+  rows.
 - `--dry-run` must not mutate DB.
 - `--synthetic` is a controlled dev/procedure validation path, not live AI.
+- `--no-repair-weak-npc-entity-keys` and `--include-weak-npc-identity` are
+  diagnostics only; the default path remains strict.
 - Recording must call `mmo_ai_record_npc_perception_decision(...)`.
 - Recording requires `world_instance_uuid`, `npc_entity_key`, `target_key`,
   `perception_kind` and `idempotency_key`.
@@ -7884,6 +9678,127 @@ Rules:
 - The probe does not broadcast movement/dialog/combat and does not execute
   Daedalus scripts.
 - Automatic scheduling in `mmo_udp_server` is not enabled yet.
+
+## Manual World Instance AI Tick
+
+Current C++ tick targets:
+
+- library: `mmo_world_instance_ai_tick`
+- probe: `mmo_world_instance_ai_tick_probe`
+
+Probe contract:
+
+```text
+mmo_world_instance_ai_tick_probe \
+  <mysql_url> \
+  <runtime_read_model.json> \
+  <content_revision_key> \
+  <world_instance_key> \
+  <world_name> \
+  [--dry-run | --write]
+```
+
+Rules:
+
+- Default mode is dry-run and must not mutate DB.
+- `--write` records only up to `--max-records` decisions through
+  `mmo_ai_record_npc_perception_decision(...)`.
+- The tick uses the Step231 guarded runtime actor-source; weak NPC identity is
+  skipped by default unless repaired.
+- The tick uses the Step229 perception policy and does not execute Daedalus VM
+  scripts.
+- The tick does not broadcast movement, dialog, combat or item packets.
+- Output must include `npc_identity`, `assessment`, `record_limit`,
+  `recorded_count`, `skipped_by_record_limit` and Step233 `evidence`.
+- Evidence flags such as `--strict-evidence`, `--require-clean-npc-identity`,
+  `--require-actor-pair` and `--require-decision` may turn a weak manual tick
+  into `status=evidence_failed` with exit code `3`.
+- `mmo_world_instance_ai_scheduler_boundary.*` is the disabled-by-default future
+  scheduler seam. It must dry-run and pass the same evidence guard before any
+  write tick is allowed.
+- Step234 wires that boundary into `mmo_udp_server` only as an explicit
+  startup-only dry-run evidence hook. The hook does not record decisions, does
+  not enqueue actions and does not start a periodic scheduler.
+
+## UDP Server AI Startup Evidence
+
+Current server startup hook:
+
+```text
+mmo_udp_server \
+  --mysql-url "$MYSQL_URL" \
+  --runtime-read-model PATH \
+  --content-revision-key KEY \
+  --world-instance-key KEY \
+  --world-name NAME \
+  --world-instance-ai-startup-dry-run \
+  --startup-check-only
+```
+
+Contract:
+
+- The hook is off unless an explicit `--world-instance-ai-startup-*` flag is
+  supplied.
+- The hook requires `--mysql-url` and the runtime read-model/cache flags.
+- The hook prints `[world_instance_ai_startup_dry_run]`.
+- `write_executed=0` is mandatory for this startup path.
+- `--world-instance-ai-startup-dry-run` is diagnostic and does not fail startup
+  by itself.
+- `--world-instance-ai-startup-fail-on-evidence` and
+  `--world-instance-ai-startup-strict-evidence` return exit code `3` on failed
+  evidence.
+- `--startup-check-only` reports `world_instance_ai_startup_dry_run=off`,
+  `accepted` or `evidence_failed`.
+
+## AI Runtime Action Queue Probe
+
+Current C++ action-queue target:
+
+- persistence helpers: `mmo_ai_runtime_persistence.*`
+- probe: `mmo_npc_perception_action_queue_probe`
+
+Probe contract:
+
+```text
+mmo_npc_perception_action_queue_probe \
+  <mysql_url> \
+  [--ai-db-name mmo_ai_runtime] \
+  [--world-instance-uuid UUID] \
+  [--max-pending N]
+```
+
+Optional mutating claim path:
+
+```text
+mmo_npc_perception_action_queue_probe \
+  <mysql_url> \
+  --claim-one \
+  --worker-id manual-worker \
+  --i-understand-this-mutates-db
+```
+
+Optional probe cleanup path:
+
+```text
+mmo_npc_perception_action_queue_probe \
+  <mysql_url> \
+  --claim-one \
+  --skip-after-claim \
+  --worker-id manual-worker \
+  --i-understand-this-mutates-db
+```
+
+Rules:
+
+- Default probe mode is read-only and only inspects bounded pending rows.
+- `--claim-one` must refuse to run without `--i-understand-this-mutates-db`.
+- Claiming calls `mmo_ai_claim_next_npc_perception_action(...)` and marks one
+  queue row as `claimed`; it does not apply gameplay or broadcast packets.
+- `--skip-after-claim` calls `mmo_ai_skip_npc_perception_action(...)` only for
+  the row claimed by the probe, so a manual claim test can be cleaned up as a
+  terminal skipped action.
+- This is not a dispatcher. Do not map `npc_*` actions to live dialog/movement,
+  combat or replication from this probe.
 
 ## MySQL Surfaces
 
@@ -7931,6 +9846,336 @@ Rules:
 - Removing or renaming fields is breaking.
 - Changing enum/string meanings is breaking.
 - Keep legacy aliases until consumers are migrated.
+
+## Step236 AI Action Dispatcher Boundary Probe
+
+Purpose: validate `mmo_ai_runtime.npc_perception_action_queue` rows before any
+live dispatcher or periodic scheduler exists.
+
+New C++ surfaces:
+
+- `mmo_npc_perception_action_dispatcher_boundary.*` - pure C++ action-kind
+  classification and claimed-row contract validation;
+- `mmo_npc_perception_action_dispatcher_probe.cpp` - CLI probe for read-only
+  contract inspection and optional manual claim/validate/skip;
+- `inspectNpcPerceptionActionDispatchContracts(...)` - read-only aggregate
+  inspection over due pending rows.
+
+Known action kinds are currently classified into effect families only:
+
+```text
+npc_assess_player, npc_turn_to_player, npc_approach_player,
+npc_greet_player, npc_warn_player, npc_start_dialog, npc_attack_player,
+npc_ignore_player, npc_noop
+```
+
+`liveDispatchImplemented=false` for all of them. Step236 validates shape; it
+does not execute gameplay.
+
+Read-only default:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --max-invalid 8
+```
+
+Strict read-only contract check:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --strict-contract \
+  --max-invalid 8
+```
+
+Manual claim/validate/skip cleanup:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --skip-after-claim \
+  --worker-id step236-local-dispatch-contract \
+  --i-understand-this-mutates-db
+```
+
+Contract requirements:
+
+- known `action_kind`;
+- action queue UUID and decision UUID;
+- world instance UUID;
+- target key for non-noop actions;
+- idempotency key;
+- JSON-object payload;
+- payload keys `decision_uuid`, `npc_entity_key`, `perception_kind`.
+
+Safety rules:
+
+- default mode is read-only;
+- `--claim-one` requires `--i-understand-this-mutates-db`;
+- probe output always includes `live_dispatch_executed=false`;
+- the probe never calls `mmo_ai_mark_npc_perception_action_applied`;
+- no packet fan-out, dialog, movement or combat side effect is performed.
+
+Next step: typed effect descriptors for one safe action family, still without
+live fan-out.
+
+
+
+
+
+## Step237 AI Typed Effect Descriptor Boundary
+
+Purpose: turn a valid claimed Step236 action into a typed future-effect
+contract for one safe family, without executing it.
+
+New C++ surface:
+
+- `mmo_npc_perception_effect_descriptor.*` - pure C++ descriptor builder for
+  currently supported dialog-intent actions.
+
+Supported typed action kinds:
+
+```text
+npc_greet_player -> dialog_intent / dialog_greeting_intent / greet_player
+npc_warn_player  -> dialog_intent / dialog_warning_intent / warn_player
+```
+
+`mmo_npc_perception_action_dispatcher_probe` now emits `typed_effect` after a
+claimed row is validated. `--require-typed-effect` returns exit code `5` when the
+claimed row is valid but not in the supported typed family.
+
+Descriptor output carries stable identity/evidence fields:
+
+- `action_queue_uuid`
+- `decision_uuid`
+- `world_instance_uuid`
+- `session_uuid`
+- `character_uuid`
+- `npc_entity_key`
+- `target_key`
+- `perception_kind`
+- `idempotency_key`
+
+Safety fields are explicit:
+
+- `requires_dialog_ui=true`
+- `requires_audio=false`
+- `requires_npc_turn=false`
+- `requires_npc_movement=false`
+- `requires_combat=false`
+- `live_dispatch_implemented=false`
+- `live_dispatch_allowed=false`
+
+The descriptor is not a dispatcher. The probe still never calls
+`mmo_ai_mark_npc_perception_action_applied` and never sends packets.
+
+## Step238 AI Dialog Intent Preview Boundary
+
+Purpose: turn a valid Step237 typed dialog-intent descriptor into a deterministic
+preview/log record, still without live dispatch.
+
+New C++ surface:
+
+- `mmo_npc_perception_dialog_intent_preview.*` - pure C++ preview builder for
+  described `dialog_intent` effects.
+
+Supported previews:
+
+```text
+npc_greet_player -> dialog_greeting_preview
+npc_warn_player  -> dialog_warning_preview
+```
+
+`mmo_npc_perception_action_dispatcher_probe` now supports:
+
+```text
+--preview-dialog-intent
+--preview-typed-effect
+--require-preview
+--preview-source TEXT
+--preview-mode TEXT
+```
+
+Rules:
+
+- preview is disabled by default;
+- `--preview-dialog-intent` requires `--claim-one`;
+- claiming still requires `--i-understand-this-mutates-db`;
+- `--require-preview` returns exit code `6` when a valid typed descriptor cannot
+  become a supported preview;
+- preview output must include `live_dispatch_executed=false`,
+  `mark_applied_executed=false` and `packet_fanout_executed=false`;
+- the probe must not call `mmo_ai_mark_npc_perception_action_applied`;
+- no dialog UI/audio packet, movement replication or combat execution is
+  performed.
+
+
+
+
+## Step239 AI Dialog Intent Diagnostic Packet Contract
+
+Purpose: turn a valid Step238 dialog-intent preview into a client-safe diagnostic
+packet contract, still without UDP fan-out or client UI/audio execution.
+
+New C++ surface:
+
+- `mmo_npc_perception_dialog_intent_diagnostic_packet.*` - pure C++ contract
+  builder for diagnostic packets derived from previewed dialog intents.
+
+Supported diagnostic contracts:
+
+```text
+dialog_greeting_preview -> server_diagnostic contract
+dialog_warning_preview  -> server_diagnostic contract
+```
+
+`mmo_npc_perception_action_dispatcher_probe` now supports:
+
+```text
+--emit-preview-diagnostic-packet
+--build-preview-diagnostic-packet
+--require-preview-diagnostic-packet
+```
+
+Rules:
+
+- diagnostic packet build is disabled by default;
+- `--emit-preview-diagnostic-packet` requires `--preview-dialog-intent`;
+- `--require-preview-diagnostic-packet` requires
+  `--emit-preview-diagnostic-packet`;
+- `--require-preview-diagnostic-packet` returns exit code `7` when a required
+  diagnostic packet contract cannot be built;
+- diagnostic packet output must include `packet_fanout_executed=false`,
+  `dialog_ui_executed=false`, `audio_executed=false`,
+  `mark_applied_executed=false` and `live_dispatch_executed=false`;
+- the probe must not call `mmo_ai_mark_npc_perception_action_applied`;
+- no UDP diagnostic packet, dialog UI/audio packet, movement replication or
+  combat execution is performed.
+
+## Step240 AI Dialog Intent Diagnostic Encoding Boundary
+
+Purpose: map a valid Step239 dialog-intent diagnostic packet contract into the
+existing binary `ServerDiagnosticPacket` shape, still without UDP fan-out or
+client UI/audio execution.
+
+New C++ surface:
+
+- `mmo_npc_perception_dialog_intent_diagnostic_encoder.*` - pure C++ adapter that
+  fills `Mmo::Net::ServerDiagnosticPacket`, calls `encodeServerDiagnosticPacket`,
+  decodes the result with `decodeServerDiagnosticPacket`, and reports size and
+  field round-trip evidence.
+
+`mmo_npc_perception_action_dispatcher_probe` now supports:
+
+```text
+--encode-preview-diagnostic-packet
+--adapt-preview-diagnostic-packet
+--require-preview-diagnostic-encoding
+--diagnostic-packet-sequence N
+--diagnostic-local-sequence N
+--max-diagnostic-message-bytes N
+```
+
+Rules:
+
+- binary encoding is disabled by default;
+- `--encode-preview-diagnostic-packet` requires
+  `--emit-preview-diagnostic-packet`;
+- `--require-preview-diagnostic-encoding` requires
+  `--encode-preview-diagnostic-packet`;
+- `--require-preview-diagnostic-encoding` returns exit code `8` when a required
+  encoding/round-trip cannot be produced;
+- encoding output must include `encoded_bytes`, `fits_datagram`,
+  `decoded_round_trip`, `decoded_fields_match`, `send_executed=false`,
+  `packet_fanout_executed=false`, `dialog_ui_executed=false`,
+  `audio_executed=false` and `mark_applied_executed=false`;
+- the probe must not call `mmo_ai_mark_npc_perception_action_applied`;
+- no UDP diagnostic packet, dialog UI/audio packet, movement replication or
+  combat execution is performed.
+
+
+
+
+
+## Step241 AI Dialog Intent Durable Evidence Boundary
+
+Purpose: append a durable JSONL evidence record after a claimed
+`npc_greet_player` / `npc_warn_player` action passed Step236 dispatch validation,
+Step237 typed descriptor, Step238 preview, Step239 diagnostic contract and
+Step240 binary `ServerDiagnosticPacket` round-trip.
+
+New C++ surface:
+
+- `mmo_npc_perception_dialog_intent_durable_evidence.*` - pure C++ JSONL
+  evidence builder/writer. It records stable action/world/NPC/target identity,
+  Step236-240 statuses, encoded byte counts and explicit no-side-effect booleans.
+
+`mmo_npc_perception_action_dispatcher_probe` supports:
+
+```text
+--write-preview-evidence-jsonl PATH
+--record-preview-evidence-jsonl PATH
+--require-preview-evidence
+--evidence-source TEXT
+--evidence-mode TEXT
+--i-understand-this-writes-evidence
+```
+
+Rules:
+
+- evidence writing is disabled by default;
+- `--write-preview-evidence-jsonl` requires `--claim-one`;
+- `--write-preview-evidence-jsonl` requires
+  `--encode-preview-diagnostic-packet`;
+- evidence file writing requires `--i-understand-this-writes-evidence`;
+- `--require-preview-evidence` requires `--write-preview-evidence-jsonl`;
+- required evidence failure returns exit code `9`;
+- JSONL evidence does not mutate DB, does not call
+  `mmo_ai_mark_npc_perception_action_applied`, does not send UDP, does not open
+  dialog UI/audio and does not execute combat/movement.
+
+
+
+## Step242 AI Dialog Intent Client Fan-Out Plan Boundary
+
+Purpose: map a valid Step241 JSONL-backed dialog-intent diagnostic encoding into
+a deterministic target-session fan-out plan, still without sending any packet or
+executing client UI/audio.
+
+New C++ surface:
+
+- `mmo_npc_perception_dialog_intent_fanout_plan.*` - pure C++ fan-out plan
+  builder. It requires a safe Step240 diagnostic encoding and a written Step241
+  durable evidence record before producing a target-session plan.
+
+`mmo_npc_perception_action_dispatcher_probe` supports:
+
+```text
+--plan-preview-client-fanout
+--build-preview-client-fanout-plan
+--require-preview-client-fanout-plan
+--fanout-source TEXT
+--fanout-mode TEXT
+```
+
+Rules:
+
+- fan-out planning is disabled by default;
+- `--plan-preview-client-fanout` requires `--write-preview-evidence-jsonl`;
+- `--plan-preview-client-fanout` requires `--require-preview-evidence`;
+- `--require-preview-client-fanout-plan` requires
+  `--plan-preview-client-fanout`;
+- required fan-out plan failure returns exit code `10`;
+- output must include target session/character UUIDs, packet kind, encoded byte
+  count, datagram count and `fits_single_datagram=true`;
+- output must include `send_executed=false`, `packet_fanout_executed=false`,
+  `dialog_ui_executed=false`, `audio_executed=false` and
+  `mark_applied_executed=false`;
+- the probe must not call `mmo_ai_mark_npc_perception_action_applied`;
+- no UDP diagnostic packet, dialog UI/audio packet, movement replication or
+  combat execution is performed.
 
 
 ===== docs/llm/architecture.md =====
@@ -8123,7 +10368,7 @@ AVOID:
 ===== docs/llm/current-state.md =====
 # Current State
 
-Last verified context: Step230 / 2026-07-07.
+Last verified context: Step241 / 2026-07-08.
 
 If this file conflicts with current source code, inspect the code first.
 
@@ -8159,7 +10404,17 @@ Gothic install/content root/VDF
 -> C++ server startup/session cache integration
 -> C++ NPC/perception candidate assessment
 -> C++ mmo_ai_runtime decision recording probe
--> future scheduled world_instance AI tick
+-> manual C++ world_instance AI tick/probe
+-> C++ evidence guard for live identity/idempotency
+-> explicit mmo_udp_server startup dry-run evidence hook
+-> manual AI action-queue inspection/claim probe
+-> manual AI action dispatcher contract validation probe
+-> typed dialog-intent effect descriptor boundary
+-> disabled-by-default dialog-intent preview/logging boundary
+-> client-safe dialog-intent diagnostic packet contract
+-> binary ServerDiagnosticPacket encode/decode boundary
+-> disabled-by-default durable JSONL preview evidence boundary
+-> future explicit client fan-out boundary
 ```
 
 Current content status:
@@ -8189,6 +10444,59 @@ Current content status:
 - Step230 adds C++ runtime actor-source, AI runtime persistence adapter and
   `mmo_npc_perception_record_probe` for explicit recording through
   `mmo_ai_record_npc_perception_decision(...)`.
+- Step231 hardens runtime NPC identity before AI recording: weak keys such as
+  `creature:None` are skipped or repaired to a content-backed template/instance
+  plus `world_entity_state_id` identity before decisions are produced.
+- Step232 adds a reusable C++ manual `world_instance` AI tick module plus
+  `mmo_world_instance_ai_tick_probe`; it loads the content cache, reads guarded
+  runtime actors, assesses perception candidates and optionally records bounded
+  decisions through `mmo_ai_runtime` without UDP scheduling or broadcasts.
+- Step233 adds `mmo_world_instance_ai_tick_evidence` and a disabled scheduler
+  boundary. The manual tick probe can now fail explicitly on weak NPC identity,
+  missing actor pairs, missing decisions or record-limit skips before any future
+  scheduler is allowed to write.
+- Step234 wires that evidence boundary into `mmo_udp_server` as an explicit
+  startup-only dry-run hook behind `--world-instance-ai-startup-dry-run` /
+  `--world-instance-ai-startup-strict-evidence`. This prints evidence and can
+  fail startup checks, but it does not record decisions and does not start a
+  periodic scheduler.
+- Step235 adds `mmo_npc_perception_action_queue_probe` plus C++ persistence
+  helpers for bounded manual inspection of `mmo_ai_runtime.npc_perception_action_queue`.
+  Default mode is read-only; claiming is possible only with explicit mutation
+  flags and still does not apply gameplay actions or dispatch packets.
+- Step236 adds `mmo_npc_perception_action_dispatcher_boundary.*` and
+  `mmo_npc_perception_action_dispatcher_probe`. The probe validates queued or
+  manually claimed AI action rows by action kind, required UUID/target fields
+  and minimal payload keys. It always reports `live_dispatch_executed=false` and
+  does not mark actions applied or send gameplay packets.
+- Step237 adds `mmo_npc_perception_effect_descriptor.*` and extends the
+  dispatcher probe with a typed, contract-only descriptor for safe dialog-intent
+  actions: `npc_greet_player` and `npc_warn_player`. The descriptor exposes
+  stable NPC/target/perception identity and future effect requirements, but still
+  reports `live_dispatch_implemented=false` and performs no UI/audio fan-out.
+- Step238 adds `mmo_npc_perception_dialog_intent_preview.*` and extends the
+  dispatcher probe with an explicit `--preview-dialog-intent` / `--require-preview`
+  path. It builds a deterministic log-only preview from a Step237 typed effect,
+  reports `mark_applied_executed=false` and `packet_fanout_executed=false`, and
+  still does not open dialog UI/audio or mark the AI action applied.
+- Step239 adds `mmo_npc_perception_dialog_intent_diagnostic_packet.*` and extends
+  the dispatcher probe with `--emit-preview-diagnostic-packet` /
+  `--require-preview-diagnostic-packet`. It builds a client-safe diagnostic packet
+  contract from a Step238 preview, but still reports fan-out/UI/audio/mark-applied
+  execution as false and sends nothing to the client.
+- Step240 adds `mmo_npc_perception_dialog_intent_diagnostic_encoder.*` and extends
+  the dispatcher probe with `--encode-preview-diagnostic-packet` /
+  `--require-preview-diagnostic-encoding`. It maps the Step239 contract into the
+  existing binary `ServerDiagnosticPacket` shape, runs encode/decode round-trip
+  validation and reports encoded size/client-limit booleans, but still sends
+  nothing to the client and marks no action applied.
+
+- Step241 adds `mmo_npc_perception_dialog_intent_durable_evidence.*` and extends
+  the dispatcher probe with `--write-preview-evidence-jsonl` /
+  `--require-preview-evidence`. It appends a JSONL evidence record only after a
+  claimed safe greeting/warning action passed Step236 through Step240. The seam
+  is disabled by default, requires explicit file-write consent, does not mutate
+  DB, does not send packets and does not mark actions applied.
 - Current Step226 index counts:
   - `world_zen_entity_by_key=24917`
   - `waypoint_edge_by_route=3202`
@@ -8232,19 +10540,57 @@ Current content status:
   DB-selected from `mmo_content_build.content_build_runtime_exports`.
 - Live NPC movement/pathing/routine simulation is not implemented.
 - Server NPC/perception candidate assessment can read live runtime DB actors and
-  record explicit decisions to `mmo_ai_runtime` through a probe, but this is not
-  yet scheduled by the UDP server/world_instance tick.
-- Current live DB sample exposes weak NPC identity (`creature:None`, empty
-  `npc_instance`), so production live recording should first fix content-backed
-  NPC identity.
+  record explicit decisions to `mmo_ai_runtime` through an explicit manual
+  `world_instance` tick/probe. `mmo_udp_server` can run the same evidence path as
+  a startup-only dry-run, Step235 can manually inspect/claim queued AI actions,
+  Step236 can validate queued/claimed dispatcher contracts, Step237 can
+  describe safe greeting/warning actions as typed dialog-intent descriptors,
+  Step238 can build a disabled-by-default preview/log record for those dialog
+  intents, Step239 can build a client-safe diagnostic packet contract from
+  that preview, Step240 can encode/decode that contract through the existing
+  binary `ServerDiagnosticPacket` boundary, Step241 can persist a JSONL
+  evidence line for that full preview chain when explicitly requested, and
+  Step242 can build a target-session client fan-out plan from that evidence
+  without sending it. No automatic scheduler, live dispatcher or client fan-out
+  is enabled.
+- Runtime NPC actor-source now reports identity counters and rejects weak NPC
+  identity by default; use the probe `npc_identity` and Step233 `evidence`
+  sections to verify whether clean/live DB rows are ready for scheduled AI
+  recording.
 - Server script/dialog tick is not implemented.
 - Trade/spell/resource edge cases are not fully moved to direct C++ handlers.
 - DB schemas are production-shaped development contracts, not final MMO storage.
 
 ## Current Next Edge
 
-Fix runtime NPC identity for live actors, then add an explicit scheduled
-world_instance AI tick that invokes the Step230 writer.
+Next edge: validate Step242 `--plan-preview-client-fanout` on one claimed
+`npc_greet_player` or `npc_warn_player` row with Step241 JSONL evidence, then
+prepare a disabled-by-default send-boundary probe. Do not enable periodic
+automatic AI scheduling, `mark_applied`, client dialog UI/audio fan-out,
+movement replication or combat execution yet.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ===== docs/llm/decisions.md =====
@@ -8466,59 +10812,154 @@ materialization evidence, not live replication.
 
 ## Immediate Step
 
-Step231: fix runtime NPC actor identity before enabling automatic live
-perception recording.
+Step243: validate Step242 `client_fanout_plan` on one real claimed
+`npc_greet_player` or `npc_warn_player` action, then add the first disabled-by-
+default send-boundary probe. The send boundary must be plan/encode/route evidence
+only unless an explicit future step adds a guarded local loopback send. Do not
+send from `mmo_udp_server` yet and do not mark the AI action applied.
 
-Step230 can already:
+The current explicit manual shape is:
 
-- read active players from `server_sessions` + `character_positions`;
-- read active NPC/creature rows from `world_entity_state`;
-- run Step229 `mmo_npc_perception_policy`;
-- record explicit decisions through
-  `mmo_ai_record_npc_perception_decision(...)`.
+```text
+mmo_npc_perception_action_dispatcher_probe
+-> optional explicit claim
+-> Step236 dispatch contract validation
+-> Step237 typed_effect descriptor for npc_greet_player/npc_warn_player
+-> Step238 dialog_intent_preview log-only descriptor
+-> Step239 dialog_intent_diagnostic_packet contract
+-> Step240 binary ServerDiagnosticPacket adapter/round-trip
+-> Step241 JSONL durable preview evidence, only with explicit file-write flag
+-> Step242 client_fanout_plan, only with explicit plan flag
+-> optional explicit skip cleanup
+-> live_dispatch_executed=false
+-> typed_effect_live_dispatch_executed=false
+-> dialog_intent_preview_live_dispatch_executed=false
+-> dialog_intent_preview_mark_applied_executed=false
+-> dialog_intent_preview_packet_fanout_executed=false
+-> dialog_intent_diagnostic_packet_live_dispatch_executed=false
+-> dialog_intent_diagnostic_packet_fanout_executed=false
+-> dialog_intent_diagnostic_packet_dialog_ui_executed=false
+-> dialog_intent_diagnostic_packet_audio_executed=false
+-> dialog_intent_diagnostic_packet_mark_applied_executed=false
+-> dialog_intent_diagnostic_encoding_send_executed=false
+-> dialog_intent_diagnostic_encoding_fanout_executed=false
+-> dialog_intent_diagnostic_encoding_dialog_ui_executed=false
+-> dialog_intent_diagnostic_encoding_audio_executed=false
+-> dialog_intent_diagnostic_encoding_mark_applied_executed=false
+-> dialog_intent_durable_evidence_db_mutated=false
+-> dialog_intent_durable_evidence_live_dispatch_executed=false
+-> dialog_intent_durable_evidence_send_executed=false
+-> dialog_intent_durable_evidence_fanout_executed=false
+-> dialog_intent_durable_evidence_dialog_ui_executed=false
+-> dialog_intent_durable_evidence_audio_executed=false
+-> dialog_intent_durable_evidence_mark_applied_executed=false
+-> dialog_intent_client_fanout_plan_db_mutated=false
+-> dialog_intent_client_fanout_plan_send_executed=false
+-> dialog_intent_client_fanout_plan_fanout_executed=false
+-> dialog_intent_client_fanout_plan_dialog_ui_executed=false
+-> dialog_intent_client_fanout_plan_audio_executed=false
+-> dialog_intent_client_fanout_plan_mark_applied_executed=false
+```
 
-The current live DB sample still produced an NPC with `entity_key=creature:None`
-and empty `npc_instance`. Do not schedule that as production AI truth.
+Before implementing actual fan-out, collect evidence:
 
-Target inputs:
+- can a bounded manual `--write --enqueue-action` tick create a pending
+  `npc_greet_player` or `npc_warn_player` row?
+- does Step236 strict validation pass for that row?
+- does the full Step237/238/239/240/241/242 chain return:
+  - `typed_effect.described=true`;
+  - `dialog_intent_preview.previewed=true`;
+  - `dialog_intent_diagnostic_packet.built=true`;
+  - `dialog_intent_diagnostic_encoding.encoded=true`;
+  - `dialog_intent_diagnostic_encoding.decoded_round_trip=true`;
+  - `dialog_intent_diagnostic_encoding.fits_datagram=true`;
+  - `dialog_intent_durable_evidence.built=true`;
+  - `dialog_intent_durable_evidence.written=true`;
+  - `dialog_intent_client_fanout_plan.built=true`;
+  - `dialog_intent_client_fanout_plan.planned_datagrams=1`;
+  - `dialog_intent_client_fanout_plan.fits_single_datagram=true`?
+- does the JSONL line preserve stable `action_kind`, world/session/character,
+  NPC/target keys, idempotency key, sequence fields, encoded size and all
+  no-side-effect booleans?
+- does the Step242 plan preserve target session/character UUIDs and still report
+  all send/fan-out/UI/audio/apply booleans as `false`?
+- does unsupported valid work such as `npc_attack_player` still fail before
+  Step239/240/241/242 output when required preview/diagnostic/evidence/plan flags
+  are used?
 
-- runtime NPC rows with stable `entity_key`;
-- content-backed NPC template key or Daedalus `npc_instance`;
-- active player session/character UUIDs;
-- Step230 writer;
-- server tick from `realm_world_instances.current_tick` or a future tick source.
-
-Expected result:
-
-- Runtime actor-source skips or repairs weak NPC identity instead of recording
-  ambiguous NPC decisions.
-- A small explicit world_instance AI tick entrypoint can record valid decisions
-  for active actors.
-- No movement, dialog or combat broadcast yet.
-- No per-player script VM or duplicated script truth is introduced.
+Next implementation may add a send-boundary probe, but it must start disabled by
+default and must not call `mmo_ai_mark_npc_perception_action_applied`. If a row
+is mutated during probing, it should still be explicitly skipped as cleanup.
 
 ## Acceptance Checks
 
-- Step226/227/229/230 probes still build and pass their focused checks.
-- `mmo_udp_server --startup-check-only` still loads the cache successfully.
-- Live actor dry-run reports stable NPC identity before automatic recording is
-  enabled.
-- `mmo_ai_runtime` recording remains idempotent and goes through
-  `mmo_ai_record_npc_perception_decision(...)`.
+- Step226/227/229/230/231/232/233/235/236/237/238/239/240/241/242 probes still
+  build.
+- `mmo_udp_server` still builds with the Step234 startup flags.
+- `mmo_npc_perception_action_dispatcher_probe <mysql_url>` remains read-only by
+  default and reports `mutated_db=false` plus `live_dispatch_executed=false`.
+- `--claim-one` refuses to run unless `--i-understand-this-mutates-db` is
+  provided.
+- `--preview-dialog-intent` refuses to run without `--claim-one`.
+- `--emit-preview-diagnostic-packet` refuses to run without
+  `--preview-dialog-intent`.
+- `--require-preview-diagnostic-packet` refuses to run without
+  `--emit-preview-diagnostic-packet`.
+- `--encode-preview-diagnostic-packet` refuses to run without
+  `--emit-preview-diagnostic-packet`.
+- `--require-preview-diagnostic-encoding` refuses to run without
+  `--encode-preview-diagnostic-packet`.
+- `--write-preview-evidence-jsonl` refuses to run without `--claim-one`,
+  `--encode-preview-diagnostic-packet` and `--i-understand-this-writes-evidence`.
+- `--require-preview-evidence` refuses to run without
+  `--write-preview-evidence-jsonl`.
+- `--plan-preview-client-fanout` refuses to run without
+  `--write-preview-evidence-jsonl` and `--require-preview-evidence`.
+- `--require-preview-client-fanout-plan` refuses to run without
+  `--plan-preview-client-fanout`.
+- `--claim-one --require-typed-effect --preview-dialog-intent --require-preview
+  --emit-preview-diagnostic-packet --require-preview-diagnostic-packet
+  --encode-preview-diagnostic-packet --require-preview-diagnostic-encoding
+  --write-preview-evidence-jsonl runtime/mmo_ai_dialog_intent_preview_evidence.jsonl
+  --require-preview-evidence --plan-preview-client-fanout
+  --require-preview-client-fanout-plan --skip-after-claim` validates one claimed
+  row, returns a typed descriptor, preview, diagnostic packet contract, binary
+  diagnostic encoding, durable JSONL evidence and a client fan-out plan only for
+  `npc_greet_player` / `npc_warn_player`, then marks the row skipped without
+  applying gameplay effects.
+- `--require-typed-effect` returns exit code `5` for valid but unsupported action
+  kinds.
+- `--require-preview` returns exit code `6` when the typed effect cannot become a
+  Step238 dialog-intent preview.
+- `--require-preview-diagnostic-packet` returns exit code `7` when a Step238
+  preview cannot become a Step239 diagnostic packet contract.
+- `--require-preview-diagnostic-encoding` returns exit code `8` when a Step239
+  diagnostic packet contract cannot round-trip through the existing binary
+  `ServerDiagnosticPacket` encoder/decoder.
+- `--require-preview-evidence` returns exit code `9` when a Step240 diagnostic
+  encoding cannot become a JSONL evidence record.
+- `--require-preview-client-fanout-plan` returns exit code `10` when Step241
+  durable evidence cannot become a Step242 fan-out plan.
+- The dispatcher probe never calls `mmo_ai_mark_npc_perception_action_applied`.
+- No periodic AI scheduling, packet broadcast, dialog UI/audio fan-out, movement
+  replication or combat execution is enabled.
 
 ## Defer
 
 Do not implement yet:
 
+- automatic per-world AI scheduling enabled by default in `mmo_udp_server`;
 - full Daedalus VM execution for all scripts;
 - per-player script VMs;
 - live NPC path/movement replication;
 - dialog UI/audio fan-out;
+- applying AI action rows as completed gameplay effects;
 - trade/economy rewrite;
 - final production DB rewrite.
 
-These need stable read-model/cache/runtime actor identity and an explicit
-world_instance tick boundary first.
+These need clean identity evidence, explicit tick contracts, typed action
+contracts, preview evidence, diagnostic packet contracts, binary encoding
+contracts, durable evidence, fan-out plans and send-boundary evidence first.
 
 
 ===== docs/llm/README.md =====
@@ -8574,6 +11015,30 @@ Useful current references:
   `ai/138-mmo-npc-perception-policy-candidate-step229.md`.
 - Step230 AI runtime perception recording probe:
   `ai/139-mmo-ai-runtime-recording-probe-step230.md`.
+- Step231 runtime NPC identity guard:
+  `ai/140-mmo-runtime-npc-identity-step231.md`.
+- Step232 manual world-instance AI tick probe:
+  `ai/141-mmo-world-instance-ai-tick-probe-step232.md`.
+- Step233 world-instance AI tick evidence guard:
+  `ai/142-mmo-world-instance-ai-tick-evidence-step233.md`.
+- Step234 UDP server AI startup evidence hook:
+  `ai/143-mmo-udp-server-ai-startup-evidence-step234.md`.
+- Step235 AI action queue inspection/claim probe:
+  `ai/144-mmo-ai-action-queue-probe-step235.md`.
+- Step236 AI action dispatcher boundary probe:
+  `ai/145-mmo-ai-action-dispatcher-boundary-step236.md`.
+- Step237 AI typed effect descriptor boundary:
+  `ai/146-mmo-ai-typed-effect-descriptor-step237.md`.
+- Step238 AI dialog-intent preview boundary:
+  `ai/147-mmo-ai-dialog-intent-preview-step238.md`.
+- Step239 AI dialog-intent diagnostic packet contract:
+  `ai/148-mmo-ai-dialog-intent-diagnostic-packet-step239.md`.
+- Step240 AI dialog-intent diagnostic encoding boundary:
+  `ai/149-mmo-ai-dialog-intent-diagnostic-encoding-step240.md`.
+- Step241 AI dialog-intent durable evidence boundary:
+  `ai/150-mmo-ai-dialog-intent-durable-evidence-step241.md`.
+- Step242 AI dialog-intent client fan-out plan boundary:
+  `ai/151-mmo-ai-dialog-intent-client-fanout-plan-step242.md`.
 
 ## Ground Rules
 
@@ -8583,6 +11048,19 @@ Useful current references:
 - Prefer focused source inspection over broad context loading.
 - Avoid updating these docs with long logs; store only durable facts, contracts,
   decisions and next steps.
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ===== docs/llm/repo-map.md =====
@@ -8626,7 +11104,9 @@ C++ MMO server and content tooling.
 
 Key files:
 
-- `mmo_udp_server.cpp` - older monolithic C++ UDP server.
+- `mmo_udp_server.cpp` - older monolithic C++ UDP server; Step234 adds an
+  explicit startup-only AI evidence dry-run hook behind
+  `--world-instance-ai-startup-*` flags, without periodic scheduling.
 - `mmo_udp_server_*.inl` - extracted implementation partitions.
 - `mmo_server_persistence.*` - direct DB persistence/query helpers.
 - `mmo_server_identity.h` - stable entity/key helpers.
@@ -8650,11 +11130,48 @@ Key files:
 - `mmo_npc_perception_policy_probe.cpp` - CLI probe for deterministic
   perception candidate decisions.
 - `mmo_npc_perception_runtime_source.*` - Step230 runtime DB actor-source for
-  active player/NPC perception inputs.
+  active player/NPC perception inputs; Step231 adds weak NPC identity repair,
+  strict skipping and `npcIdentity` counters.
 - `mmo_ai_runtime_persistence.*` - Step230 C++ adapter for
   `mmo_ai_record_npc_perception_decision(...)`.
-- `mmo_npc_perception_record_probe.cpp` - Step230 CLI probe for live/synthetic
-  perception recording to `mmo_ai_runtime`.
+- `mmo_npc_perception_record_probe.cpp` - Step230/231 CLI probe for
+  live/synthetic perception recording to `mmo_ai_runtime`, including runtime NPC
+  identity diagnostics.
+- `mmo_world_instance_ai_tick.*` - Step232 reusable manual `world_instance` AI
+  tick boundary: content cache + guarded actor-source + perception policy +
+  bounded AI runtime recording.
+- `mmo_world_instance_ai_tick_evidence.*` - Step233 evidence guard for accepted
+  NPC identity, actor pairs, decision counts and record-limit safety.
+- `mmo_world_instance_ai_scheduler_boundary.*` - Step233 disabled-by-default
+  future scheduler seam; Step234 reuses it from `mmo_udp_server` only for an
+  explicit startup dry-run evidence check with `write_executed=0`.
+- `mmo_world_instance_ai_tick_probe.cpp` - Step232/233 CLI/dev probe for one
+  manual world-instance AI tick without UDP scheduling, broadcasts or Daedalus
+  VM execution; Step234 removes a duplicate evidence JSON field.
+- `mmo_npc_perception_action_queue_probe.cpp` - Step235 read-only by default
+  action-queue inspection probe with explicit manual claim/skip test flags.
+- `mmo_npc_perception_action_dispatcher_boundary.*` - Step236 pure C++
+  action-kind/effect-family classifier and claimed-row validation boundary.
+- `mmo_npc_perception_effect_descriptor.*` - Step237 pure C++ typed descriptor
+  for safe dialog-intent action rows (`npc_greet_player`, `npc_warn_player`),
+  still with live dispatch disabled.
+- `mmo_npc_perception_dialog_intent_preview.*` - Step238 pure C++ preview/logging
+  boundary for described dialog intents; emits deterministic log evidence while
+  keeping live dispatch, `mark_applied` and packet fan-out disabled.
+- `mmo_npc_perception_dialog_intent_diagnostic_packet.*` - Step239 pure C++
+  client-safe diagnostic packet contract builder for previewed dialog intents;
+  still does not encode/send UDP, open dialog UI/audio or mark actions applied.
+- `mmo_npc_perception_dialog_intent_diagnostic_encoder.*` - Step240 pure C++
+  adapter from the Step239 diagnostic contract into the existing binary
+  `ServerDiagnosticPacket` encoder/decoder; reports size and round-trip evidence
+  but does not send.
+- `mmo_npc_perception_dialog_intent_durable_evidence.*` - Step241 pure C++
+  JSONL evidence builder/writer for safe encoded dialog-intent diagnostic
+  previews; disabled by default and never sends or marks applied.
+- `mmo_npc_perception_action_dispatcher_probe.cpp` - Step236/237/238/239/240/241
+  read-only by default dispatcher contract probe with optional manual
+  claim/validate/typed descriptor/dialog-preview/diagnostic-packet-contract/
+  binary-diagnostic-encoding/durable-evidence-jsonl/skip; never applies gameplay effects.
 - `mmo_server_world_clock.h` - shared world clock bootstrap query helper used
   by the persistence module.
 - `CMakeLists.txt` - standalone server/content-tool targets.
@@ -8726,6 +11243,38 @@ Examples:
 Do not treat `runtime/` as source.
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Step242 AI dialog-intent fan-out plan boundary
+
+- `server/cpp/mmo_npc_perception_dialog_intent_fanout_plan.h`
+- `server/cpp/mmo_npc_perception_dialog_intent_fanout_plan.cpp`
+
+These files build a disabled-by-default target-session fan-out plan from the
+Step240 binary diagnostic encoding and Step241 written JSONL evidence. They do
+not send packets and do not mark AI actions applied.
+
+
 ===== docs/llm/testing.md =====
 # Testing
 
@@ -8756,6 +11305,9 @@ cmake --build build/mmo_cpp_server --target mmo_runtime_read_model_probe -j
 cmake --build build/mmo_cpp_server --target mmo_world_instance_content_cache_probe -j
 cmake --build build/mmo_cpp_server --target mmo_npc_perception_policy_probe -j
 cmake --build build/mmo_cpp_server --target mmo_npc_perception_record_probe -j
+cmake --build build/mmo_cpp_server --target mmo_world_instance_ai_tick_probe -j
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_queue_probe -j
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_dispatcher_probe -j
 ```
 
 ## Content Build Validation
@@ -8980,6 +11532,25 @@ decision_kind=greet_player
 recorded_count=0
 ```
 
+Live dry-run should now also include `npc_identity` counters. A weak live NPC
+identity such as `creature:None` must either be counted as repaired or skipped;
+it must not silently produce a production AI decision.
+
+Diagnostic comparison without repair:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_record_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --dry-run \
+  --no-repair-weak-npc-entity-keys \
+  --max-npcs 32 \
+  --max-players 4
+```
+
 Controlled DB record probe:
 
 ```bash
@@ -8997,6 +11568,61 @@ build/mmo_cpp_server/mmo_npc_perception_record_probe \
 Expected result: `recorded_count=1` and `decision_status` is `queued`,
 `accepted`, `cooldown`, `blocked` or `noop` according to `mmo_ai_runtime`.
 Current verified Step230 synthetic record returned `decision_status=queued`.
+
+
+
+## Step234 UDP Server AI Startup Evidence
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_udp_server -j
+cmake --build build/mmo_cpp_server --target mmo_world_instance_ai_tick_probe -j
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_queue_probe -j
+```
+
+Startup dry-run evidence, no DB mutation from AI tick:
+
+```bash
+build/mmo_cpp_server/mmo_udp_server \
+  --mysql-url "$MYSQL_URL" \
+  --runtime-read-model /tmp/opengothic_runtime_read_model.json \
+  --content-revision-key gothic2-notr-steam-local \
+  --world-instance-key newworld \
+  --world-name newworld \
+  --world-instance-ai-startup-dry-run \
+  --startup-check-only
+```
+
+Expected:
+
+- server prints `[world_instance_content_cache_ready]`;
+- server prints `[world_instance_ai_startup_dry_run]`;
+- the AI line has `write_executed=0`;
+- final `startup_check=ok` contains
+  `world_instance_ai_startup_dry_run=accepted` or `evidence_failed`;
+- the hook does not insert rows into
+  `mmo_ai_runtime.npc_perception_decisions`.
+
+Strict startup evidence for CI/dev readiness:
+
+```bash
+build/mmo_cpp_server/mmo_udp_server \
+  --mysql-url "$MYSQL_URL" \
+  --runtime-read-model /tmp/opengothic_runtime_read_model.json \
+  --content-revision-key gothic2-notr-steam-local \
+  --world-instance-key newworld \
+  --world-name newworld \
+  --world-instance-ai-startup-strict-evidence \
+  --startup-check-only
+```
+
+Expected:
+
+- exit code `0` when evidence is accepted;
+- exit code `3` and `startup_check=evidence_failed` when evidence fails;
+- still no periodic scheduler, no Daedalus VM and no live NPC movement/dialog
+  replication.
 
 ## Server/Client Smoke Loop
 
@@ -9048,5 +11674,611 @@ python3 tools/run_mmo_step55_clean_mysql_from_pre_xardas.py \
   --mysql-url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
   --i-understand-this-drops-database
 ```
+
+
+
+
+
+
+## Step232 Manual World Instance AI Tick Probe
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_world_instance_ai_tick_probe -j
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_queue_probe -j
+```
+
+Dry-run, no DB mutation:
+
+```bash
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --dry-run \
+  --max-npcs 32 \
+  --max-players 4 \
+  --max-records 1
+```
+
+Bounded write/idempotency check:
+
+```bash
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --write \
+  --max-records 1 \
+  --server-tick 123456
+
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --write \
+  --max-records 1 \
+  --server-tick 123456
+```
+
+Expected:
+
+- `npc_identity` shows accepted/repaired/skipped NPC identity counts.
+- `assessment.decisions` shows candidate decisions.
+- `recorded_count <= record_limit`.
+- repeated `--write` with the same `--server-tick` returns an idempotent
+  decision status rather than duplicate gameplay mutations.
+- no movement/dialog/combat packets are broadcast.
+
+
+
+## Step233 World Instance AI Tick Evidence Guard
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_world_instance_ai_tick_probe -j
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_queue_probe -j
+cmake --build build/mmo_cpp_server --target mmo_udp_server -j
+```
+
+Strict dry-run evidence:
+
+```bash
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --dry-run \
+  --strict-evidence
+```
+
+Expected:
+
+- JSON contains `evidence.accepted=true`;
+- `status` is not `evidence_failed`;
+- `npc_identity.skipped_weak_entity_keys` and
+  `npc_identity.skipped_missing_npc_instance` are compatible with the requested
+  budgets;
+- exit code is `0` when at least one decision exists, `2` when evidence passes
+  but no decision exists, and `3` when evidence requirements fail.
+
+Bounded write evidence remains explicit:
+
+```bash
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_runtime_read_model.json \
+  gothic2-notr-steam-local \
+  newworld \
+  newworld \
+  --write \
+  --max-records 1 \
+  --server-tick 233001 \
+  --strict-evidence
+```
+
+Repeat the same command with the same `--server-tick`; it should be idempotent
+and must not create duplicate gameplay actions.
+
+## AI Runtime Action Queue Probe Validation
+
+Inspect queue without mutation:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_queue_probe \
+  "$MYSQL_URL" \
+  --max-pending 8
+```
+
+Expected default behavior:
+
+- returns JSON with `before.pending_actions`;
+- `mutated_db=false`;
+- does not call claim/skip procedures.
+
+Manual claim, only when a queued action exists and mutation is intended:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_queue_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --worker-id step235-local-probe \
+  --i-understand-this-mutates-db
+```
+
+Manual claim cleanup path that does not execute gameplay:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_queue_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --skip-after-claim \
+  --worker-id step235-local-probe \
+  --i-understand-this-mutates-db
+```
+
+Expected mutating behavior:
+
+- claim returns exit code `0` when a row is claimed and `2` when no due pending
+  row exists;
+- `--skip-after-claim` returns exit code `0` only when the claimed row reaches
+  `action_status=skipped`;
+- no gameplay action is applied and no packet fan-out is sent.
+
+## Step236 AI Action Dispatcher Boundary Probe
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_dispatcher_probe -j
+```
+
+Read-only contract inspection:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --max-invalid 8
+```
+
+Expected:
+
+- `mutated_db=false`;
+- `live_dispatch_executed=false`;
+- invalid due pending rows, if any, are bounded under `before.invalid_actions`;
+- no action status changes occur.
+
+Strict contract inspection:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --strict-contract \
+  --max-invalid 8
+```
+
+Expected:
+
+- exit code `0` when all due pending rows have valid dispatch shape;
+- exit code `3` when unknown action kinds or missing required fields/payload
+  keys exist.
+
+Manual claim + validation + cleanup, only when mutation is intended:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --skip-after-claim \
+  --worker-id step236-local-dispatch-contract \
+  --i-understand-this-mutates-db
+```
+
+Expected:
+
+- exit code `0` for a valid claimed row that is skipped successfully;
+- exit code `2` when no row is claimable;
+- exit code `3` when the claimed row violates the dispatch contract;
+- `live_dispatch_executed=false`;
+- no call to `mmo_ai_mark_npc_perception_action_applied`;
+- no gameplay packet fan-out.
+
+
+
+
+
+## Step237 AI Typed Effect Descriptor Boundary
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_dispatcher_probe -j
+```
+
+Create a queued greeting/warning candidate with Step232 when evidence is clean,
+then claim/describe/skip exactly one action:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe   "$MYSQL_URL"   --claim-one   --require-typed-effect   --skip-after-claim   --worker-id step237-local-typed-effect   --i-understand-this-mutates-db
+```
+
+Expected:
+
+- exit code `0` for a valid `npc_greet_player` or `npc_warn_player` row that is
+  skipped successfully;
+- exit code `2` when no row is claimable;
+- exit code `3` when Step236 dispatch validation fails;
+- exit code `5` when the claimed row is valid but unsupported by the typed
+  descriptor family;
+- output contains `typed_effect.described=true` only for supported dialog-intent
+  actions;
+- output contains `live_dispatch_executed=false` and
+  `typed_effect_live_dispatch_executed=false`;
+- no call to `mmo_ai_mark_npc_perception_action_applied`;
+- no client dialog UI/audio packet, movement replication or combat execution.
+
+## Step238 AI Dialog Intent Preview Boundary
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_dispatcher_probe -j
+```
+
+Claim + typed descriptor + preview + cleanup, only when mutation is intended:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --require-typed-effect \
+  --preview-dialog-intent \
+  --require-preview \
+  --skip-after-claim \
+  --worker-id step238-local-dialog-preview \
+  --i-understand-this-mutates-db
+```
+
+Expected:
+
+- exit code `0` for a valid `npc_greet_player` or `npc_warn_player` row that is
+  previewed and skipped successfully;
+- exit code `2` when no row is claimable;
+- exit code `3` when Step236 dispatch validation fails;
+- exit code `5` when Step237 typed descriptor is required but unsupported;
+- exit code `6` when Step238 preview is required but rejected;
+- output contains `typed_effect.described=true`;
+- output contains `dialog_intent_preview.previewed=true`;
+- output contains `live_dispatch_executed=false`,
+  `typed_effect_live_dispatch_executed=false`,
+  `dialog_intent_preview_live_dispatch_executed=false`,
+  `dialog_intent_preview_mark_applied_executed=false` and
+  `dialog_intent_preview_packet_fanout_executed=false`;
+- no call to `mmo_ai_mark_npc_perception_action_applied`;
+- no client dialog UI/audio packet, movement replication or combat execution.
+
+
+
+
+## Step239 AI Dialog Intent Diagnostic Packet Contract
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_dispatcher_probe -j
+```
+
+Claim + typed descriptor + preview + diagnostic packet contract + cleanup, only
+when mutation is intended:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --require-typed-effect \
+  --preview-dialog-intent \
+  --require-preview \
+  --emit-preview-diagnostic-packet \
+  --require-preview-diagnostic-packet \
+  --skip-after-claim \
+  --worker-id step239-local-dialog-diagnostic-contract \
+  --i-understand-this-mutates-db
+```
+
+Expected:
+
+- exit code `0` for a valid `npc_greet_player` or `npc_warn_player` row that is
+  previewed, converted into a diagnostic packet contract and skipped;
+- exit code `2` when no row is claimable;
+- exit code `3` when Step236 dispatch validation fails;
+- exit code `5` when Step237 typed descriptor is required but unsupported;
+- exit code `6` when Step238 preview is required but rejected;
+- exit code `7` when Step239 diagnostic packet contract is required but
+  rejected;
+- output contains `typed_effect.described=true`;
+- output contains `dialog_intent_preview.previewed=true`;
+- output contains `dialog_intent_diagnostic_packet.built=true`;
+- output contains `dialog_intent_diagnostic_packet_fanout_executed=false`,
+  `dialog_intent_diagnostic_packet_dialog_ui_executed=false`,
+  `dialog_intent_diagnostic_packet_audio_executed=false`,
+  `dialog_intent_diagnostic_packet_mark_applied_executed=false` and
+  `dialog_intent_diagnostic_packet_live_dispatch_executed=false`;
+- no call to `mmo_ai_mark_npc_perception_action_applied`;
+- no UDP fan-out, client dialog UI/audio packet, movement replication or combat
+  execution.
+
+Negative flag checks:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --emit-preview-diagnostic-packet
+```
+
+Expected: error because `--emit-preview-diagnostic-packet` requires
+`--preview-dialog-intent`, and preview itself requires `--claim-one`.
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --require-preview-diagnostic-packet
+```
+
+Expected: error because `--require-preview-diagnostic-packet` requires
+`--emit-preview-diagnostic-packet`.
+
+
+## Step240 AI Dialog Intent Diagnostic Encoding Boundary
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_dispatcher_probe -j
+```
+
+Claim + typed descriptor + preview + diagnostic packet contract + binary
+encoding round-trip + cleanup, only when mutation is intended:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --require-typed-effect \
+  --preview-dialog-intent \
+  --require-preview \
+  --emit-preview-diagnostic-packet \
+  --require-preview-diagnostic-packet \
+  --encode-preview-diagnostic-packet \
+  --require-preview-diagnostic-encoding \
+  --diagnostic-packet-sequence 1001 \
+  --diagnostic-local-sequence 2002 \
+  --skip-after-claim \
+  --worker-id step240-local-dialog-diagnostic-encoding \
+  --i-understand-this-mutates-db
+```
+
+Expected:
+
+- exit code `0` for a valid `npc_greet_player` or `npc_warn_player` row that is
+  previewed, converted into a diagnostic packet contract, encoded through
+  `ServerDiagnosticPacket`, decoded back and skipped;
+- exit code `2` when no row is claimable;
+- exit code `3` when Step236 dispatch validation fails;
+- exit code `5` when Step237 typed descriptor is required but unsupported;
+- exit code `6` when Step238 preview is required but rejected;
+- exit code `7` when Step239 diagnostic packet contract is required but
+  rejected;
+- exit code `8` when Step240 diagnostic packet encoding is required but
+  rejected;
+- output contains `dialog_intent_diagnostic_encoding.encoded=true`;
+- output contains `dialog_intent_diagnostic_encoding.encoded_bytes > 0`;
+- output contains `dialog_intent_diagnostic_encoding.fits_datagram=true`;
+- output contains `dialog_intent_diagnostic_encoding.decoded_round_trip=true`;
+- output contains `dialog_intent_diagnostic_encoding.decoded_fields_match=true`;
+- output contains `dialog_intent_diagnostic_encoding_send_executed=false`,
+  `dialog_intent_diagnostic_encoding_fanout_executed=false`,
+  `dialog_intent_diagnostic_encoding_dialog_ui_executed=false`,
+  `dialog_intent_diagnostic_encoding_audio_executed=false` and
+  `dialog_intent_diagnostic_encoding_mark_applied_executed=false`;
+- no call to `mmo_ai_mark_npc_perception_action_applied`;
+- no UDP fan-out, client dialog UI/audio packet, movement replication or combat
+  execution.
+
+Negative flag checks:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --encode-preview-diagnostic-packet
+```
+
+Expected: error because `--encode-preview-diagnostic-packet` requires
+`--emit-preview-diagnostic-packet`, which requires preview and claim flags.
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --require-preview-diagnostic-encoding
+```
+
+Expected: error because `--require-preview-diagnostic-encoding` requires
+`--encode-preview-diagnostic-packet`.
+
+
+
+
+
+## Step241 AI Dialog Intent Durable Evidence Boundary
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_dispatcher_probe -j
+```
+
+Claim + typed descriptor + preview + diagnostic packet contract + binary
+encoding + JSONL durable evidence + cleanup, only when mutation and file-write
+are intended:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --require-typed-effect \
+  --preview-dialog-intent \
+  --require-preview \
+  --emit-preview-diagnostic-packet \
+  --require-preview-diagnostic-packet \
+  --encode-preview-diagnostic-packet \
+  --require-preview-diagnostic-encoding \
+  --write-preview-evidence-jsonl runtime/mmo_ai_dialog_intent_preview_evidence.jsonl \
+  --require-preview-evidence \
+  --skip-after-claim \
+  --worker-id step241-local-dialog-durable-evidence \
+  --i-understand-this-mutates-db \
+  --i-understand-this-writes-evidence
+```
+
+Expected:
+
+- exit code `0` for a valid `npc_greet_player` or `npc_warn_player` row that is
+  previewed, encoded, written to JSONL and skipped;
+- exit code `2` when no row is claimable;
+- exit code `3` when Step236 dispatch validation fails;
+- exit code `5` when Step237 typed descriptor is required but unsupported;
+- exit code `6` when Step238 preview is required but rejected;
+- exit code `7` when Step239 diagnostic packet contract is required but
+  rejected;
+- exit code `8` when Step240 diagnostic packet encoding is required but
+  rejected;
+- exit code `9` when Step241 durable evidence is required but cannot be written;
+- output contains `dialog_intent_durable_evidence.built=true`;
+- output contains `dialog_intent_durable_evidence.written=true`;
+- output contains `dialog_intent_durable_evidence.fits_datagram=true`;
+- output contains `dialog_intent_durable_evidence.decoded_round_trip=true`;
+- output contains `dialog_intent_durable_evidence.decoded_fields_match=true`;
+- output contains `dialog_intent_durable_evidence_db_mutated=false`,
+  `dialog_intent_durable_evidence_send_executed=false`,
+  `dialog_intent_durable_evidence_fanout_executed=false`,
+  `dialog_intent_durable_evidence_dialog_ui_executed=false`,
+  `dialog_intent_durable_evidence_audio_executed=false` and
+  `dialog_intent_durable_evidence_mark_applied_executed=false`;
+- no call to `mmo_ai_mark_npc_perception_action_applied`;
+- no UDP fan-out, client dialog UI/audio packet, movement replication or combat
+  execution.
+
+Negative flag checks:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --write-preview-evidence-jsonl runtime/mmo_ai_dialog_intent_preview_evidence.jsonl
+```
+
+Expected: error because `--write-preview-evidence-jsonl` requires explicit claim,
+encoding and file-write consent flags.
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --require-preview-evidence
+```
+
+Expected: error because `--require-preview-evidence` requires
+`--write-preview-evidence-jsonl`.
+
+
+
+## Step242 AI Dialog Intent Client Fan-Out Plan Boundary
+
+Build:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_npc_perception_action_dispatcher_probe -j
+```
+
+Claim + typed descriptor + preview + diagnostic packet contract + binary
+encoding + JSONL durable evidence + fan-out plan + cleanup, only when mutation
+and file-write are intended:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --require-typed-effect \
+  --preview-dialog-intent \
+  --require-preview \
+  --emit-preview-diagnostic-packet \
+  --require-preview-diagnostic-packet \
+  --encode-preview-diagnostic-packet \
+  --require-preview-diagnostic-encoding \
+  --write-preview-evidence-jsonl runtime/mmo_ai_dialog_intent_preview_evidence.jsonl \
+  --require-preview-evidence \
+  --plan-preview-client-fanout \
+  --require-preview-client-fanout-plan \
+  --skip-after-claim \
+  --worker-id step242-local-dialog-fanout-plan \
+  --i-understand-this-mutates-db \
+  --i-understand-this-writes-evidence
+```
+
+Expected:
+
+- exit code `0` for a valid `npc_greet_player` or `npc_warn_player` row that is
+  previewed, encoded, written to JSONL, planned for target-session fan-out and
+  skipped;
+- exit code `2` when no row is claimable;
+- exit code `3` when Step236 dispatch validation fails;
+- exit code `5` when Step237 typed descriptor is required but unsupported;
+- exit code `6` when Step238 preview is required but rejected;
+- exit code `7` when Step239 diagnostic packet contract is required but
+  rejected;
+- exit code `8` when Step240 diagnostic packet encoding is required but
+  rejected;
+- exit code `9` when Step241 durable evidence is required but cannot be written;
+- exit code `10` when Step242 fan-out plan is required but cannot be built;
+- output contains `dialog_intent_client_fanout_plan.built=true`;
+- output contains `dialog_intent_client_fanout_plan.recipient_kind=target_session`;
+- output contains `dialog_intent_client_fanout_plan.packet_kind=server_diagnostic`;
+- output contains `dialog_intent_client_fanout_plan.planned_datagrams=1`;
+- output contains `dialog_intent_client_fanout_plan.fits_single_datagram=true`;
+- output contains `dialog_intent_client_fanout_plan_send_executed=false`,
+  `dialog_intent_client_fanout_plan_fanout_executed=false`,
+  `dialog_intent_client_fanout_plan_dialog_ui_executed=false`,
+  `dialog_intent_client_fanout_plan_audio_executed=false` and
+  `dialog_intent_client_fanout_plan_mark_applied_executed=false`;
+- no call to `mmo_ai_mark_npc_perception_action_applied`;
+- no UDP fan-out, client dialog UI/audio packet, movement replication or combat
+  execution.
+
+Negative flag checks:
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --plan-preview-client-fanout
+```
+
+Expected: error because `--plan-preview-client-fanout` requires Step241 evidence
+flags.
+
+```bash
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --require-preview-client-fanout-plan
+```
+
+Expected: error because `--require-preview-client-fanout-plan` requires
+`--plan-preview-client-fanout`.
 
 

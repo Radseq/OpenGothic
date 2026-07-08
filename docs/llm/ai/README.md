@@ -20,3 +20,5 @@ Useful current archive entry points:
 - `137-mmo-server-content-cache-startup-integration-step228.md`
 - `138-mmo-npc-perception-policy-candidate-step229.md`
 - `139-mmo-ai-runtime-recording-probe-step230.md`
+- `140`-`151` cover Step231-Step242 runtime identity, AI tick, action queue,
+  dialog-intent diagnostics and the first client fan-out plan boundary.

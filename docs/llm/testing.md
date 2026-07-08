@@ -1,7 +1,7 @@
 # Testing
 
 Use the smallest validation that covers the touched behavior. Do not run
-destructive DB reset unless the user clearly requested it.
+destructive DB reset unless explicitly requested.
 
 ## Build Client
 
@@ -14,308 +14,210 @@ cmake --build build --target Gothic2Notr -j
 
 ```bash
 cmake -S server/cpp -B build/mmo_cpp_server -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build/mmo_cpp_server --target mmo_udp_server -j
+cmake --build build/mmo_cpp_server -j
 ```
 
-Focused targets:
+Verified 2026-07-08: full `server/cpp` build passed after adding Step232-242
+targets to CMake.
 
-```bash
-cmake --build build/mmo_cpp_server --target mmo_udp_server -j
-cmake --build build/mmo_cpp_server --target mmo_content_build_importer -j
-cmake --build build/mmo_cpp_server --target mmo_vdf_world_zen_probe -j
-cmake --build build/mmo_cpp_server --target mmo_runtime_read_model_probe -j
-cmake --build build/mmo_cpp_server --target mmo_world_instance_content_cache_probe -j
-cmake --build build/mmo_cpp_server --target mmo_npc_perception_policy_probe -j
-cmake --build build/mmo_cpp_server --target mmo_npc_perception_record_probe -j
-```
-
-## Content Build Validation
-
-Discover sources:
-
-```bash
-tools/discover_gothic_content_sources.py \
-  --gothic-root "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
-  --output runtime/content_build/gothic_content_sources.json \
-  --run-script runtime/content_build/run_content_build_importer.sh
-```
-
-Probe/extract world ZEN from VDF/MOD:
-
-```bash
-cmake --build build/mmo_cpp_server --target mmo_vdf_world_zen_probe -j
-tools/probe_gothic_world_zen_archives.py \
-  --gothic-root "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
-  --world-name newworld.zen \
-  --extract
-```
-
-Import content build snapshot to DB:
-
-```bash
-MMO_CONTENT_BUILD_DB_MODE=apply runtime/content_build/run_content_build_importer.sh
-```
-
-Check DB:
-
-```bash
-tools/check_mmo_step211_content_build_database.py \
-  --url "$MYSQL_URL" \
-  --expect-zen \
-  --expect-daedalus \
-  --expect-dialog-outputs \
-  --output runtime/step211_content_build_database/check_after_zen_import.json
-```
-
-## Runtime Read-Model Validation
-
-Export:
+## Export Runtime Read-Model
 
 ```bash
 tools/export_content_build_runtime_read_model.py \
   --snapshot runtime/content_build/parser_snapshot.json \
-  --output /tmp/opengothic_runtime_read_model.json \
-  --sql-output /tmp/opengothic_register_runtime_export.sql
+  --output /tmp/opengothic_step241_runtime_read_model.json \
+  --sql-output /tmp/opengothic_step241_register_runtime_export.sql
 ```
 
-C++ probe:
+Verified summary:
+
+```text
+world_zen=24917 waypoint_edges=3202 npc_templates=730 item_templates=835
+routines=1186 perception_bindings=38 dialog_infos=4139 dialog_outputs=20826
+```
+
+## Read-Only Probes
 
 ```bash
 build/mmo_cpp_server/mmo_runtime_read_model_probe \
-  /tmp/opengothic_runtime_read_model.json
-```
+  /tmp/opengothic_step241_runtime_read_model.json
 
-Expected current status:
-
-```text
-status=ready
-world_zen_entity_count=24917
-world_zen_entity_by_key=24917
-waypoint_edge_by_route=3202
-npc_template_by_instance=730
-item_template_by_instance=835
-routine_by_npc_instance=0
-routine_by_symbol=1186
-perception_binding_by_kind=6
-perception_binding_by_owner=0
-dialog_info_by_symbol=4139
-dialog_output_by_name=20826
-```
-
-Current expected warnings:
-
-```text
-routines without npc_instance=1186
-perception bindings without owner_symbol=38
-```
-
-## World Instance Content Cache Validation
-
-Positive probe:
-
-```bash
 build/mmo_cpp_server/mmo_world_instance_content_cache_probe \
-  /tmp/opengothic_runtime_read_model.json \
-  gothic2-notr-steam-local \
-  newworld \
-  newworld
-```
+  /tmp/opengothic_step241_runtime_read_model.json \
+  gothic2-notr-steam-local newworld newworld
 
-Expected current status:
+build/mmo_cpp_server/mmo_npc_perception_policy_probe \
+  /tmp/opengothic_step241_runtime_read_model.json \
+  gothic2-notr-steam-local newworld newworld
 
-```text
-status=ready
-world_zen_entities_in_world=24917
-waypoint_edges_in_world=3202
-first_world_zen_entity_in_world=true
-first_waypoint_edge_in_world=true
-first_routine_by_npc_instance=false
-first_perception_binding_by_owner=false
-```
+build/mmo_cpp_server/mmo_npc_perception_record_probe \
+  mysql://user:pass@127.0.0.1:3306/gothic_mmo_ch1_clean \
+  /tmp/opengothic_step241_runtime_read_model.json \
+  gothic2-notr-steam-local newworld newworld \
+  --synthetic --dry-run \
+  --world-instance-uuid 00000000-0000-0000-0000-000000000000
 
-Negative revision check:
-
-```bash
-build/mmo_cpp_server/mmo_world_instance_content_cache_probe \
-  /tmp/opengothic_runtime_read_model.json \
-  wrong-revision \
-  newworld \
-  newworld
-```
-
-Expected result: `status=error` with a content revision mismatch.
-
-## Server Startup Content Cache Validation
-
-```bash
 build/mmo_cpp_server/mmo_udp_server \
   --no-direct-db \
-  --runtime-read-model-path /tmp/opengothic_runtime_read_model.json \
+  --runtime-read-model-path /tmp/opengothic_step241_runtime_read_model.json \
   --content-revision-key gothic2-notr-steam-local \
   --world-instance-key newworld \
   --world-name newworld \
   --startup-check-only
 ```
 
-Expected current status:
+Expected current result: `status=ready` or `startup_check=ok`. Runtime probe
+still reports the known Step226 warnings.
 
-```text
-world_instance_content_cache=ready
-world_zen_entities_in_world=24917
-waypoint_edges_in_world=3202
-```
+## MySQL Checks
 
-Negative revision check: replace `gothic2-notr-steam-local` with
-`wrong-revision`. Expected result: startup exits with a content revision
-mismatch error.
-
-## NPC Perception Policy Validation
-
-Positive probe:
+Requires local MySQL access through `$MYSQL_URL`.
 
 ```bash
-build/mmo_cpp_server/mmo_npc_perception_policy_probe \
-  /tmp/opengothic_runtime_read_model.json \
-  gothic2-notr-steam-local \
-  newworld \
-  newworld
+tools/check_mmo_step212_ai_runtime_perception_database.py \
+  --url "$MYSQL_URL" \
+  --output /tmp/opengothic_step241_check_step212.json
+
+tools/check_mmo_step213_ai_runtime_action_dispatch.py \
+  --url "$MYSQL_URL" \
+  --output /tmp/opengothic_step241_check_step213.json
+
+build/mmo_cpp_server/mmo_npc_perception_action_queue_probe "$MYSQL_URL"
+
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe "$MYSQL_URL"
 ```
 
-Expected current status:
+Verified 2026-07-08:
 
-```text
-status=ready
-evaluated_pairs=1
-decisions=1
-decision_kind=greet_player
-rule_key=B_ASSESSPLAYER
-```
+- Step212 status: `passed`;
+- Step213 status: `passed`;
+- action queue read-only probe worked;
+- dispatcher read-only probe worked and reported `live_dispatch_executed=false`.
 
-Distance rejection:
+## Manual AI Tick Guard
 
 ```bash
-build/mmo_cpp_server/mmo_npc_perception_policy_probe \
-  /tmp/opengothic_runtime_read_model.json \
-  gothic2-notr-steam-local \
-  newworld \
-  newworld \
-  --target-distance 5000 \
-  --max-distance 100
-```
-
-Expected result: `status=no_decision`, `distance_pairs_skipped=1`.
-
-## AI Runtime Perception Recording Validation
-
-Build:
-
-```bash
-cmake --build build/mmo_cpp_server --target mmo_npc_perception_record_probe -j
-```
-
-Dry-run without DB mutation:
-
-```bash
-build/mmo_cpp_server/mmo_npc_perception_record_probe \
+build/mmo_cpp_server/mmo_world_instance_ai_tick_probe \
   "$MYSQL_URL" \
-  /tmp/opengothic_runtime_read_model.json \
-  gothic2-notr-steam-local \
-  newworld \
-  newworld \
-  --dry-run \
+  /tmp/opengothic_step241_runtime_read_model.json \
+  gothic2-notr-steam-local newworld newworld \
   --max-npcs 8 \
   --max-players 4 \
-  --max-records 1
+  --max-records 1 \
+  --max-distance 1000000
 ```
 
-Synthetic dry-run without DB mutation:
-
-```bash
-build/mmo_cpp_server/mmo_npc_perception_record_probe \
-  mysql://user:pass@127.0.0.1:3306/gothic_mmo_ch1_clean \
-  /tmp/opengothic_runtime_read_model.json \
-  gothic2-notr-steam-local \
-  newworld \
-  newworld \
-  --synthetic \
-  --dry-run \
-  --world-instance-uuid 00000000-0000-0000-0000-000000000000
-```
-
-Expected current synthetic dry-run:
+Current live DB result is expected to reject recording because NPC identity is
+incomplete:
 
 ```text
-status=ready_dry_run
-decisions=1
-decision_kind=greet_player
+status=no_actor_pair
+accepted_npcs=0
+skipped_missing_npc_instance=1
 recorded_count=0
 ```
 
-Controlled DB record probe:
+## UDP Startup AI Dry-Run
+
+```bash
+build/mmo_cpp_server/mmo_udp_server \
+  --no-direct-db \
+  --mysql-url "$MYSQL_URL" \
+  --runtime-read-model-path /tmp/opengothic_step241_runtime_read_model.json \
+  --content-revision-key gothic2-notr-steam-local \
+  --world-instance-key newworld \
+  --world-name newworld \
+  --world-instance-ai-startup-dry-run \
+  --world-instance-ai-max-npcs 8 \
+  --world-instance-ai-max-players 4 \
+  --world-instance-ai-max-distance 1000000 \
+  --startup-check-only
+```
+
+Verified 2026-07-08: `startup_check=ok`,
+`world_instance_ai_startup_dry_run=accepted`, `write_executed=0`.
+
+## Step236-241 Dispatcher Chain
+
+Create one synthetic queued action:
 
 ```bash
 build/mmo_cpp_server/mmo_npc_perception_record_probe \
   "$MYSQL_URL" \
-  /tmp/opengothic_runtime_read_model.json \
-  gothic2-notr-steam-local \
-  newworld \
-  newworld \
+  /tmp/opengothic_step241_runtime_read_model.json \
+  gothic2-notr-steam-local newworld newworld \
   --synthetic \
   --max-records 1 \
-  --world-instance-uuid <runtime-world-instance-uuid>
+  --world-instance-uuid <world-instance-uuid> \
+  --server-tick 241 \
+  --target-key PC_HERO_STEP241
 ```
 
-Expected result: `recorded_count=1` and `decision_status` is `queued`,
-`accepted`, `cooldown`, `blocked` or `noop` according to `mmo_ai_runtime`.
-Current verified Step230 synthetic record returned `decision_status=queued`.
-
-## Server/Client Smoke Loop
-
-Server:
+Validate and clean it up:
 
 ```bash
-./build/mmo_cpp_server/mmo_udp_server \
-  --bind 127.0.0.1:29777 \
-  --mysql-url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
-  --session-key local-dev-PC_HERO_TEST \
-  --character-key PC_HERO
+build/mmo_cpp_server/mmo_npc_perception_action_dispatcher_probe \
+  "$MYSQL_URL" \
+  --claim-one \
+  --require-typed-effect \
+  --preview-dialog-intent \
+  --require-preview \
+  --emit-preview-diagnostic-packet \
+  --require-preview-diagnostic-packet \
+  --encode-preview-diagnostic-packet \
+  --require-preview-diagnostic-encoding \
+  --write-preview-evidence-jsonl /tmp/opengothic_step241_dialog_intent_preview_evidence.jsonl \
+  --require-preview-evidence \
+  --skip-after-claim \
+  --worker-id step241-local-evidence-chain \
+  --i-understand-this-mutates-db \
+  --i-understand-this-writes-evidence
 ```
 
-Client:
+Verified 2026-07-08:
+
+- status: `claimed_dialog_intent_durable_evidence_written_and_skipped`;
+- typed effect, preview, diagnostic packet, binary encoding and JSONL evidence
+  all passed;
+- no live dispatch/send/UI/audio/apply executed;
+- final queue probe reported `pending_count=0`.
+
+## Known Step242 Guard
+
+The Step242 fanout-plan path rejects synthetic actions without target
+`session_uuid` and `character_uuid`:
+
+```text
+status=claimed_dialog_intent_client_fanout_plan_failed
+issues=["missing_target_session_uuid","missing_target_character_uuid"]
+```
+
+This remains the expected result for plain synthetic rows. Use
+`--target-from-runtime-player` when the test needs a session-bound target.
+
+## Step242 Session-Bound Fanout Plan
+
+`mmo_npc_perception_record_probe` supports `--target-from-runtime-player` for
+synthetic NPC decisions that use a real active target session/character from DB.
 
 ```bash
-./build/opengothic/Gothic2Notr \
-  -g "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
-  -g2 \
-  -mmo-client-server 127.0.0.1:29777 \
-  -mmo-action-session-key local-dev-PC_HERO_TEST
+build/mmo_cpp_server/mmo_npc_perception_record_probe \
+  "$MYSQL_URL" \
+  /tmp/opengothic_step241_runtime_read_model.json \
+  gothic2-notr-steam-local newworld newworld \
+  --synthetic \
+  --target-from-runtime-player \
+  --max-records 1 \
+  --target-distance 100 \
+  --server-tick 243001
 ```
 
-Expected evidence:
+Then run the Step236-Step242 dispatcher chain with `--plan-preview-client-fanout`
+and `--require-preview-client-fanout-plan`.
 
-- server prints `bootstrap_ack accepted=1 ready=1`;
-- server prints `bootstrap_snapshot_sent`;
-- client writes `runtime/mmo_server_bootstrap_snapshot.json`;
-- accepted direct DB actions increase;
-- `enqueued=0` unless `--enqueue-outbox` was explicitly used.
+Verified 2026-07-08:
 
-## Existing DB Apply
-
-For an existing DB, prefer:
-
-```bash
-python3 tools/apply_current_mmo_db_state.py \
-  --url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
-  --output runtime/current_mmo_db_state/apply.json
-```
-
-## Destructive Clean Rebuild
-
-Only when explicitly requested:
-
-```bash
-python3 tools/run_mmo_step55_clean_mysql_from_pre_xardas.py \
-  --sqlite runtime/g2notr_ch1_pre_xardas.sqlite \
-  --mysql-url "mysql://gothic:gothic_dev_password@localhost:3306/gothic_mmo_ch1_clean" \
-  --i-understand-this-drops-database
-```
+- status: `claimed_dialog_intent_client_fanout_planned_and_skipped`;
+- fanout plan `built=true`, `planned_datagrams=1`, `fits_single_datagram=true`;
+- target `session_uuid` and `character_uuid` were present;
+- all send/fan-out/UI/audio/apply booleans remained `false`.

@@ -76,6 +76,14 @@ python3 tools/mmo_gothic_content_discovery_report.py \
 
 ## Current clean MMO rebuild
 
+SQLite status:
+
+- not required for the current server content/read-model/cache/NPC AI path;
+- still kept as a local baseline/oracle for old save-to-DB and clean rebuild
+  workflows;
+- do not add new server-authority dependencies on SQLite when MySQL/content
+  read-model data already covers the task.
+
 The supported destructive local rebuild remains:
 
 ```bash

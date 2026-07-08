@@ -1,8 +1,8 @@
 # Current State
 
-Last verified context: Step230 / 2026-07-07.
+Last verified context: Step242 fanout plan verified / 2026-07-08.
 
-If this file conflicts with current source code, inspect the code first.
+If this file conflicts with source code, inspect the code first.
 
 ## Active Goal
 
@@ -17,108 +17,101 @@ OpenGothic client
 -> C++ MMO server
 -> MySQL procedures/read models
 -> journal/current projections
--> bootstrap snapshot or ACK/NACK/diagnostic packets
+-> bootstrap snapshot / ACK / NACK / diagnostics
 ```
 
 The old Python receiver/worker path is debug/fallback debt. New gameplay work
 should target the C++ server path.
 
-## Current Content Loop
+## Current Content/AI Loop
 
 ```text
-Gothic install/content root/VDF
--> C++ ZenKit content-build importer
+Gothic content/VDF
+-> C++ ZenKit content importer
 -> parser_snapshot.json
--> mmo_content_build
 -> runtime read-model JSON
--> C++ runtime read-model indexes
--> C++ world_instance content cache
--> C++ server startup/session cache integration
--> C++ NPC/perception candidate assessment
--> C++ mmo_ai_runtime decision recording probe
--> future scheduled world_instance AI tick
+-> C++ read-model indexes
+-> WorldInstanceContentCache
+-> NPC perception policy
+-> explicit mmo_ai_runtime recording/probes
+-> disabled-by-default AI action preview/evidence boundaries
 ```
 
-Current content status:
+## Verified Build/Test Snapshot
 
-- VDF world ZEN extraction works for `newworld.zen`.
-- Latest import produced:
-  - `zen_entities=24917`
-  - `waypoint_edges=3202`
-  - `daedalus_symbols=74651`
-  - `npc_templates=730`
-  - `item_templates=835`
-  - `routines=1186`
-  - `perception_bindings=38`
-  - `dialog_infos=4139`
-  - `dialog_outputs=20826`
-- Step224 exports `mmo.content_build_runtime_read_model.v1`.
-- Step225 C++ `mmo_runtime_read_model_probe` validates the exported read-model
-  counts/schema/hash and returns `status=ready`.
-- Step226 materializes read-only C++ runtime indexes and the probe reports
-  `index_counts` plus deterministic `lookup_checks`.
-- Step227 adds read-only C++ `WorldInstanceContentCache` and
-  `mmo_world_instance_content_cache_probe`.
-- Step228 wires `WorldInstanceContentCache` into `mmo_udp_server` startup behind
-  explicit server flags and adds `--startup-check-only`.
-- Step229 adds C++ `mmo_npc_perception_policy` and
-  `mmo_npc_perception_policy_probe` for deterministic candidate decisions.
-- Step230 adds C++ runtime actor-source, AI runtime persistence adapter and
-  `mmo_npc_perception_record_probe` for explicit recording through
-  `mmo_ai_record_npc_perception_decision(...)`.
-- Current Step226 index counts:
-  - `world_zen_entity_by_key=24917`
-  - `waypoint_edge_by_route=3202`
-  - `npc_template_by_instance=730`
-  - `item_template_by_instance=835`
-  - `routine_by_npc_instance=0`
-  - `routine_by_symbol=1186`
-  - `perception_binding_by_kind=6`
-  - `perception_binding_by_owner=0`
-  - `dialog_info_by_symbol=4139`
-  - `dialog_output_by_name=20826`
-- Current expected Step226 warnings:
-  - routines without `npc_instance`: `1186`
-  - perception bindings without `owner_symbol`: `38`
-- Current Step227 cache stats for `world_instance_key=newworld`,
-  `world_name=newworld`, `content_revision_key=gothic2-notr-steam-local`:
-  - `world_zen_entities_in_world=24917`
-  - `waypoint_edges_in_world=3202`
-  - `npc_templates=730`
-  - `item_templates=835`
-  - `routines=1186`
-  - `perception_bindings=38`
-  - `dialog_infos=4139`
-  - `dialog_outputs=20826`
+Fresh read-model export from `runtime/content_build/parser_snapshot.json`:
+
+- `world_zen_entities=24917`
+- `waypoint_edges=3202`
+- `npc_templates=730`
+- `item_templates=835`
+- `routines=1186`
+- `perception_bindings=38`
+- `dialog_infos=4139`
+- `dialog_outputs=20826`
+
+Verified on 2026-07-08:
+
+- full `server/cpp` CMake build passed after adding missing Step232-242 targets;
+- Step224/226 runtime read-model probe passed;
+- Step227 cache probe passed;
+- Step229 policy probe passed;
+- Step230 synthetic dry-run passed;
+- Step212 and Step213 DB checks passed;
+- Step235 action queue read-only probe passed;
+- Step236 dispatcher read-only probe passed;
+- Step232/233 manual AI tick dry-run correctly rejected live NPC rows with
+  missing `npc_instance`;
+- Step234 `mmo_udp_server --startup-check-only --world-instance-ai-startup-dry-run`
+  passed and did not write AI decisions;
+- Step236-242 dispatcher chain passed with explicit claim, diagnostic preview,
+  binary diagnostic encoding, JSONL evidence, client fanout plan and skip cleanup;
+- final action queue probe reported `pending_count=0`.
+
+## Step Summary
+
+- Step224-230: read-model export, C++ indexes/cache, server startup cache,
+  perception policy and explicit `mmo_ai_runtime` recording probe.
+- Step231: runtime NPC actor-source rejects weak identity by default.
+- Step232: manual `world_instance` AI tick probe, dry-run by default.
+- Step233: evidence guard for manual AI tick.
+- Step234: startup-only AI dry-run hook in `mmo_udp_server`.
+- Step235: action queue inspection/claim probe, read-only by default.
+- Step236: dispatcher contract validation, no live dispatch.
+- Step237: typed descriptor for safe greeting/warning actions.
+- Step238: log-only dialog intent preview.
+- Step239: diagnostic packet contract.
+- Step240: binary `ServerDiagnosticPacket` encode/decode check.
+- Step241: JSONL durable evidence writer, explicit file-write flag required.
+- Step242: client fanout plan builds for a session-bound greeting/warning action.
+
+Step242 is still plan-only. It does not send UDP packets, open dialog UI/audio
+or mark actions applied.
 
 ## Stable Facts
 
 - `-mmo-client-server host:port` opts the client into server-bound behavior.
 - Without MMO flags, native saves/new game remain unchanged.
 - Server-bound materialization is load-time restore, not live replication.
-- The server sends bootstrap ACK and chunked `mmo_bootstrap_snapshot_v1`.
-- Client writes bootstrap files under `runtime/`.
-- NPC lifecycle/death persistence exists, but live NPC movement/AI is not yet
-  server-simulated.
+- Client remains presentation/input/prediction; server owns MMO truth.
+- Current NPC AI path is explicit probe/evidence only, not an automatic scheduler.
+- No dialog UI/audio fan-out, movement replication, combat execution or
+  `mmo_ai_mark_npc_perception_action_applied` path is enabled.
 
 ## Main Gaps
 
-- Runtime read-model is indexed, bound to a read-only C++ `world_instance`
-  content cache and loadable during C++ server startup/session bootstrap.
-- Active read-model selection is still explicit via server flags, not yet
-  DB-selected from `mmo_content_build.content_build_runtime_exports`.
+- Live DB sample still has NPC rows with missing `npc_instance`; guarded probes
+  reject them before recording live decisions.
+- SQLite is no longer needed for server content/read-model/AI tests, but remains
+  a legacy baseline/oracle for old clean rebuild and save-to-DB migration paths.
+- Active read-model selection is still explicit via server flags, not selected
+  from `mmo_content_build.content_build_runtime_exports`.
 - Live NPC movement/pathing/routine simulation is not implemented.
-- Server NPC/perception candidate assessment can read live runtime DB actors and
-  record explicit decisions to `mmo_ai_runtime` through a probe, but this is not
-  yet scheduled by the UDP server/world_instance tick.
-- Current live DB sample exposes weak NPC identity (`creature:None`, empty
-  `npc_instance`), so production live recording should first fix content-backed
-  NPC identity.
-- Server script/dialog tick is not implemented.
-- Trade/spell/resource edge cases are not fully moved to direct C++ handlers.
-- DB schemas are production-shaped development contracts, not final MMO storage.
+- Server script/dialog VM tick is not implemented.
+- No live fanout/send/ACK contract exists after the Step242 plan.
 
 ## Current Next Edge
 
-Fix runtime NPC identity for live actors, then add an explicit scheduled
-world_instance AI tick that invokes the Step230 writer.
+Design the next disabled-by-default boundary after Step242: either an explicit
+no-send fanout adapter probe that resolves target sessions, or a client ACK
+contract for when live diagnostic/dialog fanout is eventually allowed.

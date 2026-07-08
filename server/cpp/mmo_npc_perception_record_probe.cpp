@@ -30,14 +30,19 @@ struct ProbeOptions final {
   std::size_t maxNpcs = 32;
   std::size_t maxPlayers = 16;
   std::size_t maxRecords = 16;
+  bool repairWeakNpcEntityKeys = true;
+  bool includeWeakNpcIdentity = false;
   bool enqueueAction = true;
   bool dryRun = false;
   bool synthetic = false;
+  bool targetFromRuntimePlayer = false;
   std::string worldInstanceUuid;
   std::string npcEntityKey = "npc:probe";
   std::string npcInstance;
   std::string targetKey = "PC_HERO";
   std::string characterKey = "PC_HERO";
+  std::string sessionUuid;
+  std::string characterUuid;
   double targetDistance = 100.0;
 };
 
@@ -191,12 +196,18 @@ void jsonCountField(std::ostream& out, std::string_view name, std::size_t value,
       options.maxPlayers = parseSize(need(i, argc, argv, arg)).value_or(options.maxPlayers);
     } else if(arg == "--max-records") {
       options.maxRecords = parseSize(need(i, argc, argv, arg)).value_or(options.maxRecords);
+    } else if(arg == "--no-repair-weak-npc-entity-keys") {
+      options.repairWeakNpcEntityKeys = false;
+    } else if(arg == "--include-weak-npc-identity") {
+      options.includeWeakNpcIdentity = true;
     } else if(arg == "--enqueue-action") {
       options.enqueueAction = parseBoolish(need(i, argc, argv, arg), options.enqueueAction);
     } else if(arg == "--dry-run") {
       options.dryRun = true;
     } else if(arg == "--synthetic") {
       options.synthetic = true;
+    } else if(arg == "--target-from-runtime-player") {
+      options.targetFromRuntimePlayer = true;
     } else if(arg == "--world-instance-uuid") {
       options.worldInstanceUuid = need(i, argc, argv, arg);
     } else if(arg == "--npc-entity-key") {
@@ -207,6 +218,10 @@ void jsonCountField(std::ostream& out, std::string_view name, std::size_t value,
       options.targetKey = need(i, argc, argv, arg);
     } else if(arg == "--character-key") {
       options.characterKey = need(i, argc, argv, arg);
+    } else if(arg == "--session-uuid" || arg == "--target-session-uuid") {
+      options.sessionUuid = need(i, argc, argv, arg);
+    } else if(arg == "--character-uuid" || arg == "--target-character-uuid") {
+      options.characterUuid = need(i, argc, argv, arg);
     } else if(arg == "--target-distance") {
       options.targetDistance = parseDouble(need(i, argc, argv, arg)).value_or(options.targetDistance);
     } else {
@@ -226,6 +241,23 @@ void jsonStats(std::ostream& out, const Mmo::NpcPerception::AssessmentStats& sta
   jsonCountField(out, "distance_pairs_skipped", stats.distancePairsSkipped);
   jsonCountField(out, "missing_perception_binding_pairs", stats.missingPerceptionBindingPairs);
   jsonCountField(out, "decisions", stats.decisions, false);
+  out << "}";
+  if(comma) {
+    out << ",";
+  }
+  out << "\n";
+}
+
+void jsonNpcIdentityStats(
+    std::ostream& out,
+    const Mmo::NpcPerceptionRuntime::RuntimeNpcIdentityStats& stats,
+    bool comma = true) {
+  out << "{\n";
+  jsonCountField(out, "npc_rows_read", stats.npcRowsRead);
+  jsonCountField(out, "accepted_npcs", stats.acceptedNpcs);
+  jsonCountField(out, "repaired_entity_keys", stats.repairedEntityKeys);
+  jsonCountField(out, "skipped_weak_entity_keys", stats.skippedWeakEntityKeys);
+  jsonCountField(out, "skipped_missing_npc_instance", stats.skippedMissingNpcInstance, false);
   out << "}";
   if(comma) {
     out << ",";
@@ -306,8 +338,41 @@ int main(int argc, char** argv) {
     std::string worldInstanceUuid = options.worldInstanceUuid;
     std::vector<Mmo::NpcPerception::NpcActor> npcs;
     std::vector<Mmo::NpcPerception::PlayerActor> players;
+    Mmo::NpcPerceptionRuntime::RuntimeNpcIdentityStats npcIdentityStats;
 
     if(options.synthetic) {
+      Mmo::NpcPerception::PlayerActor syntheticPlayer{
+          options.targetKey,
+          options.characterKey,
+          {options.targetDistance, 0.0, 0.0},
+          true,
+          options.sessionUuid,
+          options.characterUuid,
+      };
+
+      if(options.targetFromRuntimePlayer) {
+        Mmo::NpcPerceptionRuntime::RuntimeActorQueryOptions actorOptions;
+        actorOptions.worldInstanceKey = options.worldInstanceKey;
+        actorOptions.worldName = options.worldName;
+        actorOptions.maxNpcs = 0;
+        actorOptions.maxPlayers = options.maxPlayers;
+        actorOptions.repairWeakNpcEntityKeys = options.repairWeakNpcEntityKeys;
+        actorOptions.includeWeakNpcIdentity = options.includeWeakNpcIdentity;
+        const auto snapshot = Mmo::NpcPerceptionRuntime::loadRuntimeActors(target, actorOptions);
+        if(snapshot.players.empty()) {
+          throw std::runtime_error("no runtime player actor available for --target-from-runtime-player");
+        }
+        const auto& runtimePlayer = snapshot.players.front();
+        worldInstanceUuid = snapshot.world.worldInstanceUuid;
+        if(assessmentOptions.serverTick == 0) {
+          assessmentOptions.serverTick = snapshot.world.serverTick;
+        }
+        syntheticPlayer.targetKey = runtimePlayer.targetKey;
+        syntheticPlayer.characterKey = runtimePlayer.characterKey;
+        syntheticPlayer.sessionUuid = runtimePlayer.sessionUuid;
+        syntheticPlayer.characterUuid = runtimePlayer.characterUuid;
+      }
+
       if(worldInstanceUuid.empty() && !options.dryRun) {
         worldInstanceUuid = Mmo::NpcPerceptionRuntime::resolveRuntimeWorldInstance(
                                 target,
@@ -327,18 +392,15 @@ int main(int argc, char** argv) {
           {0.0, 0.0, 0.0},
           true,
       });
-      players.push_back({
-          options.targetKey,
-          options.characterKey,
-          {options.targetDistance, 0.0, 0.0},
-          true,
-      });
+      players.push_back(syntheticPlayer);
     } else {
       Mmo::NpcPerceptionRuntime::RuntimeActorQueryOptions actorOptions;
       actorOptions.worldInstanceKey = options.worldInstanceKey;
       actorOptions.worldName = options.worldName;
       actorOptions.maxNpcs = options.maxNpcs;
       actorOptions.maxPlayers = options.maxPlayers;
+      actorOptions.repairWeakNpcEntityKeys = options.repairWeakNpcEntityKeys;
+      actorOptions.includeWeakNpcIdentity = options.includeWeakNpcIdentity;
       const auto snapshot = Mmo::NpcPerceptionRuntime::loadRuntimeActors(target, actorOptions);
       worldInstanceUuid = snapshot.world.worldInstanceUuid;
       if(assessmentOptions.serverTick == 0) {
@@ -346,6 +408,7 @@ int main(int argc, char** argv) {
       }
       npcs = snapshot.npcs;
       players = snapshot.players;
+      npcIdentityStats = snapshot.npcIdentity;
     }
 
     const auto result = Mmo::NpcPerception::assessNpcPerception(cache, assessmentOptions, npcs, players);
@@ -377,6 +440,10 @@ int main(int argc, char** argv) {
     jsonField(std::cout, "content_revision_key", cache.contentRevisionKey());
     jsonField(std::cout, "world_instance_key", cache.worldInstanceKey());
     jsonField(std::cout, "world_name", cache.worldName());
+    jsonRawField(std::cout, "repair_weak_npc_entity_keys", options.repairWeakNpcEntityKeys ? "true" : "false");
+    jsonRawField(std::cout, "include_weak_npc_identity", options.includeWeakNpcIdentity ? "true" : "false");
+    std::cout << "\"npc_identity\": ";
+    jsonNpcIdentityStats(std::cout, npcIdentityStats);
     std::cout << "\"stats\": ";
     jsonStats(std::cout, result.stats);
     jsonCountField(std::cout, "recorded_count", recorded.size());

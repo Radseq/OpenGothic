@@ -1,6 +1,7 @@
 # Repository Map
 
-Read the section that matches the task. Inspect source files before editing.
+Inspect source files before editing. Read only the section that matches the
+task.
 
 ## Root
 
@@ -8,68 +9,69 @@ Read the section that matches the task. Inspect source files before editing.
 - `AGENTS.md` - agent rules for future Codex/LLM work.
 - `.llmignore` - context ignore list.
 - `README.md` - upstream/user-facing project information.
+- `docs/llm/` - compact LLM context and step archive.
 
-## `game/`
+## Client/Game
 
-Client/game/engine code.
-
-Key areas:
-
-- `game/main.cpp`, `game/mainwindow.*` - app startup and graphics API creation.
 - `game/commandline.*` - runtime flags, including MMO flags.
-- `game/game/gamesession.*` - new/load session, tick, snapshot restore,
-  movement checkpoint cadence.
+- `game/mainwindow.*` - app startup and graphics API creation.
+- `game/game/gamesession.*` - session lifecycle, tick, snapshot restore.
 - `game/game/mmosemanticevents.*` - semantic action definitions.
-- `game/game/mmosemanticactionsink.*` - async action sink and ASIO UDP client.
-- `game/game/mmosemantichooks.*` - gameplay hooks that emit MMO actions.
+- `game/game/mmosemanticactionsink.*` - ASIO UDP client path.
+- `game/game/mmosemantichooks.*` - gameplay hooks emitting MMO actions.
 - `game/game/mmorestoresnapshot.h` - bootstrap snapshot parsing/apply structs.
-- `game/game/mmoruntimesqlite.*` - local SQLite capture/restore support.
-- `game/world/objects/` - NPC/item/interactive object behavior.
-- `game/graphics/`, `shader/` - rendering and shaders.
+- `game/world/objects/` - NPC/item/interactive behavior.
 
 Rules:
 
-- Keep client as presentation/input/prediction for MMO work, not authority.
-- New server/MMO behavior must stay gated by explicit client parameters/flags.
+- Client remains presentation/input/prediction in MMO mode.
+- New server behavior must be gated by explicit flags.
 
 ## `server/cpp/`
 
 C++ MMO server and content tooling.
 
-Key files:
+Core:
 
-- `mmo_udp_server.cpp` - older monolithic C++ UDP server.
-- `mmo_udp_server_*.inl` - extracted implementation partitions.
-- `mmo_server_persistence.*` - direct DB persistence/query helpers.
-- `mmo_server_identity.h` - stable entity/key helpers.
-- `mmo_server_types.h` - shared server option/readiness/types.
-- `mmo_server_snapshot_limits.h` - snapshot/chunk limits.
-- `mmo_content_build_loader.*` - C++ ZenKit parser snapshot writer.
-- `mmo_content_build_importer.cpp` - CLI for parser snapshot generation.
-- `mmo_vdf_world_zen_probe.cpp` - VDF/MOD world ZEN probe/extractor.
-- `mmo_runtime_read_model_loader.*` - Step226 C++ read-model inspection and
-  read-only runtime index materialization.
-- `mmo_runtime_read_model_probe.cpp` - CLI probe for runtime read-model JSON,
-  index counts and deterministic lookup checks.
-- `mmo_world_instance_content_cache.*` - Step227 read-only cache binding a
-  runtime read-model to a content revision and `world_instance`.
-- `mmo_world_instance_content_cache_probe.cpp` - CLI probe for cache binding,
-  cache stats and deterministic cache lookup checks.
-- Step228 wires the content cache into `mmo_udp_server` startup via explicit
-  server flags and `--startup-check-only`.
-- `mmo_npc_perception_policy.*` - Step229 C++ candidate assessment for
-  NPC/player perception pairs using the content cache.
-- `mmo_npc_perception_policy_probe.cpp` - CLI probe for deterministic
-  perception candidate decisions.
-- `mmo_npc_perception_runtime_source.*` - Step230 runtime DB actor-source for
-  active player/NPC perception inputs.
-- `mmo_ai_runtime_persistence.*` - Step230 C++ adapter for
-  `mmo_ai_record_npc_perception_decision(...)`.
-- `mmo_npc_perception_record_probe.cpp` - Step230 CLI probe for live/synthetic
-  perception recording to `mmo_ai_runtime`.
-- `mmo_server_world_clock.h` - shared world clock bootstrap query helper used
-  by the persistence module.
-- `CMakeLists.txt` - standalone server/content-tool targets.
+- `mmo_udp_server.cpp` - C++ UDP server and startup flags.
+- `mmo_udp_server_*.inl` - extracted server partitions.
+- `mmo_server_types.h` - shared options/types.
+- `mmo_server_persistence.*` - MySQL helper/procedure bridge.
+- `mmo_server_world_clock.h` - shared world clock snapshot query helper.
+
+Content/read-model:
+
+- `mmo_content_build_loader.*`
+- `mmo_content_build_importer.cpp`
+- `mmo_runtime_read_model_loader.*`
+- `mmo_runtime_read_model_probe.cpp`
+- `mmo_world_instance_content_cache.*`
+- `mmo_world_instance_content_cache_probe.cpp`
+- `mmo_vdf_world_zen_probe.cpp`
+
+NPC perception and AI runtime:
+
+- `mmo_npc_perception_policy.*`
+- `mmo_npc_perception_policy_probe.cpp`
+- `mmo_npc_perception_runtime_source.*`
+- `mmo_ai_runtime_persistence.*`
+- `mmo_npc_perception_record_probe.cpp`
+- `mmo_world_instance_ai_tick.*`
+- `mmo_world_instance_ai_tick_evidence.*`
+- `mmo_world_instance_ai_scheduler_boundary.*`
+- `mmo_world_instance_ai_tick_probe.cpp`
+
+Action queue / dispatcher preview:
+
+- `mmo_npc_perception_action_queue_probe.cpp`
+- `mmo_npc_perception_action_dispatcher_boundary.*`
+- `mmo_npc_perception_action_dispatcher_probe.cpp`
+- `mmo_npc_perception_effect_descriptor.*`
+- `mmo_npc_perception_dialog_intent_preview.*`
+- `mmo_npc_perception_dialog_intent_diagnostic_packet.*`
+- `mmo_npc_perception_dialog_intent_diagnostic_encoder.*`
+- `mmo_npc_perception_dialog_intent_durable_evidence.*`
+- `mmo_npc_perception_dialog_intent_fanout_plan.*`
 
 Rules:
 
@@ -77,62 +79,35 @@ Rules:
 - Keep server hot paths typed; JSON is bridge/debug unless explicitly a read
   model artifact.
 
-## `server/sql/`
+Build:
 
-MySQL schema/procedure contracts.
+- `server/cpp/CMakeLists.txt` - standalone server/content-tool targets.
 
-Important surfaces:
+## SQL
 
-- MMO runtime authority schemas and migration history.
-- `step211_content_build_database.sql` - `mmo_content_build`.
-- `step212_ai_runtime_perception_database.sql` - `mmo_ai_runtime`.
-- `step213_ai_runtime_action_dispatch_contracts.sql` - perception action queue.
-- `step221_content_build_item_templates_compat.sql` - compatibility fix for
-  item templates.
+- `server/sql/step211_content_build_database.sql` - `mmo_content_build`.
+- `server/sql/step212_ai_runtime_perception_database.sql` - `mmo_ai_runtime`.
+- `server/sql/step213_ai_runtime_action_dispatch_contracts.sql` - AI action
+  dispatch queue.
 
 Rules:
 
-- Step SQL files are migration history and contracts.
+- Step SQL files are migration history/contracts.
 - Do not rename procedures/columns without migration and validation updates.
-- Treat JSON columns as raw/audit/debug unless the current contract says
-  otherwise.
 
-## `tools/`
+## Tools
 
-Python entrypoints.
+- `tools/*.py` - thin wrappers.
+- `tools/bootstrap/*.py` - apply/import/report flows.
+- `tools/validation/*.py` - focused checks.
 
-Patterns:
+Current useful tools:
 
-- `tools/*.py` wrappers are thin CLI entrypoints.
-- `tools/bootstrap/*.py` contains implementation for apply/import/report flows.
-- `tools/validation/*.py` contains focused checks.
-- `tools/migration/` and `tools/production/` are older/supporting paths.
+- `tools/export_content_build_runtime_read_model.py`
+- `tools/check_mmo_step212_ai_runtime_perception_database.py`
+- `tools/check_mmo_step213_ai_runtime_action_dispatch.py`
 
-Current content tools:
+## Runtime
 
-- `discover_gothic_content_sources.py`
-- `probe_gothic_world_zen_archives.py`
-- `import_content_build_snapshot_database.py`
-- `export_content_build_runtime_read_model.py`
-- `check_mmo_step211_content_build_database.py`
-
-## `docs/llm/`
-
-Current compact LLM context.
-
-- Read root `docs/llm/*.md` selectively.
-- `docs/llm/ai/*.md` is step archive. Open only targeted files.
-
-## `runtime/`
-
-Generated local artifacts.
-
-Examples:
-
-- parser snapshots;
-- generated SQL previews;
-- bootstrap snapshots;
-- content build reports;
-- validation reports.
-
-Do not treat `runtime/` as source.
+Generated local artifacts: parser snapshots, reports, bootstrap snapshots,
+evidence JSONL. Do not treat `runtime/` as source.
