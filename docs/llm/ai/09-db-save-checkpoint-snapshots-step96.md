@@ -45,3 +45,7 @@ Step97 notes:
 - This is still gated by `-mmo-client-server`; old native `.sav` save/load behavior remains unchanged without server-bound mode.
 - The next hard target is strict DB-continue validation: prove that after a save, restart, and bootstrap from DB checkpoint snapshot, bookstand/script/dialog/item changes survive without depending on local `.sav` as authority.
 
+
+
+
+

@@ -17,6 +17,63 @@ code in one of the subdirectories below.
 - `_archive/` - old step archaeology. Do not add new dependencies on these
   scripts unless an archived bridge is deliberately being revived.
 
+## Server content-build discovery
+
+Before running the ZenKit C++ importer, discover whether the server content root
+contains loose ZEN/DAT/OU files or only VDF/MOD archives:
+
+```bash
+python3 tools/discover_gothic_content_sources.py \
+  --gothic-root "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
+  --content-revision-key gothic2-notr-steam-local
+```
+
+If the generated report is `ready_for_importer`, build
+`mmo_content_build_importer` and run
+`runtime/content_build/run_content_build_importer.sh`. If it is
+`needs_extract_or_vfs_mount`, extract/mount the archives first or extend the
+importer with ZenKit VFS support.
+
+For a Steam Gothic II install where world ZEN files are only inside VDF/MOD
+archives, build and run the isolated VFS probe/extractor:
+
+```bash
+cmake --build build/mmo_cpp_server --target mmo_vdf_world_zen_probe -j
+
+tools/probe_gothic_world_zen_archives.py \
+  --gothic-root "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
+  --world-name newworld.zen \
+  --extract
+```
+
+Then rerun discovery with the extracted loose ZEN as an additional root:
+
+```bash
+tools/discover_gothic_content_sources.py \
+  --gothic-root "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/" \
+  --extra-root runtime/content_build/vfs_extracted \
+  --content-revision-key gothic2-notr-steam-local
+```
+
+Discovery deliberately ignores non-world `.zen` files such as
+`Presets/Lensflare.zen`. A valid world source should normally come from
+`Data/Worlds` or `_work/Data/Worlds`.
+
+If DAT/OU import fails with missing `mmo_content_build.daedalus_item_templates`,
+apply the compatibility migration:
+
+```bash
+python3 tools/apply_content_build_item_templates_compat.py \
+  --url "$MYSQL_URL"
+```
+
+For a short operator summary:
+
+```bash
+python3 tools/mmo_gothic_content_discovery_report.py \
+  --discovery runtime/content_build/gothic_content_sources.json
+```
+
 ## Current clean MMO rebuild
 
 The supported destructive local rebuild remains:

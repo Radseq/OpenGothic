@@ -162,6 +162,15 @@ CommandLine::CommandLine(int argc, const char** argv) {
           mmoActionUdp = mmoServerEndpointValue;
         }
       }
+    else if(arg=="-mmo-client-content-manifest-hash" || arg=="-mmo-content-manifest-hash") {
+      // Client-declared content pack hash for server-side content gate. The
+      // server remains authoritative; this value is only a version declaration.
+      ++i;
+      if(i<argc && argv[i][0] != '\0') {
+        mmoClientUsesServerState = true;
+        mmoClientContentManifestHashValue = argv[i];
+      }
+    }
     else if(arg=="-mmo-restore-snapshot-json" || arg=="-mmo-client-restore-snapshot-json") {
       // Guarded server-truth restore contract. Validation is allowed in
       // server-bound mode; mutation additionally requires -mmo-restore-snapshot-apply.
@@ -538,5 +547,7 @@ bool CommandLine::validateGothicPath() const {
     return false;
   return true;
   }
+
+
 
 

@@ -460,3 +460,7 @@ Step93 save-to-server roadmap notes:
 - Native `.sav` currently stores much more than HERO stats/inventory: session/world time, visited worlds, current world, camera, quests/dialogs, Daedalus globals, portal guilds, NPC arrays, invalid NPCs, world items, mobsi/interactives, trigger queues, routines, mover state and per-NPC AI/movement/fight internals.
 - DB-only play should not copy raw save internals 1:1. Persist durable facts and server projections; keep camera/render/audio/particles and raw AI/fight queues out of production authority.
 - Immediate next blockers for DB-only work are: UTF-8/idempotency fix for non-ASCII quest/dialog keys, save/checkpoint manifest, baseline+DB load without `.sav`, mover materialization, waypoint import/read-model and then server-side NPC routine prototype.
+
+
+
+

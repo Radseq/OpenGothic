@@ -1,0 +1,71 @@
+{
+  "ai_db_name": "mmo_ai_runtime",
+  "dispatch_health": [
+    {
+      "applied_count": 1,
+      "claimed_count": 0,
+      "delayed_retry_count": 0,
+      "dispatch_log_count": 2,
+      "failed_count": 0,
+      "health_scope": "global",
+      "pending_count": 0,
+      "skipped_count": 0
+    }
+  ],
+  "generated_at": "2026-07-07T13:08:06.841689+00:00",
+  "health": [
+    {
+      "cooldown_count": 1,
+      "cooldown_skip_count": 0,
+      "decision_count": 1,
+      "disabled_rule_count": 0,
+      "enabled_rule_count": 0,
+      "failed_action_count": 0,
+      "health_scope": "global",
+      "pending_action_count": 0,
+      "queued_decision_count": 1
+    }
+  ],
+  "pending_actions": [],
+  "recent_decisions": [
+    {
+      "created_at": "2026-07-07 15:08:06.802845",
+      "decision_kind": "greet_player",
+      "decision_status": "queued",
+      "decision_uuid": "e5248019-7a04-11f1-9bb8-30560f155bba",
+      "npc_entity_key": "npc:test:greet",
+      "perception_kind": "PERC_ASSESSPLAYER",
+      "server_tick": 1,
+      "target_key": "player:hero",
+      "world_instance_uuid": "6118729f-4a5a-460d-8c6b-91d49a6f9077"
+    }
+  ],
+  "recent_dispatch_events": [
+    {
+      "action_queue_uuid": "e524f509-7a04-11f1-9bb8-30560f155bba",
+      "action_status": "applied",
+      "attempt_count": 1,
+      "created_at": "2026-07-07 15:08:06.813264",
+      "decision_uuid": "e5248019-7a04-11f1-9bb8-30560f155bba",
+      "dispatch_event": "applied",
+      "dispatch_log_uuid": "e52617d1-7a04-11f1-9bb8-30560f155bba",
+      "error_code": "",
+      "worker_id": "dev-ai-dispatch-worker"
+    },
+    {
+      "action_queue_uuid": "e524f509-7a04-11f1-9bb8-30560f155bba",
+      "action_status": "claimed",
+      "attempt_count": 1,
+      "created_at": "2026-07-07 15:08:06.809842",
+      "decision_uuid": "e5248019-7a04-11f1-9bb8-30560f155bba",
+      "dispatch_event": "claimed",
+      "dispatch_log_uuid": "e525950d-7a04-11f1-9bb8-30560f155bba",
+      "error_code": "",
+      "worker_id": "dev-ai-dispatch-worker"
+    }
+  ],
+  "schema": {
+    "exists": 1
+  },
+  "tool": "mmo_ai_runtime_report.py"
+}

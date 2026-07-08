@@ -63,3 +63,7 @@ Limits:
 - This still uses the same bootstrap JSON contract and load-time materialization.
 - It does not yet remove native `.sav` menu UX or implement full production shard-memory restore.
 - It is a strict evidence guard for the save-file-to-DB migration path.
+
+
+
+

@@ -1,0 +1,37 @@
+{
+  "connection_database": "gothic_mmo_ch1_clean",
+  "content_build_database": "mmo_content_build",
+  "finished_at": "2026-07-07T10:28:35.324081+00:00",
+  "started_at": "2026-07-07T10:28:35.227573+00:00",
+  "status": "passed",
+  "surfaces": [
+    {
+      "key": "content_build_database",
+      "note": "standalone mmo_content_build schema for server-side ZEN/DAT/OU parser output",
+      "path": "server/sql/step211_content_build_database.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "192.168.195.94",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-p***",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    }
+  ],
+  "tool": "apply_content_build_database.py"
+}

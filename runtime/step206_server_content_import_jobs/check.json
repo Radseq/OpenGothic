@@ -1,0 +1,64 @@
+{
+  "checked_at": "2026-07-07T10:29:08.278626+00:00",
+  "checks": [
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "mmo_server_content_import_jobs",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_content_import_jobs",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_content_import_job_health",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "procedure",
+      "name": "mmo_enqueue_server_content_import_job",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "migration",
+      "name": "step206_schema_version_marker",
+      "status": "passed"
+    },
+    {
+      "count": 0,
+      "kind": "data",
+      "name": "content_import_job_rows",
+      "status": "warning"
+    },
+    {
+      "details": [
+        {
+          "archive_jobs": 0,
+          "blocked_count": 0,
+          "content_revision_key": "runtime-sqlite:g2notr:ea9f1fb893556f4a",
+          "dialog_ou_jobs": 0,
+          "failed_count": 0,
+          "is_active": 0,
+          "queued_count": 0,
+          "running_count": 0,
+          "scripts_dat_jobs": 0,
+          "succeeded_count": 0,
+          "total_jobs": 0,
+          "world_zen_jobs": 0
+        }
+      ],
+      "kind": "data",
+      "name": "content_import_job_health",
+      "status": "passed"
+    }
+  ],
+  "status": "passed",
+  "tool": "check_mmo_step206_server_content_import_jobs.py"
+}

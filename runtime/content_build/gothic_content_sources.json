@@ -1,0 +1,201 @@
+{
+  "archives": [
+    {
+      "byte_size": 115310252,
+      "file_role": "archive_mod",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/ModVDF/g2_classic.mod",
+      "logical_path": "data/modvdf/g2_classic.mod",
+      "required_for_server_authority": true,
+      "sha256": "57514a54b80e939e0f353325312260deb27141f5dcee39489239973bc5e73e2b"
+    },
+    {
+      "byte_size": 13758063,
+      "file_role": "archive_mod",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/ModVDF/g2_classic_pl.mod",
+      "logical_path": "data/modvdf/g2_classic_pl.mod",
+      "required_for_server_authority": true,
+      "sha256": "52f41467471e725eebd4894fc0281f1aa572d96a08c283e4cec915988634e18b"
+    },
+    {
+      "byte_size": 37559130,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Anims.vdf",
+      "logical_path": "data/anims.vdf",
+      "required_for_server_authority": true,
+      "sha256": "1f78030d703cd7db6dff0105b9dc321bee97028765755f8e7e54c4110ca5e9e4"
+    },
+    {
+      "byte_size": 12587040,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Anims_Addon.vdf",
+      "logical_path": "data/anims_addon.vdf",
+      "required_for_server_authority": true,
+      "sha256": "f84f1235319221844eb243a2b52daf0e72e3ba1b0ac65c2aceea023ad4a60b19"
+    },
+    {
+      "byte_size": 15251140,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Meshes.vdf",
+      "logical_path": "data/meshes.vdf",
+      "required_for_server_authority": true,
+      "sha256": "24814577c6f329c4b2d2a65dcb52b324ef7866ef6c6c24d4bab6b6c2ec4a0703"
+    },
+    {
+      "byte_size": 4825724,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Meshes_Addon.vdf",
+      "logical_path": "data/meshes_addon.vdf",
+      "required_for_server_authority": true,
+      "sha256": "1779a5abcedfaf3745a18b4c58bfd04f03f9c6a39dc3b4e458dbf71dd2895a59"
+    },
+    {
+      "byte_size": 155747102,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Sounds.vdf",
+      "logical_path": "data/sounds.vdf",
+      "required_for_server_authority": true,
+      "sha256": "8606569d89242d04ac3e802cab3573c2f4a4965d587e478f6a0e0f544ea8cfb7"
+    },
+    {
+      "byte_size": 52713864,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Sounds_Addon.vdf",
+      "logical_path": "data/sounds_addon.vdf",
+      "required_for_server_authority": true,
+      "sha256": "70bfd55908ec0fed94ccdcb446f83bc56c717745828cde801f816252001f4d18"
+    },
+    {
+      "byte_size": 84792,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Sounds_bird_01.vdf",
+      "logical_path": "data/sounds_bird_01.vdf",
+      "required_for_server_authority": true,
+      "sha256": "41121684568bc663a554a411ff77fbdbcc5ce68e7784c6cd837e249143505026"
+    },
+    {
+      "byte_size": 722595072,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Speech1.vdf",
+      "logical_path": "data/speech1.vdf",
+      "required_for_server_authority": true,
+      "sha256": "d220a0f4831929b7e34b83e8edf6b0bedbf2c7b03804cf0d69398a87291f1931"
+    },
+    {
+      "byte_size": 590997736,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Speech2.vdf",
+      "logical_path": "data/speech2.vdf",
+      "required_for_server_authority": true,
+      "sha256": "8c123fbf0092f1b4e8d056d991dd2ad4dae41efa67caf2627332aedfdf530a8a"
+    },
+    {
+      "byte_size": 389916456,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Speech_Addon.vdf",
+      "logical_path": "data/speech_addon.vdf",
+      "required_for_server_authority": true,
+      "sha256": "f31b7dca04309d2efa5f5899c3b0f7b560cd8b29a9e2da62ac56d305eb7c343d"
+    },
+    {
+      "byte_size": 64857,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/SystemPack.vdf",
+      "logical_path": "data/systempack.vdf",
+      "required_for_server_authority": true,
+      "sha256": "4287caafc71eefebf97bbcbbdb8d07f7298075a2d344f7c13a9cbecc270d7fac"
+    },
+    {
+      "byte_size": 318907760,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Textures.vdf",
+      "logical_path": "data/textures.vdf",
+      "required_for_server_authority": true,
+      "sha256": "a26aa1faf2d6f28e847e85712218320bbad05e9aea2b55846c2333851f23f605"
+    },
+    {
+      "byte_size": 153800757,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Textures_Addon.vdf",
+      "logical_path": "data/textures_addon.vdf",
+      "required_for_server_authority": true,
+      "sha256": "8caef907ad27dd9e26e873b8af33f83d6b5fdf03e7a6c878c09da0fd498ec0c2"
+    },
+    {
+      "byte_size": 100822945,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Worlds.vdf",
+      "logical_path": "data/worlds.vdf",
+      "required_for_server_authority": true,
+      "sha256": "c1cc280a7d1f1f6ee2358526c561f756736d02aecb0c68e80b6e5b1fe33bd601"
+    },
+    {
+      "byte_size": 135671400,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Worlds_Addon.vdf",
+      "logical_path": "data/worlds_addon.vdf",
+      "required_for_server_authority": true,
+      "sha256": "09074c4c4d21564f9794b363de7cc494ff728930f5f43649829de8e17bcd57bc"
+    },
+    {
+      "byte_size": 987,
+      "file_role": "archive_vdf",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/installscript.vdf",
+      "logical_path": "installscript.vdf",
+      "required_for_server_authority": true,
+      "sha256": "1fb6deca4a3915aaf0f9af0373dd533683ddfeb0af4a5cc1e7b0dcc5925090ee"
+    }
+  ],
+  "content_revision_key": "gothic2-notr-steam-local",
+  "extra_roots": [
+    "/home/radseq/Desktop/OpenGothic/runtime/content_build/vfs_extracted"
+  ],
+  "game_code": "gothic2-notr",
+  "generated_at": "2026-07-07T17:09:59.354339+00:00",
+  "gothic_root": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II",
+  "schema": "mmo.gothic_content_source_discovery.v1",
+  "selected_sources": {
+    "dialog_ou": {
+      "byte_size": 6085080,
+      "file_role": "dialog_ou",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/_work/Data/Scripts/Content/Cutscene/Ou.bin",
+      "logical_path": "_work/data/scripts/content/cutscene/ou.bin",
+      "required_for_server_authority": true,
+      "sha256": "01d63fbb105a9dc25b387917de71f8866bbc87194022aed5eda9d90b69b7a5b6"
+    },
+    "scripts_dat": {
+      "byte_size": 7553627,
+      "file_role": "scripts_dat",
+      "host_path": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/_work/Data/Scripts/_compiled/GOTHIC.DAT",
+      "logical_path": "_work/data/scripts/_compiled/gothic.dat",
+      "required_for_server_authority": true,
+      "sha256": "daefe0f9041c701cd3c484edfbdcf7eec6013d228ef3b2dd24db9aafeafcd6df"
+    },
+    "world_zen": {
+      "byte_size": 68734339,
+      "file_role": "world_zen",
+      "host_path": "/home/radseq/Desktop/OpenGothic/runtime/content_build/vfs_extracted/newworld.zen",
+      "logical_path": "newworld.zen",
+      "required_for_server_authority": true,
+      "sha256": "95fe75f8cdf2e9e2678f3dcf5d7c2f0fbb8402a845d4d1aa448f1b85c96f9224"
+    }
+  },
+  "source_root_label": "local-gothic2-server-content",
+  "status": "ready_for_importer",
+  "summary": {
+    "archive_count": 18,
+    "authoritative_world_zen_count": 1,
+    "candidate_count": 32,
+    "dialog_ou_count": 2,
+    "ignored_world_zen_count": 3,
+    "scripts_dat_count": 8,
+    "world_zen_count": 4
+  },
+  "tool": "discover_gothic_content_sources.py",
+  "warnings": [
+    {
+      "code": "non_world_zen_ignored",
+      "ignored_count": 3,
+      "message": "Some .zen files were ignored because they are presets or non-world resources, not authoritative world ZEN files."
+    }
+  ]
+}

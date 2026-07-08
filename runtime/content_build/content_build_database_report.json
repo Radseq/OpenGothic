@@ -1,0 +1,33 @@
+{
+  "content_db_name": "mmo_content_build",
+  "content_revision_key": "gothic2-notr-steam-local",
+  "game_code": "gothic2-notr",
+  "generated_at": "2026-07-07T17:28:08.576080+00:00",
+  "schema": "mmo.content_build_database_snapshot_report.v1",
+  "snapshot_path": "runtime/content_build/parser_snapshot.json",
+  "summary": {
+    "daedalus_symbol_count": 74651,
+    "dialog_info_count": 4139,
+    "dialog_output_count": 20826,
+    "item_template_count": 835,
+    "npc_template_count": 730,
+    "parser_error_count": 0,
+    "perception_binding_count": 38,
+    "routine_count": 1186,
+    "source_count": 3,
+    "waypoint_edge_count": 3202,
+    "zen_by_entity_kind": {
+      "freepoint": 1,
+      "light": 5320,
+      "mover": 38,
+      "sound": 354,
+      "spawn": 2269,
+      "trigger": 36,
+      "vob": 14107,
+      "waypoint": 2791,
+      "world": 1
+    },
+    "zen_entity_count": 24917
+  },
+  "tool": "import_content_build_snapshot_database.py"
+}

@@ -65,3 +65,7 @@ The slot/catalog fields are not a gameplay objective. They are kept as minimal
 metadata so save checkpoints can be identified, debugged and later exposed in a
 menu. Actual save migration continues in Step96 through structured snapshot
 tables generated from DB current projections.
+
+
+
+

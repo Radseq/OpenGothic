@@ -1,0 +1,160 @@
+{
+  "ai_db_name": "mmo_ai_runtime",
+  "checked_at": "2026-07-07T13:07:55.353800+00:00",
+  "checks": [
+    {
+      "count": 1,
+      "kind": "schema",
+      "name": "mmo_ai_runtime",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "column",
+      "name": "npc_perception_action_queue.max_attempts",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "column",
+      "name": "npc_perception_action_queue.attempt_count",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "column",
+      "name": "npc_perception_action_queue.worker_id",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "column",
+      "name": "npc_perception_action_queue.locked_at",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "column",
+      "name": "npc_perception_action_queue.applied_at",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "column",
+      "name": "npc_perception_action_queue.failed_at",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "column",
+      "name": "npc_perception_action_queue.completed_at",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "column",
+      "name": "npc_perception_action_queue.next_attempt_at",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "column",
+      "name": "npc_perception_action_queue.last_error_code",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "column",
+      "name": "npc_perception_action_queue.last_error_message",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "column",
+      "name": "npc_perception_action_queue.result_payload",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "npc_perception_action_dispatch_log",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_npc_perception_pending_actions",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_npc_perception_action_dispatch_log",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_npc_perception_action_dispatch_health",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "procedure",
+      "name": "mmo_ai_claim_next_npc_perception_action",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "procedure",
+      "name": "mmo_ai_mark_npc_perception_action_applied",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "procedure",
+      "name": "mmo_ai_mark_npc_perception_action_failed",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "procedure",
+      "name": "mmo_ai_skip_npc_perception_action",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "migration",
+      "name": "step213_schema_version_marker",
+      "status": "passed"
+    },
+    {
+      "details": {
+        "action_queue": 0,
+        "dispatch_log": 0
+      },
+      "kind": "data",
+      "name": "ai_runtime_dispatch_counts",
+      "status": "passed"
+    },
+    {
+      "details": [
+        {
+          "applied_count": 0,
+          "claimed_count": 0,
+          "delayed_retry_count": 0,
+          "dispatch_log_count": 0,
+          "failed_count": 0,
+          "health_scope": "global",
+          "pending_count": 0,
+          "skipped_count": 0
+        }
+      ],
+      "kind": "data",
+      "name": "ai_runtime_dispatch_health",
+      "status": "passed"
+    }
+  ],
+  "status": "passed",
+  "tool": "check_mmo_step213_ai_runtime_action_dispatch.py"
+}

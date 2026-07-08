@@ -1,0 +1,109 @@
+{
+  "ai_db_name": "mmo_ai_runtime",
+  "checked_at": "2026-07-07T13:07:55.065076+00:00",
+  "checks": [
+    {
+      "count": 1,
+      "kind": "schema",
+      "name": "mmo_ai_runtime",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "ai_runtime_schema_versions",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "npc_perception_rule_catalog",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "npc_perception_cooldowns",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "npc_perception_decisions",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "npc_perception_action_queue",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_npc_perception_decisions",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_npc_perception_cooldowns",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_npc_perception_action_queue",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_npc_perception_policy_health",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "procedure",
+      "name": "mmo_ai_record_npc_perception_decision",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "migration",
+      "name": "step212_schema_version_marker",
+      "status": "passed"
+    },
+    {
+      "details": {
+        "action_queue": 0,
+        "cooldowns": 0,
+        "decisions": 0,
+        "rules": 0
+      },
+      "kind": "data",
+      "name": "ai_runtime_counts",
+      "status": "passed"
+    },
+    {
+      "details": [
+        {
+          "cooldown_count": 0,
+          "cooldown_skip_count": 0,
+          "decision_count": 0,
+          "disabled_rule_count": 0,
+          "enabled_rule_count": 0,
+          "failed_action_count": 0,
+          "health_scope": "global",
+          "pending_action_count": 0,
+          "queued_decision_count": 0
+        }
+      ],
+      "kind": "data",
+      "name": "ai_runtime_health",
+      "status": "passed"
+    }
+  ],
+  "status": "passed",
+  "tool": "check_mmo_step212_ai_runtime_perception_database.py"
+}

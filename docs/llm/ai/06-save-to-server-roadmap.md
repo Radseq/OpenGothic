@@ -302,3 +302,7 @@ When phases 1-6 are good enough:
 - Do not persist raw AI queues as final MMO truth.
 - Do not make game thread call MySQL directly.
 - Do not infer production authority from periodic full-world diffs.
+
+
+
+

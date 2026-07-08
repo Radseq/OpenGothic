@@ -102,3 +102,7 @@ Step83 gameplay note:
 Step84 gameplay note:
 - Server-bound load now materializes NPC lifecycle state for dead/damaged NPCs and creatures so killed unique/world entities can remain dead after restart. Active NPC routine movement, wandering, eating, trading, dialogue initiation, perception and combat AI are not broadcast by the server yet.
 - Unresolved local corpse/world pickup can be converted into a journaled character inventory grant by item symbol as a bridge until server-owned loot/drop spawning is authoritative.
+
+
+
+

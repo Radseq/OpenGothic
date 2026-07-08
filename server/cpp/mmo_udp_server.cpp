@@ -49,6 +49,7 @@
 #include "mmo_server_snapshot_limits.h"
 #include "mmo_server_types.h"
 #include "mmo_server_identity.h"
+#include "mmo_world_instance_content_cache.h"
 
 namespace {
 
@@ -103,6 +104,8 @@ using Mmo::Server::DirectApplyResult;
 using Mmo::Server::MySqlTarget;
 using Mmo::Server::Options;
 using Mmo::Server::WorldItemIdentity;
+using Mmo::WorldInstanceContent::WorldInstanceContentCache;
+using Mmo::WorldInstanceContent::WorldInstanceContentCacheOptions;
 
 void stopHandler(int) {
   gRunning.store(false, std::memory_order_relaxed);
@@ -633,6 +636,10 @@ void appendJsonNumberField(std::string& out, std::string_view key, std::uint64_t
   out += std::to_string(value);
 }
 
+void appendJsonSizeField(std::string& out, std::string_view key, std::size_t value) {
+  appendJsonNumberField(out, key, static_cast<std::uint64_t>(value));
+}
+
 void appendPayloadStringAlias(std::string& out, std::string_view payload, std::string_view outputKey, std::string_view payloadKey) {
   if(auto v = jsonStringField(payload, payloadKey))
     appendJsonField(out, outputKey, *v);
@@ -646,6 +653,75 @@ void appendPayloadNumberAlias(std::string& out, std::string_view payload, std::s
 void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::string_view outputKey, std::string_view payloadKey) {
   if(auto v = jsonBoolField(payload, payloadKey))
     appendJsonRawField(out, outputKey, *v ? "true" : "false");
+}
+
+[[nodiscard]] bool worldInstanceContentCacheEnabled(const Options& opt) noexcept {
+  return !opt.runtimeReadModelPath.empty();
+}
+
+[[nodiscard]] WorldInstanceContentCache loadWorldInstanceContentCache(const Options& opt) {
+  WorldInstanceContentCacheOptions cacheOptions;
+  cacheOptions.runtimeReadModelPath = opt.runtimeReadModelPath;
+  cacheOptions.contentRevisionKey = opt.contentRevisionKey;
+  cacheOptions.worldInstanceKey = opt.worldInstanceKey;
+  cacheOptions.worldName = opt.worldName;
+  cacheOptions.requireContentRevisionMatch = opt.requireRuntimeReadModelContentRevisionMatch;
+  return WorldInstanceContentCache::load(cacheOptions);
+}
+
+[[nodiscard]] std::string worldInstanceContentCacheSnapshotJson(
+    const WorldInstanceContentCache& cache,
+    std::string_view requestedWorldName) {
+  const auto& stats = cache.stats();
+  std::string out;
+  out.reserve(768);
+  out += "{\"status\":";
+  out += jsonEscape(requestedWorldName == cache.worldName() ? "ready" : "world_mismatch");
+  appendJsonField(out, "content_revision_key", cache.contentRevisionKey());
+  appendJsonField(out, "read_model_content_revision_key", cache.readModel().inspection.contentRevisionKey);
+  appendJsonField(out, "world_instance_key", cache.worldInstanceKey());
+  appendJsonField(out, "world_name", cache.worldName());
+  appendJsonField(out, "requested_world_name", requestedWorldName);
+  appendJsonSizeField(out, "world_zen_entities_in_world", stats.worldZenEntitiesInWorld);
+  appendJsonSizeField(out, "waypoint_edges_in_world", stats.waypointEdgesInWorld);
+  appendJsonSizeField(out, "npc_templates", stats.npcTemplates);
+  appendJsonSizeField(out, "item_templates", stats.itemTemplates);
+  appendJsonSizeField(out, "routines", stats.routines);
+  appendJsonSizeField(out, "perception_bindings", stats.perceptionBindings);
+  appendJsonSizeField(out, "dialog_infos", stats.dialogInfos);
+  appendJsonSizeField(out, "dialog_outputs", stats.dialogOutputs);
+  appendJsonSizeField(out, "warnings", cache.readModel().inspection.warnings.size());
+  out.push_back('}');
+  return out;
+}
+
+void appendWorldInstanceContentCacheSnapshotField(
+    std::string& snapshotJson,
+    const WorldInstanceContentCache& cache,
+    std::string_view requestedWorldName) {
+  appendJsonRawFieldBeforeFinalObjectBrace(
+      snapshotJson,
+      "world_instance_content_cache",
+      worldInstanceContentCacheSnapshotJson(cache, requestedWorldName));
+}
+
+void printWorldInstanceContentCacheReady(const WorldInstanceContentCache& cache) {
+  const auto& stats = cache.stats();
+  std::cout << "[world_instance_content_cache_ready]"
+            << " content_revision_key=" << cache.contentRevisionKey()
+            << " read_model_content_revision_key=" << cache.readModel().inspection.contentRevisionKey
+            << " world_instance_key=" << cache.worldInstanceKey()
+            << " world_name=" << cache.worldName()
+            << " world_zen_entities_in_world=" << stats.worldZenEntitiesInWorld
+            << " waypoint_edges_in_world=" << stats.waypointEdgesInWorld
+            << " npc_templates=" << stats.npcTemplates
+            << " item_templates=" << stats.itemTemplates
+            << " routines=" << stats.routines
+            << " perception_bindings=" << stats.perceptionBindings
+            << " dialog_infos=" << stats.dialogInfos
+            << " dialog_outputs=" << stats.dialogOutputs
+            << " warnings=" << cache.readModel().inspection.warnings.size()
+            << "\n";
 }
 
 [[nodiscard]] std::string equipmentSlotName(std::string_view raw) {
@@ -856,7 +932,10 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
   return kind == Mmo::SemanticActionKind::RecordNpcRoutineState ||
          kind == Mmo::SemanticActionKind::RecordNpcAiState ||
          kind == Mmo::SemanticActionKind::RecordNpcPathState ||
-         kind == Mmo::SemanticActionKind::RecordNpcFightState;
+         kind == Mmo::SemanticActionKind::RecordNpcFightState ||
+         kind == Mmo::SemanticActionKind::RecordCombatIntent ||
+         kind == Mmo::SemanticActionKind::RecordNpcActionState ||
+         kind == Mmo::SemanticActionKind::RecordNpcDialogLine;
 }
 
 [[nodiscard]] std::vector<std::string> splitMysqlLastRow(std::string_view raw) {
@@ -3423,6 +3502,15 @@ constexpr std::int64_t InvalidGothicPersistentId = 4294967295LL;
     sql += sqlLiteral(npcKey) + "," + sqlLiteral(opponentKey) + "," + sqlLiteral(fightState) + ",";
     sql += sqlLiteral(attackState) + "," + std::to_string(comboIndex) + "," + std::to_string(tick) + ",";
     sql += sqlJson(dbPayload) + "," + sqlLiteral(packet.idempotencyKey) + ",@event_id,@row_after);";
+  } else if(packet.kind == Mmo::SemanticActionKind::RecordCombatIntent ||
+            packet.kind == Mmo::SemanticActionKind::RecordNpcActionState ||
+            packet.kind == Mmo::SemanticActionKind::RecordNpcDialogLine) {
+    std::cout << "[npc_observation_ignored]"
+              << " action=" << Mmo::actionKindName(packet.kind)
+              << " target=" << packet.targetKey
+              << " reason=content_authority_db_contract_pending"
+              << "\n";
+    return {true, true, true, "content_authority_db_contract_pending"};
   } else if(packet.kind == Mmo::SemanticActionKind::RecordTriggerQueueState) {
     const auto triggerKey = optionalJsonString(payload, "trigger_key", optionalJsonString(payload, "target_key", packet.targetKey));
     const auto queueState = optionalJsonString(payload, "queue_state", "queued");
@@ -3652,6 +3740,10 @@ Options parseArgs(int argc, char** argv) {
     else if(arg == "--character-name" || arg == "--character-display-name") opt.characterDisplayName = need(i, arg);
     else if(arg == "--session-key") opt.sessionKey = need(i, arg);
     else if(arg == "--db-session-uuid") opt.dbSessionUuid = need(i, arg);
+    else if(arg == "--runtime-read-model" || arg == "--runtime-read-model-path") opt.runtimeReadModelPath = need(i, arg);
+    else if(arg == "--content-revision-key") opt.contentRevisionKey = need(i, arg);
+    else if(arg == "--world-instance-key") opt.worldInstanceKey = need(i, arg);
+    else if(arg == "--world-name") opt.worldName = need(i, arg);
     else if(arg == "--outbox-priority") opt.outboxPriority = parseInt(need(i, arg)).value_or(opt.outboxPriority);
     else if(arg == "--outbox-max-attempts") opt.outboxMaxAttempts = parseInt(need(i, arg)).value_or(opt.outboxMaxAttempts);
     else if(arg == "--max-packets") opt.maxPackets = parseInt(need(i, arg)).value_or(0);
@@ -3662,8 +3754,11 @@ Options parseArgs(int argc, char** argv) {
     else if(arg == "--forward-bootstrap-outbox") opt.forwardBootstrapOutbox = true;
     else if(arg == "--require-db-save-checkpoint-restore") opt.requireDbSaveCheckpointRestore = true;
     else if(arg == "--no-require-db-save-checkpoint-restore") opt.requireDbSaveCheckpointRestore = false;
+    else if(arg == "--require-runtime-read-model-content-revision-match") opt.requireRuntimeReadModelContentRevisionMatch = true;
+    else if(arg == "--no-require-runtime-read-model-content-revision-match") opt.requireRuntimeReadModelContentRevisionMatch = false;
+    else if(arg == "--startup-check-only") opt.startupCheckOnly = true;
     else if(arg == "--help" || arg == "-h") {
-      std::cout << "Usage: mmo_udp_server --bind 127.0.0.1:29777 --mysql-url mysql://user:pass@host:3306/db [--session-key local-dev-PC_HERO_TEST] [--enqueue-outbox] [--no-direct-db] [--require-db-save-checkpoint-restore]\n";
+      std::cout << "Usage: mmo_udp_server --bind 127.0.0.1:29777 --mysql-url mysql://user:pass@host:3306/db [--session-key local-dev-PC_HERO_TEST] [--enqueue-outbox] [--no-direct-db] [--runtime-read-model PATH --content-revision-key KEY --world-instance-key KEY --world-name NAME] [--startup-check-only] [--require-db-save-checkpoint-restore]\n";
       std::exit(0);
     } else {
       throw std::runtime_error("unknown argument: " + std::string(arg));
@@ -3693,6 +3788,20 @@ int main(int argc, char** argv) {
                 << " enqueue_outbox=" << (opt.enqueueOutbox ? "on" : "off")
                 << " require_db_save_checkpoint_restore=" << (opt.requireDbSaveCheckpointRestore ? "on" : "off")
                 << "\n";
+    }
+
+    std::optional<WorldInstanceContentCache> worldContentCache;
+    if(worldInstanceContentCacheEnabled(opt)) {
+      worldContentCache.emplace(loadWorldInstanceContentCache(opt));
+      printWorldInstanceContentCacheReady(*worldContentCache);
+    }
+    if(opt.startupCheckOnly) {
+      std::cout << "startup_check=ok"
+                << " direct_db=" << (opt.directDb ? "on" : "off")
+                << " enqueue_outbox=" << (opt.enqueueOutbox ? "on" : "off")
+                << " world_instance_content_cache=" << (worldContentCache ? "ready" : "off")
+                << "\n";
+      return 0;
     }
 
     const auto [bindHost, bindPort] = parseBind(opt.bind);
@@ -3807,6 +3916,8 @@ int main(int argc, char** argv) {
             if(packetReady) {
               try {
                 bootstrapSnapshotJson = buildBootstrapSnapshotJson(*mysql, sessionUuid, characterKey, worldName, readiness, true, opt.requireDbSaveCheckpointRestore);
+                if(worldContentCache)
+                  appendWorldInstanceContentCacheSnapshotField(bootstrapSnapshotJson, *worldContentCache, worldName);
               } catch(const std::exception& exc) {
                 diagnosticSeverity = 2;
                 diagnosticReason = opt.requireDbSaveCheckpointRestore ? "db_save_checkpoint_restore_required" : "bootstrap_snapshot_build_failed";
@@ -3890,6 +4001,8 @@ int main(int argc, char** argv) {
           auto readiness = readBootstrapReadinessWithFallback(*mysql, characterKey, worldName, sessionUuid, worldName);
           if(readiness.ready) {
             liveWorldSnapshotJson = buildBootstrapSnapshotJson(*mysql, sessionUuid, characterKey, worldName, readiness, false, false);
+            if(worldContentCache)
+              appendWorldInstanceContentCacheSnapshotField(liveWorldSnapshotJson, *worldContentCache, worldName);
             std::cout << "[client_correction_snapshot_queued]"
                       << " action=" << actionName
                       << " reason=" << direct.label
@@ -3911,6 +4024,8 @@ int main(int argc, char** argv) {
           auto readiness = readBootstrapReadinessWithFallback(*mysql, characterKey, worldName, sessionUuid, worldName);
           if(readiness.ready) {
             liveWorldSnapshotJson = buildBootstrapSnapshotJson(*mysql, sessionUuid, characterKey, worldName, readiness, false, false);
+            if(worldContentCache)
+              appendWorldInstanceContentCacheSnapshotField(liveWorldSnapshotJson, *worldContentCache, worldName);
             if(const auto pos = movementToPosition(packet.payloadJson)) {
               std::cout << "[live_world_item_snapshot_queued] reason=movement_interest"
                         << " x=" << pos->x
@@ -3929,7 +4044,18 @@ int main(int argc, char** argv) {
         }
       }
 
-      if(mysql && opt.enqueueOutbox && !direct.handled && (!isBootstrap || opt.forwardBootstrapOutbox)) {
+      if(mysql && opt.enqueueOutbox && !direct.handled && isFailOpenNpcObservationAction(packet.kind)) {
+        direct.handled = true;
+        direct.accepted = true;
+        direct.ready = true;
+        packetAccepted = true;
+        packetReady = true;
+        std::cerr << "[outbox_observation_ignored]"
+                  << " action=" << actionName
+                  << " target=" << packet.targetKey
+                  << " reason=content_authority_db_contract_pending"
+                  << "\n";
+      } else if(mysql && opt.enqueueOutbox && !direct.handled && (!isBootstrap || opt.forwardBootstrapOutbox)) {
         try {
           enqueueOutbox(*mysql, sessionUuid, packet, dbPayload, opt.outboxPriority, opt.outboxMaxAttempts);
           ++enqueued;
@@ -3942,12 +4068,25 @@ int main(int argc, char** argv) {
           std::cerr << "[enqueue_failed] action=" << actionName << " error=" << exc.what() << "\n";
         }
       } else if(mysql && opt.directDb && !isBootstrap && !direct.handled && !opt.enqueueOutbox) {
-        packetAccepted = false;
-        ++unhandled;
-        diagnosticSeverity = 2;
-        diagnosticReason = "direct_db_unhandled";
-        diagnosticMessage = "semantic action has no direct C++ DB handler and outbox fallback is disabled";
-        std::cerr << "[direct_db_unhandled] action=" << actionName << "\n";
+        if(isFailOpenNpcObservationAction(packet.kind)) {
+          direct.handled = true;
+          direct.accepted = true;
+          direct.ready = true;
+          packetAccepted = true;
+          packetReady = true;
+          std::cerr << "[direct_db_observation_unhandled_accepted]"
+                    << " action=" << actionName
+                    << " target=" << packet.targetKey
+                    << " payload=" << packet.payloadJson
+                    << "\n";
+        } else {
+          packetAccepted = false;
+          ++unhandled;
+          diagnosticSeverity = 2;
+          diagnosticReason = "direct_db_unhandled";
+          diagnosticMessage = "semantic action has no direct C++ DB handler and outbox fallback is disabled";
+          std::cerr << "[direct_db_unhandled] action=" << actionName << "\n";
+        }
       }
 
       ++accepted;
@@ -3998,8 +4137,6 @@ int main(int argc, char** argv) {
     return 2;
   }
 }
-
-
 
 
 

@@ -1,0 +1,73 @@
+{
+  "checked_at": "2026-07-07T10:17:02.273243+00:00",
+  "checks": [
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "mmo_server_content_archive_mounts",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "mmo_server_content_extracted_files",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_content_archive_mounts",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_content_extracted_files",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_content_archive_health",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "procedure",
+      "name": "mmo_upsert_server_content_archive_mount",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "procedure",
+      "name": "mmo_upsert_server_content_extracted_file",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "migration",
+      "name": "step203_schema_version_marker",
+      "status": "passed"
+    },
+    {
+      "count": 0,
+      "kind": "data",
+      "name": "archive_mount_rows",
+      "status": "warning"
+    },
+    {
+      "count": 0,
+      "kind": "data",
+      "name": "extracted_file_rows",
+      "status": "warning"
+    },
+    {
+      "details": [],
+      "kind": "data",
+      "name": "archive_health",
+      "status": "passed"
+    }
+  ],
+  "status": "passed",
+  "tool": "check_mmo_step203_server_content_archive_mounts.py"
+}

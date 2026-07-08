@@ -36,3 +36,7 @@ def resolve_mysql_exe() -> str:
             return str(sorted(matches, key=lambda p: (len(p.parts), str(p)))[0])
 
     raise RuntimeError("mysql executable was not found; set MYSQL_EXE to the full mysql.exe path")
+
+
+
+

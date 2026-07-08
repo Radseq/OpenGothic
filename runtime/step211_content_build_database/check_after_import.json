@@ -1,0 +1,239 @@
+{
+  "checked_at": "2026-07-07T16:55:37.020725+00:00",
+  "checks": [
+    {
+      "count": 1,
+      "kind": "schema",
+      "name": "mmo_content_build",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "content_build_schema_versions",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "content_build_revisions",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "content_build_files",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "content_build_imports",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "content_build_parser_errors",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "world_zen_entities",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "world_waypoint_edges",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "daedalus_symbols",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "daedalus_npc_templates",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "daedalus_item_templates",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "daedalus_routines",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "daedalus_perception_bindings",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "dialog_outputs",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "dialog_infos",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "content_build_runtime_exports",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_content_build_imports",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_world_zen_entities",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_world_waypoint_edges",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_daedalus_symbols",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_daedalus_npc_templates",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_daedalus_item_templates",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_daedalus_routines",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_daedalus_perception_bindings",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_dialog_outputs",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_dialog_infos",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_content_build_health",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "migration",
+      "name": "step211_schema_version_marker",
+      "status": "passed"
+    },
+    {
+      "details": {
+        "build_imports": 6,
+        "daedalus_symbols": 74651,
+        "dialog_infos": 4139,
+        "dialog_outputs": 20826,
+        "files": 2,
+        "item_templates": 835,
+        "npc_templates": 730,
+        "parser_errors": 0,
+        "perception_bindings": 38,
+        "revisions": 1,
+        "routines": 1186,
+        "runtime_exports": 0,
+        "waypoint_edges": 0,
+        "zen_entities": 0
+      },
+      "kind": "data",
+      "name": "content_build_counts",
+      "status": "passed"
+    },
+    {
+      "details": [
+        {
+          "blocking_error_count": 0,
+          "build_import_count": 6,
+          "build_status": "ready",
+          "content_revision_key": "gothic2-notr-steam-local",
+          "daedalus_symbol_count": 74651,
+          "dialog_info_count": 4139,
+          "dialog_output_count": 20826,
+          "failed_count": 0,
+          "file_count": 2,
+          "freepoint_count": 0,
+          "game_code": "gothic2-notr",
+          "imported_count": 6,
+          "item_template_count": 835,
+          "npc_template_count": 730,
+          "perception_binding_count": 38,
+          "required_file_count": 2,
+          "routine_count": 1186,
+          "vob_count": 0,
+          "waypoint_count": 0,
+          "waypoint_edge_count": 0,
+          "zen_entity_count": 0
+        }
+      ],
+      "kind": "data",
+      "name": "content_build_health",
+      "status": "passed"
+    },
+    {
+      "count": 81579,
+      "kind": "data_expectation",
+      "name": "expected_daedalus_index",
+      "status": "passed"
+    },
+    {
+      "count": 20826,
+      "kind": "data_expectation",
+      "name": "expected_dialog_outputs",
+      "status": "passed"
+    }
+  ],
+  "content_db_name": "mmo_content_build",
+  "status": "passed",
+  "tool": "check_mmo_step211_content_build_database.py"
+}

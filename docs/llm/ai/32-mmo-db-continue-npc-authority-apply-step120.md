@@ -35,3 +35,7 @@ MMO DB continue startup NPC authority applied: routine_applied=M ... records=N
 
 If `records=0`, apply the SQL bridge after cleaning the DB and verify that the
 new server binary is running.
+
+
+
+

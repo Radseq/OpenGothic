@@ -1,0 +1,23 @@
+{
+  "ai_db_name": "mmo_ai_runtime",
+  "generated_at": "2026-07-07T12:54:56.176385+00:00",
+  "health": [
+    {
+      "cooldown_count": 0,
+      "cooldown_skip_count": 0,
+      "decision_count": 0,
+      "disabled_rule_count": 0,
+      "enabled_rule_count": 0,
+      "failed_action_count": 0,
+      "health_scope": "global",
+      "pending_action_count": 0,
+      "queued_decision_count": 0
+    }
+  ],
+  "pending_actions": [],
+  "recent_decisions": [],
+  "schema": {
+    "exists": 1
+  },
+  "tool": "mmo_ai_runtime_report.py"
+}

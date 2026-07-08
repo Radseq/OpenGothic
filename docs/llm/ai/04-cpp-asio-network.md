@@ -199,3 +199,7 @@ Step91 network note:
 Step92 network note:
 - Snapshot interest management now has a second read-only window beside items: nearby NPCs, known dialog facts for those NPCs when resolvable, and nearby waypoints. This is not live NPC replication. It is a server-side visibility/read-model slice so future AI/runtime work can stop relying on full-world dumps.
 - Do not drive local NPC movement from `nearby_npcs`. Active NPC pathing, routine execution, perception and combat decisions remain local-client/native until a dedicated server simulation tick exists.
+
+
+
+

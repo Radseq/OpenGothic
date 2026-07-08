@@ -39,3 +39,7 @@ MMO DB continue startup NPC routines resumed: count=N
 
 For Xardas, `N` should be greater than zero in a normal NewWorld load with
 routine NPCs present.
+
+
+
+

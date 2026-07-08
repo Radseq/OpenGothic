@@ -62,3 +62,7 @@ Minimal server command:
   --bind 127.0.0.1:29777 \
   --mysql-url "mysql://gothic:gothic_dev_password@127.0.0.1:3306/gothic_mmo_ch1_clean"
 ```
+
+
+
+

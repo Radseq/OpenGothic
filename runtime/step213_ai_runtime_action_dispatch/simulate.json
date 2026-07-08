@@ -1,0 +1,30 @@
+{
+  "ai_db_name": "mmo_ai_runtime",
+  "events": [
+    {
+      "created_action_queue_uuid": "e524f509-7a04-11f1-9bb8-30560f155bba",
+      "decision_status": "queued",
+      "decision_uuid": "e5248019-7a04-11f1-9bb8-30560f155bba",
+      "idempotency_key": "ai-sim:fb91bdfa-c363-4c4c-b0eb-0c734e9f445d",
+      "phase": "record"
+    },
+    {
+      "action_kind": "npc_greet_player",
+      "claimed_action_queue_uuid": "e524f509-7a04-11f1-9bb8-30560f155bba",
+      "claimed_decision_uuid": "e5248019-7a04-11f1-9bb8-30560f155bba",
+      "idempotency_key": "ai-sim:fb91bdfa-c363-4c4c-b0eb-0c734e9f445d:action",
+      "phase": "claim",
+      "target_key": "player:hero"
+    },
+    {
+      "action_status": "applied",
+      "finish": "applied",
+      "phase": "finish"
+    }
+  ],
+  "generated_at": "2026-07-07T13:08:06.815621+00:00",
+  "idempotency_key": "ai-sim:fb91bdfa-c363-4c4c-b0eb-0c734e9f445d",
+  "status": "passed",
+  "tool": "simulate_ai_npc_perception_dispatch.py",
+  "world_instance_uuid": "6118729f-4a5a-460d-8c6b-91d49a6f9077"
+}

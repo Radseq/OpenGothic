@@ -44,3 +44,7 @@ Limits:
 - This is still load-time materialization, not live replication.
 - NPC AI/path queues, animation, camera, particles and audio are intentionally not persisted.
 - If no DB save checkpoint exists yet, the bootstrap falls back to current projections so New Game reset remains usable.
+
+
+
+

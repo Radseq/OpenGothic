@@ -41,3 +41,7 @@ Do not persist raw pointers, animation pose, particles, audio or render/camera
 internals as production MMO truth. For NPC behavior, build typed server domains:
 routine schedule, route target, current waypoint/fp, AI state intent and combat
 state.
+
+
+
+

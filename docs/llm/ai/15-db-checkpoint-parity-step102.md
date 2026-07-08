@@ -72,3 +72,7 @@ This is a gate before deeper NPC/dialog/waypoint migration. It gives a concrete
 domain-by-domain answer to: "did DB checkpoint restore lose anything important
 before the client started?"
 
+
+
+
+

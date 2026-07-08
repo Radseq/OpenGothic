@@ -1,0 +1,37 @@
+{
+  "ai_runtime_database": "mmo_ai_runtime",
+  "connection_database": "gothic_mmo_ch1_clean",
+  "finished_at": "2026-07-07T12:54:50.526658+00:00",
+  "started_at": "2026-07-07T12:54:50.455372+00:00",
+  "status": "passed",
+  "surfaces": [
+    {
+      "key": "ai_runtime_perception_database",
+      "note": "standalone mmo_ai_runtime schema for server-side NPC perception decisions",
+      "path": "server/sql/step212_ai_runtime_perception_database.sql",
+      "result": {
+        "cmd": [
+          "/usr/bin/mysql",
+          "--default-character-set=utf8mb4",
+          "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+          "--batch",
+          "--raw",
+          "-h",
+          "192.168.195.94",
+          "-P",
+          "3306",
+          "-u",
+          "gothic",
+          "-p***",
+          "gothic_mmo_ch1_clean"
+        ],
+        "dry_run": false,
+        "returncode": 0,
+        "stderr": "mysql: [Warning] Using a password on the command line interface can be insecure.\n",
+        "stdout": ""
+      },
+      "status": "applied"
+    }
+  ],
+  "tool": "apply_ai_runtime_database.py"
+}

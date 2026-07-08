@@ -59,6 +59,7 @@ class CommandLine {
     std::string_view    mmoActionUdpEndpoint() const { return mmoActionUdp; }
     bool                mmoClientUsesServer() const { return mmoClientUsesServerState; }
     std::string_view    mmoServerEndpoint() const { return mmoServerEndpointValue; }
+    std::string_view    mmoClientContentManifestHash() const { return mmoClientContentManifestHashValue; }
     std::string_view    mmoRestoreSnapshotJson() const { return mmoRestoreSnapshotJsonPath; }
     bool                mmoRestoreSnapshotApply() const { return mmoRestoreSnapshotApplyState; }
     std::string_view    mmoServerSnapshotJson() const { return mmoServerSnapshotJsonPath; }
@@ -106,6 +107,7 @@ class CommandLine {
     std::string         mmoActionUdp;
     bool                mmoClientUsesServerState = false;
     std::string         mmoServerEndpointValue;
+    std::string         mmoClientContentManifestHashValue;
     std::string         mmoRestoreSnapshotJsonPath;
     bool                mmoRestoreSnapshotApplyState = false;
     std::string         mmoServerSnapshotJsonPath = "runtime/mmo_server_bootstrap_snapshot.json";
@@ -145,5 +147,7 @@ class CommandLine {
     bool                forceG2NR    = false;
     uint32_t            aaPresetId = 0;
   };
+
+
 
 

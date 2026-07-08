@@ -17,3 +17,7 @@ Operational note:
 
 - `script_state_full` can materially increase DB-checkpoint bootstrap snapshot size. This is acceptable for strict DB-continue validation, but future production work should move this from JSON bootstrap to typed/binary domain snapshots or server memory materialization.
 - Accepted `ready_weapon`/`holster_weapon` lines are log-coalesced like movement. Errors/diagnostics remain visible.
+
+
+
+

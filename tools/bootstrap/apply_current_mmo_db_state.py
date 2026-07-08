@@ -27,7 +27,11 @@ from pathlib import Path as _MysqlCliPath
 _MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
 if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
-from _mysql_cli import resolve_mysql_exe
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -69,6 +73,14 @@ CURRENT_SQL_SURFACES = (
     SqlSurface("world_clock_foundation_finalize", ROOT / "server" / "sql" / "step108_db_checkpoint_world_clock_foundation.sql", "world-clock foundation final pass after script-state export"),
     SqlSurface("npc_authority_restore", ROOT / "server" / "sql" / "step120_npc_authority_restore_bridge.sql", "NPC routine/AI/path/fight current/history and recorder procedures"),
     SqlSurface("server_parity_state", ROOT / "server" / "sql" / "step121_server_parity_state_bridge.sql", "trigger queue, world transition and client correction current/history"),
+    SqlSurface("server_content_pack_manifest", ROOT / "server" / "sql" / "step188_server_content_pack_manifest.sql", "server-owned content pack file manifest and client hash validation"),
+    SqlSurface("server_content_pack_inventory", ROOT / "server" / "sql" / "step201_server_content_pack_inventory.sql", "server-owned content pack file roles for future ZEN/DAT/OU importers"),
+    SqlSurface("server_content_archive_mounts", ROOT / "server" / "sql" / "step203_server_content_archive_mounts.sql", "server-owned VDF/MOD archive mount and pre-extract registry"),
+    SqlSurface("server_content_import_jobs", ROOT / "server" / "sql" / "step206_server_content_import_jobs.sql", "server-owned content import job queue for future ZEN/DAT/OU importers"),
+    SqlSurface("server_content_build_indexes", ROOT / "server" / "sql" / "step208_server_content_build_indexes.sql", "server-owned content build result indexes for future ZEN/DAT/OU importers"),
+    SqlSurface("server_content_pack_session_gate", ROOT / "server" / "sql" / "step189_server_content_pack_session_gate.sql", "session-scoped server content pack validation gate"),
+    SqlSurface("content_manifest_reject_audit", ROOT / "server" / "sql" / "step198_content_manifest_reject_audit.sql", "DB audit table/procedure/view for content manifest bootstrap rejects"),
+    SqlSurface("content_manifest_reject_health_views", ROOT / "server" / "sql" / "step199_content_manifest_reject_health_views.sql", "aggregate health views for content manifest reject audits"),
 )
 
 
@@ -200,3 +212,13 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
+
+
+
+
+
+
+

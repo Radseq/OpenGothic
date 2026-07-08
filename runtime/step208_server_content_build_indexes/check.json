@@ -1,0 +1,112 @@
+{
+  "checked_at": "2026-07-07T10:29:08.472487+00:00",
+  "checks": [
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "mmo_server_content_build_imports",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "mmo_server_world_zen_entities",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "mmo_server_daedalus_symbols",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "mmo_server_daedalus_npc_templates",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "mmo_server_dialog_outputs",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_content_build_imports",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_world_zen_entities",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_daedalus_symbols",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_daedalus_npc_templates",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_dialog_outputs",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_content_build_health",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "migration",
+      "name": "step208_schema_version_marker",
+      "status": "passed"
+    },
+    {
+      "details": {
+        "build_imports": 0,
+        "daedalus_symbols": 0,
+        "dialog_outputs": 0,
+        "npc_templates": 0,
+        "zen_entities": 0
+      },
+      "kind": "data",
+      "name": "content_build_counts",
+      "status": "passed"
+    },
+    {
+      "details": [
+        {
+          "build_import_count": 0,
+          "content_revision_key": "runtime-sqlite:g2notr:ea9f1fb893556f4a",
+          "daedalus_symbol_count": 0,
+          "dialog_output_count": 0,
+          "failed_count": 0,
+          "freepoint_count": 0,
+          "imported_count": 0,
+          "is_active": 0,
+          "npc_template_count": 0,
+          "vob_count": 0,
+          "waypoint_count": 0,
+          "zen_entity_count": 0
+        }
+      ],
+      "kind": "data",
+      "name": "content_build_health",
+      "status": "passed"
+    }
+  ],
+  "status": "passed",
+  "tool": "check_mmo_step208_server_content_build_indexes.py"
+}

@@ -9,7 +9,9 @@ exit /b %ERRORLEVEL%
 
 # POWERSHELL_START
 param(
-    [string]$CodeOutput = "wynik_code.txt",
+    [string]$CodeOutput = "",
+    [string]$CodeServerOutput = "wynik_code_server.txt",
+    [string]$CodeClientOutput = "wynik_code_client.txt",
     [string]$LlmOutput = "wynik_llm.txt",
     [string]$ToolsOutput = "wynik_tools.txt",
     [string]$SchemaOutput = $(if ($env:MYSQL_SCHEMA_OUTPUT) { $env:MYSQL_SCHEMA_OUTPUT } else { "wynik_gothic_mmo_ch1_clean_schema.txt" })
@@ -79,7 +81,17 @@ $ServerRoot = Join-Path $ProjectRoot "server"
 $LlmRoot = Join-Path $ProjectRoot "docs\llm"
 $ToolsRoot = Join-Path $ProjectRoot "tools"
 
-$CodeOutputAbs = Resolve-OutputPath $CodeOutput
+if (-not [string]::IsNullOrWhiteSpace($CodeOutput)) {
+    $legacyCodeOutputAbs = Resolve-OutputPath $CodeOutput
+    $legacyCodeOutputDir = Split-Path -Parent $legacyCodeOutputAbs
+    $legacyCodeOutputBase = [IO.Path]::GetFileNameWithoutExtension($legacyCodeOutputAbs)
+    $legacyCodeOutputExt = [IO.Path]::GetExtension($legacyCodeOutputAbs)
+    $CodeServerOutput = Join-Path $legacyCodeOutputDir "${legacyCodeOutputBase}_server${legacyCodeOutputExt}"
+    $CodeClientOutput = Join-Path $legacyCodeOutputDir "${legacyCodeOutputBase}_client${legacyCodeOutputExt}"
+}
+
+$CodeServerOutputAbs = Resolve-OutputPath $CodeServerOutput
+$CodeClientOutputAbs = Resolve-OutputPath $CodeClientOutput
 $LlmOutputAbs = Resolve-OutputPath $LlmOutput
 $ToolsOutputAbs = Resolve-OutputPath $ToolsOutput
 $SchemaOutputAbs = Resolve-OutputPath $SchemaOutput
@@ -89,14 +101,16 @@ $IncludePrivateDocs = Get-EnvOrDefault "INCLUDE_PRIVATE_DOCS" "1"
 $IncludePrivateTools = Get-EnvOrDefault "INCLUDE_PRIVATE_TOOLS" "1"
 
 $OutputNames = @(
-    [IO.Path]::GetFileName($CodeOutputAbs),
+    [IO.Path]::GetFileName($CodeServerOutputAbs),
+    [IO.Path]::GetFileName($CodeClientOutputAbs),
     [IO.Path]::GetFileName($LlmOutputAbs),
     [IO.Path]::GetFileName($ToolsOutputAbs),
     [IO.Path]::GetFileName($SchemaOutputAbs)
 )
 
 $OutputPaths = @(
-    $CodeOutputAbs.ToLowerInvariant(),
+    $CodeServerOutputAbs.ToLowerInvariant(),
+    $CodeClientOutputAbs.ToLowerInvariant(),
     $LlmOutputAbs.ToLowerInvariant(),
     $ToolsOutputAbs.ToLowerInvariant(),
     $SchemaOutputAbs.ToLowerInvariant()
@@ -400,12 +414,14 @@ function Export-MySqlSchema {
 }
 
 Write-Host "Project root: $ProjectRoot"
-New-Snapshot $CodeOutputAbs "OpenGothic C/C++ source snapshot" @($GameRoot, $ServerRoot) @(".c",".cc",".cpp",".cxx",".h",".hh",".hpp",".hxx",".inl",".ipp",".tpp",".ixx",".cppm",".mpp") $true
+New-Snapshot $CodeServerOutputAbs "OpenGothic server C/C++ source snapshot" @($ServerRoot) @(".c",".cc",".cpp",".cxx",".h",".hh",".hpp",".hxx",".inl",".ipp",".tpp",".ixx",".cppm",".mpp") $true
+New-Snapshot $CodeClientOutputAbs "OpenGothic client C/C++ source snapshot" @($GameRoot) @(".c",".cc",".cpp",".cxx",".h",".hh",".hpp",".hxx",".inl",".ipp",".tpp",".ixx",".cppm",".mpp") $true
 New-Snapshot $LlmOutputAbs "OpenGothic docs/llm snapshot" @($LlmRoot) @(".md",".txt",".rst") ($IncludePrivateDocs -ne "0")
 New-Snapshot $ToolsOutputAbs "OpenGothic tools snapshot" @($ToolsRoot) @(".py",".sh",".bash",".md",".txt",".rst",".json",".jsonl",".yml",".yaml",".toml",".ini",".cfg",".sql") ($IncludePrivateTools -ne "0")
 Export-MySqlSchema
 
-Write-Host "Generated code snapshot:  $CodeOutputAbs"
-Write-Host "Generated llm snapshot:   $LlmOutputAbs"
-Write-Host "Generated tools snapshot: $ToolsOutputAbs"
-Write-Host "Generated MySQL schema:   $SchemaOutputAbs"
+Write-Host "Generated server code snapshot: $CodeServerOutputAbs"
+Write-Host "Generated client code snapshot: $CodeClientOutputAbs"
+Write-Host "Generated llm snapshot:         $LlmOutputAbs"
+Write-Host "Generated tools snapshot:       $ToolsOutputAbs"
+Write-Host "Generated MySQL schema:         $SchemaOutputAbs"

@@ -1,0 +1,58 @@
+# Generated/build artifacts
+build/
+build-*/
+bin/
+out/
+runtime/
+exports/
+
+# VCS/editor/system
+.git/
+.github/
+.agents/
+.codex/
+.vs/
+.idea/
+.DS_Store
+
+# Caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Binaries and dumps
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.pdb
+*.o
+*.obj
+*.dump
+*.dump.sql
+*.preview.sql
+*.sqlite
+*.zip
+
+# Large/generated media and shader outputs
+*.png
+*.jpg
+*.jpeg
+*.ico
+*.dds
+*.tga
+*.mp4
+*.bik
+*.spv
+
+# Local logs/results
+log.txt
+crash.log
+wynik_*.txt
+
+# Historical docs are opened only when a specific step is needed.
+docs_old/
+.mmo_archive/

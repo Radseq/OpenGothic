@@ -35,3 +35,7 @@ What this unlocks next:
 - Trigger timers can become DB-authoritative instead of purely local queues.
 - Client rollback has a concrete DB-backed correction slice instead of only an
   ACK/NACK log.
+
+
+
+

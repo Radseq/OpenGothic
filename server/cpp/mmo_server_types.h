@@ -13,6 +13,11 @@ struct Options final {
   std::string characterDisplayName = "Ja";
   std::string sessionKey = "local-dev-PC_HERO_TEST";
   std::string dbSessionUuid;
+  std::string clientContentManifestHash;
+  std::string runtimeReadModelPath;
+  std::string contentRevisionKey;
+  std::string worldInstanceKey;
+  std::string worldName;
   int outboxPriority = 100;
   int outboxMaxAttempts = 5;
   int maxPackets = 0;
@@ -20,6 +25,9 @@ struct Options final {
   bool enqueueOutbox = false;
   bool forwardBootstrapOutbox = false;
   bool requireDbSaveCheckpointRestore = false;
+  bool requireClientContentManifest = false;
+  bool requireRuntimeReadModelContentRevisionMatch = true;
+  bool startupCheckOnly = false;
 };
 
 struct BootstrapReadiness final {
@@ -61,5 +69,7 @@ struct WorldItemIdentity final {
 };
 
 } // namespace Mmo::Server
+
+
 
 

@@ -1,0 +1,55 @@
+{
+  "checked_at": "2026-07-07T10:17:02.135506+00:00",
+  "checks": [
+    {
+      "count": 1,
+      "kind": "table",
+      "name": "mmo_server_content_pack_inventory",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_content_pack_inventory",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "view",
+      "name": "v_mmo_server_content_pack_inventory_health",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "procedure",
+      "name": "mmo_upsert_server_content_pack_inventory",
+      "status": "passed"
+    },
+    {
+      "count": 1,
+      "kind": "migration",
+      "name": "step201_schema_version_marker",
+      "status": "passed"
+    },
+    {
+      "count": 0,
+      "kind": "data",
+      "name": "inventory_rows",
+      "status": "warning"
+    },
+    {
+      "details": {},
+      "kind": "data",
+      "name": "role_counts",
+      "status": "passed"
+    },
+    {
+      "details": [],
+      "kind": "data",
+      "name": "inventory_health",
+      "status": "passed"
+    }
+  ],
+  "status": "passed",
+  "tool": "check_mmo_step201_server_content_pack_inventory.py"
+}

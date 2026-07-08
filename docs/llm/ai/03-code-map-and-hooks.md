@@ -99,3 +99,7 @@ Step84 code-map note:
 - `server/cpp/mmo_server_identity.h` contains focused canonical key helpers for NPC and world item resolver paths. Continue extracting resolver/session/snapshot code from `mmo_udp_server.cpp` instead of growing the monolith.
 - `Npc::restorePersistentLifecycle` and `GameSession::applyMmoWorldSnapshotState` apply load-time NPC HP/dead state from `npc_lifecycle_state` while semantic capture is suppressed.
 - `server/sql/step84_world_identity_lifecycle_bridge.sql` defines `mmo_grant_character_item_by_symbol`, the temporary unresolved-pickup grant fallback used by the C++ server.
+
+
+
+

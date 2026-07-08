@@ -21,3 +21,7 @@ Expected after a clean rebuild:
   because of canonical key width;
 - item pickup persistence should no longer be undone by an NPC-observation correction
   snapshot.
+
+
+
+

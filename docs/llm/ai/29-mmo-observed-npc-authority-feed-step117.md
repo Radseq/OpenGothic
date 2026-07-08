@@ -25,3 +25,7 @@ npc_routine_state=0 npc_ai_state=0 npc_path_state=0 npc_fight_state=0
 should start showing positive counts when nearby NPCs are present and the client has had at least one sampling interval.
 
 This is still not a full authoritative server AI tick. It is the next durable layer for that: the server database now receives routine, AI, pathing and fight observations for nearby NPCs without relying on native save files.
+
+
+
+

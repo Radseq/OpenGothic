@@ -15,6 +15,7 @@
 #include "world/objects/npc.h"
 #include "world/waypoint.h"
 #include "commandline.h"
+#include "utils/versioninfo.h"
 
 namespace Mmo::Hooks {
 namespace {
@@ -308,6 +309,191 @@ std::string weaponStateName(WeaponState state) {
   return "unknown";
 }
 
+float observedWeaponRange(Npc& actor) {
+  auto& guildValues = actor.world().script().guildVal();
+  const auto guild = actor.guild();
+  const auto* weapon = actor.inventory().activeWeapon();
+  const int weaponLength = weapon != nullptr ? weapon->swordLength() : 0;
+  switch(actor.weaponState()) {
+    case WeaponState::W1H:
+      return float(guildValues.fight_range_1ha[guild] + weaponLength);
+    case WeaponState::W2H:
+      return float(guildValues.fight_range_2ha[guild] + weaponLength);
+    case WeaponState::NoWeapon:
+    case WeaponState::Fist:
+      return float(guildValues.fight_range_fist[guild]);
+    case WeaponState::Bow:
+    case WeaponState::CBow:
+    case WeaponState::Mage:
+      return 0.f;
+  }
+  return 0.f;
+}
+
+float observedAttackRange(Npc& actor, const Npc* target) {
+  if(target == nullptr)
+    return observedWeaponRange(actor);
+  auto& guildValues = actor.world().script().guildVal();
+  return float(guildValues.fight_range_base[actor.guild()] +
+               guildValues.fight_range_base[target->guild()]) +
+         observedWeaponRange(actor);
+}
+
+float observedFightRangeBase(Npc& actor) {
+  return float(actor.world().script().guildVal().fight_range_base[actor.guild()]);
+}
+
+std::int32_t observedDamageTypeMask(Npc& actor) {
+  if(auto* weapon = actor.inventory().activeWeapon())
+    return weapon->handle().damage_type;
+  return actor.handle().damage_type;
+}
+
+std::string_view observedDamageKind(Npc& sourceActor) noexcept {
+  switch(sourceActor.weaponState()) {
+    case WeaponState::Bow:
+    case WeaponState::CBow:
+      return "ranged";
+    case WeaponState::Mage:
+      return "magic";
+    case WeaponState::NoWeapon:
+    case WeaponState::Fist:
+    case WeaponState::W1H:
+    case WeaponState::W2H:
+      return "melee";
+  }
+  return "unknown";
+}
+
+std::string_view damageKindName(const DamageCalculator::Val* observed, Npc* fallbackSource) noexcept {
+  if(observed != nullptr) {
+    switch(observed->kind) {
+      case DamageCalculator::Kind::Melee:  return "melee";
+      case DamageCalculator::Kind::Ranged: return "ranged";
+      case DamageCalculator::Kind::Magic:  return "magic";
+      case DamageCalculator::Kind::Fall:   return "fall";
+      case DamageCalculator::Kind::Unknown: break;
+    }
+  }
+  return fallbackSource != nullptr ? observedDamageKind(*fallbackSource) : std::string_view("unknown");
+}
+
+std::string_view damageModifierName(DamageCalculator::Modifier modifier) noexcept {
+  switch(modifier) {
+    case DamageCalculator::Modifier::Double:  return "double";
+    case DamageCalculator::Modifier::Half:    return "half";
+    case DamageCalculator::Modifier::Blocked: return "blocked";
+    case DamageCalculator::Modifier::Normal:  return "normal";
+  }
+  return "normal";
+}
+
+void appendDamageObservation(std::string& out, Npc& target, const DamageCalculator::Val* observed) {
+  if(observed == nullptr)
+    return;
+
+  out.append(",\"damage_calculation_present\":true");
+  out.append(",\"damage_calculation_value\":"); appendInt(out, observed->value);
+  out.append(",\"damage_calculation_has_hit\":"); appendBool(out, observed->hasHit);
+  out.append(",\"damage_calculation_invincible\":"); appendBool(out, observed->invincible);
+  out.append(",\"damage_modifier\":"); appendEscaped(out, damageModifierName(observed->modifier));
+  out.append(",\"critical_hit\":"); appendBool(out, observed->criticalHit);
+
+  if(observed->hasMeleeRoll) {
+    out.append(",\"melee_random_roll\":"); appendInt(out, observed->meleeRandomRoll);
+    out.append(",\"melee_talent_chance\":"); appendInt(out, observed->meleeTalentChance);
+    }
+
+  if(observed->hasRangedRoll) {
+    out.append(",\"projectile_distance\":"); appendFloat(out, observed->projectileDistance);
+    out.append(",\"projectile_weapon_chance\":"); appendFloat(out, observed->projectileWeaponChance);
+    out.append(",\"projectile_random_hit_roll\":"); appendFloat(out, observed->projectileRandomHitRoll);
+    out.append(",\"projectile_critical_hit\":"); appendBool(out, observed->projectileCriticalHit);
+    out.append(",\"projectile_spell\":"); appendBool(out, observed->projectileSpell);
+    }
+
+  if(observed->hasExplicitDamage) {
+    for(std::size_t i = 0; i < zenkit::DamageType::NUM; ++i) {
+      out.append(",\"damage_vector_");
+      appendUInt(out, i);
+      out.append("\":");
+      appendInt(out, observed->explicitDamage[i]);
+      }
+    }
+
+  if(observed->kind == DamageCalculator::Kind::Fall) {
+    const auto guild = target.guild();
+    const auto& guildValues = target.world().script().guildVal();
+    out.append(",\"fall_speed\":"); appendFloat(out, observed->fallSpeed);
+    out.append(",\"fall_gravity\":"); appendFloat(out, DynamicWorld::gravity);
+    out.append(",\"fall_height_threshold\":"); appendInt(out, guildValues.falldown_height[guild]);
+    out.append(",\"fall_damage_per_meter\":"); appendInt(out, guildValues.falldown_damage[guild]);
+    }
+}
+
+std::int32_t observedMeleeTalentChance(Npc& actor) {
+  if(actor.isMonster() && actor.inventory().activeWeapon() == nullptr && actor.world().version().game == 2)
+    return 100;
+
+  Talent talent = TALENT_UNKNOWN;
+  if(auto* weapon = actor.inventory().activeWeapon())
+    talent = weapon->is2H() ? TALENT_2H : TALENT_1H;
+
+  if(talent == TALENT_UNKNOWN)
+    return 0;
+  return actor.world().version().game == 2 ? actor.hitChance(talent) : actor.talentValue(talent);
+}
+
+void appendCombatDamageProfile(std::string& out, const char* prefix, Npc& npc) {
+  const auto& handle = npc.handle();
+  out.append(",\"");
+  out.append(prefix);
+  out.append("_combat_strength\":");
+  appendInt(out, npc.attribute(ATR_STRENGTH));
+  out.append(",\"");
+  out.append(prefix);
+  out.append("_combat_dexterity\":");
+  appendInt(out, npc.attribute(ATR_DEXTERITY));
+  out.append(",\"");
+  out.append(prefix);
+  out.append("_combat_damage_type_mask\":");
+  appendInt(out, observedDamageTypeMask(npc));
+  out.append(",\"");
+  out.append(prefix);
+  out.append("_combat_monster\":");
+  appendBool(out, npc.isMonster());
+  out.append(",\"");
+  out.append(prefix);
+  out.append("_combat_has_active_weapon\":");
+  appendBool(out, npc.inventory().activeWeapon() != nullptr);
+  out.append(",\"");
+  out.append(prefix);
+  out.append("_combat_melee_talent_chance\":");
+  appendInt(out, observedMeleeTalentChance(npc));
+  for(std::size_t i = 0; i < zenkit::DamageType::NUM; ++i) {
+    out.append(",\"");
+    out.append(prefix);
+    out.append("_combat_damage_");
+    appendUInt(out, i);
+    out.append("\":");
+    appendInt(out, handle.damage[i]);
+    out.append(",\"");
+    out.append(prefix);
+    out.append("_combat_protection_");
+    appendUInt(out, i);
+    out.append("\":");
+    appendInt(out, handle.protection[i]);
+  }
+  for(std::size_t i = 0; i < zenkit::INpc::hitchance_count; ++i) {
+    out.append(",\"");
+    out.append(prefix);
+    out.append("_combat_hit_chance_");
+    appendUInt(out, i);
+    out.append("\":");
+    appendInt(out, handle.hitchance[i]);
+  }
+}
+
 std::string_view goToHintName(Npc::GoToHint hint) noexcept {
   switch(hint) {
     case Npc::GT_No:     return "none";
@@ -435,6 +621,30 @@ std::string attackStateName(Npc& npc) {
   if(npc.weaponState() != WeaponState::NoWeapon)
     return "ready";
   return "none";
+}
+
+std::string npcActionKey(Npc& npc) {
+  if(npc.isDead())
+    return "dead";
+  if(npc.isUnconscious() || npc.isDown())
+    return "down";
+  if(npc.isTalk())
+    return "talking";
+
+  std::string state(npc.currentAiStateName());
+  for(char& ch : state)
+    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  if(state.find("sleep") != std::string::npos || state.find("bed") != std::string::npos)
+    return "sleeping";
+  if(state.find("mob") != std::string::npos)
+    return "using_mob";
+  if(npc.isAttack() || npc.isAttackAnim() || npc.stateVictim() != nullptr || npc.target() != nullptr)
+    return "combat";
+  if(npc.remainingPathPointCount() != 0 || npc.moveTargetWayPoint() != nullptr)
+    return "moving";
+  if(hasActiveRoutine(npc))
+    return "routine";
+  return "idle";
 }
 
 void appendWaypointPayload(std::string& out,
@@ -750,6 +960,14 @@ void submitObservedNpcState(SemanticActionKind kind, Npc& actor, std::string tar
   submit(kind, std::move(target), std::move(payload), actor.world().tickCount());
 }
 
+void appendClientContentManifestHash(std::string& payload) {
+  const auto hash = CommandLine::inst().mmoClientContentManifestHash();
+  if(hash.empty())
+    return;
+  payload.append(",\"client_content_manifest_hash\":");
+  payload.append(jsonEscape(hash));
+}
+
 
 } // namespace
 
@@ -790,6 +1008,7 @@ void onClientBootstrapRequest(World& world,
   payload.append(",\"server_bound_client_mode\":true");
   payload.append(",\"server_endpoint\":");
   payload.append(jsonEscape(CommandLine::inst().mmoServerEndpoint()));
+  appendClientContentManifestHash(payload);
   payload.append(",\"reason\":");
   payload.append(jsonEscape(reason ? reason : "client_bootstrap_request"));
   payload.append(",\"source_location\":");
@@ -1367,6 +1586,49 @@ void onWeaponStateChanged(Npc& actor,
          std::move(target), std::move(payload), world.tickCount());
 }
 
+void onCombatIntent(Npc& actor,
+                    std::string_view combatAction,
+                    std::string_view intentState,
+                    const char* sourceLocation,
+                    const char* reason) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !isLiveWorldTick(actor.world()))
+    return;
+
+  auto& world = actor.world();
+  auto actorEntity = npcEntityKey(world.name(), actor.persistentId(), actor.instanceSymbol());
+  Npc* targetNpc = actor.stateVictim() != nullptr ? actor.stateVictim() :
+                   actor.target() != nullptr ? actor.target() : actor.stateOther();
+  const auto targetEntity = npcTargetKey(targetNpc);
+
+  std::string payload;
+  payload.reserve(1024);
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"reason\":"); appendEscaped(payload, reason);
+  appendNpcIdentity(payload, "actor_npc", actor);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, actorEntity);
+  payload.append(",\"target_key\":"); appendEscaped(payload, targetEntity);
+  payload.append(",\"combat_action\":"); appendEscaped(payload, combatAction);
+  payload.append(",\"intent_state\":"); appendEscaped(payload, intentState);
+  payload.append(",\"weapon_state\":"); appendEscaped(payload, weaponStateName(actor.weaponState()));
+  payload.append(",\"weapon_state_id\":"); appendUInt(payload, static_cast<std::uint8_t>(actor.weaponState()));
+  payload.append(",\"body_state\":"); appendUInt(payload, static_cast<std::uint64_t>(actor.bodyStateMasked()));
+  payload.append(",\"attack_anim\":"); appendBool(payload, actor.isAttackAnim());
+  payload.append(",\"prehit\":"); appendBool(payload, actor.isPrehit());
+  payload.append(",\"animation_name\":"); appendEscaped(payload, actor.primaryAnimationName());
+  payload.append(",\"attack_animation_name\":"); appendEscaped(payload, actor.primaryAttackAnimationName());
+  appendWorld(payload, world);
+  appendVec3(payload, "actor_position", actor.position());
+  appendVec3(payload, "attacker_center", actor.collosionCenter());
+  if(targetNpc != nullptr) {
+    appendNpcIdentity(payload, "target_npc", *targetNpc);
+    appendVec3(payload, "target_position", targetNpc->position());
+    appendVec3(payload, "opponent_center", targetNpc->collosionCenter());
+  }
+  payload.push_back('}');
+
+  submit(SemanticActionKind::RecordCombatIntent, std::move(actorEntity), std::move(payload), world.tickCount());
+}
+
 void onContainerInventoryTaken(Npc& actor,
                                Interactive& container,
                                std::size_t itemSymbol,
@@ -1637,6 +1899,7 @@ void onCharacterAttributeChanged(Npc& actor,
     return;
 
   const auto amount = -delta;
+  const auto* observedDamage = actor.pendingDamageObservation();
 
   if(actor.isPlayer() && attribute == ATR_MANA) {
     std::string target = characterTargetKey("mana");
@@ -1664,12 +1927,23 @@ void onCharacterAttributeChanged(Npc& actor,
   if(actor.isPlayer()) {
     std::string target = characterTargetKey("hitpoints");
     std::string payload;
-    payload.reserve(640);
+    payload.reserve(1792);
     payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
     payload.append(",\"target_character_key\":"); appendEscaped(payload, characterKey());
     payload.append(",\"target_key\":"); appendEscaped(payload, characterEntityKey());
-    if(sourceActor != nullptr)
+    if(sourceActor != nullptr) {
       appendNpcIdentity(payload, "source_actor", *sourceActor);
+      payload.append(",\"damage_kind\":"); appendEscaped(payload, damageKindName(observedDamage, sourceActor));
+      appendCombatDamageProfile(payload, "source_actor", *sourceActor);
+      payload.append(",\"critical_damage_multiplier\":");
+      appendInt(payload, world.script().criticalDamageMultiplyer());
+      }
+    else {
+      payload.append(",\"damage_kind\":"); appendEscaped(payload, damageKindName(observedDamage, nullptr));
+      }
+    appendCombatDamageProfile(payload, "target", actor);
+    appendDamageObservation(payload, actor, observedDamage);
+    payload.append(",\"gothic_game\":"); appendInt(payload, world.version().game);
     payload.append(",\"damage_amount\":"); appendInt(payload, amount);
     payload.append(",\"attribute_key\":"); appendEscaped(payload, attrName);
     payload.append(",\"value_before\":"); appendInt(payload, valueBefore);
@@ -1688,11 +1962,18 @@ void onCharacterAttributeChanged(Npc& actor,
 
   auto target = npcEntityKey(world.name(), actor.persistentId(), actor.instanceSymbol());
   std::string payload;
-  payload.reserve(704);
+  payload.reserve(1792);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
   appendNpcIdentity(payload, "source_actor", *sourceActor);
   appendNpcIdentity(payload, "target_npc", actor);
   payload.append(",\"target_key\":"); appendEscaped(payload, target);
+  payload.append(",\"damage_kind\":"); appendEscaped(payload, damageKindName(observedDamage, sourceActor));
+  appendCombatDamageProfile(payload, "source_actor", *sourceActor);
+  appendCombatDamageProfile(payload, "target", actor);
+  appendDamageObservation(payload, actor, observedDamage);
+  payload.append(",\"critical_damage_multiplier\":");
+  appendInt(payload, world.script().criticalDamageMultiplyer());
+  payload.append(",\"gothic_game\":"); appendInt(payload, world.version().game);
   payload.append(",\"damage_amount\":"); appendInt(payload, amount);
   payload.append(",\"fatal\":"); payload.append(valueAfter <= 0 ? "true" : "false");
   payload.append(",\"attribute_key\":"); appendEscaped(payload, attrName);
@@ -1712,7 +1993,8 @@ void onNpcLifecycleChanged(Npc& actor,
                            bool dead,
                            bool unconscious,
                            const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || actor.isPlayer() || !dead || !shouldCapturePlayerRelated(actor, sourceActor))
+  if(!isSemanticActionCaptureEnabled() || actor.isPlayer() || (!dead && !unconscious) ||
+     !shouldCapturePlayerRelated(actor, sourceActor))
     return;
   auto& world = actor.world();
   auto target = npcEntityKey(world.name(), actor.persistentId(), actor.instanceSymbol());
@@ -1749,8 +2031,10 @@ void onObservedNpcAuthorityState(Npc& actor,
   const auto intent = aiIntentName(actor);
   const auto pathState = pathStateName(actor);
   const auto fightState = fightStateName(actor);
-  const auto targetEntity = npcTargetKey(actor.stateVictim() != nullptr ? actor.stateVictim() :
-                                        actor.target() != nullptr ? actor.target() : actor.stateOther());
+  const auto actionKey = npcActionKey(actor);
+  Npc* opponentNpc = actor.stateVictim() != nullptr ? actor.stateVictim() :
+                     actor.target() != nullptr ? actor.target() : actor.stateOther();
+  const auto targetEntity = npcTargetKey(opponentNpc);
   const auto currentWp = actor.currentWayPoint();
   const auto targetWp = actor.moveTargetWayPoint() != nullptr ? actor.moveTargetWayPoint() : actor.currentTaPoint();
 
@@ -1786,6 +2070,21 @@ void onObservedNpcAuthorityState(Npc& actor,
   }
   submitObservedNpcState(SemanticActionKind::RecordNpcAiState, actor, target, std::move(aiPayload));
 
+  std::string actionPayload;
+  actionPayload.reserve(640);
+  actionPayload.append("{\"source\":"); appendEscaped(actionPayload, sourceLocation);
+  actionPayload.append(",\"reason\":"); appendEscaped(actionPayload, reason);
+  appendObservedNpcCommon(actionPayload, actor, target);
+  actionPayload.append(",\"action_key\":"); appendEscaped(actionPayload, actionKey);
+  actionPayload.append(",\"action_name\":"); appendEscaped(actionPayload, actionKey);
+  actionPayload.append(",\"action_state\":\"active\"");
+  actionPayload.append(",\"action_target_key\":"); appendEscaped(actionPayload, targetEntity);
+  actionPayload.append(",\"sync_group\":"); appendEscaped(actionPayload, target + ":" + actionKey);
+  actionPayload.append(",\"routine_state\":"); appendEscaped(actionPayload, routineState);
+  actionPayload.append(",\"ai_state\":"); appendEscaped(actionPayload, aiState);
+  actionPayload.append(",\"path_state\":"); appendEscaped(actionPayload, pathState);
+  submitObservedNpcState(SemanticActionKind::RecordNpcActionState, actor, target, std::move(actionPayload));
+
   std::string pathPayload;
   pathPayload.reserve(896);
   pathPayload.append("{\"source\":"); appendEscaped(pathPayload, sourceLocation);
@@ -1812,9 +2111,79 @@ void onObservedNpcAuthorityState(Npc& actor,
   fightPayload.append(",\"opponent_key\":"); appendEscaped(fightPayload, targetEntity);
   fightPayload.append(",\"fight_state\":"); appendEscaped(fightPayload, fightState);
   fightPayload.append(",\"attack_state\":"); appendEscaped(fightPayload, attackStateName(actor));
-  fightPayload.append(",\"combo_index\":0");
+  fightPayload.append(",\"combo_index\":"); appendUInt(fightPayload, actor.comboLength());
+  fightPayload.append(",\"animation_name\":"); appendEscaped(fightPayload, actor.primaryAnimationName());
+  fightPayload.append(",\"attack_animation_name\":"); appendEscaped(fightPayload, actor.primaryAttackAnimationName());
+  fightPayload.append(",\"animation_elapsed_ms\":"); appendUInt(fightPayload, actor.primaryAnimationElapsed());
+  fightPayload.append(",\"attack_animation_elapsed_ms\":"); appendUInt(fightPayload, actor.primaryAttackAnimationElapsed());
+  fightPayload.append(",\"animation_total_ms\":"); appendUInt(fightPayload, actor.animationTotalTime());
+  fightPayload.append(",\"attack_total_ms\":"); appendUInt(fightPayload, actor.attackTotalTime());
+  fightPayload.append(",\"attack_optimal_ms\":"); appendUInt(fightPayload, actor.attackOptimalTime());
+  fightPayload.append(",\"attack_hit_end_ms\":"); appendUInt(fightPayload, actor.attackHitEndTime());
+  fightPayload.append(",\"parry_window_start_ms\":"); appendUInt(fightPayload, actor.parryWindowStart());
+  fightPayload.append(",\"parry_window_end_ms\":"); appendUInt(fightPayload, actor.parryWindowEnd());
+  fightPayload.append(",\"combo_window_start_ms\":"); appendUInt(fightPayload, actor.comboWindowStart());
+  fightPayload.append(",\"combo_window_end_ms\":"); appendUInt(fightPayload, actor.comboWindowEnd());
+  fightPayload.append(",\"body_state\":"); appendUInt(fightPayload, static_cast<std::uint64_t>(actor.bodyStateMasked()));
+  fightPayload.append(",\"attack_anim\":"); appendBool(fightPayload, actor.isAttackAnim());
+  fightPayload.append(",\"prehit\":"); appendBool(fightPayload, actor.isPrehit());
   fightPayload.append(",\"weapon_state\":"); appendEscaped(fightPayload, weaponStateName(actor.weaponState()));
+  fightPayload.append(",\"weapon_state_id\":"); appendUInt(fightPayload, static_cast<std::uint8_t>(actor.weaponState()));
+  fightPayload.append(",\"attacker_yaw_rad\":"); appendFloat(fightPayload, actor.rotationRad());
+  fightPayload.append(",\"weapon_range\":"); appendFloat(fightPayload, observedWeaponRange(actor));
+  fightPayload.append(",\"attack_range\":"); appendFloat(fightPayload, observedAttackRange(actor, opponentNpc));
+  fightPayload.append(",\"attacker_fight_range_base\":"); appendFloat(fightPayload, observedFightRangeBase(actor));
+  appendVec3(fightPayload, "attacker_center", actor.collosionCenter());
+  if(opponentNpc != nullptr) {
+    fightPayload.append(",\"opponent_fight_range_base\":"); appendFloat(fightPayload, observedFightRangeBase(*opponentNpc));
+    appendVec3(fightPayload, "opponent_center", opponentNpc->collosionCenter());
+    appendVec3(fightPayload, "fight_distance", actor.fightDistanceTo(*opponentNpc));
+    fightPayload.append(",\"opponent_yaw_rad\":"); appendFloat(fightPayload, opponentNpc->rotationRad());
+    fightPayload.append(",\"actor_running\":"); appendBool(fightPayload, actor.bodyStateMasked() == BS_RUN);
+    fightPayload.append(",\"opponent_running\":"); appendBool(fightPayload, opponentNpc->bodyStateMasked() == BS_RUN);
+    fightPayload.append(",\"opponent_prehit\":"); appendBool(fightPayload, opponentNpc->isPrehit());
+    fightPayload.append(",\"opponent_attack_range\":"); appendFloat(fightPayload, observedAttackRange(*opponentNpc, &actor));
+  }
   submitObservedNpcState(SemanticActionKind::RecordNpcFightState, actor, target, std::move(fightPayload));
+}
+
+void onNpcDialogLineQueued(Npc& speaker,
+                           Npc& listener,
+                           std::string_view outputName,
+                           const char* sourceLocation) noexcept {
+  if(!isSemanticActionCaptureEnabled() || !shouldCaptureWorldAiAction(speaker, &listener) || outputName.empty())
+    return;
+
+  auto& world = speaker.world();
+  const auto speakerKey = npcTargetKey(&speaker);
+  const auto listenerKey = npcTargetKey(&listener);
+  std::string conversationKey = speakerKey;
+  conversationKey.append(":dialog:");
+  conversationKey.append(listenerKey);
+
+  const auto subtitle = world.script().messageByName(outputName);
+  const auto duration = world.script().messageTime(outputName);
+
+  std::string payload;
+  payload.reserve(1024 + subtitle.size());
+  payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
+  payload.append(",\"reason\":\"npc_dialog_line_queued\"");
+  payload.append(",\"conversation_key\":"); appendEscaped(payload, conversationKey);
+  payload.append(",\"sync_group\":"); appendEscaped(payload, conversationKey);
+  payload.append(",\"speaker_key\":"); appendEscaped(payload, speakerKey);
+  payload.append(",\"listener_key\":"); appendEscaped(payload, listenerKey);
+  payload.append(",\"actor_key\":"); appendEscaped(payload, speakerKey);
+  payload.append(",\"target_key\":"); appendEscaped(payload, listenerKey);
+  payload.append(",\"output_name\":"); appendEscaped(payload, outputName);
+  payload.append(",\"message_name\":"); appendEscaped(payload, outputName);
+  payload.append(",\"subtitle_text\":"); appendEscaped(payload, subtitle);
+  payload.append(",\"line_duration_ms\":"); appendUInt(payload, duration);
+  appendWorld(payload, world);
+  appendVec3(payload, "speaker_position", speaker.position());
+  appendVec3(payload, "listener_position", listener.position());
+  payload.push_back('}');
+
+  submit(SemanticActionKind::RecordNpcDialogLine, std::move(conversationKey), std::move(payload), world.tickCount());
 }
 
 void onScriptIntChanged(Npc& actor,
@@ -1965,17 +2334,6 @@ void onQuestChanged(Npc& actor,
 }
 
 } // namespace Mmo::Hooks
-
-
-
-
-
-
-
-
-
-
-
 
 
 

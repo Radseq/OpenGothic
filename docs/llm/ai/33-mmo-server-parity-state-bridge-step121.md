@@ -36,3 +36,7 @@ Remaining work:
 - Execute trigger timers from a deterministic server tick.
 - Add real server-side NPC routine/pathing/AI/fight simulation and stream live
   NPC state instead of relying on observed/client-fed bridge rows.
+
+
+
+

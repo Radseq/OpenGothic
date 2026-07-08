@@ -85,3 +85,7 @@ Production DB line:
 Step92 identity/admin note:
 - MySQL GUI tools display `BINARY(16)` UUID PK/FK columns such as `item_instance_id`, `realm_id`, `item_template_id` as `BLOB`. This is expected storage, not corrupted data. Use `BIN_TO_UUID(col,1)` or the Step92 admin views for human inspection.
 - `engine_template_key` and `item_instance_key` are import/source identity strings, not final gameplay labels. They intentionally preserve world name, engine symbol/script id, source persistent id and sometimes display name so identity collisions can be diagnosed across Gothic worlds and save/runtime captures.
+
+
+
+

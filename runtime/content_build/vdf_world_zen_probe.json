@@ -1,0 +1,35 @@
+{
+  "schema": "mmo.vdf_world_zen_probe.v1",
+  "tool": "mmo_vdf_world_zen_probe",
+  "status": "world_zen_extracted",
+  "gothic_root": "/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/",
+  "world_name": "newworld.zen",
+  "archive_count": 17,
+  "zen_candidate_count": 3,
+  "extracted_host_path": "runtime/content_build/vfs_extracted/newworld.zen",
+  "selected": {"vfs_path":"newworld.zen","normalized":"newworld.zen","authoritative":true,"priority":0},
+  "archives": [
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/ModVDF/g2_classic.mod","byte_size":115310252,"is_mod":true},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/ModVDF/g2_classic_pl.mod","byte_size":13758063,"is_mod":true},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Anims.vdf","byte_size":37559130,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Anims_Addon.vdf","byte_size":12587040,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Meshes.vdf","byte_size":15251140,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Meshes_Addon.vdf","byte_size":4825724,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Sounds.vdf","byte_size":155747102,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Sounds_Addon.vdf","byte_size":52713864,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Sounds_bird_01.vdf","byte_size":84792,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Speech1.vdf","byte_size":722595072,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Speech2.vdf","byte_size":590997736,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Speech_Addon.vdf","byte_size":389916456,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/SystemPack.vdf","byte_size":64857,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Textures.vdf","byte_size":318907760,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Textures_Addon.vdf","byte_size":153800757,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Worlds.vdf","byte_size":100822945,"is_mod":false},
+    {"host_path":"/mnt/windows-games/Games/Steam/steamapps/common/Gothic II/Data/Worlds_Addon.vdf","byte_size":135671400,"is_mod":false}
+  ],
+  "zen_candidates": [
+    {"vfs_path":"newworld.zen","normalized":"newworld.zen","authoritative":true,"priority":0},
+    {"vfs_path":"oldworld.zen","normalized":"oldworld.zen","authoritative":true,"priority":20},
+    {"vfs_path":"addonworld.zen","normalized":"addonworld.zen","authoritative":true,"priority":30}
+  ]
+}
