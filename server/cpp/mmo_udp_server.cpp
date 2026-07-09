@@ -59,12 +59,21 @@
 #include "mmo_server_conversation_session_boundary.h"
 #include "mmo_server_conversation_resume_packet_boundary.h"
 #include "mmo_server_conversation_resume_send_gate.h"
+#include "mmo_server_conversation_resume_runtime_send.h"
 #include "mmo_server_conversation_resume_delivery_registration_boundary.h"
 #include "mmo_server_conversation_resume_dispatch_envelope.h"
 #include "mmo_server_conversation_resume_mutation_guard.h"
 #include "mmo_server_conversation_resume_send_failure_dead_letter_guard.h"
 #include "mmo_server_conversation_resume_commit_preflight.h"
 #include "mmo_ai_dialog_intent_delivery_persistence_bridge.h"
+#include "mmo_ai_dialog_intent_delivery_persistence_execution_boundary.h"
+#include "mmo_ai_dialog_intent_delivery_persistence_executor_adapter.h"
+#include "mmo_ai_dialog_intent_delivery_persistence_dry_run_report_gate.h"
+#include "mmo_ai_dialog_intent_delivery_persistence_outcome_policy.h"
+#include "mmo_ai_dialog_intent_delivery_persistence_outcome_observability.h"
+#include "mmo_ai_dialog_intent_delivery_persistence_activation_preflight.h"
+#include "mmo_ai_dialog_intent_delivery_persistence_runtime_storage.h"
+#include "mmo_ai_dialog_intent_delivery_mark_applied_gate.h"
 
 namespace {
 
@@ -175,6 +184,11 @@ struct ClientRouteRegistry final {
 
 [[nodiscard]] std::string endpointText(const asio::ip::udp::endpoint& endpoint) {
   return endpoint.address().to_string() + ":" + std::to_string(endpoint.port());
+}
+
+[[nodiscard]] bool isStep282LateObserverReplayActionId(std::string_view actionId) noexcept {
+  constexpr std::string_view Prefix = "server-npc-dialog-resume-intent:";
+  return actionId.size() >= Prefix.size() && actionId.substr(0, Prefix.size()) == Prefix;
 }
 
 [[nodiscard]] const char* gameplayAckStatusName(Mmo::Net::ClientGameplayAckStatus status) noexcept {
@@ -1245,6 +1259,75 @@ void printWorldInstanceAiStartupDryRunResult(const WorldInstanceAiSchedulerBound
   return parts.front() == "NULL" ? std::string() : std::string(parts.front());
 }
 
+void tryRunAiDialogIntentDurableMarkAppliedGate(const MySqlTarget& target,
+                                                const Options& opt,
+                                                std::string_view actionId,
+                                                std::string_view ackKey,
+                                                std::string_view trigger,
+                                                std::string_view source) noexcept {
+  if(!opt.aiDialogIntentStep273DurableMarkAppliedGate)
+    return;
+
+  Mmo::Server::AiDialogIntentDeliveryMarkAppliedGateRequest gateRequest;
+  gateRequest.enabled = true;
+  gateRequest.allowMysqlExecution = true;
+  gateRequest.requireObservation = true;
+  gateRequest.aiDatabaseName = opt.worldInstanceAiDatabaseName;
+  gateRequest.actionId = std::string(actionId);
+  gateRequest.ackKey = std::string(ackKey);
+  gateRequest.workerId = "mmo_udp_server_step283";
+  gateRequest.trigger = std::string(trigger);
+  gateRequest.source = std::string(source);
+
+  const auto gateSql = Mmo::Server::buildAiDialogIntentDeliveryMarkAppliedGateSql(gateRequest);
+  if(!gateSql.ready) {
+    std::cerr << "[server_ai_dialog_intent_step283_durable_mark_applied_gate_skipped]"
+              << " action_id=" << actionId
+              << " ack_key=" << ackKey
+              << " status=" << Mmo::Server::aiDialogIntentDeliveryMarkAppliedGateStatusName(gateSql.status)
+              << " reason=" << gateSql.reason
+              << " execute_mysql=0"
+              << " mutated_db=0"
+              << " mark_applied=off"
+              << "\n";
+    return;
+  }
+
+  try {
+    const auto rawGate = runMysql(target, gateSql.sql);
+    const auto gateParts = splitMysqlLastRow(rawGate);
+    const auto gateStatus = gateParts.empty() ? std::string() : gateParts[0];
+    const auto actionStatus = gateParts.size() > 1 ? gateParts[1] : std::string();
+    const auto actionQueueUuid = gateParts.size() > 2 ? gateParts[2] : std::string();
+    const bool applied = gateStatus == "applied";
+    std::cout << "[server_ai_dialog_intent_step283_durable_mark_applied_gate]"
+              << " action_id=" << actionId
+              << " ack_key=" << ackKey
+              << " trigger=" << trigger
+              << " source=" << source
+              << " gate_status=" << gateStatus
+              << " action_status=" << actionStatus
+              << " action_queue_uuid=" << actionQueueUuid
+              << " require_observation=1"
+              << " execute_mysql=1"
+              << " mutated_db=" << (applied ? 1 : 0)
+              << " client_ui_audio=off"
+              << " mark_applied=" << (applied ? "on" : "off")
+              << "\n";
+  } catch(const std::exception& error) {
+    std::cerr << "[server_ai_dialog_intent_step283_durable_mark_applied_gate_failed]"
+              << " action_id=" << actionId
+              << " ack_key=" << ackKey
+              << " trigger=" << trigger
+              << " source=" << source
+              << " error=" << error.what()
+              << " execute_mysql=1"
+              << " mutated_db=0"
+              << " mark_applied=off"
+              << "\n";
+  }
+}
+
 [[nodiscard]] std::string sqlJson(std::string_view json) {
   return "CAST(" + sqlLiteral(json) + " AS JSON)";
 }
@@ -2306,21 +2389,23 @@ void sendServerDiagnostic(asio::ip::udp::socket& socket,
   }
 }
 
-void logConversationLateObserverResumePlans(Mmo::Server::ConversationSessionRuntime& conversationRuntime,
+void logConversationLateObserverResumePlans(asio::ip::udp::socket& socket,
+                                            Mmo::Server::ConversationSessionRuntime& conversationRuntime,
                                             const ClientRouteRegistry& routes,
-                                            const Mmo::Server::OutboundGameplayDeliveryState& outboundGameplayDelivery,
+                                            Mmo::Server::OutboundGameplayDeliveryState& outboundGameplayDelivery,
                                             Mmo::Server::ConversationResumeSendGate& resumeSendGate,
                                             Mmo::Server::ConversationResumeDeliveryRegistrationBoundary& resumeDeliveryRegistrationBoundary,
                                             Mmo::Server::ConversationResumeDispatchEnvelope& resumeDispatchEnvelope,
                                             Mmo::Server::ConversationResumeMutationGuard& resumeMutationGuard,
                                             Mmo::Server::ConversationResumeSendFailureDeadLetterGuard& resumeSendFailureDeadLetterGuard,
                                             Mmo::Server::ConversationResumeCommitPreflight& resumeCommitPreflight,
+                                            const MySqlTarget* aiRuntimeTarget,
                                             const Options& opt,
                                             std::string_view sessionUuid,
                                             std::string_view characterKey,
                                             std::string_view worldName,
                                             const Mmo::Net::ClientActionPacket& packet,
-                                            std::uint64_t nextDialogIntentSequence) noexcept {
+                                            std::uint64_t& nextDialogIntentSequence) noexcept {
   if(!opt.aiDialogIntentConversationSessionProbe || !opt.aiDialogIntentLateObserverResumePlan)
     return;
 
@@ -2366,7 +2451,7 @@ void logConversationLateObserverResumePlans(Mmo::Server::ConversationSessionRunt
         buildRequest.targetCharacterKey = plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey;
         buildRequest.worldInstanceUuid = opt.worldInstanceKey;
         buildRequest.text = opt.aiDialogIntentText;
-        buildRequest.packetSequence = previewPacketSequence++;
+        buildRequest.packetSequence = opt.aiDialogIntentLateObserverResumeRuntimeSend ? ++nextDialogIntentSequence : previewPacketSequence++;
         buildRequest.localSequence = packet.localSequence;
         buildRequest.serverTick = packetServerTick(packet);
         const auto packetBoundary = Mmo::Server::buildConversationResumeDialogIntentPacketNoSend(std::move(buildRequest));
@@ -2393,6 +2478,12 @@ void logConversationLateObserverResumePlans(Mmo::Server::ConversationSessionRunt
                   << " mutation_guard=" << (opt.aiDialogIntentLateObserverResumeMutationGuard ? "on" : "off")
                   << " send_failure_dead_letter_guard=" << (opt.aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard ? "on" : "off")
                   << " commit_preflight=" << (opt.aiDialogIntentLateObserverResumeCommitPreflight ? "on" : "off")
+                  << " persistence_execution_boundary=" << (opt.aiDialogIntentStep273PersistenceExecutionBoundary ? "on" : "off")
+                  << " persistence_executor_adapter=" << (opt.aiDialogIntentStep273PersistenceExecutorAdapter ? "on" : "off")
+                  << " persistence_dry_run_report_gate=" << (opt.aiDialogIntentStep273PersistenceDryRunReportGate ? "on" : "off")
+                  << " outcome_policy=" << (opt.aiDialogIntentStep273PersistenceOutcomePolicy ? "on" : "off")
+                  << " outcome_observability=" << (opt.aiDialogIntentStep273PersistenceOutcomeObservability ? "on" : "off")
+                  << " activation_preflight=" << (opt.aiDialogIntentStep273PersistenceActivationPreflight ? "on" : "off")
                   << " send_resume_packet=off"
                   << " delivery_registry=off"
                   << " db_conversation_storage=off"
@@ -2431,9 +2522,161 @@ void logConversationLateObserverResumePlans(Mmo::Server::ConversationSessionRunt
                     << " mutation_guard=" << (opt.aiDialogIntentLateObserverResumeMutationGuard ? "on" : "off")
                     << " send_failure_dead_letter_guard=" << (opt.aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard ? "on" : "off")
                     << " commit_preflight=" << (opt.aiDialogIntentLateObserverResumeCommitPreflight ? "on" : "off")
+                    << " persistence_execution_boundary=" << (opt.aiDialogIntentStep273PersistenceExecutionBoundary ? "on" : "off")
+                    << " persistence_executor_adapter=" << (opt.aiDialogIntentStep273PersistenceExecutorAdapter ? "on" : "off")
+                    << " persistence_dry_run_report_gate=" << (opt.aiDialogIntentStep273PersistenceDryRunReportGate ? "on" : "off")
+                    << " outcome_policy=" << (opt.aiDialogIntentStep273PersistenceOutcomePolicy ? "on" : "off")
+                    << " outcome_observability=" << (opt.aiDialogIntentStep273PersistenceOutcomeObservability ? "on" : "off")
+                  << " activation_preflight=" << (opt.aiDialogIntentStep273PersistenceActivationPreflight ? "on" : "off")
                     << " db_conversation_storage=off"
                     << " mark_applied=off"
                     << "\n";
+
+          if(opt.aiDialogIntentLateObserverResumeRuntimeSend) {
+            Mmo::Server::ConversationResumeRuntimeSendRequest runtimeSendRequest;
+            runtimeSendRequest.enabled = true;
+            runtimeSendRequest.packetBoundary = &packetBoundary;
+            runtimeSendRequest.sendGate = &gate;
+            runtimeSendRequest.endpointAvailable = route.has_value();
+            runtimeSendRequest.durableStorageEnabled = opt.aiDialogIntentStep273PersistenceRuntimeStorage;
+            runtimeSendRequest.mysqlTargetAvailable = aiRuntimeTarget != nullptr;
+            const auto runtimeSend = Mmo::Server::buildConversationResumeRuntimeSendPreflight(runtimeSendRequest);
+            std::cout << "[server_conversation_late_observer_resume_runtime_send_preflight]"
+                      << " conversation_id=" << plan.conversationId
+                      << " observer_session_uuid=" << plan.sessionUuid
+                      << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                      << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                      << " status=" << Mmo::Server::conversationResumeRuntimeSendStatusName(runtimeSend.status)
+                      << " ready=" << (runtimeSend.ready ? 1 : 0)
+                      << " action_id=" << runtimeSend.actionId
+                      << " ack_key=" << runtimeSend.ackKey
+                      << " packet_sequence=" << runtimeSend.packetSequence
+                      << " encoded_bytes=" << runtimeSend.encodedBytes
+                      << " will_send_udp=" << (runtimeSend.willSendUdp ? 1 : 0)
+                      << " will_register_delivery=" << (runtimeSend.willRegisterDelivery ? 1 : 0)
+                      << " will_register_conversation_observer=" << (runtimeSend.willRegisterConversationObserver ? 1 : 0)
+                      << " will_persist_sent_storage=" << (runtimeSend.willPersistSentStorage ? 1 : 0)
+                      << " requires_durable_sent_storage=" << (runtimeSend.requiresDurableSentStorage ? 1 : 0)
+                      << " reason=" << runtimeSend.reason
+                      << " step281_runtime_storage=" << (opt.aiDialogIntentStep273PersistenceRuntimeStorage ? "on" : "off")
+                      << " client_ui_audio=off"
+                      << " mark_applied=off"
+                      << "\n";
+
+            if(runtimeSend.ready && route.has_value()) {
+              const auto encoded = Mmo::Net::encodeServerNpcDialogIntentPacket(packetBoundary.packet);
+              asio::error_code sendError;
+              socket.send_to(asio::buffer(encoded), *route, 0, sendError);
+              if(sendError) {
+                std::cerr << "[server_conversation_late_observer_resume_runtime_send_failed]"
+                          << " conversation_id=" << plan.conversationId
+                          << " observer_session_uuid=" << plan.sessionUuid
+                          << " endpoint=" << endpointText(*route)
+                          << " action_id=" << packetBoundary.packet.actionId
+                          << " ack_key=" << packetBoundary.packet.ackKey
+                          << " error=" << sendError.message()
+                          << " db_sent_storage=not_written"
+                          << " mark_applied=off"
+                          << "\n";
+              } else {
+                Mmo::Server::OutboundGameplayAttempt attempt;
+                attempt.actionId = packetBoundary.packet.actionId;
+                attempt.ackKey = packetBoundary.packet.ackKey;
+                attempt.sessionUuid = packetBoundary.packet.sessionUuid;
+                attempt.characterKey = packetBoundary.packet.targetCharacterKey;
+                attempt.packetSequence = packetBoundary.packet.packetSequence;
+                attempt.localSequence = packetBoundary.packet.localSequence;
+                attempt.serverTick = packetBoundary.packet.serverTick;
+                attempt.sentAtMs = monotonicNowMs();
+                attempt.ackDeadlineMs = attempt.sentAtMs + opt.aiDialogIntentAckTimeoutMs;
+                const auto registry = outboundGameplayDelivery.recordSent(std::move(attempt));
+
+                Mmo::Server::ConversationObserverSent observer;
+                observer.sessionUuid = packetBoundary.packet.sessionUuid;
+                observer.characterKey = packetBoundary.packet.targetCharacterKey;
+                observer.actionId = packetBoundary.packet.actionId;
+                observer.ackKey = packetBoundary.packet.ackKey;
+                observer.packetSequence = packetBoundary.packet.packetSequence;
+                observer.localSequence = packetBoundary.packet.localSequence;
+                observer.sentAtMs = monotonicNowMs();
+                observer.ackDeadlineMs = observer.sentAtMs + opt.aiDialogIntentAckTimeoutMs;
+                observer.distanceSquared = 0.0;
+                observer.target = false;
+                observer.hasPosition = false;
+                const auto observerRegistration = conversationRuntime.recordObserverSent(plan.conversationId, std::move(observer));
+
+                bool stored = false;
+                std::string deliveryUuid;
+                std::string deliveryStatus;
+                std::string storageError;
+                if(aiRuntimeTarget != nullptr) {
+                  Mmo::Server::AiDialogIntentDeliveryPersistenceSentStorageRequest storageRequest;
+                  storageRequest.enabled = true;
+                  storageRequest.allowMysqlExecution = true;
+                  storageRequest.aiDatabaseName = opt.worldInstanceAiDatabaseName;
+                  storageRequest.source = "step282_late_observer_replay_send";
+                  storageRequest.deliveryKind = "resume";
+                  storageRequest.worldInstanceUuid = opt.worldInstanceKey;
+                  storageRequest.worldName = plan.worldName.empty() ? std::string(worldName) : plan.worldName;
+                  storageRequest.contentRevisionKey = opt.contentRevisionKey;
+                  storageRequest.conversationId = plan.conversationId;
+                  storageRequest.speakerEntityKey = packetBoundary.packet.speakerEntityKey;
+                  storageRequest.speakerNpcInstanceUuid = packetBoundary.packet.speakerNpcInstanceUuid;
+                  storageRequest.lineId = packetBoundary.packet.lineId;
+                  storageRequest.audioRef = packetBoundary.packet.audioRef;
+                  storageRequest.text = packetBoundary.packet.text;
+                  storageRequest.reason = packetBoundary.packet.reason;
+                  storageRequest.actionId = packetBoundary.packet.actionId;
+                  storageRequest.ackKey = packetBoundary.packet.ackKey;
+                  storageRequest.targetSessionUuid = packetBoundary.packet.sessionUuid;
+                  storageRequest.targetCharacterKey = packetBoundary.packet.targetCharacterKey;
+                  storageRequest.endpointText = endpointText(*route);
+                  storageRequest.packetSequence = packetBoundary.packet.packetSequence;
+                  storageRequest.localSequence = packetBoundary.packet.localSequence;
+                  storageRequest.serverTick = packetBoundary.packet.serverTick;
+                  storageRequest.startTick = packetBoundary.packet.startTick;
+                  storageRequest.durationMs = packetBoundary.packet.durationMs;
+                  storageRequest.plannedRecipients = 1;
+                  storageRequest.payloadBytes = encoded.size();
+                  storageRequest.ackTimeoutMs = opt.aiDialogIntentAckTimeoutMs;
+                  const auto storageSql = Mmo::Server::buildAiDialogIntentDeliveryPersistenceSentStorageSql(storageRequest);
+                  if(storageSql.ready) {
+                    try {
+                      const auto rawStorage = runMysql(*aiRuntimeTarget, storageSql.sql);
+                      const auto storageParts = splitMysqlLastRow(rawStorage);
+                      stored = true;
+                      deliveryUuid = storageParts.empty() ? std::string() : storageParts[0];
+                      deliveryStatus = storageParts.size() > 1 ? storageParts[1] : std::string();
+                    } catch(const std::exception& error) {
+                      storageError = error.what();
+                    }
+                  } else {
+                    storageError = storageSql.reason;
+                  }
+                }
+
+                std::cout << "[server_conversation_late_observer_resume_runtime_sent]"
+                          << " conversation_id=" << plan.conversationId
+                          << " observer_session_uuid=" << plan.sessionUuid
+                          << " endpoint=" << endpointText(*route)
+                          << " action_id=" << packetBoundary.packet.actionId
+                          << " ack_key=" << packetBoundary.packet.ackKey
+                          << " packet_sequence=" << packetBoundary.packet.packetSequence
+                          << " bytes=" << encoded.size()
+                          << " delivery_registry=" << registry.state
+                          << " delivery_registry_accepted=" << (registry.accepted ? 1 : 0)
+                          << " conversation_observer_registered=" << (observerRegistration.accepted ? 1 : 0)
+                          << " conversation_observer_status=" << observerRegistration.state
+                          << " db_sent_storage=" << (stored ? "step282" : "failed")
+                          << " delivery_uuid=" << deliveryUuid
+                          << " delivery_status=" << deliveryStatus
+                          << " storage_error=" << storageError
+                          << " client_ui_audio=off"
+                          << " mark_applied=off"
+                          << "\n";
+              }
+            }
+          }
 
           if(opt.aiDialogIntentLateObserverResumeDeliveryRegistrationBoundary) {
             Mmo::Server::ConversationResumeDeliveryRegistrationRequest registrationRequest;
@@ -2466,6 +2709,12 @@ void logConversationLateObserverResumePlans(Mmo::Server::ConversationSessionRunt
                       << " mutation_guard=" << (opt.aiDialogIntentLateObserverResumeMutationGuard ? "on" : "off")
                       << " send_failure_dead_letter_guard=" << (opt.aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard ? "on" : "off")
                       << " commit_preflight=" << (opt.aiDialogIntentLateObserverResumeCommitPreflight ? "on" : "off")
+                      << " persistence_execution_boundary=" << (opt.aiDialogIntentStep273PersistenceExecutionBoundary ? "on" : "off")
+                      << " persistence_executor_adapter=" << (opt.aiDialogIntentStep273PersistenceExecutorAdapter ? "on" : "off")
+                      << " persistence_dry_run_report_gate=" << (opt.aiDialogIntentStep273PersistenceDryRunReportGate ? "on" : "off")
+                      << " outcome_policy=" << (opt.aiDialogIntentStep273PersistenceOutcomePolicy ? "on" : "off")
+                      << " outcome_observability=" << (opt.aiDialogIntentStep273PersistenceOutcomeObservability ? "on" : "off")
+                  << " activation_preflight=" << (opt.aiDialogIntentStep273PersistenceActivationPreflight ? "on" : "off")
                       << " send_resume_packet=off"
                       << " delivery_registry=off"
                       << " conversation_observer_registry=off"
@@ -2695,9 +2944,285 @@ void logConversationLateObserverResumePlans(Mmo::Server::ConversationSessionRunt
                               << " execute_mysql=" << (persistence.executeMysql ? 1 : 0)
                               << " mutated_db=" << (persistence.mutatedDb ? 1 : 0)
                               << " reason=" << persistence.reason
+                              << " execution_boundary=" << (opt.aiDialogIntentStep273PersistenceExecutionBoundary ? "on" : "off")
                               << " real_udp_send=off"
                               << " mark_applied=off"
                               << "\n";
+
+                    if(opt.aiDialogIntentStep273PersistenceExecutionBoundary) {
+                      Mmo::Server::AiDialogIntentDeliveryPersistenceExecutionBoundaryRequest executionRequest;
+                      executionRequest.enabled = true;
+                      executionRequest.allowMysqlExecution = false;
+                      executionRequest.preview = &persistence;
+                      const auto execution =
+                          Mmo::Server::buildAiDialogIntentDeliveryPersistenceExecutionBoundary(executionRequest);
+                      std::cout << "[server_ai_dialog_intent_step273_persistence_execution_boundary]"
+                                << " conversation_id=" << plan.conversationId
+                                << " observer_session_uuid=" << plan.sessionUuid
+                                << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                                << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                                << " status=" << Mmo::Server::aiDialogIntentDeliveryPersistenceExecutionBoundaryStatusName(execution.status)
+                                << " ready=" << (execution.ready ? 1 : 0)
+                                << " action_id=" << execution.actionId
+                                << " ack_key=" << execution.ackKey
+                                << " statements=" << execution.statementCount
+                                << " mutating_statements=" << execution.mutatingStatementCount
+                                << " procedure_calls=" << execution.procedureCallCount
+                                << " output_slots=" << execution.outputSlotCount
+                                << " output_slot_names=" << Mmo::Server::aiDialogIntentDeliveryPersistenceExecutionOutputSlotsCsv(execution)
+                                << " plan_steps=" << execution.planSteps.size()
+                                << " plan_statement_names=" << Mmo::Server::aiDialogIntentDeliveryPersistenceExecutionPlanStatementNamesCsv(execution)
+                                << " failure_classes=" << Mmo::Server::aiDialogIntentDeliveryPersistenceExecutionFailureClassesCsv(execution)
+                                << " requires_step273_schema=" << (execution.requiresStep273Schema ? 1 : 0)
+                                << " transaction_required=" << (execution.transactionRequired ? 1 : 0)
+                                << " rollback_required_on_failure=" << (execution.rollbackRequiredOnFailure ? 1 : 0)
+                                << " would_open_mysql_connection=" << (execution.wouldOpenMysqlConnection ? 1 : 0)
+                                << " would_mutate_db=" << (execution.wouldMutateDb ? 1 : 0)
+                                << " execute_mysql=" << (execution.executeMysql ? 1 : 0)
+                                << " mutated_db=" << (execution.mutatedDb ? 1 : 0)
+                                << " reason=" << execution.reason
+                                << " executor_adapter=" << (opt.aiDialogIntentStep273PersistenceExecutorAdapter ? "on" : "off")
+                                << " dry_run_report_gate=" << (opt.aiDialogIntentStep273PersistenceDryRunReportGate ? "on" : "off")
+                                << " outcome_policy=" << (opt.aiDialogIntentStep273PersistenceOutcomePolicy ? "on" : "off")
+                                << " outcome_observability=" << (opt.aiDialogIntentStep273PersistenceOutcomeObservability ? "on" : "off")
+                  << " activation_preflight=" << (opt.aiDialogIntentStep273PersistenceActivationPreflight ? "on" : "off")
+                                << " real_udp_send=off"
+                                << " mark_applied=off"
+                                << "\n";
+
+                      if(opt.aiDialogIntentStep273PersistenceExecutorAdapter) {
+                        Mmo::Server::AiDialogIntentDeliveryPersistenceExecutorAdapterRequest adapterRequest;
+                        adapterRequest.enabled = true;
+                        adapterRequest.allowMysqlExecution = false;
+                        adapterRequest.preview = &persistence;
+                        adapterRequest.execution = &execution;
+                        const auto adapter =
+                            Mmo::Server::buildAiDialogIntentDeliveryPersistenceExecutorAdapter(adapterRequest);
+                        std::cout << "[server_ai_dialog_intent_step273_persistence_executor_adapter]"
+                                  << " conversation_id=" << plan.conversationId
+                                  << " observer_session_uuid=" << plan.sessionUuid
+                                  << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                                  << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                                  << " status=" << Mmo::Server::aiDialogIntentDeliveryPersistenceExecutorAdapterStatusName(adapter.status)
+                                  << " ready=" << (adapter.ready ? 1 : 0)
+                                  << " action_id=" << adapter.actionId
+                                  << " ack_key=" << adapter.ackKey
+                                  << " statements=" << adapter.statementCount
+                                  << " procedure_calls=" << adapter.procedureCallCount
+                                  << " output_slots=" << adapter.outputSlotCount
+                                  << " output_slot_names=" << Mmo::Server::aiDialogIntentDeliveryPersistenceExecutorOutputSlotsCsv(adapter)
+                                  << " executor_steps=" << adapter.executorStepCount
+                                  << " executor_step_kinds=" << Mmo::Server::aiDialogIntentDeliveryPersistenceExecutorStepKindsCsv(adapter)
+                                  << " executor_statement_names=" << Mmo::Server::aiDialogIntentDeliveryPersistenceExecutorPlanStepNamesCsv(adapter)
+                                  << " rollback_failure_classes=" << Mmo::Server::aiDialogIntentDeliveryPersistenceExecutorRollbackFailureClassesCsv(adapter)
+                                  << " can_parse_result_rows=" << (adapter.canParseResultRows ? 1 : 0)
+                                  << " can_classify_rollback=" << (adapter.canClassifyRollback ? 1 : 0)
+                                  << " transaction_required=" << (adapter.transactionRequired ? 1 : 0)
+                                  << " rollback_required_on_failure=" << (adapter.rollbackRequiredOnFailure ? 1 : 0)
+                                  << " would_open_mysql_connection=" << (adapter.wouldOpenMysqlConnection ? 1 : 0)
+                                  << " would_call_runmysql=" << (adapter.wouldCallRunMysql ? 1 : 0)
+                                  << " would_mutate_db=" << (adapter.wouldMutateDb ? 1 : 0)
+                                  << " execute_mysql=" << (adapter.executeMysql ? 1 : 0)
+                                  << " mutated_db=" << (adapter.mutatedDb ? 1 : 0)
+                                  << " reason=" << adapter.reason
+                                  << " dry_run_report_gate=" << (opt.aiDialogIntentStep273PersistenceDryRunReportGate ? "on" : "off")
+                                  << " outcome_policy=" << (opt.aiDialogIntentStep273PersistenceOutcomePolicy ? "on" : "off")
+                                  << " outcome_observability=" << (opt.aiDialogIntentStep273PersistenceOutcomeObservability ? "on" : "off")
+                  << " activation_preflight=" << (opt.aiDialogIntentStep273PersistenceActivationPreflight ? "on" : "off")
+                                  << " real_udp_send=off"
+                                  << " mark_applied=off"
+                                  << "\n";
+
+                        if(opt.aiDialogIntentStep273PersistenceDryRunReportGate) {
+                          Mmo::Server::AiDialogIntentDeliveryPersistenceDryRunReportRequest dryRunRequest;
+                          dryRunRequest.enabled = true;
+                          dryRunRequest.allowMysqlExecution = false;
+                          dryRunRequest.adapter = &adapter;
+                          const auto dryRun =
+                              Mmo::Server::buildAiDialogIntentDeliveryPersistenceDryRunReportGate(dryRunRequest);
+                          std::cout << "[server_ai_dialog_intent_step273_persistence_dry_run_report_gate]"
+                                    << " conversation_id=" << plan.conversationId
+                                    << " observer_session_uuid=" << plan.sessionUuid
+                                    << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                                    << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                                    << " status=" << Mmo::Server::aiDialogIntentDeliveryPersistenceDryRunReportStatusName(dryRun.status)
+                                    << " ready=" << (dryRun.ready ? 1 : 0)
+                                    << " action_id=" << dryRun.actionId
+                                    << " ack_key=" << dryRun.ackKey
+                                    << " statements=" << dryRun.statementCount
+                                    << " procedure_calls=" << dryRun.procedureCallCount
+                                    << " executor_steps=" << dryRun.executorStepCount
+                                    << " dry_run_steps=" << dryRun.dryRunStepCount
+                                    << " dry_run_step_kinds=" << Mmo::Server::aiDialogIntentDeliveryPersistenceDryRunStepKindsCsv(dryRun)
+                                    << " dry_run_step_statuses=" << Mmo::Server::aiDialogIntentDeliveryPersistenceDryRunStepStatusesCsv(dryRun)
+                                    << " dry_run_statement_names=" << Mmo::Server::aiDialogIntentDeliveryPersistenceDryRunStepNamesCsv(dryRun)
+                                    << " mutating_preview_steps=" << dryRun.mutatingPreviewStepCount
+                                    << " output_parser_steps=" << dryRun.outputParserStepCount
+                                    << " failure_branch_steps=" << dryRun.failureBranchStepCount
+                                    << " rollback_failure_classes=" << Mmo::Server::aiDialogIntentDeliveryPersistenceDryRunRollbackFailureClassesCsv(dryRun)
+                                    << " dead_letter_failure_classes=" << Mmo::Server::aiDialogIntentDeliveryPersistenceDryRunDeadLetterFailureClassesCsv(dryRun)
+                                    << " transaction_dry_run_ready=" << (dryRun.transactionDryRunReady ? 1 : 0)
+                                    << " output_parser_dry_run_ready=" << (dryRun.outputParserDryRunReady ? 1 : 0)
+                                    << " rollback_report_ready=" << (dryRun.rollbackReportReady ? 1 : 0)
+                                    << " dead_letter_report_ready=" << (dryRun.deadLetterReportReady ? 1 : 0)
+                                    << " would_open_mysql_connection=" << (dryRun.wouldOpenMysqlConnection ? 1 : 0)
+                                    << " would_call_runmysql=" << (dryRun.wouldCallRunMysql ? 1 : 0)
+                                    << " would_mutate_db=" << (dryRun.wouldMutateDb ? 1 : 0)
+                                    << " execute_mysql=" << (dryRun.executeMysql ? 1 : 0)
+                                    << " mutated_db=" << (dryRun.mutatedDb ? 1 : 0)
+                                    << " runmysql_disabled=" << (dryRun.runMysqlDisabled ? 1 : 0)
+                                    << " replay_udp_send_disabled=" << (dryRun.replayUdpSendDisabled ? 1 : 0)
+                                    << " mark_applied_disabled=" << (dryRun.markAppliedDisabled ? 1 : 0)
+                                    << " reason=" << dryRun.reason
+                                    << " real_udp_send=off"
+                                    << " mark_applied=off"
+                                    << "\n";
+
+                          if(opt.aiDialogIntentStep273PersistenceOutcomePolicy) {
+                            Mmo::Server::AiDialogIntentDeliveryPersistenceOutcomePolicyRequest outcomeRequest;
+                            outcomeRequest.enabled = true;
+                            outcomeRequest.allowMysqlExecution = false;
+                            outcomeRequest.allowReplayUdpSend = false;
+                            outcomeRequest.allowMarkApplied = false;
+                            outcomeRequest.dryRun = &dryRun;
+                            const auto outcome =
+                                Mmo::Server::buildAiDialogIntentDeliveryPersistenceOutcomePolicy(outcomeRequest);
+                            std::cout << "[server_ai_dialog_intent_step273_persistence_outcome_policy]"
+                                      << " conversation_id=" << plan.conversationId
+                                      << " observer_session_uuid=" << plan.sessionUuid
+                                      << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                                      << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                                      << " status=" << Mmo::Server::aiDialogIntentDeliveryPersistenceOutcomePolicyStatusName(outcome.status)
+                                      << " ready=" << (outcome.ready ? 1 : 0)
+                                      << " action_id=" << outcome.actionId
+                                      << " ack_key=" << outcome.ackKey
+                                      << " statements=" << outcome.statementCount
+                                      << " procedure_calls=" << outcome.procedureCallCount
+                                      << " dry_run_steps=" << outcome.dryRunStepCount
+                                      << " policy_steps=" << outcome.policyStepCount
+                                      << " policy_step_kinds=" << Mmo::Server::aiDialogIntentDeliveryPersistenceOutcomePolicyStepKindsCsv(outcome)
+                                      << " policy_step_statuses=" << Mmo::Server::aiDialogIntentDeliveryPersistenceOutcomePolicyStepStatusesCsv(outcome)
+                                      << " policy_step_names=" << Mmo::Server::aiDialogIntentDeliveryPersistenceOutcomePolicyStepNamesCsv(outcome)
+                                      << " rollback_failure_classes=" << Mmo::Server::aiDialogIntentDeliveryPersistenceOutcomePolicyRollbackFailureClassesCsv(outcome)
+                                      << " dead_letter_failure_classes=" << Mmo::Server::aiDialogIntentDeliveryPersistenceOutcomePolicyDeadLetterFailureClassesCsv(outcome)
+                                      << " delivery_sent_policy_ready=" << (outcome.deliverySentPolicyReady ? 1 : 0)
+                                      << " terminal_receipt_policy_ready=" << (outcome.terminalReceiptPolicyReady ? 1 : 0)
+                                      << " observation_receipt_policy_ready=" << (outcome.observationReceiptPolicyReady ? 1 : 0)
+                                      << " timeout_dead_letter_policy_ready=" << (outcome.timeoutDeadLetterPolicyReady ? 1 : 0)
+                                      << " action_apply_blocked_until_durable_terminal=" << (outcome.actionApplyBlockedUntilDurableTerminal ? 1 : 0)
+                                      << " durable_terminal_state_required=" << (outcome.durableTerminalStateRequired ? 1 : 0)
+                                      << " requires_client_ack_or_observation=" << (outcome.requiresClientAckOrObservation ? 1 : 0)
+                                      << " would_open_mysql_connection=" << (outcome.wouldOpenMysqlConnection ? 1 : 0)
+                                      << " would_call_runmysql=" << (outcome.wouldCallRunMysql ? 1 : 0)
+                                      << " would_mutate_db=" << (outcome.wouldMutateDb ? 1 : 0)
+                                      << " execute_mysql=" << (outcome.executeMysql ? 1 : 0)
+                                      << " mutated_db=" << (outcome.mutatedDb ? 1 : 0)
+                                      << " replay_udp_send_enabled=" << (outcome.replayUdpSendEnabled ? 1 : 0)
+                                      << " replay_udp_send_disabled=" << (outcome.replayUdpSendDisabled ? 1 : 0)
+                                      << " mark_applied_enabled=" << (outcome.markAppliedEnabled ? 1 : 0)
+                                      << " mark_applied_disabled=" << (outcome.markAppliedDisabled ? 1 : 0)
+                                      << " reason=" << outcome.reason
+                                      << " outcome_observability=" << (opt.aiDialogIntentStep273PersistenceOutcomeObservability ? "on" : "off")
+                  << " activation_preflight=" << (opt.aiDialogIntentStep273PersistenceActivationPreflight ? "on" : "off")
+                                      << " real_udp_send=off"
+                                      << " mark_applied=off"
+                                      << "\n";
+
+                            if(opt.aiDialogIntentStep273PersistenceOutcomeObservability) {
+                              Mmo::Server::AiDialogIntentDeliveryPersistenceOutcomeObservabilityRequest observabilityRequest;
+                              observabilityRequest.enabled = true;
+                              observabilityRequest.outcome = &outcome;
+                              const auto observability =
+                                  Mmo::Server::buildAiDialogIntentDeliveryPersistenceOutcomeObservability(observabilityRequest);
+                              std::cout << "[server_ai_dialog_intent_step273_persistence_outcome_observability]"
+                                        << " conversation_id=" << plan.conversationId
+                                        << " observer_session_uuid=" << plan.sessionUuid
+                                        << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                                        << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                                        << " status=" << Mmo::Server::aiDialogIntentDeliveryPersistenceOutcomeObservabilityStatusName(observability.status)
+                                        << " ready=" << (observability.ready ? 1 : 0)
+                                        << " action_id=" << observability.actionId
+                                        << " ack_key=" << observability.ackKey
+                                        << " policy_steps=" << observability.policyStepCount
+                                        << " durable_storage_steps=" << observability.durableStorageStepCount
+                                        << " client_receipt_steps=" << observability.clientReceiptStepCount
+                                        << " dead_letter_steps=" << observability.deadLetterStepCount
+                                        << " delivery_sent_observed=" << (observability.deliverySentObserved ? 1 : 0)
+                                        << " client_ack_wait_observed=" << (observability.clientAckWaitObserved ? 1 : 0)
+                                        << " terminal_receipt_observed=" << (observability.terminalReceiptObserved ? 1 : 0)
+                                        << " observation_receipt_observed=" << (observability.observationReceiptObserved ? 1 : 0)
+                                        << " timeout_dead_letter_observed=" << (observability.timeoutDeadLetterObserved ? 1 : 0)
+                                        << " action_apply_block_observed=" << (observability.actionApplyBlockObserved ? 1 : 0)
+                                        << " durable_terminal_policy_observed=" << (observability.durableTerminalPolicyObserved ? 1 : 0)
+                                        << " all_no_execute_invariants_hold=" << (observability.allNoExecuteInvariantsHold ? 1 : 0)
+                                        << " unsafe_mysql_steps=" << observability.unsafeMysqlStepCount
+                                        << " unsafe_replay_udp_steps=" << observability.unsafeReplayUdpStepCount
+                                        << " unsafe_mark_applied_steps=" << observability.unsafeMarkAppliedStepCount
+                                        << " would_open_mysql_connection=" << (observability.wouldOpenMysqlConnection ? 1 : 0)
+                                        << " would_call_runmysql=" << (observability.wouldCallRunMysql ? 1 : 0)
+                                        << " would_mutate_db=" << (observability.wouldMutateDb ? 1 : 0)
+                                        << " execute_mysql=" << (observability.executeMysql ? 1 : 0)
+                                        << " mutated_db=" << (observability.mutatedDb ? 1 : 0)
+                                        << " replay_udp_send_enabled=" << (observability.replayUdpSendEnabled ? 1 : 0)
+                                        << " replay_udp_send_disabled=" << (observability.replayUdpSendDisabled ? 1 : 0)
+                                        << " mark_applied_enabled=" << (observability.markAppliedEnabled ? 1 : 0)
+                                        << " mark_applied_disabled=" << (observability.markAppliedDisabled ? 1 : 0)
+                                        << " reason=" << observability.reason
+                                        << " activation_preflight=" << (opt.aiDialogIntentStep273PersistenceActivationPreflight ? "on" : "off")
+                                        << " real_udp_send=off"
+                                        << " mark_applied=off"
+                                        << "\n";
+
+                              if(opt.aiDialogIntentStep273PersistenceActivationPreflight) {
+                                Mmo::Server::AiDialogIntentDeliveryPersistenceActivationPreflightRequest preflightRequest;
+                                preflightRequest.enabled = true;
+                                preflightRequest.allowRuntimeActivation = false;
+                                preflightRequest.observability = &observability;
+                                const auto activationPreflight =
+                                    Mmo::Server::buildAiDialogIntentDeliveryPersistenceActivationPreflight(preflightRequest);
+                                std::cout << "[server_ai_dialog_intent_step273_persistence_activation_preflight]"
+                                          << " conversation_id=" << plan.conversationId
+                                          << " observer_session_uuid=" << plan.sessionUuid
+                                          << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                                          << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                                          << " status=" << Mmo::Server::aiDialogIntentDeliveryPersistenceActivationPreflightStatusName(activationPreflight.status)
+                                          << " ready=" << (activationPreflight.ready ? 1 : 0)
+                                          << " action_id=" << activationPreflight.actionId
+                                          << " ack_key=" << activationPreflight.ackKey
+                                          << " policy_steps=" << activationPreflight.policyStepCount
+                                          << " durable_storage_steps=" << activationPreflight.durableStorageStepCount
+                                          << " client_receipt_steps=" << activationPreflight.clientReceiptStepCount
+                                          << " dead_letter_steps=" << activationPreflight.deadLetterStepCount
+                                          << " policy_coverage_ready=" << (activationPreflight.policyCoverageReady ? 1 : 0)
+                                          << " durable_storage_coverage_ready=" << (activationPreflight.durableStorageCoverageReady ? 1 : 0)
+                                          << " client_receipt_coverage_ready=" << (activationPreflight.clientReceiptCoverageReady ? 1 : 0)
+                                          << " dead_letter_coverage_ready=" << (activationPreflight.deadLetterCoverageReady ? 1 : 0)
+                                          << " runtime_identity_present=" << (activationPreflight.runtimeIdentityPresent ? 1 : 0)
+                                          << " durable_terminal_policy_observed=" << (activationPreflight.durableTerminalPolicyObserved ? 1 : 0)
+                                          << " all_no_execute_invariants_hold=" << (activationPreflight.allNoExecuteInvariantsHold ? 1 : 0)
+                                          << " activation_allowed=" << (activationPreflight.activationAllowed ? 1 : 0)
+                                          << " activation_blocked_until_final_batch=" << (activationPreflight.activationBlockedUntilFinalBatch ? 1 : 0)
+                                          << " future_db_batch_required=" << (activationPreflight.futureDbBatchRequired ? 1 : 0)
+                                          << " future_tools_batch_required=" << (activationPreflight.futureToolsBatchRequired ? 1 : 0)
+                                          << " would_open_mysql_connection=" << (activationPreflight.wouldOpenMysqlConnection ? 1 : 0)
+                                          << " would_call_runmysql=" << (activationPreflight.wouldCallRunMysql ? 1 : 0)
+                                          << " would_mutate_db=" << (activationPreflight.wouldMutateDb ? 1 : 0)
+                                          << " execute_mysql=" << (activationPreflight.executeMysql ? 1 : 0)
+                                          << " mutated_db=" << (activationPreflight.mutatedDb ? 1 : 0)
+                                          << " replay_udp_send_enabled=" << (activationPreflight.replayUdpSendEnabled ? 1 : 0)
+                                          << " replay_udp_send_disabled=" << (activationPreflight.replayUdpSendDisabled ? 1 : 0)
+                                          << " mark_applied_enabled=" << (activationPreflight.markAppliedEnabled ? 1 : 0)
+                                          << " mark_applied_disabled=" << (activationPreflight.markAppliedDisabled ? 1 : 0)
+                                          << " reason=" << activationPreflight.reason
+                                          << " real_udp_send=off"
+                                          << " mark_applied=off"
+                                          << "\n";
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -2725,6 +3250,7 @@ std::size_t sendNpcDialogIntentProbe(asio::ip::udp::socket& socket,
                                        const ClientRouteRegistry& routes,
                                        Mmo::Server::OutboundGameplayDeliveryState& deliveryState,
                                        Mmo::Server::ConversationSessionRuntime* conversationRuntime,
+                                       const MySqlTarget* aiRuntimeTarget,
                                        const Options& opt,
                                        std::string_view sessionUuid,
                                        const Mmo::Net::ClientActionPacket& request,
@@ -2883,6 +3409,74 @@ std::size_t sendNpcDialogIntentProbe(asio::ip::udp::socket& socket,
                 << "\n";
     }
 
+    if(opt.aiDialogIntentStep273PersistenceRuntimeStorage && aiRuntimeTarget != nullptr) {
+      Mmo::Server::AiDialogIntentDeliveryPersistenceSentStorageRequest storageRequest;
+      storageRequest.enabled = true;
+      storageRequest.allowMysqlExecution = true;
+      storageRequest.aiDatabaseName = opt.worldInstanceAiDatabaseName;
+      storageRequest.worldInstanceUuid = opt.worldInstanceKey;
+      storageRequest.worldName = worldName;
+      storageRequest.contentRevisionKey = opt.contentRevisionKey;
+      storageRequest.conversationId = conversationId;
+      storageRequest.speakerEntityKey = intent.speakerEntityKey;
+      storageRequest.lineId = intent.lineId;
+      storageRequest.text = intent.text;
+      storageRequest.reason = intent.reason;
+      storageRequest.actionId = intent.actionId;
+      storageRequest.ackKey = intent.ackKey;
+      storageRequest.targetSessionUuid = intent.sessionUuid;
+      storageRequest.targetCharacterKey = intent.targetCharacterKey;
+      storageRequest.endpointText = endpointText(*endpoint);
+      storageRequest.packetSequence = intent.packetSequence;
+      storageRequest.localSequence = intent.localSequence;
+      storageRequest.serverTick = intent.serverTick;
+      storageRequest.startTick = intent.startTick;
+      storageRequest.durationMs = intent.durationMs;
+      storageRequest.plannedRecipients = selection.recipients.size();
+      storageRequest.payloadBytes = encoded.size();
+      storageRequest.ackTimeoutMs = opt.aiDialogIntentAckTimeoutMs;
+      storageRequest.distanceSquared = recipient.distanceSquared;
+      storageRequest.recipientIsTarget = recipient.isTarget;
+      storageRequest.recipientHasPosition = recipient.hasPosition;
+      const auto storageSql = Mmo::Server::buildAiDialogIntentDeliveryPersistenceSentStorageSql(storageRequest);
+      if(storageSql.ready) {
+        try {
+          const auto rawStorage = runMysql(*aiRuntimeTarget, storageSql.sql);
+          const auto storageParts = splitMysqlLastRow(rawStorage);
+          std::cout << "[server_ai_dialog_intent_step281_runtime_storage_sent]"
+                    << " action_id=" << intent.actionId
+                    << " ack_key=" << intent.ackKey
+                    << " session_uuid=" << intent.sessionUuid
+                    << " character=" << intent.targetCharacterKey
+                    << " stored=1"
+                    << " delivery_uuid=" << (storageParts.empty() ? std::string() : storageParts[0])
+                    << " delivery_status=" << (storageParts.size() > 1 ? storageParts[1] : std::string())
+                    << " execute_mysql=1"
+                    << " mutated_db=1"
+                    << " reason=" << storageSql.reason
+                    << " mark_applied=off"
+                    << "\n";
+        } catch(const std::exception& error) {
+          std::cerr << "[server_ai_dialog_intent_step281_runtime_storage_sent_failed]"
+                    << " action_id=" << intent.actionId
+                    << " ack_key=" << intent.ackKey
+                    << " session_uuid=" << intent.sessionUuid
+                    << " stored=0"
+                    << " error=" << error.what()
+                    << " mark_applied=off"
+                    << "\n";
+        }
+      } else {
+        std::cerr << "[server_ai_dialog_intent_step281_runtime_storage_sent_skipped]"
+                  << " action_id=" << intent.actionId
+                  << " ack_key=" << intent.ackKey
+                  << " status=" << Mmo::Server::aiDialogIntentDeliveryPersistenceRuntimeStorageStatusName(storageSql.status)
+                  << " reason=" << storageSql.reason
+                  << " mark_applied=off"
+                  << "\n";
+      }
+    }
+
     ++sent;
     std::cout << "[server_npc_dialog_intent_sent]"
               << " session_uuid=" << recipient.sessionUuid
@@ -2902,7 +3496,7 @@ std::size_t sendNpcDialogIntentProbe(asio::ip::udp::socket& socket,
               << " conversation_session_probe=" << (conversationRuntime != nullptr ? "on" : "off")
               << " terminal_registry=" << registry.state
               << " terminal_registry_accepted=" << (registry.accepted ? 1 : 0)
-              << " db_terminal_storage=off"
+              << " db_terminal_storage=" << (opt.aiDialogIntentStep273PersistenceRuntimeStorage ? "step281" : "off")
               << "\n";
   }
   return sent;
@@ -4646,8 +5240,12 @@ Options parseArgs(int argc, char** argv) {
             arg == "--no-enable-ai-dialog-intent-late-observer-resume-packet-boundary") opt.aiDialogIntentLateObserverResumePacketBoundary = false;
     else if(arg == "--ai-dialog-intent-late-observer-resume-send-gate" ||
             arg == "--enable-ai-dialog-intent-late-observer-resume-send-gate") opt.aiDialogIntentLateObserverResumeSendGate = true;
+    else if(arg == "--ai-dialog-intent-late-observer-resume-runtime-send" ||
+            arg == "--enable-ai-dialog-intent-late-observer-resume-runtime-send") opt.aiDialogIntentLateObserverResumeRuntimeSend = true;
     else if(arg == "--no-ai-dialog-intent-late-observer-resume-send-gate" ||
             arg == "--no-enable-ai-dialog-intent-late-observer-resume-send-gate") opt.aiDialogIntentLateObserverResumeSendGate = false;
+    else if(arg == "--no-ai-dialog-intent-late-observer-resume-runtime-send" ||
+            arg == "--no-enable-ai-dialog-intent-late-observer-resume-runtime-send") opt.aiDialogIntentLateObserverResumeRuntimeSend = false;
     else if(arg == "--ai-dialog-intent-late-observer-resume-delivery-registration-boundary" ||
             arg == "--enable-ai-dialog-intent-late-observer-resume-delivery-registration-boundary") opt.aiDialogIntentLateObserverResumeDeliveryRegistrationBoundary = true;
     else if(arg == "--no-ai-dialog-intent-late-observer-resume-delivery-registration-boundary" ||
@@ -4676,6 +5274,38 @@ Options parseArgs(int argc, char** argv) {
             arg == "--enable-ai-dialog-intent-step273-persistence-preview") opt.aiDialogIntentStep273PersistencePreview = true;
     else if(arg == "--no-ai-dialog-intent-step273-persistence-preview" ||
             arg == "--no-enable-ai-dialog-intent-step273-persistence-preview") opt.aiDialogIntentStep273PersistencePreview = false;
+    else if(arg == "--ai-dialog-intent-step273-persistence-execution-boundary" ||
+            arg == "--enable-ai-dialog-intent-step273-persistence-execution-boundary") opt.aiDialogIntentStep273PersistenceExecutionBoundary = true;
+    else if(arg == "--no-ai-dialog-intent-step273-persistence-execution-boundary" ||
+            arg == "--no-enable-ai-dialog-intent-step273-persistence-execution-boundary") opt.aiDialogIntentStep273PersistenceExecutionBoundary = false;
+    else if(arg == "--ai-dialog-intent-step273-persistence-executor-adapter" ||
+            arg == "--enable-ai-dialog-intent-step273-persistence-executor-adapter") opt.aiDialogIntentStep273PersistenceExecutorAdapter = true;
+    else if(arg == "--no-ai-dialog-intent-step273-persistence-executor-adapter" ||
+            arg == "--no-enable-ai-dialog-intent-step273-persistence-executor-adapter") opt.aiDialogIntentStep273PersistenceExecutorAdapter = false;
+    else if(arg == "--ai-dialog-intent-step273-persistence-dry-run-report-gate" ||
+            arg == "--enable-ai-dialog-intent-step273-persistence-dry-run-report-gate") opt.aiDialogIntentStep273PersistenceDryRunReportGate = true;
+    else if(arg == "--no-ai-dialog-intent-step273-persistence-dry-run-report-gate" ||
+            arg == "--no-enable-ai-dialog-intent-step273-persistence-dry-run-report-gate") opt.aiDialogIntentStep273PersistenceDryRunReportGate = false;
+    else if(arg == "--ai-dialog-intent-step273-persistence-outcome-policy" ||
+            arg == "--enable-ai-dialog-intent-step273-persistence-outcome-policy") opt.aiDialogIntentStep273PersistenceOutcomePolicy = true;
+    else if(arg == "--no-ai-dialog-intent-step273-persistence-outcome-policy" ||
+            arg == "--no-enable-ai-dialog-intent-step273-persistence-outcome-policy") opt.aiDialogIntentStep273PersistenceOutcomePolicy = false;
+    else if(arg == "--ai-dialog-intent-step273-persistence-outcome-observability" ||
+            arg == "--enable-ai-dialog-intent-step273-persistence-outcome-observability") opt.aiDialogIntentStep273PersistenceOutcomeObservability = true;
+    else if(arg == "--no-ai-dialog-intent-step273-persistence-outcome-observability" ||
+            arg == "--no-enable-ai-dialog-intent-step273-persistence-outcome-observability") opt.aiDialogIntentStep273PersistenceOutcomeObservability = false;
+    else if(arg == "--ai-dialog-intent-step273-persistence-activation-preflight" ||
+            arg == "--enable-ai-dialog-intent-step273-persistence-activation-preflight") opt.aiDialogIntentStep273PersistenceActivationPreflight = true;
+    else if(arg == "--no-ai-dialog-intent-step273-persistence-activation-preflight" ||
+            arg == "--no-enable-ai-dialog-intent-step273-persistence-activation-preflight") opt.aiDialogIntentStep273PersistenceActivationPreflight = false;
+    else if(arg == "--ai-dialog-intent-step273-persistence-runtime-storage" ||
+            arg == "--enable-ai-dialog-intent-step273-persistence-runtime-storage") opt.aiDialogIntentStep273PersistenceRuntimeStorage = true;
+    else if(arg == "--no-ai-dialog-intent-step273-persistence-runtime-storage" ||
+            arg == "--no-enable-ai-dialog-intent-step273-persistence-runtime-storage") opt.aiDialogIntentStep273PersistenceRuntimeStorage = false;
+    else if(arg == "--ai-dialog-intent-step273-durable-mark-applied-gate" ||
+            arg == "--enable-ai-dialog-intent-step273-durable-mark-applied-gate") opt.aiDialogIntentStep273DurableMarkAppliedGate = true;
+    else if(arg == "--no-ai-dialog-intent-step273-durable-mark-applied-gate" ||
+            arg == "--no-enable-ai-dialog-intent-step273-durable-mark-applied-gate") opt.aiDialogIntentStep273DurableMarkAppliedGate = false;
     else if(arg == "--ai-dialog-intent-text") opt.aiDialogIntentText = need(i, arg);
     else if(arg == "--ai-dialog-intent-speaker-entity-key") opt.aiDialogIntentSpeakerEntityKey = need(i, arg);
     else if(arg == "--ai-dialog-intent-line-id") opt.aiDialogIntentLineId = need(i, arg);
@@ -4745,7 +5375,7 @@ Options parseArgs(int argc, char** argv) {
     else if(arg == "--no-require-runtime-read-model-content-revision-match") opt.requireRuntimeReadModelContentRevisionMatch = false;
     else if(arg == "--startup-check-only") opt.startupCheckOnly = true;
     else if(arg == "--help" || arg == "-h") {
-      std::cout << "Usage: mmo_udp_server --bind 127.0.0.1:29777 --mysql-url mysql://user:pass@host:3306/db [--session-key local-dev-PC_HERO_TEST] [--enqueue-outbox] [--no-direct-db] [--runtime-read-model PATH --content-revision-key KEY --world-instance-key KEY --world-name NAME] [--runtime-read-model-active-export-plan-only] [--world-instance-ai-startup-dry-run|--world-instance-ai-startup-strict-evidence] [--world-instance-ai-scheduler-plan-only] [--world-instance-npc-identity-materialization-plan-only] [--enable-ai-dialog-intent-send] [--ai-dialog-intent-conversation-session-probe] [--ai-dialog-intent-fanout-mode target_session|aoi] [--ai-dialog-intent-aoi-radius 1800] [--ai-dialog-intent-ack-timeout-ms 5000] [--ai-dialog-intent-late-observer-resume-delivery-registration-boundary] [--ai-dialog-intent-late-observer-resume-dispatch-envelope] [--ai-dialog-intent-late-observer-resume-mutation-guard] [--ai-dialog-intent-late-observer-resume-send-failure-dead-letter-guard] [--ai-dialog-intent-late-observer-resume-commit-preflight] [--ai-dialog-intent-step273-persistence-preview] [--startup-check-only] [--require-db-save-checkpoint-restore]\n";
+      std::cout << "Usage: mmo_udp_server --bind 127.0.0.1:29777 --mysql-url mysql://user:pass@host:3306/db [--session-key local-dev-PC_HERO_TEST] [--enqueue-outbox] [--no-direct-db] [--runtime-read-model PATH --content-revision-key KEY --world-instance-key KEY --world-name NAME] [--runtime-read-model-active-export-plan-only] [--world-instance-ai-startup-dry-run|--world-instance-ai-startup-strict-evidence] [--world-instance-ai-scheduler-plan-only] [--world-instance-npc-identity-materialization-plan-only] [--enable-ai-dialog-intent-send] [--ai-dialog-intent-conversation-session-probe] [--ai-dialog-intent-fanout-mode target_session|aoi] [--ai-dialog-intent-aoi-radius 1800] [--ai-dialog-intent-ack-timeout-ms 5000] [--ai-dialog-intent-late-observer-resume-delivery-registration-boundary] [--ai-dialog-intent-late-observer-resume-dispatch-envelope] [--ai-dialog-intent-late-observer-resume-mutation-guard] [--ai-dialog-intent-late-observer-resume-send-failure-dead-letter-guard] [--ai-dialog-intent-late-observer-resume-commit-preflight] [--ai-dialog-intent-step273-persistence-preview] [--ai-dialog-intent-step273-persistence-execution-boundary] [--ai-dialog-intent-step273-persistence-executor-adapter] [--ai-dialog-intent-step273-persistence-dry-run-report-gate] [--ai-dialog-intent-step273-persistence-outcome-policy] [--ai-dialog-intent-step273-persistence-outcome-observability] [--ai-dialog-intent-step273-persistence-activation-preflight] [--ai-dialog-intent-step273-persistence-runtime-storage] [--ai-dialog-intent-step273-durable-mark-applied-gate] [--startup-check-only] [--require-db-save-checkpoint-restore]\n";
       std::exit(0);
     } else {
       throw std::runtime_error("unknown argument: " + std::string(arg));
@@ -4762,7 +5392,7 @@ int main(int argc, char** argv) {
     Options activeOpt = opt;
     std::optional<MySqlTarget> mysql;
     std::string sessionUuid = opt.dbSessionUuid;
-    if(opt.directDb || opt.enqueueOutbox) {
+    if(opt.directDb || opt.enqueueOutbox || opt.aiDialogIntentStep273PersistenceRuntimeStorage || opt.aiDialogIntentLateObserverResumeRuntimeSend || opt.aiDialogIntentStep273DurableMarkAppliedGate) {
       if(opt.mysqlUrl.empty())
         throw std::runtime_error("--mysql-url is required when direct DB or outbox mode is enabled");
       mysql = parseMysqlUrl(opt.mysqlUrl);
@@ -4786,6 +5416,15 @@ int main(int argc, char** argv) {
                 << " ai_dialog_intent_late_observer_resume_commit_preflight=" << (opt.aiDialogIntentLateObserverResumeCommitPreflight ? "on" : "off")
                 << " ai_dialog_intent_observation_receipt_probe=" << (opt.aiDialogIntentObservationReceiptProbe ? "on" : "off")
                 << " ai_dialog_intent_step273_persistence_preview=" << (opt.aiDialogIntentStep273PersistencePreview ? "on" : "off")
+                << " ai_dialog_intent_step273_persistence_execution_boundary=" << (opt.aiDialogIntentStep273PersistenceExecutionBoundary ? "on" : "off")
+                << " ai_dialog_intent_step273_persistence_executor_adapter=" << (opt.aiDialogIntentStep273PersistenceExecutorAdapter ? "on" : "off")
+                << " ai_dialog_intent_step273_persistence_dry_run_report_gate=" << (opt.aiDialogIntentStep273PersistenceDryRunReportGate ? "on" : "off")
+                << " ai_dialog_intent_step273_persistence_outcome_policy=" << (opt.aiDialogIntentStep273PersistenceOutcomePolicy ? "on" : "off")
+                << " ai_dialog_intent_step273_persistence_outcome_observability=" << (opt.aiDialogIntentStep273PersistenceOutcomeObservability ? "on" : "off")
+                << " ai_dialog_intent_step273_persistence_activation_preflight=" << (opt.aiDialogIntentStep273PersistenceActivationPreflight ? "on" : "off")
+                << " ai_dialog_intent_step273_persistence_runtime_storage=" << (opt.aiDialogIntentStep273PersistenceRuntimeStorage ? "on" : "off")
+                << " ai_dialog_intent_step273_durable_mark_applied_gate=" << (opt.aiDialogIntentStep273DurableMarkAppliedGate ? "on" : "off")
+                << " ai_dialog_intent_late_observer_resume_runtime_send=" << (opt.aiDialogIntentLateObserverResumeRuntimeSend ? "on" : "off")
                 << " ai_dialog_intent_fanout_mode=" << gameplayFanoutModeConfigName(opt.aiDialogIntentFanoutMode)
                 << " ai_dialog_intent_aoi_radius=" << opt.aiDialogIntentAoiRadius
                 << " ai_dialog_intent_max_recipients=" << opt.aiDialogIntentMaxRecipients
@@ -4916,8 +5555,65 @@ int main(int argc, char** argv) {
                   << " packet_sequence=" << expired.packetSequence
                   << " deadline_ms=" << expired.deadlineMs
                   << " retry=deferred"
-                  << " db_terminal_storage=off"
+                  << " db_terminal_storage=" << (activeOpt.aiDialogIntentStep273PersistenceRuntimeStorage ? "step281" : "off")
                   << "\n";
+      }
+      if(activeOpt.aiDialogIntentStep273PersistenceRuntimeStorage && mysql) {
+        Mmo::Server::AiDialogIntentDeliveryPersistenceTimeoutStorageRequest timeoutRequest;
+        timeoutRequest.enabled = true;
+        timeoutRequest.allowMysqlExecution = true;
+        timeoutRequest.aiDatabaseName = activeOpt.worldInstanceAiDatabaseName;
+        const auto timeoutSql = Mmo::Server::buildAiDialogIntentDeliveryPersistenceTimeoutStorageSql(timeoutRequest);
+        if(timeoutSql.ready) {
+          try {
+            const auto rawStorage = runMysql(*mysql, timeoutSql.sql);
+            const auto storageParts = splitMysqlLastRow(rawStorage);
+            const auto timedOutCount = storageParts.empty() ? std::string("0") : storageParts[0];
+            if(timedOutCount != "0") {
+              std::cout << "[server_ai_dialog_intent_step281_runtime_storage_timeout]"
+                        << " timed_out_count=" << timedOutCount
+                        << " execute_mysql=1"
+                        << " mutated_db=1"
+                        << " mark_applied=off"
+                        << "\n";
+            }
+          } catch(const std::exception& error) {
+            std::cerr << "[server_ai_dialog_intent_step281_runtime_storage_timeout_failed]"
+                      << " stored=0"
+                      << " error=" << error.what()
+                      << " mark_applied=off"
+                      << "\n";
+          }
+        }
+      }
+      if(activeOpt.aiDialogIntentLateObserverResumeRuntimeSend && activeOpt.aiDialogIntentStep273PersistenceRuntimeStorage && mysql) {
+        Mmo::Server::AiDialogIntentDeliveryPersistenceTimeoutStorageRequest timeoutRequest;
+        timeoutRequest.enabled = true;
+        timeoutRequest.allowMysqlExecution = true;
+        timeoutRequest.aiDatabaseName = activeOpt.worldInstanceAiDatabaseName;
+        timeoutRequest.source = "step282_late_observer_replay_send";
+        const auto timeoutSql = Mmo::Server::buildAiDialogIntentDeliveryPersistenceTimeoutStorageSql(timeoutRequest);
+        if(timeoutSql.ready) {
+          try {
+            const auto rawStorage = runMysql(*mysql, timeoutSql.sql);
+            const auto storageParts = splitMysqlLastRow(rawStorage);
+            const auto timedOutCount = storageParts.empty() ? std::string("0") : storageParts[0];
+            if(timedOutCount != "0") {
+              std::cout << "[server_ai_dialog_intent_step282_late_observer_replay_timeout]"
+                        << " timed_out_count=" << timedOutCount
+                        << " execute_mysql=1"
+                        << " mutated_db=1"
+                        << " mark_applied=off"
+                        << "\n";
+            }
+          } catch(const std::exception& error) {
+            std::cerr << "[server_ai_dialog_intent_step282_late_observer_replay_timeout_failed]"
+                      << " stored=0"
+                      << " error=" << error.what()
+                      << " mark_applied=off"
+                      << "\n";
+          }
+        }
       }
       if(activeOpt.aiDialogIntentConversationSessionProbe) {
         for(const auto& expired : conversationSessions.expirePending(nowMs)) {
@@ -4994,6 +5690,66 @@ int main(int argc, char** argv) {
                     << " mark_applied=off"
                     << "\n";
         }
+        if(activeOpt.aiDialogIntentStep273PersistenceRuntimeStorage && mysql) {
+          Mmo::Server::AiDialogIntentDeliveryPersistenceReceiptStorageRequest receiptRequest;
+          receiptRequest.enabled = true;
+          receiptRequest.allowMysqlExecution = true;
+          receiptRequest.aiDatabaseName = activeOpt.worldInstanceAiDatabaseName;
+          receiptRequest.source = isStep282LateObserverReplayActionId(gameplayAck.ack.actionId)
+              ? "step282_late_observer_replay_send"
+              : "step281_runtime_storage";
+          receiptRequest.actionId = gameplayAck.ack.actionId;
+          receiptRequest.ackKey = gameplayAck.ack.ackKey;
+          receiptRequest.receiptKind = acked ? "acked" : "nacked";
+          receiptRequest.sessionUuid = gameplayAck.ack.sessionUuid;
+          receiptRequest.characterKey = gameplayAck.ack.characterKey;
+          receiptRequest.clientObservationStatus = "none";
+          receiptRequest.reason = gameplayAck.ack.reason;
+          receiptRequest.messageText = gameplayAck.ack.message;
+          receiptRequest.flags = gameplayAck.ack.flags;
+          const auto receiptSql = Mmo::Server::buildAiDialogIntentDeliveryPersistenceReceiptStorageSql(receiptRequest);
+          if(receiptSql.ready) {
+            try {
+              const auto rawStorage = runMysql(*mysql, receiptSql.sql);
+              const auto storageParts = splitMysqlLastRow(rawStorage);
+              std::cout << "[server_ai_dialog_intent_step281_runtime_storage_receipt]"
+                        << " action_id=" << gameplayAck.ack.actionId
+                        << " ack_key=" << gameplayAck.ack.ackKey
+                        << " session_uuid=" << gameplayAck.ack.sessionUuid
+                        << " stored=1"
+                        << " receipt_kind=" << (storageParts.size() > 1 ? storageParts[1] : std::string())
+                        << " delivery_status=" << (storageParts.size() > 2 ? storageParts[2] : std::string())
+                        << " execute_mysql=1"
+                        << " mutated_db=1"
+                        << " mark_applied=" << (activeOpt.aiDialogIntentStep273DurableMarkAppliedGate ? "gate" : "off")
+                        << "\n";
+              tryRunAiDialogIntentDurableMarkAppliedGate(*mysql,
+                                                          activeOpt,
+                                                          gameplayAck.ack.actionId,
+                                                          gameplayAck.ack.ackKey,
+                                                          "client_ack_receipt",
+                                                          receiptRequest.source);
+            } catch(const std::exception& error) {
+              std::cerr << "[server_ai_dialog_intent_step281_runtime_storage_receipt_failed]"
+                        << " action_id=" << gameplayAck.ack.actionId
+                        << " ack_key=" << gameplayAck.ack.ackKey
+                        << " session_uuid=" << gameplayAck.ack.sessionUuid
+                        << " stored=0"
+                        << " error=" << error.what()
+                        << " mark_applied=off"
+                        << "\n";
+            }
+          } else {
+            std::cerr << "[server_ai_dialog_intent_step281_runtime_storage_receipt_skipped]"
+                      << " action_id=" << gameplayAck.ack.actionId
+                      << " ack_key=" << gameplayAck.ack.ackKey
+                      << " status=" << Mmo::Server::aiDialogIntentDeliveryPersistenceRuntimeStorageStatusName(receiptSql.status)
+                      << " reason=" << receiptSql.reason
+                      << " mark_applied=off"
+                      << "\n";
+          }
+        }
+
         const auto deliveryStats = outboundGameplayDelivery.stats();
         std::cout << "[client_gameplay_ack_received]"
                   << " status=" << gameplayAckStatusName(gameplayAck.ack.status)
@@ -5010,7 +5766,7 @@ int main(int argc, char** argv) {
                   << " delivery_nacked=" << deliveryStats.nacked
                   << " delivery_timed_out=" << deliveryStats.timedOut
                   << " remote=" << remote
-                  << " db_terminal_storage=off"
+                  << " db_terminal_storage=" << (activeOpt.aiDialogIntentStep273PersistenceRuntimeStorage ? "step281" : "off")
                   << " mark_applied=off"
                   << "\n";
         continue;
@@ -5021,6 +5777,62 @@ int main(int argc, char** argv) {
         const bool observedOnMainThread = observation.observation.status == Mmo::Net::ClientGameplayObservationStatus::Observed;
         const bool uiApplied = (observation.observation.flags & Mmo::Net::ClientGameplayObservationUiApplied) != 0;
         const bool audioApplied = (observation.observation.flags & Mmo::Net::ClientGameplayObservationAudioApplied) != 0;
+
+        if(activeOpt.aiDialogIntentStep273PersistenceRuntimeStorage && mysql) {
+          Mmo::Server::AiDialogIntentDeliveryPersistenceReceiptStorageRequest receiptRequest;
+          receiptRequest.enabled = true;
+          receiptRequest.allowMysqlExecution = true;
+          receiptRequest.aiDatabaseName = activeOpt.worldInstanceAiDatabaseName;
+          receiptRequest.source = isStep282LateObserverReplayActionId(observation.observation.actionId)
+              ? "step282_late_observer_replay_send"
+              : "step281_runtime_storage";
+          receiptRequest.actionId = observation.observation.actionId;
+          receiptRequest.ackKey = observation.observation.ackKey;
+          receiptRequest.receiptKind = observedOnMainThread ? "observed" : "skipped";
+          receiptRequest.sessionUuid = observation.observation.sessionUuid;
+          receiptRequest.characterKey = observation.observation.characterKey;
+          receiptRequest.clientObservationStatus = observedOnMainThread ? "observed" : "skipped";
+          receiptRequest.reason = observation.observation.reason;
+          receiptRequest.messageText = observation.observation.message;
+          receiptRequest.flags = observation.observation.flags;
+          receiptRequest.uiApplied = uiApplied;
+          receiptRequest.audioApplied = audioApplied;
+          const auto receiptSql = Mmo::Server::buildAiDialogIntentDeliveryPersistenceReceiptStorageSql(receiptRequest);
+          if(receiptSql.ready) {
+            try {
+              const auto rawStorage = runMysql(*mysql, receiptSql.sql);
+              const auto storageParts = splitMysqlLastRow(rawStorage);
+              std::cout << "[server_ai_dialog_intent_step281_runtime_storage_observation]"
+                        << " action_id=" << observation.observation.actionId
+                        << " ack_key=" << observation.observation.ackKey
+                        << " session_uuid=" << observation.observation.sessionUuid
+                        << " stored=1"
+                        << " receipt_kind=" << (storageParts.size() > 1 ? storageParts[1] : std::string())
+                        << " delivery_status=" << (storageParts.size() > 2 ? storageParts[2] : std::string())
+                        << " execute_mysql=1"
+                        << " mutated_db=1"
+                        << " ui_applied=" << (uiApplied ? 1 : 0)
+                        << " audio_applied=" << (audioApplied ? 1 : 0)
+                        << " mark_applied=" << (activeOpt.aiDialogIntentStep273DurableMarkAppliedGate ? "gate" : "off")
+                        << "\n";
+              tryRunAiDialogIntentDurableMarkAppliedGate(*mysql,
+                                                          activeOpt,
+                                                          observation.observation.actionId,
+                                                          observation.observation.ackKey,
+                                                          "client_observation_receipt",
+                                                          receiptRequest.source);
+            } catch(const std::exception& error) {
+              std::cerr << "[server_ai_dialog_intent_step281_runtime_storage_observation_failed]"
+                        << " action_id=" << observation.observation.actionId
+                        << " ack_key=" << observation.observation.ackKey
+                        << " session_uuid=" << observation.observation.sessionUuid
+                        << " stored=0"
+                        << " error=" << error.what()
+                        << " mark_applied=off"
+                        << "\n";
+            }
+          }
+        }
 
         std::cout << "[client_gameplay_observation_received]"
                   << " status=" << gameplayObservationStatusName(observation.observation.status)
@@ -5034,7 +5846,7 @@ int main(int argc, char** argv) {
                   << " audio_applied=" << (audioApplied ? 1 : 0)
                   << " remote=" << remote
                   << " observation_probe=" << (activeOpt.aiDialogIntentObservationReceiptProbe ? "on" : "off")
-                  << " db_observation_storage=off"
+                  << " db_observation_storage=" << (activeOpt.aiDialogIntentStep273PersistenceRuntimeStorage ? "step281" : "off")
                   << " mark_applied=off"
                   << "\n";
 
@@ -5098,7 +5910,8 @@ int main(int argc, char** argv) {
                           routeWorldName,
                           routePosition,
                           monotonicNowMs());
-      logConversationLateObserverResumePlans(conversationSessions,
+      logConversationLateObserverResumePlans(socket,
+                                             conversationSessions,
                                              clientRoutes,
                                              outboundGameplayDelivery,
                                              conversationResumeSendGate,
@@ -5107,6 +5920,7 @@ int main(int argc, char** argv) {
                                              conversationResumeMutationGuard,
                                              conversationResumeSendFailureDeadLetterGuard,
                                              conversationResumeCommitPreflight,
+                                             mysql ? &*mysql : nullptr,
                                              activeOpt,
                                              sessionUuid,
                                              routeCharacterKey,
@@ -5371,7 +6185,7 @@ int main(int argc, char** argv) {
       if(opt.enableAiDialogIntentSend && isBootstrap && packetAccepted && packetReady && !sessionUuid.empty()) {
         if(!dialogIntentBootstrapSentSessions.contains(sessionUuid)) {
           try {
-            const auto sentRecipients = sendNpcDialogIntentProbe(socket, clientRoutes, outboundGameplayDelivery, activeOpt.aiDialogIntentConversationSessionProbe ? &conversationSessions : nullptr, activeOpt, sessionUuid, packet, nextDialogIntentSequence);
+            const auto sentRecipients = sendNpcDialogIntentProbe(socket, clientRoutes, outboundGameplayDelivery, activeOpt.aiDialogIntentConversationSessionProbe ? &conversationSessions : nullptr, mysql ? &*mysql : nullptr, activeOpt, sessionUuid, packet, nextDialogIntentSequence);
             if(sentRecipients != 0) {
               dialogIntentSent += sentRecipients;
               dialogIntentBootstrapSentSessions.insert(sessionUuid);
@@ -5527,6 +6341,16 @@ int main(int argc, char** argv) {
               << "conversation_resume_commit_preflight_duplicate_action_id=" << resumeCommitPreflightStats.duplicatePreflightActionId << "\n"
               << "conversation_resume_commit_preflight_duplicate_ack_key=" << resumeCommitPreflightStats.duplicatePreflightAckKey << "\n"
               << "conversation_observation_receipt_probe=" << (activeOpt.aiDialogIntentObservationReceiptProbe ? "on" : "off") << "\n"
+              << "ai_dialog_intent_step273_persistence_preview=" << (activeOpt.aiDialogIntentStep273PersistencePreview ? "on" : "off") << "\n"
+              << "ai_dialog_intent_step273_persistence_execution_boundary=" << (activeOpt.aiDialogIntentStep273PersistenceExecutionBoundary ? "on" : "off") << "\n"
+              << "ai_dialog_intent_step273_persistence_executor_adapter=" << (activeOpt.aiDialogIntentStep273PersistenceExecutorAdapter ? "on" : "off") << "\n"
+              << "ai_dialog_intent_step273_persistence_dry_run_report_gate=" << (activeOpt.aiDialogIntentStep273PersistenceDryRunReportGate ? "on" : "off") << "\n"
+              << "ai_dialog_intent_step273_persistence_outcome_policy=" << (activeOpt.aiDialogIntentStep273PersistenceOutcomePolicy ? "on" : "off") << "\n"
+              << "ai_dialog_intent_step273_persistence_outcome_observability=" << (activeOpt.aiDialogIntentStep273PersistenceOutcomeObservability ? "on" : "off") << "\n"
+              << "ai_dialog_intent_step273_persistence_activation_preflight=" << (activeOpt.aiDialogIntentStep273PersistenceActivationPreflight ? "on" : "off") << "\n"
+              << "ai_dialog_intent_step273_persistence_runtime_storage=" << (activeOpt.aiDialogIntentStep273PersistenceRuntimeStorage ? "on" : "off") << "\n"
+              << "ai_dialog_intent_step273_durable_mark_applied_gate=" << (activeOpt.aiDialogIntentStep273DurableMarkAppliedGate ? "on" : "off") << "\n"
+              << "ai_dialog_intent_late_observer_resume_runtime_send=" << (activeOpt.aiDialogIntentLateObserverResumeRuntimeSend ? "on" : "off") << "\n"
               << "conversation_late_resume_plans=" << conversationStats.lateResumePlans << "\n"
               << "conversation_late_resume_skipped_already_observer=" << conversationStats.lateResumeSkippedAlreadyObserver << "\n"
               << "conversation_late_resume_skipped_already_planned=" << conversationStats.lateResumeSkippedAlreadyPlanned << "\n"
@@ -5550,5 +6374,23 @@ int main(int argc, char** argv) {
     return 2;
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

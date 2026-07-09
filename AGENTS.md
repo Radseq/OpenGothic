@@ -37,11 +37,8 @@ Main goals:
 
 ## Read First
 
-Default context lives in `docs/llm/README.md`.
-
-Read it before changing MMO/server/content code. The old numbered
-`docs/llm/ai/*.md` files are history and should be opened only when a specific
-step or regression needs archaeology.
+The old LLM context archive has been removed from this checkout. Use source
+code, SQL bundles and narrow runtime manifests as the source of truth.
 
 ## Important Directories
 
@@ -49,12 +46,10 @@ step or regression needs archaeology.
 - `game/game/` - gameplay session, MMO hooks, semantic events and restore code.
 - `game/graphics/`, `shader/` - rendering.
 - `server/cpp/` - C++ MMO server and content/read-model tools.
-- `server/sql/` - MySQL schema/procedure surfaces.
-- `tools/` - Python wrappers, reports and validation entrypoints.
-- `tools/bootstrap/` - implementation behind wrapper tools.
-- `tools/validation/` - focused validation scripts.
-- `docs/llm/` - current LLM context map.
-- `docs/llm/ai/` - step archive; not default context.
+- `server/sql/` - minimal bundled SQL used by the clean DB reset.
+- `tools/` - minimal Python reset/import wrappers required to rebuild MySQL.
+- `tools/bootstrap/` - implementation behind the reset/import wrappers.
+- `tools/validation/` - minimal checks required by the clean DB reset.
 - `runtime/` - generated local artifacts; do not treat as source.
 
 ## Build
@@ -86,8 +81,10 @@ cmake --build build/mmo_cpp_server --target mmo_runtime_read_model_probe -j
 Prefer the narrowest relevant validation:
 
 ```bash
-python3 -m py_compile tools/bootstrap/export_content_build_runtime_read_model.py tools/export_content_build_runtime_read_model.py
-build/mmo_cpp_server/mmo_runtime_read_model_probe /tmp/opengothic_step225_runtime_read_model.json
+python3 -m py_compile \
+  tools/bootstrap/run_mmo_step55_clean_mysql_from_pre_xardas.py \
+  tools/bootstrap/reset_mmo_mysql_from_chapter1_start.py \
+  tools/bootstrap/import_runtime_sqlite_to_mysql.py
 ```
 
 Database tools require a real local MySQL URL. Do not run destructive DB reset

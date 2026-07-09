@@ -9,9 +9,9 @@ surfaces if those files/tools exist in the checkout. It also applies the
     the Step60 equipment bridge, the Step67 interactive-use bridge, the Step68
     drop/loot bridge, the Step83 combat/lifecycle bridge, the Step84 world
     identity/lifecycle bridge, the Step120 NPC authority bridge, the Step121
-    server parity state bridge and the Step122 NPC observation hotfix. It also
-    normalizes MySQL collations so destructive rebuilds do not reintroduce the
-    live-worker failures found during live tests.
+    current post-import SQL bundle. It also normalizes MySQL collations so
+    destructive rebuilds do not reintroduce the live-worker failures found
+    during live tests.
 """
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ if hasattr(sys.stdout, "reconfigure"):
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASELINE = ROOT / "runtime" / "baselines" / "g2notr_chapter1_before_xardas.sqlite"
 DEFAULT_OUTPUT_DIR = ROOT / "runtime" / "step54_mysql_reset"
+CURRENT_CLEAN_RESET_POST_IMPORT_SQL_BUNDLE = ROOT / "server" / "sql" / "current_clean_reset_post_import_bundle.sql"
 
 BASE_MIGRATIONS = (
     ROOT / "db" / "migrations" / "mysql" / "production" / "001_gothic_mmo_production_schema.sql",
@@ -61,6 +62,21 @@ STEP108_DB_CHECKPOINT_WORLD_CLOCK_FOUNDATION_SQL = ROOT / "server" / "sql" / "st
 STEP120_NPC_AUTHORITY_RESTORE_BRIDGE_SQL = ROOT / "server" / "sql" / "step120_npc_authority_restore_bridge.sql"
 STEP121_SERVER_PARITY_STATE_BRIDGE_SQL = ROOT / "server" / "sql" / "step121_server_parity_state_bridge.sql"
 STEP122_NPC_OBSERVATION_FAILOPEN_ITEM_REFRESH_GUARD_SQL = ROOT / "server" / "sql" / "step122_npc_observation_failopen_and_item_refresh_guard.sql"
+STEP188_SERVER_CONTENT_PACK_MANIFEST_SQL = ROOT / "server" / "sql" / "step188_server_content_pack_manifest.sql"
+STEP201_SERVER_CONTENT_PACK_INVENTORY_SQL = ROOT / "server" / "sql" / "step201_server_content_pack_inventory.sql"
+STEP203_SERVER_CONTENT_ARCHIVE_MOUNTS_SQL = ROOT / "server" / "sql" / "step203_server_content_archive_mounts.sql"
+STEP206_SERVER_CONTENT_IMPORT_JOBS_SQL = ROOT / "server" / "sql" / "step206_server_content_import_jobs.sql"
+STEP208_SERVER_CONTENT_BUILD_INDEXES_SQL = ROOT / "server" / "sql" / "step208_server_content_build_indexes.sql"
+STEP189_SERVER_CONTENT_PACK_SESSION_GATE_SQL = ROOT / "server" / "sql" / "step189_server_content_pack_session_gate.sql"
+STEP198_CONTENT_MANIFEST_REJECT_AUDIT_SQL = ROOT / "server" / "sql" / "step198_content_manifest_reject_audit.sql"
+STEP199_CONTENT_MANIFEST_REJECT_HEALTH_VIEWS_SQL = ROOT / "server" / "sql" / "step199_content_manifest_reject_health_views.sql"
+STEP211_CONTENT_BUILD_DATABASE_SQL = ROOT / "server" / "sql" / "step211_content_build_database.sql"
+STEP212_AI_RUNTIME_PERCEPTION_DATABASE_SQL = ROOT / "server" / "sql" / "step212_ai_runtime_perception_database.sql"
+STEP213_AI_RUNTIME_ACTION_DISPATCH_CONTRACTS_SQL = ROOT / "server" / "sql" / "step213_ai_runtime_action_dispatch_contracts.sql"
+STEP273_AI_DIALOG_INTENT_DELIVERY_CONVERSATION_STORAGE_SQL = ROOT / "server" / "sql" / "step273_ai_dialog_intent_delivery_conversation_storage.sql"
+STEP281_AI_DIALOG_INTENT_DELIVERY_RUNTIME_ACTIVATION_SQL = ROOT / "server" / "sql" / "step281_ai_dialog_intent_delivery_runtime_activation.sql"
+STEP282_AI_DIALOG_INTENT_LATE_OBSERVER_REPLAY_SEND_SQL = ROOT / "server" / "sql" / "step282_ai_dialog_intent_late_observer_replay_send.sql"
+STEP283_AI_DIALOG_INTENT_DURABLE_MARK_APPLIED_GATE_SQL = ROOT / "server" / "sql" / "step283_ai_dialog_intent_durable_mark_applied_gate.sql"
 
 
 @dataclass(frozen=True)
@@ -399,6 +415,48 @@ def apply_fallback_views(target: Target, *, dry_run: bool) -> dict[str, object]:
     return {"path": rel(SCHEMA_DUMP_FALLBACK), "status": status, "purpose": "fallback_views", "result": result}
 
 
+def disable_individual_post_import_surfaces(args: argparse.Namespace) -> None:
+    for name in (
+        "with_step51",
+        "with_step53",
+        "with_step55_live_bridge",
+        "with_step56b_progress_bridge",
+        "with_step59_item_interactive_progress_bridge",
+        "with_step60_equipment_bridge",
+        "with_step67_interactive_use_bridge",
+        "with_step68_drop_loot_bridge",
+        "with_step83_combat_lifecycle_bridge",
+        "with_step84_world_identity_lifecycle_bridge",
+        "with_step93_save_checkpoint_quest_utf8_bridge",
+        "with_step94_server_save_checkpoint_manifest",
+        "with_step95_save_slot_catalog_db_continue_bridge",
+        "with_step96_db_save_checkpoint_snapshots",
+        "with_step97_db_save_checkpoint_restore_bridge",
+        "with_step98_strict_db_continue_restore",
+        "with_step103_db_checkpoint_export_coverage",
+        "with_step104_db_checkpoint_script_state_full_export",
+        "with_step120_npc_authority_restore_bridge",
+        "with_step121_server_parity_state_bridge",
+        "with_step122_npc_observation_failopen_item_refresh_guard",
+        "with_step188_server_content_pack_manifest",
+        "with_step201_server_content_pack_inventory",
+        "with_step203_server_content_archive_mounts",
+        "with_step206_server_content_import_jobs",
+        "with_step208_server_content_build_indexes",
+        "with_step189_server_content_pack_session_gate",
+        "with_step198_content_manifest_reject_audit",
+        "with_step199_content_manifest_reject_health_views",
+        "with_step211_content_build_database",
+        "with_step212_ai_runtime_perception_database",
+        "with_step213_ai_runtime_action_dispatch_contracts",
+        "with_step273_ai_dialog_intent_delivery_conversation_storage",
+        "with_step281_ai_dialog_intent_delivery_runtime_activation",
+        "with_step282_ai_dialog_intent_late_observer_replay_send",
+        "with_step283_ai_dialog_intent_durable_mark_applied_gate",
+    ):
+        setattr(args, name, False)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Reset local MySQL dev DB from Step54 Chapter 1 SQLite baseline.")
     ap.add_argument("--mysql-url", required=True, help="mysql://user:password@host:port/database")
@@ -408,6 +466,7 @@ def main() -> int:
     ap.add_argument("--realm-display-name", default="Local Dev Realm")
     ap.add_argument("--account-name", default="local-import")
     ap.add_argument("--character-key", default="PC_HERO")
+    ap.add_argument("--with-current-clean-reset-sql-bundle", action=argparse.BooleanOptionalAction, default=True, help="Install all current post-import SQL surfaces from one bundled SQL file")
     ap.add_argument("--with-step51", action=argparse.BooleanOptionalAction, default=True)
     ap.add_argument("--with-step53", action=argparse.BooleanOptionalAction, default=True)
     ap.add_argument("--with-step55-live-bridge", action=argparse.BooleanOptionalAction, default=True, help="Install minimal server_sessions/outbox/worker procedures needed by live receiver")
@@ -429,6 +488,21 @@ def main() -> int:
     ap.add_argument("--with-step120-npc-authority-restore-bridge", action=argparse.BooleanOptionalAction, default=True, help="Install NPC authority restore current/history tables and recorder procedures")
     ap.add_argument("--with-step121-server-parity-state-bridge", action=argparse.BooleanOptionalAction, default=True, help="Install trigger queue, world transition and client correction current/history tables and recorder procedures")
     ap.add_argument("--with-step122-npc-observation-failopen-item-refresh-guard", action=argparse.BooleanOptionalAction, default=True, help="Install NPC observation VARCHAR widening used by direct C++ server fail-open/item refresh guard")
+    ap.add_argument("--with-step188-server-content-pack-manifest", action=argparse.BooleanOptionalAction, default=True, help="Install server-owned content pack manifest tables/procedures")
+    ap.add_argument("--with-step201-server-content-pack-inventory", action=argparse.BooleanOptionalAction, default=True, help="Install server content pack file role inventory")
+    ap.add_argument("--with-step203-server-content-archive-mounts", action=argparse.BooleanOptionalAction, default=True, help="Install server content archive mount registry")
+    ap.add_argument("--with-step206-server-content-import-jobs", action=argparse.BooleanOptionalAction, default=True, help="Install server content import job queue")
+    ap.add_argument("--with-step208-server-content-build-indexes", action=argparse.BooleanOptionalAction, default=True, help="Install server content build result indexes")
+    ap.add_argument("--with-step189-server-content-pack-session-gate", action=argparse.BooleanOptionalAction, default=True, help="Install session-scoped server content pack validation gate")
+    ap.add_argument("--with-step198-content-manifest-reject-audit", action=argparse.BooleanOptionalAction, default=True, help="Install content manifest reject audit table/procedure")
+    ap.add_argument("--with-step199-content-manifest-reject-health-views", action=argparse.BooleanOptionalAction, default=True, help="Install content manifest reject health views")
+    ap.add_argument("--with-step211-content-build-database", action=argparse.BooleanOptionalAction, default=True, help="Install current mmo_content_build parser/build-output schema")
+    ap.add_argument("--with-step212-ai-runtime-perception-database", action=argparse.BooleanOptionalAction, default=True, help="Install current mmo_ai_runtime NPC perception schema")
+    ap.add_argument("--with-step213-ai-runtime-action-dispatch-contracts", action=argparse.BooleanOptionalAction, default=True, help="Install current mmo_ai_runtime action dispatch contracts")
+    ap.add_argument("--with-step273-ai-dialog-intent-delivery-conversation-storage", action=argparse.BooleanOptionalAction, default=True, help="Install durable dialog-intent delivery/conversation storage")
+    ap.add_argument("--with-step281-ai-dialog-intent-delivery-runtime-activation", action=argparse.BooleanOptionalAction, default=True, help="Install Step281 runtime delivery persistence activation health/procedure")
+    ap.add_argument("--with-step282-ai-dialog-intent-late-observer-replay-send", action=argparse.BooleanOptionalAction, default=True, help="Install Step282 late-observer replay-send DB support")
+    ap.add_argument("--with-step283-ai-dialog-intent-durable-mark-applied-gate", action=argparse.BooleanOptionalAction, default=True, help="Install Step283 durable mark_applied gate")
     ap.add_argument("--normalize-collation", action=argparse.BooleanOptionalAction, default=True, help="Normalize base table collations to utf8mb4_0900_ai_ci after optional SQL surfaces are installed")
     ap.add_argument("--activate-content", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
@@ -514,6 +588,17 @@ def main() -> int:
             if import_result["returncode"] != 0:
                 manifest["status"] = "failed_import"
             else:
+                if manifest["status"] == "running" and args.with_current_clean_reset_sql_bundle:
+                    bundle = apply_sql(target, CURRENT_CLEAN_RESET_POST_IMPORT_SQL_BUNDLE, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(bundle)
+                    if bundle["status"] == "failed":
+                        manifest["status"] = "failed_current_clean_reset_sql_bundle"
+                    else:
+                        disable_individual_post_import_surfaces(args)
+                        step104_procedure_export_enabled = False
+                        legacy_step97_restore_enabled = False
+                        legacy_step98_strict_enabled = False
+
                 if args.with_step51:
                     step51 = apply_sql(target, STEP51_SQL, dry_run=args.dry_run)
                     manifest["applied_sql"].append(step51)
@@ -685,6 +770,96 @@ def main() -> int:
                     manifest["applied_sql"].append(step122_bridge)
                     if step122_bridge["status"] == "failed":
                         manifest["status"] = "failed_step122_npc_observation_failopen_item_refresh_guard"
+
+                if manifest["status"] == "running" and args.with_step188_server_content_pack_manifest:
+                    step188_manifest = apply_sql(target, STEP188_SERVER_CONTENT_PACK_MANIFEST_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step188_manifest)
+                    if step188_manifest["status"] == "failed":
+                        manifest["status"] = "failed_step188_server_content_pack_manifest"
+
+                if manifest["status"] == "running" and args.with_step201_server_content_pack_inventory:
+                    step201_inventory = apply_sql(target, STEP201_SERVER_CONTENT_PACK_INVENTORY_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step201_inventory)
+                    if step201_inventory["status"] == "failed":
+                        manifest["status"] = "failed_step201_server_content_pack_inventory"
+
+                if manifest["status"] == "running" and args.with_step203_server_content_archive_mounts:
+                    step203_mounts = apply_sql(target, STEP203_SERVER_CONTENT_ARCHIVE_MOUNTS_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step203_mounts)
+                    if step203_mounts["status"] == "failed":
+                        manifest["status"] = "failed_step203_server_content_archive_mounts"
+
+                if manifest["status"] == "running" and args.with_step206_server_content_import_jobs:
+                    step206_jobs = apply_sql(target, STEP206_SERVER_CONTENT_IMPORT_JOBS_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step206_jobs)
+                    if step206_jobs["status"] == "failed":
+                        manifest["status"] = "failed_step206_server_content_import_jobs"
+
+                if manifest["status"] == "running" and args.with_step208_server_content_build_indexes:
+                    step208_indexes = apply_sql(target, STEP208_SERVER_CONTENT_BUILD_INDEXES_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step208_indexes)
+                    if step208_indexes["status"] == "failed":
+                        manifest["status"] = "failed_step208_server_content_build_indexes"
+
+                if manifest["status"] == "running" and args.with_step189_server_content_pack_session_gate:
+                    step189_gate = apply_sql(target, STEP189_SERVER_CONTENT_PACK_SESSION_GATE_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step189_gate)
+                    if step189_gate["status"] == "failed":
+                        manifest["status"] = "failed_step189_server_content_pack_session_gate"
+
+                if manifest["status"] == "running" and args.with_step198_content_manifest_reject_audit:
+                    step198_audit = apply_sql(target, STEP198_CONTENT_MANIFEST_REJECT_AUDIT_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step198_audit)
+                    if step198_audit["status"] == "failed":
+                        manifest["status"] = "failed_step198_content_manifest_reject_audit"
+
+                if manifest["status"] == "running" and args.with_step199_content_manifest_reject_health_views:
+                    step199_views = apply_sql(target, STEP199_CONTENT_MANIFEST_REJECT_HEALTH_VIEWS_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step199_views)
+                    if step199_views["status"] == "failed":
+                        manifest["status"] = "failed_step199_content_manifest_reject_health_views"
+
+                if manifest["status"] == "running" and args.with_step211_content_build_database:
+                    step211_database = apply_sql(target, STEP211_CONTENT_BUILD_DATABASE_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step211_database)
+                    if step211_database["status"] == "failed":
+                        manifest["status"] = "failed_step211_content_build_database"
+
+                if manifest["status"] == "running" and args.with_step212_ai_runtime_perception_database:
+                    step212_database = apply_sql(target, STEP212_AI_RUNTIME_PERCEPTION_DATABASE_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step212_database)
+                    if step212_database["status"] == "failed":
+                        manifest["status"] = "failed_step212_ai_runtime_perception_database"
+
+                if manifest["status"] == "running" and args.with_step213_ai_runtime_action_dispatch_contracts:
+                    step213_contracts = apply_sql(target, STEP213_AI_RUNTIME_ACTION_DISPATCH_CONTRACTS_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step213_contracts)
+                    if step213_contracts["status"] == "failed":
+                        manifest["status"] = "failed_step213_ai_runtime_action_dispatch_contracts"
+
+                if manifest["status"] == "running" and args.with_step273_ai_dialog_intent_delivery_conversation_storage:
+                    step273_storage = apply_sql(target, STEP273_AI_DIALOG_INTENT_DELIVERY_CONVERSATION_STORAGE_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step273_storage)
+                    if step273_storage["status"] == "failed":
+                        manifest["status"] = "failed_step273_ai_dialog_intent_delivery_conversation_storage"
+
+                if manifest["status"] == "running" and args.with_step281_ai_dialog_intent_delivery_runtime_activation:
+                    step281_activation = apply_sql(target, STEP281_AI_DIALOG_INTENT_DELIVERY_RUNTIME_ACTIVATION_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step281_activation)
+                    if step281_activation["status"] == "failed":
+                        manifest["status"] = "failed_step281_ai_dialog_intent_delivery_runtime_activation"
+
+                if manifest["status"] == "running" and args.with_step282_ai_dialog_intent_late_observer_replay_send:
+                    step282_replay_send = apply_sql(target, STEP282_AI_DIALOG_INTENT_LATE_OBSERVER_REPLAY_SEND_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step282_replay_send)
+                    if step282_replay_send["status"] == "failed":
+                        manifest["status"] = "failed_step282_ai_dialog_intent_late_observer_replay_send"
+
+                if manifest["status"] == "running" and args.with_step283_ai_dialog_intent_durable_mark_applied_gate:
+                    step283_mark_applied_gate = apply_sql(target, STEP283_AI_DIALOG_INTENT_DURABLE_MARK_APPLIED_GATE_SQL, dry_run=args.dry_run)
+                    manifest["applied_sql"].append(step283_mark_applied_gate)
+                    if step283_mark_applied_gate["status"] == "failed":
+                        manifest["status"] = "failed_step283_ai_dialog_intent_durable_mark_applied_gate"
 
                 if manifest["status"] == "running" and args.normalize_collation:
                     normalize_tool = ROOT / "tools" / "bootstrap" / "normalize_mmo_mysql_collation.py"
@@ -907,7 +1082,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
-

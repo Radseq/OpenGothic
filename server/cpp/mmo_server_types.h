@@ -54,6 +54,7 @@ struct Options final {
   bool aiDialogIntentLateObserverResumePlan = false;
   bool aiDialogIntentLateObserverResumePacketBoundary = false;
   bool aiDialogIntentLateObserverResumeSendGate = false;
+  bool aiDialogIntentLateObserverResumeRuntimeSend = false;
   bool aiDialogIntentLateObserverResumeDeliveryRegistrationBoundary = false;
   bool aiDialogIntentLateObserverResumeDispatchEnvelope = false;
   bool aiDialogIntentLateObserverResumeMutationGuard = false;
@@ -61,6 +62,14 @@ struct Options final {
   bool aiDialogIntentLateObserverResumeCommitPreflight = false;
   bool aiDialogIntentObservationReceiptProbe = false;
   bool aiDialogIntentStep273PersistencePreview = false;
+  bool aiDialogIntentStep273PersistenceExecutionBoundary = false;
+  bool aiDialogIntentStep273PersistenceExecutorAdapter = false;
+  bool aiDialogIntentStep273PersistenceDryRunReportGate = false;
+  bool aiDialogIntentStep273PersistenceOutcomePolicy = false;
+  bool aiDialogIntentStep273PersistenceOutcomeObservability = false;
+  bool aiDialogIntentStep273PersistenceActivationPreflight = false;
+  bool aiDialogIntentStep273PersistenceRuntimeStorage = false;
+  bool aiDialogIntentStep273DurableMarkAppliedGate = false;
   bool runtimeReadModelActiveExportPlanOnly = false;
   bool worldInstanceNpcIdentityMaterializationPlanOnly = false;
   bool worldInstanceAiSchedulerPlanOnly = false;
@@ -115,5 +124,23 @@ struct WorldItemIdentity final {
 };
 
 } // namespace Mmo::Server
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

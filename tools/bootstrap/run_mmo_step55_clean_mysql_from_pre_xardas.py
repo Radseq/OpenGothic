@@ -9,8 +9,11 @@ This wrapper is intentionally boring and explicit:
 5. install the live receiver bridge, Step56b progress bridge, Step59 item/interactive/progress bridge,
    Step60 equipment bridge, Step67 interactive-use bridge, Step68 drop/loot bridge,
    Step83 combat/lifecycle bridge, Step120/Step121 server parity bridges, Step122 NPC observation hotfix,
-   and normalize collations by default;
-6. write a Step70 PC_HERO_TEST live-loop readiness manifest.
+   Step188/Step189/Step198/Step199/Step201/Step203/Step206/Step208 content pack/import surfaces,
+   Step211/Step212/Step213 current content/AI schemas, Step273/Step281/Step282/Step283 dialog-intent
+   persistence surfaces, and normalize collations by default;
+6. optionally write a Step70 PC_HERO_TEST live-loop readiness manifest if that
+   checker exists in the checkout.
 
 It does not make SQLite the server database. The live server path remains:
 OpenGothic client -> UDP receiver/server boundary -> MySQL outbox/procedures/read models.
@@ -198,6 +201,21 @@ def main() -> int:
     ap.add_argument("--skip-step120-npc-authority-restore-bridge", action="store_true", help="Do not install NPC authority restore current/history tables and recorder procedures.")
     ap.add_argument("--skip-step121-server-parity-state-bridge", action="store_true", help="Do not install trigger queue, world transition and client correction current/history tables and recorder procedures.")
     ap.add_argument("--skip-step122-npc-observation-failopen-item-refresh-guard", action="store_true", help="Do not install NPC observation VARCHAR widening used by direct C++ server fail-open/item refresh guard.")
+    ap.add_argument("--skip-step188-server-content-pack-manifest", action="store_true", help="Do not install server-owned content pack manifest tables/procedures.")
+    ap.add_argument("--skip-step201-server-content-pack-inventory", action="store_true", help="Do not install server content pack file role inventory.")
+    ap.add_argument("--skip-step203-server-content-archive-mounts", action="store_true", help="Do not install server content archive mount registry.")
+    ap.add_argument("--skip-step206-server-content-import-jobs", action="store_true", help="Do not install server content import job queue.")
+    ap.add_argument("--skip-step208-server-content-build-indexes", action="store_true", help="Do not install server content build result indexes.")
+    ap.add_argument("--skip-step189-server-content-pack-session-gate", action="store_true", help="Do not install session-scoped server content pack validation gate.")
+    ap.add_argument("--skip-step198-content-manifest-reject-audit", action="store_true", help="Do not install content manifest reject audit table/procedure.")
+    ap.add_argument("--skip-step199-content-manifest-reject-health-views", action="store_true", help="Do not install content manifest reject health views.")
+    ap.add_argument("--skip-step211-content-build-database", action="store_true", help="Do not install current mmo_content_build parser/build-output schema.")
+    ap.add_argument("--skip-step212-ai-runtime-perception-database", action="store_true", help="Do not install current mmo_ai_runtime NPC perception schema.")
+    ap.add_argument("--skip-step213-ai-runtime-action-dispatch-contracts", action="store_true", help="Do not install current mmo_ai_runtime action dispatch contracts.")
+    ap.add_argument("--skip-step273-ai-dialog-intent-delivery-conversation-storage", action="store_true", help="Do not install durable dialog-intent delivery/conversation storage.")
+    ap.add_argument("--skip-step281-ai-dialog-intent-delivery-runtime-activation", action="store_true", help="Do not install Step281 runtime delivery persistence activation health/procedure.")
+    ap.add_argument("--skip-step282-ai-dialog-intent-late-observer-replay-send", action="store_true", help="Do not install Step282 late-observer replay-send DB support.")
+    ap.add_argument("--skip-step283-ai-dialog-intent-durable-mark-applied-gate", action="store_true", help="Do not install Step283 durable mark_applied gate.")
     ap.add_argument("--skip-step70-live-readiness", action="store_true", help="Do not run the clean live-loop readiness checker after a successful rebuild.")
     ap.add_argument("--skip-collation-normalize", action="store_true", help="Do not normalize MySQL table collations after the clean import and additive SQL surfaces.")
     ap.add_argument("--no-strict-baseline", action="store_true", help="Do not require zero dialog selections in the SQLite capture.")
@@ -311,6 +329,36 @@ def main() -> int:
                 reset_args.append("--no-with-step121-server-parity-state-bridge")
             if args.skip_step122_npc_observation_failopen_item_refresh_guard:
                 reset_args.append("--no-with-step122-npc-observation-failopen-item-refresh-guard")
+            if args.skip_step188_server_content_pack_manifest:
+                reset_args.append("--no-with-step188-server-content-pack-manifest")
+            if args.skip_step201_server_content_pack_inventory:
+                reset_args.append("--no-with-step201-server-content-pack-inventory")
+            if args.skip_step203_server_content_archive_mounts:
+                reset_args.append("--no-with-step203-server-content-archive-mounts")
+            if args.skip_step206_server_content_import_jobs:
+                reset_args.append("--no-with-step206-server-content-import-jobs")
+            if args.skip_step208_server_content_build_indexes:
+                reset_args.append("--no-with-step208-server-content-build-indexes")
+            if args.skip_step189_server_content_pack_session_gate:
+                reset_args.append("--no-with-step189-server-content-pack-session-gate")
+            if args.skip_step198_content_manifest_reject_audit:
+                reset_args.append("--no-with-step198-content-manifest-reject-audit")
+            if args.skip_step199_content_manifest_reject_health_views:
+                reset_args.append("--no-with-step199-content-manifest-reject-health-views")
+            if args.skip_step211_content_build_database:
+                reset_args.append("--no-with-step211-content-build-database")
+            if args.skip_step212_ai_runtime_perception_database:
+                reset_args.append("--no-with-step212-ai-runtime-perception-database")
+            if args.skip_step213_ai_runtime_action_dispatch_contracts:
+                reset_args.append("--no-with-step213-ai-runtime-action-dispatch-contracts")
+            if args.skip_step273_ai_dialog_intent_delivery_conversation_storage:
+                reset_args.append("--no-with-step273-ai-dialog-intent-delivery-conversation-storage")
+            if args.skip_step281_ai_dialog_intent_delivery_runtime_activation:
+                reset_args.append("--no-with-step281-ai-dialog-intent-delivery-runtime-activation")
+            if args.skip_step282_ai_dialog_intent_late_observer_replay_send:
+                reset_args.append("--no-with-step282-ai-dialog-intent-late-observer-replay-send")
+            if args.skip_step283_ai_dialog_intent_durable_mark_applied_gate:
+                reset_args.append("--no-with-step283-ai-dialog-intent-durable-mark-applied-gate")
             if args.skip_collation_normalize:
                 reset_args.append("--no-normalize-collation")
             if args.dry_run:
@@ -364,9 +412,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
 
 
 
