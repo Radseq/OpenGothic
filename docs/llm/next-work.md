@@ -2,38 +2,39 @@
 
 ## Immediate Step
 
-Step243 follow-up: keep SQLite out of the active server-content path and design
-the next disabled-by-default boundary after Step242 fanout planning.
+Step275 should add a guarded no-execute execution/result boundary around the
+Step274 persistence preview bridge. It may validate statement ordering, output
+slots and failure classes, but must keep `runMysql`, UDP replay send, client
+dialog UI/audio and `mark_applied` disabled.
 
-Step242 now passes on a session-bound action by creating a synthetic NPC
-decision whose target identity comes from a real active runtime player. The plan
-returns `built=true`, `planned_datagrams=1`, `fits_single_datagram=true`, while
-all send/fan-out/UI/audio/apply booleans stay `false`.
+Recommended order:
 
-Recommended next target:
-
-- keep server content/read-model/AI validation on C++ + MySQL, not SQLite;
-- keep SQLite tools only for legacy baseline/oracle and old clean rebuild flows;
-- add a no-send fanout adapter probe or ACK contract before any real packet send;
-- continue to skip cleanup claimed test actions.
+1. Keep Step274 as the only C++ surface that builds Step273 SQL/procedure
+   previews from typed runtime state.
+2. Add a separate executor-policy/result-parser boundary that proves how calls
+   would be sequenced later, without opening a MySQL connection.
+3. Defer executable SQL/tools changes to the final DB/tools batch.
 
 ## Acceptance Checks
 
-- full `server/cpp` build passes;
-- read-model/cache/policy probes still pass;
-- Step212/213 DB checks pass;
-- action queue is empty after any claim/skip cleanup;
-- no automatic scheduler, packet send, dialog UI/audio, movement replication,
-  combat execution or mark-applied path is enabled.
+- full `server/cpp` build passes when server C++ changes are touched;
+- full `Gothic2Notr` build passes when client/game changes are touched;
+- LLM DB ledger tools still pass for the historical planned-only entries;
+- Step273 validation reports all new DB surfaces present when DB work is
+  intentionally run;
+- Step274 preview reports `execute_mysql=off` and `mutated_db=0`;
+- no automatic scheduler, real dialog UI/audio, movement replication, combat
+  execution, durable retry worker or `mark_applied` path is enabled by default.
 
 ## Defer
 
-Do not implement yet:
-
-- automatic AI scheduling in `mmo_udp_server`;
+- automatic world-instance AI scheduling in `mmo_udp_server`;
 - full Daedalus VM execution;
-- per-player script VMs;
-- live NPC movement/path replication;
-- dialog UI/audio fan-out;
-- marking AI action rows applied as gameplay effects;
-- final DB/storage rewrite.
+- live NPC movement/path/routine replication;
+- real late-observer replay UDP send;
+- client subtitle/audio application from server dialog intents;
+- combat/spell/projectile server authority;
+- marking AI actions applied before durable ACK/apply/dead-letter storage is
+  proven.
+
+

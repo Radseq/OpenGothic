@@ -39,6 +39,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -51,6 +52,19 @@
 #include "mmo_server_identity.h"
 #include "mmo_world_instance_content_cache.h"
 #include "mmo_world_instance_ai_scheduler_boundary.h"
+#include "mmo_content_build_active_read_model_selection.h"
+#include "mmo_runtime_npc_identity_materialization_plan.h"
+#include "mmo_outbound_gameplay_delivery_state.h"
+#include "mmo_server_gameplay_fanout.h"
+#include "mmo_server_conversation_session_boundary.h"
+#include "mmo_server_conversation_resume_packet_boundary.h"
+#include "mmo_server_conversation_resume_send_gate.h"
+#include "mmo_server_conversation_resume_delivery_registration_boundary.h"
+#include "mmo_server_conversation_resume_dispatch_envelope.h"
+#include "mmo_server_conversation_resume_mutation_guard.h"
+#include "mmo_server_conversation_resume_send_failure_dead_letter_guard.h"
+#include "mmo_server_conversation_resume_commit_preflight.h"
+#include "mmo_ai_dialog_intent_delivery_persistence_bridge.h"
 
 namespace {
 
@@ -91,6 +105,110 @@ struct LiveWorldSnapshotState final {
   std::uint64_t lastTick = 0;
 };
 
+struct ClientRoutePosition final {
+  bool valid = false;
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;
+};
+
+struct ClientRouteEntry final {
+  asio::ip::udp::endpoint endpoint;
+  std::string sessionUuid;
+  std::string characterKey;
+  std::string worldName;
+  ClientRoutePosition position;
+  std::uint64_t lastSeenAtMs = 0;
+};
+
+struct ClientRouteRegistry final {
+  std::unordered_map<std::string, ClientRouteEntry> bySessionUuid;
+
+  void upsert(std::string_view sessionUuid,
+              const asio::ip::udp::endpoint& endpoint,
+              std::string_view characterKey = {},
+              std::string_view worldName = {},
+              ClientRoutePosition position = {},
+              std::uint64_t lastSeenAtMs = 0) {
+    if(sessionUuid.empty())
+      return;
+
+    auto& entry = bySessionUuid[std::string(sessionUuid)];
+    entry.endpoint = endpoint;
+    entry.sessionUuid = std::string(sessionUuid);
+    if(!characterKey.empty())
+      entry.characterKey = std::string(characterKey);
+    if(!worldName.empty())
+      entry.worldName = std::string(worldName);
+    if(position.valid)
+      entry.position = position;
+    if(lastSeenAtMs != 0)
+      entry.lastSeenAtMs = lastSeenAtMs;
+  }
+
+  [[nodiscard]] std::optional<asio::ip::udp::endpoint> find(std::string_view sessionUuid) const {
+    if(sessionUuid.empty())
+      return std::nullopt;
+    const auto it = bySessionUuid.find(std::string(sessionUuid));
+    if(it == bySessionUuid.end())
+      return std::nullopt;
+    return it->second.endpoint;
+  }
+
+  [[nodiscard]] std::vector<Mmo::Server::GameplayFanoutObserver> observers() const {
+    std::vector<Mmo::Server::GameplayFanoutObserver> out;
+    out.reserve(bySessionUuid.size());
+    for(const auto& [_, entry] : bySessionUuid) {
+      Mmo::Server::GameplayFanoutObserver observer;
+      observer.sessionUuid = entry.sessionUuid;
+      observer.characterKey = entry.characterKey;
+      observer.worldName = entry.worldName;
+      observer.position = {entry.position.x, entry.position.y, entry.position.z};
+      observer.lastSeenAtMs = entry.lastSeenAtMs;
+      observer.hasPosition = entry.position.valid;
+      observer.endpointAvailable = true;
+      out.push_back(std::move(observer));
+    }
+    return out;
+  }
+};
+
+[[nodiscard]] std::string endpointText(const asio::ip::udp::endpoint& endpoint) {
+  return endpoint.address().to_string() + ":" + std::to_string(endpoint.port());
+}
+
+[[nodiscard]] const char* gameplayAckStatusName(Mmo::Net::ClientGameplayAckStatus status) noexcept {
+  switch(status) {
+    case Mmo::Net::ClientGameplayAckStatus::Ack:  return "ack";
+    case Mmo::Net::ClientGameplayAckStatus::Nack: return "nack";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] const char* gameplayObservationStatusName(Mmo::Net::ClientGameplayObservationStatus status) noexcept {
+  switch(status) {
+    case Mmo::Net::ClientGameplayObservationStatus::Observed: return "observed";
+    case Mmo::Net::ClientGameplayObservationStatus::Skipped:  return "skipped";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] Mmo::Server::GameplayFanoutMode parseGameplayFanoutMode(std::string_view value) noexcept {
+  if(value == "aoi" || value == "area" || value == "area_of_interest")
+    return Mmo::Server::GameplayFanoutMode::AreaOfInterest;
+  return Mmo::Server::GameplayFanoutMode::TargetSessionOnly;
+}
+
+[[nodiscard]] const char* gameplayFanoutModeConfigName(std::string_view value) noexcept {
+  return Mmo::Server::gameplayFanoutModeName(parseGameplayFanoutMode(value));
+}
+
+[[nodiscard]] std::uint64_t monotonicNowMs() noexcept {
+  using Clock = std::chrono::steady_clock;
+  return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count());
+}
+
+
 [[nodiscard]] std::optional<std::uint16_t> rawClientActionKind(std::string_view bytes) noexcept {
   constexpr std::size_t ActionKindOffset = 4 + 2 + 2 + 2;
   if(bytes.size() < ActionKindOffset + 2)
@@ -107,8 +225,13 @@ using Mmo::Server::Options;
 using Mmo::Server::WorldItemIdentity;
 using Mmo::WorldInstanceContent::WorldInstanceContentCache;
 using Mmo::WorldInstanceContent::WorldInstanceContentCacheOptions;
+using Mmo::ContentBuild::ActiveReadModelSelectionRequest;
+using Mmo::ContentBuild::ActiveReadModelSelectionResult;
+using Mmo::NpcPerceptionRuntime::RuntimeNpcIdentityMaterializationPlan;
 using Mmo::WorldInstanceAiTick::WorldInstanceAiSchedulerBoundaryOptions;
 using Mmo::WorldInstanceAiTick::WorldInstanceAiSchedulerBoundaryResult;
+using Mmo::WorldInstanceAiTick::WorldInstanceAiSchedulerPlan;
+using Mmo::WorldInstanceAiTick::WorldInstanceAiSchedulerPlanOptions;
 
 void stopHandler(int) {
   gRunning.store(false, std::memory_order_relaxed);
@@ -658,8 +781,36 @@ void appendPayloadBoolAlias(std::string& out, std::string_view payload, std::str
     appendJsonRawField(out, outputKey, *v ? "true" : "false");
 }
 
+[[nodiscard]] std::string logToken(std::string_view text);
+
 [[nodiscard]] bool worldInstanceContentCacheEnabled(const Options& opt) noexcept {
   return !opt.runtimeReadModelPath.empty();
+}
+
+[[nodiscard]] ActiveReadModelSelectionRequest makeActiveReadModelSelectionRequest(const Options& opt) {
+  ActiveReadModelSelectionRequest request;
+  request.contentRevisionKey = opt.contentRevisionKey;
+  request.worldInstanceKey = opt.worldInstanceKey;
+  request.worldName = opt.worldName;
+  request.explicitRuntimeReadModelPath = opt.runtimeReadModelPath;
+  return request;
+}
+
+void printActiveReadModelSelectionPlan(const ActiveReadModelSelectionResult& result) {
+  std::cout << "[active_read_model_selection_plan]"
+            << " status=" << logToken(result.status)
+            << " selected=" << (result.selected ? 1 : 0)
+            << " explicit_path_used=" << (result.explicitPathUsed ? 1 : 0)
+            << " db_lookup_required=" << (result.dbLookupRequired ? 1 : 0)
+            << " db_mutated=" << (result.dbMutated ? 1 : 0)
+            << " sql_generated=" << (result.sqlGenerated ? 1 : 0)
+            << " server_sql_touched=" << (result.serverSqlTouched ? 1 : 0)
+            << " selected_path=" << logToken(result.selectedPath)
+            << " content_revision_key=" << logToken(result.contentRevisionKey)
+            << " world_instance_key=" << logToken(result.worldInstanceKey)
+            << " world_name=" << logToken(result.worldName)
+            << " issues=" << result.issues.size()
+            << "\n";
 }
 
 [[nodiscard]] WorldInstanceContentCache loadWorldInstanceContentCache(const Options& opt) {
@@ -729,6 +880,51 @@ void printWorldInstanceContentCacheReady(const WorldInstanceContentCache& cache)
 
 [[nodiscard]] bool worldInstanceAiStartupDryRunEnabled(const Options& opt) noexcept {
   return opt.worldInstanceAiStartupDryRun || opt.worldInstanceAiStartupFailOnEvidence;
+}
+
+[[nodiscard]] WorldInstanceAiSchedulerPlanOptions makeWorldInstanceAiSchedulerPlanOptions(const Options& opt) {
+  WorldInstanceAiSchedulerPlanOptions options;
+  options.enabled = opt.worldInstanceAiSchedulerPlanOnly;
+  options.intervalMs = opt.worldInstanceAiSchedulerIntervalMs;
+  options.maxWorldInstances = 1;
+  options.tickOncePerWorldInstance = true;
+  options.allowWrites = false;
+  return options;
+}
+
+void printWorldInstanceAiSchedulerPlan(const WorldInstanceAiSchedulerPlan& plan) {
+  std::cout << "[world_instance_ai_scheduler_plan]"
+            << " status=" << logToken(plan.status)
+            << " enabled=" << (plan.enabled ? 1 : 0)
+            << " mode=" << logToken(plan.schedulerMode)
+            << " interval_ms=" << plan.intervalMs
+            << " max_world_instances=" << plan.maxWorldInstances
+            << " tick_once_per_world_instance=" << (plan.tickOncePerWorldInstance ? 1 : 0)
+            << " timer_scheduled=" << (plan.timerScheduled ? 1 : 0)
+            << " tick_executed=" << (plan.tickExecuted ? 1 : 0)
+            << " db_mutated=" << (plan.dbMutated ? 1 : 0)
+            << " write_allowed=" << (plan.writeAllowed ? 1 : 0)
+            << " issues=" << plan.issues.size()
+            << "\n";
+}
+
+void printRuntimeNpcIdentityMaterializationPlan(
+    const RuntimeNpcIdentityMaterializationPlan& plan) {
+  std::cout << "[runtime_npc_identity_materialization_plan]"
+            << " status=" << logToken(plan.status)
+            << " built=" << (plan.built ? 1 : 0)
+            << " read_model_npc_templates=" << plan.readModelNpcTemplates
+            << " runtime_rows=" << plan.runtimeRows
+            << " ready_rows=" << plan.readyRows
+            << " db_write_required_rows=" << plan.dbWriteRequiredRows
+            << " missing_npc_instance_rows=" << plan.missingNpcInstanceRows
+            << " missing_read_model_template_rows=" << plan.missingReadModelTemplateRows
+            << " entity_key_repair_rows=" << plan.entityKeyRepairRows
+            << " db_mutated=" << (plan.dbMutated ? 1 : 0)
+            << " sql_generated=" << (plan.sqlGenerated ? 1 : 0)
+            << " materialization_executed=" << (plan.materializationExecuted ? 1 : 0)
+            << " issues=" << plan.issues.size()
+            << "\n";
 }
 
 [[nodiscard]] std::size_t parseSizeOr(std::string_view text, std::size_t fallback) noexcept {
@@ -2109,6 +2305,609 @@ void sendServerDiagnostic(asio::ip::udp::socket& socket,
               << " error=unknown\n";
   }
 }
+
+void logConversationLateObserverResumePlans(Mmo::Server::ConversationSessionRuntime& conversationRuntime,
+                                            const ClientRouteRegistry& routes,
+                                            const Mmo::Server::OutboundGameplayDeliveryState& outboundGameplayDelivery,
+                                            Mmo::Server::ConversationResumeSendGate& resumeSendGate,
+                                            Mmo::Server::ConversationResumeDeliveryRegistrationBoundary& resumeDeliveryRegistrationBoundary,
+                                            Mmo::Server::ConversationResumeDispatchEnvelope& resumeDispatchEnvelope,
+                                            Mmo::Server::ConversationResumeMutationGuard& resumeMutationGuard,
+                                            Mmo::Server::ConversationResumeSendFailureDeadLetterGuard& resumeSendFailureDeadLetterGuard,
+                                            Mmo::Server::ConversationResumeCommitPreflight& resumeCommitPreflight,
+                                            const Options& opt,
+                                            std::string_view sessionUuid,
+                                            std::string_view characterKey,
+                                            std::string_view worldName,
+                                            const Mmo::Net::ClientActionPacket& packet,
+                                            std::uint64_t nextDialogIntentSequence) noexcept {
+  if(!opt.aiDialogIntentConversationSessionProbe || !opt.aiDialogIntentLateObserverResumePlan)
+    return;
+
+  try {
+    Mmo::Server::ConversationLateObserverResumeRequest request;
+    request.sessionUuid = std::string(sessionUuid);
+    request.characterKey = std::string(characterKey);
+    request.worldName = std::string(worldName);
+    request.nowMs = monotonicNowMs();
+    request.serverTick = packetServerTick(packet);
+
+    const auto plans = conversationRuntime.planLateObserverResume(std::move(request));
+    std::uint64_t previewPacketSequence = nextDialogIntentSequence + 1;
+    for(const auto& plan : plans) {
+      if(!plan.canResume)
+        continue;
+      std::cout << "[server_conversation_late_observer_resume_plan]"
+                << " conversation_id=" << plan.conversationId
+                << " observer_session_uuid=" << plan.sessionUuid
+                << " character=" << plan.characterKey
+                << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                << " status=" << Mmo::Server::conversationLateObserverResumeStatusName(plan.status)
+                << " can_resume=" << (plan.canResume ? 1 : 0)
+                << " speaker=" << plan.speakerEntityKey
+                << " speaker_npc_instance_uuid=" << plan.speakerNpcInstanceUuid
+                << " line=" << plan.lineId
+                << " audio_ref=" << plan.audioRef
+                << " elapsed_ms=" << plan.elapsedMs
+                << " remaining_ms=" << plan.remainingMs
+                << " duration_ms=" << plan.durationMs
+                << " line_start_tick=" << plan.lineStartTick
+                << " observer_server_tick=" << plan.observerServerTick
+                << " known_observers=" << plan.knownObservers
+                << " packet_boundary=" << (opt.aiDialogIntentLateObserverResumePacketBoundary ? "on" : "off")
+                << " send_resume_packet=off"
+                << " db_conversation_storage=off"
+                << " mark_applied=off"
+                << "\n";
+
+      if(opt.aiDialogIntentLateObserverResumePacketBoundary) {
+        Mmo::Server::ConversationResumePacketBuildRequest buildRequest;
+        buildRequest.resume = plan;
+        buildRequest.targetCharacterKey = plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey;
+        buildRequest.worldInstanceUuid = opt.worldInstanceKey;
+        buildRequest.text = opt.aiDialogIntentText;
+        buildRequest.packetSequence = previewPacketSequence++;
+        buildRequest.localSequence = packet.localSequence;
+        buildRequest.serverTick = packetServerTick(packet);
+        const auto packetBoundary = Mmo::Server::buildConversationResumeDialogIntentPacketNoSend(std::move(buildRequest));
+        std::cout << "[server_conversation_late_observer_resume_packet_boundary]"
+                  << " conversation_id=" << plan.conversationId
+                  << " observer_session_uuid=" << plan.sessionUuid
+                  << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                  << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                  << " status=" << Mmo::Server::conversationResumePacketBoundaryStatusName(packetBoundary.status)
+                  << " buildable=" << (packetBoundary.buildable ? 1 : 0)
+                  << " action_id=" << packetBoundary.packet.actionId
+                  << " ack_key=" << packetBoundary.packet.ackKey
+                  << " packet_sequence=" << packetBoundary.packet.packetSequence
+                  << " server_tick=" << packetBoundary.packet.serverTick
+                  << " start_tick=" << packetBoundary.packet.startTick
+                  << " remaining_duration_ms=" << packetBoundary.packet.durationMs
+                  << " original_line_start_tick=" << plan.lineStartTick
+                  << " elapsed_ms=" << plan.elapsedMs
+                  << " encoded_bytes=" << packetBoundary.encodedBytes
+                  << " reason=" << packetBoundary.reason
+                  << " send_gate=" << (opt.aiDialogIntentLateObserverResumeSendGate ? "on" : "off")
+                  << " delivery_registration_boundary=" << (opt.aiDialogIntentLateObserverResumeDeliveryRegistrationBoundary ? "on" : "off")
+                  << " dispatch_envelope=" << (opt.aiDialogIntentLateObserverResumeDispatchEnvelope ? "on" : "off")
+                  << " mutation_guard=" << (opt.aiDialogIntentLateObserverResumeMutationGuard ? "on" : "off")
+                  << " send_failure_dead_letter_guard=" << (opt.aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard ? "on" : "off")
+                  << " commit_preflight=" << (opt.aiDialogIntentLateObserverResumeCommitPreflight ? "on" : "off")
+                  << " send_resume_packet=off"
+                  << " delivery_registry=off"
+                  << " db_conversation_storage=off"
+                  << " mark_applied=off"
+                  << "\n";
+
+        if(opt.aiDialogIntentLateObserverResumeSendGate) {
+          const auto route = routes.find(plan.sessionUuid);
+          Mmo::Server::ConversationResumeSendGateRequest gateRequest;
+          gateRequest.packetBoundary = &packetBoundary;
+          gateRequest.gateEnabled = true;
+          gateRequest.endpointAvailable = route.has_value();
+          gateRequest.routeSessionUuid = route.has_value() ? plan.sessionUuid : std::string();
+          gateRequest.nowMs = monotonicNowMs();
+          const auto gate = resumeSendGate.classifyNoSend(gateRequest);
+          std::cout << "[server_conversation_late_observer_resume_send_gate]"
+                    << " conversation_id=" << plan.conversationId
+                    << " observer_session_uuid=" << plan.sessionUuid
+                    << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                    << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                    << " status=" << Mmo::Server::conversationResumeSendGateStatusName(gate.status)
+                    << " eligible=" << (gate.eligible ? 1 : 0)
+                    << " duplicate=" << (gate.duplicate ? 1 : 0)
+                    << " endpoint_available=" << (route.has_value() ? 1 : 0)
+                    << " action_id=" << gate.actionId
+                    << " ack_key=" << gate.ackKey
+                    << " packet_sequence=" << gate.packetSequence
+                    << " encoded_bytes=" << gate.encodedBytes
+                    << " would_send_udp=" << (gate.wouldSendUdp ? 1 : 0)
+                    << " would_register_delivery=" << (gate.wouldRegisterDelivery ? 1 : 0)
+                    << " would_register_conversation_observer=" << (gate.wouldRegisterConversationObserver ? 1 : 0)
+                    << " reason=" << gate.reason
+                    << " send_resume_packet=off"
+                    << " delivery_registry=off"
+                    << " dispatch_envelope=" << (opt.aiDialogIntentLateObserverResumeDispatchEnvelope ? "on" : "off")
+                    << " mutation_guard=" << (opt.aiDialogIntentLateObserverResumeMutationGuard ? "on" : "off")
+                    << " send_failure_dead_letter_guard=" << (opt.aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard ? "on" : "off")
+                    << " commit_preflight=" << (opt.aiDialogIntentLateObserverResumeCommitPreflight ? "on" : "off")
+                    << " db_conversation_storage=off"
+                    << " mark_applied=off"
+                    << "\n";
+
+          if(opt.aiDialogIntentLateObserverResumeDeliveryRegistrationBoundary) {
+            Mmo::Server::ConversationResumeDeliveryRegistrationRequest registrationRequest;
+            registrationRequest.sendGate = &gate;
+            registrationRequest.packetBoundary = &packetBoundary;
+            registrationRequest.deliveryState = &outboundGameplayDelivery;
+            registrationRequest.conversationRuntime = &conversationRuntime;
+            registrationRequest.boundaryEnabled = true;
+            registrationRequest.nowMs = monotonicNowMs();
+            registrationRequest.ackTimeoutMs = opt.aiDialogIntentAckTimeoutMs;
+            const auto registration = resumeDeliveryRegistrationBoundary.classifyNoRegister(registrationRequest);
+            std::cout << "[server_conversation_late_observer_resume_delivery_registration_boundary]"
+                      << " conversation_id=" << plan.conversationId
+                      << " observer_session_uuid=" << plan.sessionUuid
+                      << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                      << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                      << " status=" << Mmo::Server::conversationResumeDeliveryRegistrationStatusName(registration.status)
+                      << " eligible=" << (registration.eligible ? 1 : 0)
+                      << " duplicate=" << (registration.duplicate ? 1 : 0)
+                      << " action_id=" << registration.actionId
+                      << " ack_key=" << registration.ackKey
+                      << " packet_sequence=" << registration.packetSequence
+                      << " sent_at_ms=" << registration.sentAtMs
+                      << " ack_deadline_ms=" << registration.ackDeadlineMs
+                      << " would_register_delivery=" << (registration.wouldRegisterDelivery ? 1 : 0)
+                      << " would_register_conversation_observer=" << (registration.wouldRegisterConversationObserver ? 1 : 0)
+                      << " would_mutate_runtime=" << (registration.wouldMutateRuntime ? 1 : 0)
+                      << " reason=" << registration.reason
+                      << " dispatch_envelope=" << (opt.aiDialogIntentLateObserverResumeDispatchEnvelope ? "on" : "off")
+                      << " mutation_guard=" << (opt.aiDialogIntentLateObserverResumeMutationGuard ? "on" : "off")
+                      << " send_failure_dead_letter_guard=" << (opt.aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard ? "on" : "off")
+                      << " commit_preflight=" << (opt.aiDialogIntentLateObserverResumeCommitPreflight ? "on" : "off")
+                      << " send_resume_packet=off"
+                      << " delivery_registry=off"
+                      << " conversation_observer_registry=off"
+                      << " db_conversation_storage=off"
+                      << " mark_applied=off"
+                      << "\n";
+
+            if(opt.aiDialogIntentLateObserverResumeDispatchEnvelope) {
+              Mmo::Server::ConversationResumeDispatchEnvelopeRequest envelopeRequest;
+              envelopeRequest.registrationBoundary = &registration;
+              envelopeRequest.packetBoundary = &packetBoundary;
+              envelopeRequest.envelopeEnabled = true;
+              envelopeRequest.endpointAvailable = route.has_value();
+              envelopeRequest.endpointText = route.has_value() ? endpointText(*route) : std::string();
+              envelopeRequest.nowMs = monotonicNowMs();
+              const auto envelope = resumeDispatchEnvelope.classifyNoDispatch(envelopeRequest);
+              std::cout << "[server_conversation_late_observer_resume_dispatch_envelope]"
+                        << " conversation_id=" << plan.conversationId
+                        << " observer_session_uuid=" << plan.sessionUuid
+                        << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                        << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                        << " status=" << Mmo::Server::conversationResumeDispatchEnvelopeStatusName(envelope.status)
+                        << " eligible=" << (envelope.eligible ? 1 : 0)
+                        << " duplicate=" << (envelope.duplicate ? 1 : 0)
+                        << " endpoint_available=" << (route.has_value() ? 1 : 0)
+                        << " endpoint=" << envelope.endpointText
+                        << " action_id=" << envelope.actionId
+                        << " ack_key=" << envelope.ackKey
+                        << " packet_sequence=" << envelope.packetSequence
+                        << " encoded_bytes=" << envelope.encodedBytes
+                        << " sent_at_ms=" << envelope.sentAtMs
+                        << " ack_deadline_ms=" << envelope.ackDeadlineMs
+                        << " would_dispatch_udp=" << (envelope.wouldDispatchUdp ? 1 : 0)
+                        << " would_register_delivery=" << (envelope.wouldRegisterDelivery ? 1 : 0)
+                        << " would_register_conversation_observer=" << (envelope.wouldRegisterConversationObserver ? 1 : 0)
+                        << " would_mutate_runtime=" << (envelope.wouldMutateRuntime ? 1 : 0)
+                        << " reason=" << envelope.reason
+                        << " send_resume_packet=off"
+                        << " delivery_registry=off"
+                        << " conversation_observer_registry=off"
+                        << " db_conversation_storage=off"
+                        << " mark_applied=off"
+                        << "\n";
+
+              if(opt.aiDialogIntentLateObserverResumeMutationGuard) {
+                Mmo::Server::ConversationResumeMutationGuardRequest mutationRequest;
+                mutationRequest.dispatchEnvelope = &envelope;
+                mutationRequest.registrationBoundary = &registration;
+                mutationRequest.deliveryState = &outboundGameplayDelivery;
+                mutationRequest.conversationRuntime = &conversationRuntime;
+                mutationRequest.guardEnabled = true;
+                mutationRequest.nowMs = monotonicNowMs();
+                const auto mutation = resumeMutationGuard.classifyNoMutation(mutationRequest);
+                std::cout << "[server_conversation_late_observer_resume_mutation_guard]"
+                          << " conversation_id=" << plan.conversationId
+                          << " observer_session_uuid=" << plan.sessionUuid
+                          << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                          << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                          << " status=" << Mmo::Server::conversationResumeMutationGuardStatusName(mutation.status)
+                          << " ready=" << (mutation.ready ? 1 : 0)
+                          << " duplicate=" << (mutation.duplicate ? 1 : 0)
+                          << " endpoint=" << mutation.endpointText
+                          << " action_id=" << mutation.actionId
+                          << " ack_key=" << mutation.ackKey
+                          << " packet_sequence=" << mutation.packetSequence
+                          << " encoded_bytes=" << mutation.encodedBytes
+                          << " sent_at_ms=" << mutation.sentAtMs
+                          << " ack_deadline_ms=" << mutation.ackDeadlineMs
+                          << " guarded_at_ms=" << mutation.guardedAtMs
+                          << " would_dispatch_udp=" << (mutation.wouldDispatchUdp ? 1 : 0)
+                          << " would_register_delivery=" << (mutation.wouldRegisterDelivery ? 1 : 0)
+                          << " would_register_conversation_observer=" << (mutation.wouldRegisterConversationObserver ? 1 : 0)
+                          << " would_mutate_runtime=" << (mutation.wouldMutateRuntime ? 1 : 0)
+                          << " mutated_runtime=" << (mutation.mutatedRuntime ? 1 : 0)
+                          << " requires_durable_send_receipt=" << (mutation.requiresDurableSendReceipt ? 1 : 0)
+                          << " requires_durable_observer_receipt=" << (mutation.requiresDurableObserverReceipt ? 1 : 0)
+                          << " commit_order=" << mutation.commitOrder
+                          << " reason=" << mutation.reason
+                          << " send_resume_packet=off"
+                          << " delivery_registry=off"
+                          << " conversation_observer_registry=off"
+                          << " db_conversation_storage=off"
+                          << " mark_applied=off"
+                          << "\n";
+
+                Mmo::Server::ConversationResumeSendFailureDeadLetterGuardResult deadLetter;
+                bool deadLetterEvaluated = false;
+                if(opt.aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard) {
+                  Mmo::Server::ConversationResumeSendFailureDeadLetterGuardRequest deadLetterRequest;
+                  deadLetterRequest.mutationGuard = &mutation;
+                  deadLetterRequest.deliveryState = &outboundGameplayDelivery;
+                  deadLetterRequest.conversationRuntime = &conversationRuntime;
+                  deadLetterRequest.guardEnabled = true;
+                  deadLetterRequest.nowMs = monotonicNowMs();
+                  deadLetterRequest.failureReason = "udp_send_failure_dead_letter_preview_no_socket_send";
+                  deadLetterRequest.failureMessage = "future_late_observer_resume_udp_send_failure_would_terminalize_without_retry_worker_yet";
+                  deadLetter = resumeSendFailureDeadLetterGuard.classifyNoMutation(deadLetterRequest);
+                  deadLetterEvaluated = true;
+                  std::cout << "[server_conversation_late_observer_resume_send_failure_dead_letter_guard]"
+                            << " conversation_id=" << plan.conversationId
+                            << " observer_session_uuid=" << plan.sessionUuid
+                            << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                            << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                            << " status=" << Mmo::Server::conversationResumeSendFailureDeadLetterGuardStatusName(deadLetter.status)
+                            << " ready=" << (deadLetter.ready ? 1 : 0)
+                            << " duplicate=" << (deadLetter.duplicate ? 1 : 0)
+                            << " endpoint=" << deadLetter.endpointText
+                            << " action_id=" << deadLetter.actionId
+                            << " ack_key=" << deadLetter.ackKey
+                            << " packet_sequence=" << deadLetter.packetSequence
+                            << " encoded_bytes=" << deadLetter.encodedBytes
+                            << " sent_at_ms=" << deadLetter.sentAtMs
+                            << " ack_deadline_ms=" << deadLetter.ackDeadlineMs
+                            << " guarded_at_ms=" << deadLetter.guardedAtMs
+                            << " failure_reason=" << deadLetter.failureReason
+                            << " would_dispatch_udp=" << (deadLetter.wouldDispatchUdp ? 1 : 0)
+                            << " would_register_delivery=" << (deadLetter.wouldRegisterDelivery ? 1 : 0)
+                            << " would_register_conversation_observer=" << (deadLetter.wouldRegisterConversationObserver ? 1 : 0)
+                            << " would_terminalize_outbound_delivery=" << (deadLetter.wouldTerminalizeOutboundDelivery ? 1 : 0)
+                            << " would_terminalize_conversation_observer=" << (deadLetter.wouldTerminalizeConversationObserver ? 1 : 0)
+                            << " would_dead_letter=" << (deadLetter.wouldDeadLetter ? 1 : 0)
+                            << " would_mutate_runtime=" << (deadLetter.wouldMutateRuntime ? 1 : 0)
+                            << " mutated_runtime=" << (deadLetter.mutatedRuntime ? 1 : 0)
+                            << " requires_durable_send_failure_receipt=" << (deadLetter.requiresDurableSendFailureReceipt ? 1 : 0)
+                            << " requires_durable_dead_letter_state=" << (deadLetter.requiresDurableDeadLetterState ? 1 : 0)
+                            << " requires_durable_observer_terminal_receipt=" << (deadLetter.requiresDurableObserverTerminalReceipt ? 1 : 0)
+                            << " commit_order=" << deadLetter.commitOrder
+                            << " reason=" << deadLetter.reason
+                            << " send_resume_packet=off"
+                            << " delivery_registry=off"
+                            << " conversation_observer_registry=off"
+                            << " dead_letter_registry=off"
+                            << " db_conversation_storage=off"
+                            << " mark_applied=off"
+                            << "\n";
+
+                }
+
+                if(opt.aiDialogIntentLateObserverResumeCommitPreflight) {
+                  Mmo::Server::ConversationResumeCommitPreflightRequest commitRequest;
+                  commitRequest.mutationGuard = &mutation;
+                  commitRequest.sendFailureGuard = deadLetterEvaluated ? &deadLetter : nullptr;
+                  commitRequest.deliveryState = &outboundGameplayDelivery;
+                  commitRequest.conversationRuntime = &conversationRuntime;
+                  commitRequest.preflightEnabled = true;
+                  commitRequest.nowMs = monotonicNowMs();
+                  const auto commit = resumeCommitPreflight.classifyNoMutation(commitRequest);
+                  std::cout << "[server_conversation_late_observer_resume_commit_preflight]"
+                            << " conversation_id=" << plan.conversationId
+                            << " observer_session_uuid=" << plan.sessionUuid
+                            << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                            << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                            << " status=" << Mmo::Server::conversationResumeCommitPreflightStatusName(commit.status)
+                            << " ready=" << (commit.ready ? 1 : 0)
+                            << " duplicate=" << (commit.duplicate ? 1 : 0)
+                            << " endpoint=" << commit.endpointText
+                            << " action_id=" << commit.actionId
+                            << " ack_key=" << commit.ackKey
+                            << " packet_sequence=" << commit.packetSequence
+                            << " local_sequence=" << commit.localSequence
+                            << " server_tick=" << commit.serverTick
+                            << " encoded_bytes=" << commit.encodedBytes
+                            << " sent_at_ms=" << commit.sentAtMs
+                            << " ack_deadline_ms=" << commit.ackDeadlineMs
+                            << " preflight_at_ms=" << commit.preflightAtMs
+                            << " plan_steps=" << commit.planSteps.size()
+                            << " would_register_delivery=" << (commit.wouldRegisterDelivery ? 1 : 0)
+                            << " would_register_conversation_observer=" << (commit.wouldRegisterConversationObserver ? 1 : 0)
+                            << " would_dispatch_udp=" << (commit.wouldDispatchUdp ? 1 : 0)
+                            << " would_await_client_transport_ack=" << (commit.wouldAwaitClientTransportAck ? 1 : 0)
+                            << " would_handle_send_failure=" << (commit.wouldHandleSendFailure ? 1 : 0)
+                            << " would_terminalize_outbound_delivery_on_send_failure=" << (commit.wouldTerminalizeOutboundDeliveryOnSendFailure ? 1 : 0)
+                            << " would_terminalize_conversation_observer_on_send_failure=" << (commit.wouldTerminalizeConversationObserverOnSendFailure ? 1 : 0)
+                            << " would_dead_letter_on_send_failure=" << (commit.wouldDeadLetterOnSendFailure ? 1 : 0)
+                            << " would_use_single_atomic_runtime_transaction=" << (commit.wouldUseSingleAtomicRuntimeTransaction ? 1 : 0)
+                            << " would_mutate_runtime=" << (commit.wouldMutateRuntime ? 1 : 0)
+                            << " mutated_runtime=" << (commit.mutatedRuntime ? 1 : 0)
+                            << " requires_durable_send_receipt=" << (commit.requiresDurableSendReceipt ? 1 : 0)
+                            << " requires_durable_observer_receipt=" << (commit.requiresDurableObserverReceipt ? 1 : 0)
+                            << " requires_durable_ack_receipt=" << (commit.requiresDurableAckReceipt ? 1 : 0)
+                            << " requires_durable_send_failure_receipt=" << (commit.requiresDurableSendFailureReceipt ? 1 : 0)
+                            << " requires_durable_dead_letter_state=" << (commit.requiresDurableDeadLetterState ? 1 : 0)
+                            << " success_commit_order=" << commit.successCommitOrder
+                            << " failure_commit_order=" << commit.failureCommitOrder
+                            << " reason=" << commit.reason
+                            << " send_resume_packet=off"
+                            << " delivery_registry=off"
+                            << " conversation_observer_registry=off"
+                            << " dead_letter_registry=off"
+                            << " db_conversation_storage=off"
+                            << " mark_applied=off"
+                            << "\n";
+
+
+                  if(opt.aiDialogIntentStep273PersistencePreview) {
+                    Mmo::Server::AiDialogIntentDeliveryPersistencePreviewRequest persistenceRequest;
+                    persistenceRequest.enabled = true;
+                    persistenceRequest.aiDatabaseName = opt.worldInstanceAiDatabaseName;
+                    persistenceRequest.worldInstanceUuid = opt.worldInstanceKey;
+                    persistenceRequest.worldName = plan.worldName.empty() ? std::string(worldName) : plan.worldName;
+                    persistenceRequest.contentRevisionKey = opt.contentRevisionKey;
+                    persistenceRequest.ackTimeoutMs = opt.aiDialogIntentAckTimeoutMs;
+                    persistenceRequest.resumePlan = &plan;
+                    persistenceRequest.packetBoundary = &packetBoundary;
+                    persistenceRequest.deliveryRegistration = &registration;
+                    persistenceRequest.dispatchEnvelope = &envelope;
+                    persistenceRequest.commitPreflight = &commit;
+                    const auto persistence = Mmo::Server::buildAiDialogIntentDeliveryPersistencePreview(persistenceRequest);
+                    std::cout << "[server_ai_dialog_intent_step273_persistence_preview]"
+                              << " conversation_id=" << plan.conversationId
+                              << " observer_session_uuid=" << plan.sessionUuid
+                              << " character=" << (plan.characterKey.empty() ? std::string(characterKey) : plan.characterKey)
+                              << " world=" << (plan.worldName.empty() ? std::string("UNKNOWN") : plan.worldName)
+                              << " status=" << Mmo::Server::aiDialogIntentDeliveryPersistencePreviewStatusName(persistence.status)
+                              << " ready=" << (persistence.ready ? 1 : 0)
+                              << " ai_db=" << persistence.aiDatabaseName
+                              << " action_id=" << persistence.actionId
+                              << " ack_key=" << persistence.ackKey
+                              << " packet_sequence=" << persistence.packetSequence
+                              << " local_sequence=" << persistence.localSequence
+                              << " server_tick=" << persistence.serverTick
+                              << " payload_bytes=" << persistence.payloadBytes
+                              << " statements=" << persistence.statements.size()
+                              << " statement_names=" << Mmo::Server::aiDialogIntentDeliveryPersistenceStatementNamesCsv(persistence)
+                              << " requires_step273_schema=" << (persistence.requiresExistingStep273Schema ? 1 : 0)
+                              << " contains_mutating_sql_preview=" << (persistence.containsMutatingSql ? 1 : 0)
+                              << " execute_mysql=" << (persistence.executeMysql ? 1 : 0)
+                              << " mutated_db=" << (persistence.mutatedDb ? 1 : 0)
+                              << " reason=" << persistence.reason
+                              << " real_udp_send=off"
+                              << " mark_applied=off"
+                              << "\n";
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch(const std::exception& exc) {
+    std::cerr << "[server_conversation_late_observer_resume_plan_failed]"
+              << " session_uuid=" << sessionUuid
+              << " error=" << exc.what()
+              << " db_conversation_storage=off"
+              << "\n";
+  } catch(...) {
+    std::cerr << "[server_conversation_late_observer_resume_plan_failed]"
+              << " session_uuid=" << sessionUuid
+              << " error=unknown"
+              << " db_conversation_storage=off"
+              << "\n";
+  }
+}
+
+std::size_t sendNpcDialogIntentProbe(asio::ip::udp::socket& socket,
+                                       const ClientRouteRegistry& routes,
+                                       Mmo::Server::OutboundGameplayDeliveryState& deliveryState,
+                                       Mmo::Server::ConversationSessionRuntime* conversationRuntime,
+                                       const Options& opt,
+                                       std::string_view sessionUuid,
+                                       const Mmo::Net::ClientActionPacket& request,
+                                       std::uint64_t& nextDialogIntentSequence) {
+  constexpr std::uint32_t DiagnosticDialogIntentDurationMs = 3000;
+
+  const auto targetCharacterKey = jsonStringField(request.payloadJson, "character_key").value_or(opt.characterKey);
+  const auto worldName = jsonStringField(request.payloadJson, "world").value_or(opt.worldName);
+  const auto lineServerTick = packetServerTick(request);
+  const std::string conversationId = "server-diagnostic-conversation:" + std::string(sessionUuid) + ":" + std::to_string(request.localSequence);
+
+  Mmo::Server::GameplayFanoutRequest fanoutRequest;
+  fanoutRequest.mode = parseGameplayFanoutMode(opt.aiDialogIntentFanoutMode);
+  fanoutRequest.targetSessionUuid = std::string(sessionUuid);
+  fanoutRequest.targetCharacterKey = targetCharacterKey;
+  fanoutRequest.worldName = worldName;
+  fanoutRequest.radius = opt.aiDialogIntentAoiRadius;
+  fanoutRequest.maxRecipients = opt.aiDialogIntentMaxRecipients;
+  fanoutRequest.requireEndpoint = true;
+  fanoutRequest.includeTargetWithoutPosition = true;
+  if(const auto pos = movementToPosition(request.payloadJson)) {
+    fanoutRequest.origin = {pos->x, pos->y, pos->z};
+    fanoutRequest.hasOrigin = true;
+  }
+
+  const auto candidates = routes.observers();
+  const auto selection = Mmo::Server::selectGameplayFanoutRecipients(candidates, std::move(fanoutRequest));
+
+  std::cout << "[server_npc_dialog_intent_fanout_selected]"
+            << " mode=" << Mmo::Server::gameplayFanoutModeName(selection.mode)
+            << " status=" << selection.status
+            << " target_session_uuid=" << sessionUuid
+            << " target_character=" << targetCharacterKey
+            << " world=" << (worldName.empty() ? "UNKNOWN" : worldName)
+            << " candidates=" << selection.candidateCount
+            << " recipients=" << selection.recipients.size()
+            << " rejected=" << selection.rejected.size()
+            << " endpoint_missing=" << selection.endpointMissingCount
+            << " world_mismatch=" << selection.worldMismatchCount
+            << " outside_radius=" << selection.outsideRadiusCount
+            << " limit_skipped=" << selection.recipientLimitSkippedCount
+            << " used_target_position_as_origin=" << (selection.usedTargetPositionAsOrigin ? 1 : 0)
+            << " aoi_radius=" << opt.aiDialogIntentAoiRadius
+            << " max_recipients=" << opt.aiDialogIntentMaxRecipients
+            << " db_fanout_storage=off"
+            << " conversation_session_probe=" << (conversationRuntime != nullptr ? "on" : "off")
+            << "\n";
+
+  bool conversationSessionStarted = false;
+  if(conversationRuntime != nullptr && !selection.recipients.empty()) {
+    Mmo::Server::ConversationLineStart line;
+    line.conversationId = conversationId;
+    line.worldName = worldName;
+    line.worldInstanceUuid = opt.worldInstanceKey;
+    line.speakerEntityKey = opt.aiDialogIntentSpeakerEntityKey;
+    line.lineId = opt.aiDialogIntentLineId;
+    line.serverTick = lineServerTick;
+    line.startTick = lineServerTick;
+    line.durationMs = DiagnosticDialogIntentDurationMs;
+    line.plannedRecipients = selection.recipients.size();
+    const auto result = conversationRuntime->startLine(std::move(line), monotonicNowMs());
+    conversationSessionStarted = result.accepted;
+    std::cout << "[server_conversation_session_started]"
+              << " conversation_id=" << conversationId
+              << " status=" << result.state
+              << " accepted=" << (result.accepted ? 1 : 0)
+              << " planned_recipients=" << selection.recipients.size()
+              << " total_conversations=" << result.conversationCount
+              << " db_conversation_storage=off"
+              << " mark_applied=off"
+              << "\n";
+  }
+
+  std::size_t sent = 0;
+  for(const auto& recipient : selection.recipients) {
+    const auto endpoint = routes.find(recipient.sessionUuid);
+    if(!endpoint) {
+      std::cerr << "[server_npc_dialog_intent_route_missing]"
+                << " session_uuid=" << recipient.sessionUuid
+                << " reason=selected_recipient_without_udp_endpoint"
+                << "\n";
+      continue;
+    }
+
+    Mmo::Net::ServerNpcDialogIntentPacket intent;
+    intent.packetSequence = ++nextDialogIntentSequence;
+    intent.localSequence = request.localSequence;
+    intent.serverTick = lineServerTick;
+    intent.startTick = lineServerTick;
+    intent.durationMs = DiagnosticDialogIntentDurationMs;
+    intent.flags = Mmo::Net::ServerNpcDialogIntentDiagnostic;
+    intent.sessionUuid = recipient.sessionUuid;
+    intent.targetCharacterKey = recipient.characterKey.empty() ? targetCharacterKey : recipient.characterKey;
+    intent.actionId = "server-npc-dialog-intent:" + recipient.sessionUuid + ":" + std::to_string(intent.packetSequence);
+    intent.ackKey = intent.actionId + ":client-ack";
+    intent.conversationId = conversationId;
+    intent.speakerEntityKey = opt.aiDialogIntentSpeakerEntityKey;
+    intent.lineId = opt.aiDialogIntentLineId;
+    intent.text = opt.aiDialogIntentText;
+    intent.reason = std::string("bootstrap_transport_probe_no_db_terminal_storage;fanout=") +
+                    Mmo::Server::gameplayFanoutModeName(selection.mode);
+
+    const auto encoded = Mmo::Net::encodeServerNpcDialogIntentPacket(intent);
+    if(encoded.empty())
+      throw std::runtime_error("failed to encode ServerNpcDialogIntent packet");
+
+    asio::error_code ec;
+    socket.send_to(asio::buffer(encoded), *endpoint, 0, ec);
+    if(ec) {
+      std::cerr << "[server_npc_dialog_intent_send_failed]"
+                << " session_uuid=" << recipient.sessionUuid
+                << " endpoint=" << endpointText(*endpoint)
+                << " action_id=" << intent.actionId
+                << " error=" << ec.message()
+                << " db_terminal_storage=off"
+                << "\n";
+      continue;
+    }
+
+    Mmo::Server::OutboundGameplayAttempt attempt;
+    attempt.actionId = intent.actionId;
+    attempt.ackKey = intent.ackKey;
+    attempt.sessionUuid = intent.sessionUuid;
+    attempt.characterKey = intent.targetCharacterKey;
+    attempt.packetSequence = intent.packetSequence;
+    attempt.localSequence = intent.localSequence;
+    attempt.serverTick = intent.serverTick;
+    attempt.sentAtMs = monotonicNowMs();
+    attempt.ackDeadlineMs = attempt.sentAtMs + opt.aiDialogIntentAckTimeoutMs;
+    const auto registry = deliveryState.recordSent(std::move(attempt));
+
+    if(conversationRuntime != nullptr && conversationSessionStarted) {
+      Mmo::Server::ConversationObserverSent observer;
+      observer.sessionUuid = intent.sessionUuid;
+      observer.characterKey = intent.targetCharacterKey;
+      observer.actionId = intent.actionId;
+      observer.ackKey = intent.ackKey;
+      observer.packetSequence = intent.packetSequence;
+      observer.localSequence = intent.localSequence;
+      observer.sentAtMs = monotonicNowMs();
+      observer.ackDeadlineMs = observer.sentAtMs + opt.aiDialogIntentAckTimeoutMs;
+      observer.distanceSquared = recipient.distanceSquared;
+      observer.target = recipient.isTarget;
+      observer.hasPosition = recipient.hasPosition;
+      const auto observerRegistration = conversationRuntime->recordObserverSent(conversationId, std::move(observer));
+      std::cout << "[server_conversation_observer_registered]"
+                << " conversation_id=" << conversationId
+                << " session_uuid=" << intent.sessionUuid
+                << " action_id=" << intent.actionId
+                << " ack_key=" << intent.ackKey
+                << " accepted=" << (observerRegistration.accepted ? 1 : 0)
+                << " status=" << observerRegistration.state
+                << " session_status=" << Mmo::Server::conversationSessionStatusName(observerRegistration.sessionStatus)
+                << " observers=" << observerRegistration.observerCount
+                << " db_conversation_storage=off"
+                << "\n";
+    }
+
+    ++sent;
+    std::cout << "[server_npc_dialog_intent_sent]"
+              << " session_uuid=" << recipient.sessionUuid
+              << " target_session_uuid=" << sessionUuid
+              << " endpoint=" << endpointText(*endpoint)
+              << " action_id=" << intent.actionId
+              << " ack_key=" << intent.ackKey
+              << " speaker=" << intent.speakerEntityKey
+              << " line=" << intent.lineId
+              << " fanout_mode=" << Mmo::Server::gameplayFanoutModeName(selection.mode)
+              << " recipient_is_target=" << (recipient.isTarget ? 1 : 0)
+              << " recipient_has_position=" << (recipient.hasPosition ? 1 : 0)
+              << " distance_squared=" << recipient.distanceSquared
+              << " bytes=" << encoded.size()
+              << " ack_timeout_ms=" << opt.aiDialogIntentAckTimeoutMs
+              << " conversation_id=" << conversationId
+              << " conversation_session_probe=" << (conversationRuntime != nullptr ? "on" : "off")
+              << " terminal_registry=" << registry.state
+              << " terminal_registry_accepted=" << (registry.accepted ? 1 : 0)
+              << " db_terminal_storage=off"
+              << "\n";
+  }
+  return sent;
+}
+
 
 [[nodiscard]] std::string dbSessionKeyForCharacter(const Options& opt) {
   std::string out = opt.sessionKey;
@@ -3825,15 +4624,80 @@ Options parseArgs(int argc, char** argv) {
     else if(arg == "--session-key") opt.sessionKey = need(i, arg);
     else if(arg == "--db-session-uuid") opt.dbSessionUuid = need(i, arg);
     else if(arg == "--runtime-read-model" || arg == "--runtime-read-model-path") opt.runtimeReadModelPath = need(i, arg);
+    else if(arg == "--runtime-read-model-active-export-plan-only") opt.runtimeReadModelActiveExportPlanOnly = true;
     else if(arg == "--content-revision-key") opt.contentRevisionKey = need(i, arg);
     else if(arg == "--world-instance-key") opt.worldInstanceKey = need(i, arg);
     else if(arg == "--world-name") opt.worldName = need(i, arg);
     else if(arg == "--world-instance-ai-db-name") opt.worldInstanceAiDatabaseName = need(i, arg);
     else if(arg == "--world-instance-ai-perception-kind") opt.worldInstanceAiPerceptionKind = need(i, arg);
+    else if(arg == "--enable-ai-dialog-intent-send") opt.enableAiDialogIntentSend = true;
+    else if(arg == "--no-enable-ai-dialog-intent-send") opt.enableAiDialogIntentSend = false;
+    else if(arg == "--ai-dialog-intent-conversation-session-probe" ||
+            arg == "--enable-ai-dialog-intent-conversation-session-probe") opt.aiDialogIntentConversationSessionProbe = true;
+    else if(arg == "--no-ai-dialog-intent-conversation-session-probe" ||
+            arg == "--no-enable-ai-dialog-intent-conversation-session-probe") opt.aiDialogIntentConversationSessionProbe = false;
+    else if(arg == "--ai-dialog-intent-late-observer-resume-plan" ||
+            arg == "--enable-ai-dialog-intent-late-observer-resume-plan") opt.aiDialogIntentLateObserverResumePlan = true;
+    else if(arg == "--no-ai-dialog-intent-late-observer-resume-plan" ||
+            arg == "--no-enable-ai-dialog-intent-late-observer-resume-plan") opt.aiDialogIntentLateObserverResumePlan = false;
+    else if(arg == "--ai-dialog-intent-late-observer-resume-packet-boundary" ||
+            arg == "--enable-ai-dialog-intent-late-observer-resume-packet-boundary") opt.aiDialogIntentLateObserverResumePacketBoundary = true;
+    else if(arg == "--no-ai-dialog-intent-late-observer-resume-packet-boundary" ||
+            arg == "--no-enable-ai-dialog-intent-late-observer-resume-packet-boundary") opt.aiDialogIntentLateObserverResumePacketBoundary = false;
+    else if(arg == "--ai-dialog-intent-late-observer-resume-send-gate" ||
+            arg == "--enable-ai-dialog-intent-late-observer-resume-send-gate") opt.aiDialogIntentLateObserverResumeSendGate = true;
+    else if(arg == "--no-ai-dialog-intent-late-observer-resume-send-gate" ||
+            arg == "--no-enable-ai-dialog-intent-late-observer-resume-send-gate") opt.aiDialogIntentLateObserverResumeSendGate = false;
+    else if(arg == "--ai-dialog-intent-late-observer-resume-delivery-registration-boundary" ||
+            arg == "--enable-ai-dialog-intent-late-observer-resume-delivery-registration-boundary") opt.aiDialogIntentLateObserverResumeDeliveryRegistrationBoundary = true;
+    else if(arg == "--no-ai-dialog-intent-late-observer-resume-delivery-registration-boundary" ||
+            arg == "--no-enable-ai-dialog-intent-late-observer-resume-delivery-registration-boundary") opt.aiDialogIntentLateObserverResumeDeliveryRegistrationBoundary = false;
+    else if(arg == "--ai-dialog-intent-late-observer-resume-dispatch-envelope" ||
+            arg == "--enable-ai-dialog-intent-late-observer-resume-dispatch-envelope") opt.aiDialogIntentLateObserverResumeDispatchEnvelope = true;
+    else if(arg == "--no-ai-dialog-intent-late-observer-resume-dispatch-envelope" ||
+            arg == "--no-enable-ai-dialog-intent-late-observer-resume-dispatch-envelope") opt.aiDialogIntentLateObserverResumeDispatchEnvelope = false;
+    else if(arg == "--ai-dialog-intent-late-observer-resume-mutation-guard" ||
+            arg == "--enable-ai-dialog-intent-late-observer-resume-mutation-guard") opt.aiDialogIntentLateObserverResumeMutationGuard = true;
+    else if(arg == "--no-ai-dialog-intent-late-observer-resume-mutation-guard" ||
+            arg == "--no-enable-ai-dialog-intent-late-observer-resume-mutation-guard") opt.aiDialogIntentLateObserverResumeMutationGuard = false;
+    else if(arg == "--ai-dialog-intent-late-observer-resume-send-failure-dead-letter-guard" ||
+            arg == "--enable-ai-dialog-intent-late-observer-resume-send-failure-dead-letter-guard") opt.aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard = true;
+    else if(arg == "--no-ai-dialog-intent-late-observer-resume-send-failure-dead-letter-guard" ||
+            arg == "--no-enable-ai-dialog-intent-late-observer-resume-send-failure-dead-letter-guard") opt.aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard = false;
+    else if(arg == "--ai-dialog-intent-late-observer-resume-commit-preflight" ||
+            arg == "--enable-ai-dialog-intent-late-observer-resume-commit-preflight") opt.aiDialogIntentLateObserverResumeCommitPreflight = true;
+    else if(arg == "--no-ai-dialog-intent-late-observer-resume-commit-preflight" ||
+            arg == "--no-enable-ai-dialog-intent-late-observer-resume-commit-preflight") opt.aiDialogIntentLateObserverResumeCommitPreflight = false;
+    else if(arg == "--ai-dialog-intent-observation-receipt-probe" ||
+            arg == "--enable-ai-dialog-intent-observation-receipt-probe") opt.aiDialogIntentObservationReceiptProbe = true;
+    else if(arg == "--no-ai-dialog-intent-observation-receipt-probe" ||
+            arg == "--no-enable-ai-dialog-intent-observation-receipt-probe") opt.aiDialogIntentObservationReceiptProbe = false;
+    else if(arg == "--ai-dialog-intent-step273-persistence-preview" ||
+            arg == "--enable-ai-dialog-intent-step273-persistence-preview") opt.aiDialogIntentStep273PersistencePreview = true;
+    else if(arg == "--no-ai-dialog-intent-step273-persistence-preview" ||
+            arg == "--no-enable-ai-dialog-intent-step273-persistence-preview") opt.aiDialogIntentStep273PersistencePreview = false;
+    else if(arg == "--ai-dialog-intent-text") opt.aiDialogIntentText = need(i, arg);
+    else if(arg == "--ai-dialog-intent-speaker-entity-key") opt.aiDialogIntentSpeakerEntityKey = need(i, arg);
+    else if(arg == "--ai-dialog-intent-line-id") opt.aiDialogIntentLineId = need(i, arg);
+    else if(arg == "--ai-dialog-intent-fanout-mode") {
+      opt.aiDialogIntentFanoutMode = need(i, arg);
+      if(parseGameplayFanoutMode(opt.aiDialogIntentFanoutMode) == Mmo::Server::GameplayFanoutMode::TargetSessionOnly &&
+         opt.aiDialogIntentFanoutMode != "target_session" && opt.aiDialogIntentFanoutMode != "target") {
+        throw std::runtime_error("--ai-dialog-intent-fanout-mode expects target_session or aoi");
+      }
+    }
+    else if(arg == "--ai-dialog-intent-aoi-radius") opt.aiDialogIntentAoiRadius = parseDouble(need(i, arg)).value_or(opt.aiDialogIntentAoiRadius);
+    else if(arg == "--ai-dialog-intent-max-recipients") opt.aiDialogIntentMaxRecipients = parseSizeOr(need(i, arg), opt.aiDialogIntentMaxRecipients);
+    else if(arg == "--ai-dialog-intent-ack-timeout-ms") {
+      const auto parsed = parseU64OrZero(need(i, arg));
+      opt.aiDialogIntentAckTimeoutMs = parsed == 0 ? opt.aiDialogIntentAckTimeoutMs : parsed;
+    }
     else if(arg == "--world-instance-ai-max-distance") opt.worldInstanceAiMaxDistance = parseDouble(need(i, arg)).value_or(opt.worldInstanceAiMaxDistance);
     else if(arg == "--world-instance-ai-server-tick") opt.worldInstanceAiServerTick = parseU64OrZero(need(i, arg));
     else if(arg == "--world-instance-ai-cooldown-ticks") opt.worldInstanceAiCooldownTicks = parseU64OrZero(need(i, arg));
     else if(arg == "--world-instance-ai-priority") opt.worldInstanceAiPriorityValue = parseInt(need(i, arg)).value_or(opt.worldInstanceAiPriorityValue);
+    else if(arg == "--world-instance-ai-scheduler-plan-only") opt.worldInstanceAiSchedulerPlanOnly = true;
+    else if(arg == "--world-instance-ai-scheduler-interval-ms") opt.worldInstanceAiSchedulerIntervalMs = parseU64OrZero(need(i, arg));
     else if(arg == "--world-instance-ai-max-npcs") opt.worldInstanceAiMaxNpcs = parseSizeOr(need(i, arg), opt.worldInstanceAiMaxNpcs);
     else if(arg == "--world-instance-ai-max-players") opt.worldInstanceAiMaxPlayers = parseSizeOr(need(i, arg), opt.worldInstanceAiMaxPlayers);
     else if(arg == "--world-instance-ai-min-accepted-npcs") opt.worldInstanceAiMinAcceptedNpcs = parseSizeOr(need(i, arg), opt.worldInstanceAiMinAcceptedNpcs);
@@ -3866,6 +4730,7 @@ Options parseArgs(int argc, char** argv) {
     else if(arg == "--world-instance-ai-require-no-record-limit-skip") opt.worldInstanceAiRequireNoRecordLimitSkip = true;
     else if(arg == "--world-instance-ai-no-repair-weak-npc-entity-keys") opt.worldInstanceAiRepairWeakNpcEntityKeys = false;
     else if(arg == "--world-instance-ai-include-weak-npc-identity") opt.worldInstanceAiIncludeWeakNpcIdentity = true;
+    else if(arg == "--world-instance-npc-identity-materialization-plan-only") opt.worldInstanceNpcIdentityMaterializationPlanOnly = true;
     else if(arg == "--outbox-priority") opt.outboxPriority = parseInt(need(i, arg)).value_or(opt.outboxPriority);
     else if(arg == "--outbox-max-attempts") opt.outboxMaxAttempts = parseInt(need(i, arg)).value_or(opt.outboxMaxAttempts);
     else if(arg == "--max-packets") opt.maxPackets = parseInt(need(i, arg)).value_or(0);
@@ -3880,7 +4745,7 @@ Options parseArgs(int argc, char** argv) {
     else if(arg == "--no-require-runtime-read-model-content-revision-match") opt.requireRuntimeReadModelContentRevisionMatch = false;
     else if(arg == "--startup-check-only") opt.startupCheckOnly = true;
     else if(arg == "--help" || arg == "-h") {
-      std::cout << "Usage: mmo_udp_server --bind 127.0.0.1:29777 --mysql-url mysql://user:pass@host:3306/db [--session-key local-dev-PC_HERO_TEST] [--enqueue-outbox] [--no-direct-db] [--runtime-read-model PATH --content-revision-key KEY --world-instance-key KEY --world-name NAME] [--world-instance-ai-startup-dry-run|--world-instance-ai-startup-strict-evidence] [--startup-check-only] [--require-db-save-checkpoint-restore]\n";
+      std::cout << "Usage: mmo_udp_server --bind 127.0.0.1:29777 --mysql-url mysql://user:pass@host:3306/db [--session-key local-dev-PC_HERO_TEST] [--enqueue-outbox] [--no-direct-db] [--runtime-read-model PATH --content-revision-key KEY --world-instance-key KEY --world-name NAME] [--runtime-read-model-active-export-plan-only] [--world-instance-ai-startup-dry-run|--world-instance-ai-startup-strict-evidence] [--world-instance-ai-scheduler-plan-only] [--world-instance-npc-identity-materialization-plan-only] [--enable-ai-dialog-intent-send] [--ai-dialog-intent-conversation-session-probe] [--ai-dialog-intent-fanout-mode target_session|aoi] [--ai-dialog-intent-aoi-radius 1800] [--ai-dialog-intent-ack-timeout-ms 5000] [--ai-dialog-intent-late-observer-resume-delivery-registration-boundary] [--ai-dialog-intent-late-observer-resume-dispatch-envelope] [--ai-dialog-intent-late-observer-resume-mutation-guard] [--ai-dialog-intent-late-observer-resume-send-failure-dead-letter-guard] [--ai-dialog-intent-late-observer-resume-commit-preflight] [--ai-dialog-intent-step273-persistence-preview] [--startup-check-only] [--require-db-save-checkpoint-restore]\n";
       std::exit(0);
     } else {
       throw std::runtime_error("unknown argument: " + std::string(arg));
@@ -3909,13 +4774,53 @@ int main(int argc, char** argv) {
                 << " direct_db=" << (opt.directDb ? "on" : "off")
                 << " enqueue_outbox=" << (opt.enqueueOutbox ? "on" : "off")
                 << " require_db_save_checkpoint_restore=" << (opt.requireDbSaveCheckpointRestore ? "on" : "off")
+                << " ai_dialog_intent_send=" << (opt.enableAiDialogIntentSend ? "on" : "off")
+                << " ai_dialog_intent_conversation_session_probe=" << (opt.aiDialogIntentConversationSessionProbe ? "on" : "off")
+                << " ai_dialog_intent_late_observer_resume_plan=" << (opt.aiDialogIntentLateObserverResumePlan ? "on" : "off")
+                << " ai_dialog_intent_late_observer_resume_packet_boundary=" << (opt.aiDialogIntentLateObserverResumePacketBoundary ? "on" : "off")
+                << " ai_dialog_intent_late_observer_resume_send_gate=" << (opt.aiDialogIntentLateObserverResumeSendGate ? "on" : "off")
+                << " ai_dialog_intent_late_observer_resume_delivery_registration_boundary=" << (opt.aiDialogIntentLateObserverResumeDeliveryRegistrationBoundary ? "on" : "off")
+                << " ai_dialog_intent_late_observer_resume_dispatch_envelope=" << (opt.aiDialogIntentLateObserverResumeDispatchEnvelope ? "on" : "off")
+                << " ai_dialog_intent_late_observer_resume_mutation_guard=" << (opt.aiDialogIntentLateObserverResumeMutationGuard ? "on" : "off")
+                << " ai_dialog_intent_late_observer_resume_send_failure_dead_letter_guard=" << (opt.aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard ? "on" : "off")
+                << " ai_dialog_intent_late_observer_resume_commit_preflight=" << (opt.aiDialogIntentLateObserverResumeCommitPreflight ? "on" : "off")
+                << " ai_dialog_intent_observation_receipt_probe=" << (opt.aiDialogIntentObservationReceiptProbe ? "on" : "off")
+                << " ai_dialog_intent_step273_persistence_preview=" << (opt.aiDialogIntentStep273PersistencePreview ? "on" : "off")
+                << " ai_dialog_intent_fanout_mode=" << gameplayFanoutModeConfigName(opt.aiDialogIntentFanoutMode)
+                << " ai_dialog_intent_aoi_radius=" << opt.aiDialogIntentAoiRadius
+                << " ai_dialog_intent_max_recipients=" << opt.aiDialogIntentMaxRecipients
+                << " ai_dialog_intent_ack_timeout_ms=" << opt.aiDialogIntentAckTimeoutMs
                 << "\n";
+    }
+
+    std::optional<ActiveReadModelSelectionResult> activeReadModelSelectionPlan;
+    if(opt.runtimeReadModelActiveExportPlanOnly) {
+      activeReadModelSelectionPlan.emplace(
+          Mmo::ContentBuild::planActiveReadModelSelection(makeActiveReadModelSelectionRequest(opt)));
+      printActiveReadModelSelectionPlan(*activeReadModelSelectionPlan);
+    }
+
+    std::optional<WorldInstanceAiSchedulerPlan> worldInstanceAiSchedulerPlan;
+    if(opt.worldInstanceAiSchedulerPlanOnly) {
+      worldInstanceAiSchedulerPlan.emplace(
+          Mmo::WorldInstanceAiTick::buildWorldInstanceAiSchedulerPlan(makeWorldInstanceAiSchedulerPlanOptions(opt)));
+      printWorldInstanceAiSchedulerPlan(*worldInstanceAiSchedulerPlan);
     }
 
     std::optional<WorldInstanceContentCache> worldContentCache;
     if(worldInstanceContentCacheEnabled(opt)) {
       worldContentCache.emplace(loadWorldInstanceContentCache(opt));
       printWorldInstanceContentCacheReady(*worldContentCache);
+    }
+
+    std::optional<RuntimeNpcIdentityMaterializationPlan> npcIdentityMaterializationPlan;
+    if(opt.worldInstanceNpcIdentityMaterializationPlanOnly) {
+      if(!worldContentCache) {
+        throw std::runtime_error("--runtime-read-model, --content-revision-key, --world-instance-key and --world-name are required for --world-instance-npc-identity-materialization-plan-only");
+      }
+      npcIdentityMaterializationPlan.emplace(
+          Mmo::NpcPerceptionRuntime::buildRuntimeNpcIdentityMaterializationReadinessPlan(*worldContentCache));
+      printRuntimeNpcIdentityMaterializationPlan(*npcIdentityMaterializationPlan);
     }
 
     std::optional<WorldInstanceAiSchedulerBoundaryResult> worldInstanceAiStartupDryRun;
@@ -3943,7 +4848,11 @@ int main(int argc, char** argv) {
       std::cout << "startup_check=ok"
                 << " direct_db=" << (opt.directDb ? "on" : "off")
                 << " enqueue_outbox=" << (opt.enqueueOutbox ? "on" : "off")
+                << " active_read_model_selection_plan=" << (activeReadModelSelectionPlan ? "on" : "off")
                 << " world_instance_content_cache=" << (worldContentCache ? "ready" : "off")
+                << " world_instance_npc_identity_materialization_plan=" << (npcIdentityMaterializationPlan ? "on" : "off")
+                << " world_instance_ai_scheduler_plan="
+                << (!worldInstanceAiSchedulerPlan ? "off" : (worldInstanceAiSchedulerPlan->issues.empty() ? "accepted" : "invalid"))
                 << " world_instance_ai_startup_dry_run="
                 << (!worldInstanceAiStartupDryRun ? "off" : (worldInstanceAiStartupDryRun->evidence.accepted ? "accepted" : "evidence_failed"))
                 << "\n";
@@ -3973,12 +4882,64 @@ int main(int argc, char** argv) {
     std::uint64_t directDb = 0;
     std::uint64_t unhandled = 0;
     std::uint64_t failed = 0;
+    std::uint64_t gameplayAcks = 0;
+    std::uint64_t gameplayNacks = 0;
+    std::uint64_t dialogIntentSent = 0;
+    std::uint64_t dialogIntentFailed = 0;
+    std::uint64_t nextDialogIntentSequence = 0;
     std::uint32_t nextSnapshotId = 1;
     ServerPacketLogState logState;
     LiveWorldSnapshotState liveWorldSnapshotState;
+    ClientRouteRegistry clientRoutes;
+    Mmo::Server::OutboundGameplayDeliveryState outboundGameplayDelivery;
+    Mmo::Server::ConversationSessionRuntime conversationSessions;
+    Mmo::Server::ConversationResumeSendGate conversationResumeSendGate;
+    Mmo::Server::ConversationResumeDeliveryRegistrationBoundary conversationResumeDeliveryRegistrationBoundary;
+    Mmo::Server::ConversationResumeDispatchEnvelope conversationResumeDispatchEnvelope;
+    Mmo::Server::ConversationResumeMutationGuard conversationResumeMutationGuard;
+    Mmo::Server::ConversationResumeSendFailureDeadLetterGuard conversationResumeSendFailureDeadLetterGuard;
+    Mmo::Server::ConversationResumeCommitPreflight conversationResumeCommitPreflight;
+    std::unordered_set<std::string> dialogIntentBootstrapSentSessions;
+    std::uint64_t lastOutboundDeliveryExpiryScanMs = 0;
+
+    auto scanOutboundDeliveryTimeouts = [&]() noexcept {
+      const auto nowMs = monotonicNowMs();
+      if(lastOutboundDeliveryExpiryScanMs != 0 && nowMs < lastOutboundDeliveryExpiryScanMs + 500)
+        return;
+      lastOutboundDeliveryExpiryScanMs = nowMs;
+      for(const auto& expired : outboundGameplayDelivery.expirePending(nowMs)) {
+        std::cout << "[server_outbound_gameplay_delivery_timeout]"
+                  << " session_uuid=" << expired.sessionUuid
+                  << " character=" << expired.characterKey
+                  << " action_id=" << expired.actionId
+                  << " ack_key=" << expired.ackKey
+                  << " packet_sequence=" << expired.packetSequence
+                  << " deadline_ms=" << expired.deadlineMs
+                  << " retry=deferred"
+                  << " db_terminal_storage=off"
+                  << "\n";
+      }
+      if(activeOpt.aiDialogIntentConversationSessionProbe) {
+        for(const auto& expired : conversationSessions.expirePending(nowMs)) {
+          std::cout << "[server_conversation_observer_timeout]"
+                    << " conversation_id=" << expired.conversationId
+                    << " session_uuid=" << expired.sessionUuid
+                    << " character=" << expired.characterKey
+                    << " action_id=" << expired.actionId
+                    << " ack_key=" << expired.ackKey
+                    << " packet_sequence=" << expired.packetSequence
+                    << " deadline_ms=" << expired.deadlineMs
+                    << " session_status=" << Mmo::Server::conversationSessionStatusName(expired.sessionStatus)
+                    << " retry=deferred"
+                    << " db_conversation_storage=off"
+                    << "\n";
+        }
+      }
+    };
 
     std::cout << "listening udp://" << opt.bind << " binary_protocol=v1\n";
     while(gRunning.load(std::memory_order_relaxed)) {
+      scanOutboundDeliveryTimeouts();
       if(opt.maxPackets > 0 && static_cast<int>(received) >= opt.maxPackets)
         break;
 
@@ -3997,7 +4958,121 @@ int main(int argc, char** argv) {
       }
       ++received;
 
-      const auto decoded = Mmo::Net::decodeClientActionPacket(std::string_view(buffer.data(), n));
+      const std::string_view datagram(buffer.data(), n);
+      if(auto gameplayAck = Mmo::Net::decodeClientGameplayAckPacket(datagram); gameplayAck.ok()) {
+        clientRoutes.upsert(gameplayAck.ack.sessionUuid, remote, gameplayAck.ack.characterKey);
+        if(gameplayAck.ack.status == Mmo::Net::ClientGameplayAckStatus::Ack)
+          ++gameplayAcks;
+        else
+          ++gameplayNacks;
+
+        const bool acked = gameplayAck.ack.status == Mmo::Net::ClientGameplayAckStatus::Ack;
+        const auto receipt = outboundGameplayDelivery.recordReceipt(gameplayAck.ack.actionId,
+                                                                    gameplayAck.ack.ackKey,
+                                                                    acked,
+                                                                    gameplayAck.ack.reason,
+                                                                    gameplayAck.ack.message);
+        if(activeOpt.aiDialogIntentConversationSessionProbe) {
+          const auto conversationReceipt = conversationSessions.recordReceipt(gameplayAck.ack.actionId,
+                                                                             gameplayAck.ack.ackKey,
+                                                                             acked,
+                                                                             gameplayAck.ack.reason,
+                                                                             gameplayAck.ack.message,
+                                                                             monotonicNowMs());
+          std::cout << "[server_conversation_observer_ack_received]"
+                    << " conversation_id=" << conversationReceipt.conversationId
+                    << " session_uuid=" << conversationReceipt.sessionUuid
+                    << " action_id=" << gameplayAck.ack.actionId
+                    << " ack_key=" << gameplayAck.ack.ackKey
+                    << " receipt=" << Mmo::Server::conversationReceiptKindName(conversationReceipt.kind)
+                    << " previous_observer_status=" << Mmo::Server::conversationObserverStatusName(conversationReceipt.previousObserverStatus)
+                    << " current_observer_status=" << Mmo::Server::conversationObserverStatusName(conversationReceipt.currentObserverStatus)
+                    << " previous_session_status=" << Mmo::Server::conversationSessionStatusName(conversationReceipt.previousSessionStatus)
+                    << " current_session_status=" << Mmo::Server::conversationSessionStatusName(conversationReceipt.currentSessionStatus)
+                    << " reason=" << conversationReceipt.reason
+                    << " db_conversation_storage=off"
+                    << " mark_applied=off"
+                    << "\n";
+        }
+        const auto deliveryStats = outboundGameplayDelivery.stats();
+        std::cout << "[client_gameplay_ack_received]"
+                  << " status=" << gameplayAckStatusName(gameplayAck.ack.status)
+                  << " session_uuid=" << gameplayAck.ack.sessionUuid
+                  << " character=" << gameplayAck.ack.characterKey
+                  << " action_id=" << gameplayAck.ack.actionId
+                  << " ack_key=" << gameplayAck.ack.ackKey
+                  << " reason=" << gameplayAck.ack.reason
+                  << " terminal_receipt=" << Mmo::Server::outboundGameplayReceiptKindName(receipt.kind)
+                  << " previous_delivery_status=" << Mmo::Server::outboundGameplayDeliveryStatusName(receipt.previousStatus)
+                  << " current_delivery_status=" << Mmo::Server::outboundGameplayDeliveryStatusName(receipt.currentStatus)
+                  << " delivery_pending=" << deliveryStats.pending
+                  << " delivery_acked=" << deliveryStats.acked
+                  << " delivery_nacked=" << deliveryStats.nacked
+                  << " delivery_timed_out=" << deliveryStats.timedOut
+                  << " remote=" << remote
+                  << " db_terminal_storage=off"
+                  << " mark_applied=off"
+                  << "\n";
+        continue;
+      }
+
+      if(auto observation = Mmo::Net::decodeClientGameplayObservationPacket(datagram); observation.ok()) {
+        clientRoutes.upsert(observation.observation.sessionUuid, remote, observation.observation.characterKey);
+        const bool observedOnMainThread = observation.observation.status == Mmo::Net::ClientGameplayObservationStatus::Observed;
+        const bool uiApplied = (observation.observation.flags & Mmo::Net::ClientGameplayObservationUiApplied) != 0;
+        const bool audioApplied = (observation.observation.flags & Mmo::Net::ClientGameplayObservationAudioApplied) != 0;
+
+        std::cout << "[client_gameplay_observation_received]"
+                  << " status=" << gameplayObservationStatusName(observation.observation.status)
+                  << " session_uuid=" << observation.observation.sessionUuid
+                  << " character=" << observation.observation.characterKey
+                  << " action_id=" << observation.observation.actionId
+                  << " ack_key=" << observation.observation.ackKey
+                  << " reason=" << observation.observation.reason
+                  << " flags=" << observation.observation.flags
+                  << " ui_applied=" << (uiApplied ? 1 : 0)
+                  << " audio_applied=" << (audioApplied ? 1 : 0)
+                  << " remote=" << remote
+                  << " observation_probe=" << (activeOpt.aiDialogIntentObservationReceiptProbe ? "on" : "off")
+                  << " db_observation_storage=off"
+                  << " mark_applied=off"
+                  << "\n";
+
+        if(activeOpt.aiDialogIntentConversationSessionProbe && activeOpt.aiDialogIntentObservationReceiptProbe) {
+          const auto result = conversationSessions.recordObservation(observation.observation.actionId,
+                                                                    observation.observation.ackKey,
+                                                                    observedOnMainThread,
+                                                                    uiApplied,
+                                                                    audioApplied,
+                                                                    observation.observation.reason,
+                                                                    observation.observation.message,
+                                                                    monotonicNowMs());
+          const auto stats = conversationSessions.stats();
+          std::cout << "[server_conversation_observer_main_thread_receipt]"
+                    << " conversation_id=" << result.conversationId
+                    << " session_uuid=" << result.sessionUuid
+                    << " action_id=" << observation.observation.actionId
+                    << " ack_key=" << observation.observation.ackKey
+                    << " receipt=" << Mmo::Server::conversationObservationReceiptKindName(result.kind)
+                    << " previous_observation_status=" << Mmo::Server::conversationObservationStatusName(result.previousObservationStatus)
+                    << " current_observation_status=" << Mmo::Server::conversationObservationStatusName(result.currentObservationStatus)
+                    << " transport_observer_status=" << Mmo::Server::conversationObserverStatusName(result.transportObserverStatus)
+                    << " session_status=" << Mmo::Server::conversationSessionStatusName(result.sessionStatus)
+                    << " ui_applied=" << (result.uiApplied ? 1 : 0)
+                    << " audio_applied=" << (result.audioApplied ? 1 : 0)
+                    << " reason=" << result.reason
+                    << " observation_receipts=" << stats.observationReceipts
+                    << " observed_receipts=" << stats.observedReceipts
+                    << " skipped_observation_receipts=" << stats.skippedObservationReceipts
+                    << " duplicate_observation_receipts=" << stats.duplicateObservationReceipts
+                    << " db_observation_storage=off"
+                    << " mark_applied=off"
+                    << "\n";
+        }
+        continue;
+      }
+
+      const auto decoded = Mmo::Net::decodeClientActionPacket(datagram);
       if(!decoded.ok()) {
         ++invalid;
         const auto bytes = std::string_view(buffer.data(), n);
@@ -4011,6 +5086,33 @@ int main(int argc, char** argv) {
       }
 
       const auto& packet = decoded.clientAction;
+      ClientRoutePosition routePosition;
+      if(const auto pos = movementToPosition(packet.payloadJson)) {
+        routePosition = {true, pos->x, pos->y, pos->z};
+      }
+      const std::string routeCharacterKey = jsonStringField(packet.payloadJson, "character_key").value_or(activeOpt.characterKey);
+      const std::string routeWorldName = jsonStringField(packet.payloadJson, "world").value_or(activeOpt.worldName);
+      clientRoutes.upsert(sessionUuid,
+                          remote,
+                          routeCharacterKey,
+                          routeWorldName,
+                          routePosition,
+                          monotonicNowMs());
+      logConversationLateObserverResumePlans(conversationSessions,
+                                             clientRoutes,
+                                             outboundGameplayDelivery,
+                                             conversationResumeSendGate,
+                                             conversationResumeDeliveryRegistrationBoundary,
+                                             conversationResumeDispatchEnvelope,
+                                             conversationResumeMutationGuard,
+                                             conversationResumeSendFailureDeadLetterGuard,
+                                             conversationResumeCommitPreflight,
+                                             activeOpt,
+                                             sessionUuid,
+                                             routeCharacterKey,
+                                             routeWorldName,
+                                             packet,
+                                             nextDialogIntentSequence);
       const auto* def = Mmo::findSemanticAction(packet.kind);
       const bool isBootstrap = packet.kind == Mmo::SemanticActionKind::ClientBootstrapRequest;
       const bool isMovement = packet.kind == Mmo::SemanticActionKind::MovementProposal ||
@@ -4056,6 +5158,7 @@ int main(int argc, char** argv) {
               seen.clear();
               seen.insert(packet.idempotencyKey);
             }
+            clientRoutes.upsert(sessionUuid, remote, characterKey, worldName, routePosition, monotonicNowMs());
             readiness = readBootstrapReadinessWithFallback(*mysql, characterKey, worldName, sessionUuid, worldName);
             packetReady = readiness.ready;
             printBootstrapAck(packet, characterKey, worldName, readiness, true);
@@ -4092,6 +5195,7 @@ int main(int argc, char** argv) {
         }
       }
 
+      clientRoutes.upsert(sessionUuid, remote);
       const std::string remoteText = remote.address().to_string() + ":" + std::to_string(remote.port());
       const auto dbPayload = mysql ? makeDbPayload(packet, remoteText) : std::string();
       DirectApplyResult direct;
@@ -4264,10 +5368,40 @@ int main(int argc, char** argv) {
           sendServerDiagnostic(socket, remote, packet, 2, actionName, "live_world_item_snapshot_send_failed", exc.what());
         }
       }
+      if(opt.enableAiDialogIntentSend && isBootstrap && packetAccepted && packetReady && !sessionUuid.empty()) {
+        if(!dialogIntentBootstrapSentSessions.contains(sessionUuid)) {
+          try {
+            const auto sentRecipients = sendNpcDialogIntentProbe(socket, clientRoutes, outboundGameplayDelivery, activeOpt.aiDialogIntentConversationSessionProbe ? &conversationSessions : nullptr, activeOpt, sessionUuid, packet, nextDialogIntentSequence);
+            if(sentRecipients != 0) {
+              dialogIntentSent += sentRecipients;
+              dialogIntentBootstrapSentSessions.insert(sessionUuid);
+            } else {
+              ++dialogIntentFailed;
+            }
+          } catch(const std::exception& exc) {
+            ++dialogIntentFailed;
+            std::cerr << "[server_npc_dialog_intent_failed]"
+                      << " session_uuid=" << sessionUuid
+                      << " error=" << exc.what()
+                      << " db_terminal_storage=off"
+                      << "\n";
+            sendServerDiagnostic(socket, remote, packet, 1, actionName, "server_npc_dialog_intent_failed", exc.what());
+          }
+        }
+      }
       printPacketProgress(logState, accepted, received, invalid, duplicate, enqueued, directDb, unhandled, failed,
                           actionName, packetAccepted, !diagnosticReason.empty(), snapshotSent, isMovement, isWeaponState);
     }
 
+    scanOutboundDeliveryTimeouts();
+    const auto deliveryStats = outboundGameplayDelivery.stats();
+    const auto conversationStats = conversationSessions.stats();
+    const auto resumeSendGateStats = conversationResumeSendGate.stats();
+    const auto resumeDeliveryRegistrationStats = conversationResumeDeliveryRegistrationBoundary.stats();
+    const auto resumeDispatchEnvelopeStats = conversationResumeDispatchEnvelope.stats();
+    const auto resumeMutationGuardStats = conversationResumeMutationGuard.stats();
+    const auto resumeSendFailureDeadLetterGuardStats = conversationResumeSendFailureDeadLetterGuard.stats();
+    const auto resumeCommitPreflightStats = conversationResumeCommitPreflight.stats();
     std::cout << "summary:\n"
               << "received=" << received << "\n"
               << "accepted=" << accepted << "\n"
@@ -4276,24 +5410,145 @@ int main(int argc, char** argv) {
               << "enqueued=" << enqueued << "\n"
               << "direct_db=" << directDb << "\n"
               << "unhandled=" << unhandled << "\n"
-              << "failed=" << failed << "\n";
+              << "failed=" << failed << "\n"
+              << "client_gameplay_ack=" << gameplayAcks << "\n"
+              << "client_gameplay_nack=" << gameplayNacks << "\n"
+              << "dialog_intent_sent=" << dialogIntentSent << "\n"
+              << "dialog_intent_failed=" << dialogIntentFailed << "\n"
+              << "outbound_delivery_pending=" << deliveryStats.pending << "\n"
+              << "outbound_delivery_acked=" << deliveryStats.acked << "\n"
+              << "outbound_delivery_nacked=" << deliveryStats.nacked << "\n"
+              << "outbound_delivery_timed_out=" << deliveryStats.timedOut << "\n"
+              << "outbound_delivery_unknown_acks=" << deliveryStats.unknownAcks << "\n"
+              << "outbound_delivery_duplicate_receipts=" << deliveryStats.duplicateReceipts << "\n"
+              << "outbound_delivery_conflicting_receipts=" << deliveryStats.conflictingReceipts << "\n"
+              << "outbound_delivery_late_after_timeout_receipts=" << deliveryStats.lateAfterTimeoutReceipts << "\n"
+              << "conversation_session_probe=" << (activeOpt.aiDialogIntentConversationSessionProbe ? "on" : "off") << "\n"
+              << "conversation_sessions=" << conversationStats.sessions << "\n"
+              << "conversation_observers=" << conversationStats.observers << "\n"
+              << "conversation_observers_pending=" << conversationStats.pendingObservers << "\n"
+              << "conversation_observers_acked=" << conversationStats.ackedObservers << "\n"
+              << "conversation_observers_nacked=" << conversationStats.nackedObservers << "\n"
+              << "conversation_observers_timed_out=" << conversationStats.timedOutObservers << "\n"
+              << "conversation_late_observer_resume_plan=" << (activeOpt.aiDialogIntentLateObserverResumePlan ? "on" : "off") << "\n"
+              << "conversation_late_observer_resume_packet_boundary=" << (activeOpt.aiDialogIntentLateObserverResumePacketBoundary ? "on" : "off") << "\n"
+              << "conversation_late_observer_resume_send_gate=" << (activeOpt.aiDialogIntentLateObserverResumeSendGate ? "on" : "off") << "\n"
+              << "conversation_resume_send_gate_requests=" << resumeSendGateStats.requests << "\n"
+              << "conversation_resume_send_gate_eligible=" << resumeSendGateStats.eligible << "\n"
+              << "conversation_resume_send_gate_disabled=" << resumeSendGateStats.disabled << "\n"
+              << "conversation_resume_send_gate_packet_not_buildable=" << resumeSendGateStats.packetNotBuildable << "\n"
+              << "conversation_resume_send_gate_missing_identity=" << resumeSendGateStats.missingIdentity << "\n"
+              << "conversation_resume_send_gate_missing_route=" << resumeSendGateStats.missingRoute << "\n"
+              << "conversation_resume_send_gate_route_mismatch=" << resumeSendGateStats.routeMismatch << "\n"
+              << "conversation_resume_send_gate_packet_too_large=" << resumeSendGateStats.packetTooLarge << "\n"
+              << "conversation_resume_send_gate_duplicate_action_id=" << resumeSendGateStats.duplicateActionId << "\n"
+              << "conversation_resume_send_gate_duplicate_ack_key=" << resumeSendGateStats.duplicateAckKey << "\n"
+              << "conversation_late_observer_resume_delivery_registration_boundary=" << (activeOpt.aiDialogIntentLateObserverResumeDeliveryRegistrationBoundary ? "on" : "off") << "\n"
+              << "conversation_resume_delivery_registration_requests=" << resumeDeliveryRegistrationStats.requests << "\n"
+              << "conversation_resume_delivery_registration_eligible=" << resumeDeliveryRegistrationStats.eligible << "\n"
+              << "conversation_resume_delivery_registration_disabled=" << resumeDeliveryRegistrationStats.disabled << "\n"
+              << "conversation_resume_delivery_registration_gate_not_eligible=" << resumeDeliveryRegistrationStats.sendGateNotEligible << "\n"
+              << "conversation_resume_delivery_registration_packet_not_buildable=" << resumeDeliveryRegistrationStats.packetNotBuildable << "\n"
+              << "conversation_resume_delivery_registration_missing_runtime=" << resumeDeliveryRegistrationStats.missingRuntime << "\n"
+              << "conversation_resume_delivery_registration_missing_identity=" << resumeDeliveryRegistrationStats.missingIdentity << "\n"
+              << "conversation_resume_delivery_registration_gate_packet_mismatch=" << resumeDeliveryRegistrationStats.gatePacketMismatch << "\n"
+              << "conversation_resume_delivery_registration_missing_conversation_session=" << resumeDeliveryRegistrationStats.missingConversationSession << "\n"
+              << "conversation_resume_delivery_registration_already_delivery=" << resumeDeliveryRegistrationStats.alreadyDelivery << "\n"
+              << "conversation_resume_delivery_registration_already_observer_ack_key=" << resumeDeliveryRegistrationStats.alreadyObserverAckKey << "\n"
+              << "conversation_resume_delivery_registration_already_observer_session=" << resumeDeliveryRegistrationStats.alreadyObserverSession << "\n"
+              << "conversation_resume_delivery_registration_deadline_overflow=" << resumeDeliveryRegistrationStats.deadlineOverflow << "\n"
+              << "conversation_resume_delivery_registration_duplicate_action_id=" << resumeDeliveryRegistrationStats.duplicateBoundaryActionId << "\n"
+              << "conversation_resume_delivery_registration_duplicate_ack_key=" << resumeDeliveryRegistrationStats.duplicateBoundaryAckKey << "\n"
+              << "conversation_late_observer_resume_dispatch_envelope=" << (activeOpt.aiDialogIntentLateObserverResumeDispatchEnvelope ? "on" : "off") << "\n"
+              << "conversation_resume_dispatch_envelope_requests=" << resumeDispatchEnvelopeStats.requests << "\n"
+              << "conversation_resume_dispatch_envelope_eligible=" << resumeDispatchEnvelopeStats.eligible << "\n"
+              << "conversation_resume_dispatch_envelope_disabled=" << resumeDispatchEnvelopeStats.disabled << "\n"
+              << "conversation_resume_dispatch_envelope_registration_not_eligible=" << resumeDispatchEnvelopeStats.registrationNotEligible << "\n"
+              << "conversation_resume_dispatch_envelope_packet_not_buildable=" << resumeDispatchEnvelopeStats.packetNotBuildable << "\n"
+              << "conversation_resume_dispatch_envelope_identity_mismatch=" << resumeDispatchEnvelopeStats.identityMismatch << "\n"
+              << "conversation_resume_dispatch_envelope_missing_identity=" << resumeDispatchEnvelopeStats.missingIdentity << "\n"
+              << "conversation_resume_dispatch_envelope_missing_endpoint=" << resumeDispatchEnvelopeStats.missingEndpoint << "\n"
+              << "conversation_resume_dispatch_envelope_encode_failed=" << resumeDispatchEnvelopeStats.encodeFailed << "\n"
+              << "conversation_resume_dispatch_envelope_datagram_too_large=" << resumeDispatchEnvelopeStats.datagramTooLarge << "\n"
+              << "conversation_resume_dispatch_envelope_duplicate_action_id=" << resumeDispatchEnvelopeStats.duplicateEnvelopeActionId << "\n"
+              << "conversation_resume_dispatch_envelope_duplicate_ack_key=" << resumeDispatchEnvelopeStats.duplicateEnvelopeAckKey << "\n"
+              << "conversation_late_observer_resume_mutation_guard=" << (activeOpt.aiDialogIntentLateObserverResumeMutationGuard ? "on" : "off") << "\n"
+              << "conversation_resume_mutation_guard_requests=" << resumeMutationGuardStats.requests << "\n"
+              << "conversation_resume_mutation_guard_ready=" << resumeMutationGuardStats.ready << "\n"
+              << "conversation_resume_mutation_guard_disabled=" << resumeMutationGuardStats.disabled << "\n"
+              << "conversation_resume_mutation_guard_dispatch_not_eligible=" << resumeMutationGuardStats.dispatchNotEligible << "\n"
+              << "conversation_resume_mutation_guard_registration_not_eligible=" << resumeMutationGuardStats.registrationNotEligible << "\n"
+              << "conversation_resume_mutation_guard_identity_mismatch=" << resumeMutationGuardStats.identityMismatch << "\n"
+              << "conversation_resume_mutation_guard_missing_runtime=" << resumeMutationGuardStats.missingRuntime << "\n"
+              << "conversation_resume_mutation_guard_missing_identity=" << resumeMutationGuardStats.missingIdentity << "\n"
+              << "conversation_resume_mutation_guard_missing_endpoint=" << resumeMutationGuardStats.missingEndpoint << "\n"
+              << "conversation_resume_mutation_guard_missing_datagram=" << resumeMutationGuardStats.missingDatagram << "\n"
+              << "conversation_resume_mutation_guard_datagram_too_large=" << resumeMutationGuardStats.datagramTooLarge << "\n"
+              << "conversation_resume_mutation_guard_missing_conversation_session=" << resumeMutationGuardStats.missingConversationSession << "\n"
+              << "conversation_resume_mutation_guard_already_delivery=" << resumeMutationGuardStats.alreadyDelivery << "\n"
+              << "conversation_resume_mutation_guard_already_observer_ack_key=" << resumeMutationGuardStats.alreadyObserverAckKey << "\n"
+              << "conversation_resume_mutation_guard_already_observer_session=" << resumeMutationGuardStats.alreadyObserverSession << "\n"
+              << "conversation_resume_mutation_guard_registration_attempt_mismatch=" << resumeMutationGuardStats.registrationAttemptMismatch << "\n"
+              << "conversation_resume_mutation_guard_registration_observer_mismatch=" << resumeMutationGuardStats.registrationObserverMismatch << "\n"
+              << "conversation_resume_mutation_guard_duplicate_action_id=" << resumeMutationGuardStats.duplicateGuardActionId << "\n"
+              << "conversation_resume_mutation_guard_duplicate_ack_key=" << resumeMutationGuardStats.duplicateGuardAckKey << "\n"
+              << "conversation_late_observer_resume_send_failure_dead_letter_guard=" << (activeOpt.aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard ? "on" : "off") << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_requests=" << resumeSendFailureDeadLetterGuardStats.requests << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_ready=" << resumeSendFailureDeadLetterGuardStats.ready << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_disabled=" << resumeSendFailureDeadLetterGuardStats.disabled << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_mutation_guard_not_ready=" << resumeSendFailureDeadLetterGuardStats.mutationGuardNotReady << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_missing_runtime=" << resumeSendFailureDeadLetterGuardStats.missingRuntime << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_missing_identity=" << resumeSendFailureDeadLetterGuardStats.missingIdentity << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_missing_endpoint=" << resumeSendFailureDeadLetterGuardStats.missingEndpoint << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_missing_datagram=" << resumeSendFailureDeadLetterGuardStats.missingDatagram << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_missing_failure_reason=" << resumeSendFailureDeadLetterGuardStats.missingFailureReason << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_missing_conversation_session=" << resumeSendFailureDeadLetterGuardStats.missingConversationSession << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_already_delivery=" << resumeSendFailureDeadLetterGuardStats.alreadyDelivery << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_already_observer_ack_key=" << resumeSendFailureDeadLetterGuardStats.alreadyObserverAckKey << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_already_observer_session=" << resumeSendFailureDeadLetterGuardStats.alreadyObserverSession << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_duplicate_action_id=" << resumeSendFailureDeadLetterGuardStats.duplicateDeadLetterActionId << "\n"
+              << "conversation_resume_send_failure_dead_letter_guard_duplicate_ack_key=" << resumeSendFailureDeadLetterGuardStats.duplicateDeadLetterAckKey << "\n"
+              << "conversation_late_observer_resume_commit_preflight=" << (activeOpt.aiDialogIntentLateObserverResumeCommitPreflight ? "on" : "off") << "\n"
+              << "conversation_resume_commit_preflight_requests=" << resumeCommitPreflightStats.requests << "\n"
+              << "conversation_resume_commit_preflight_ready=" << resumeCommitPreflightStats.ready << "\n"
+              << "conversation_resume_commit_preflight_disabled=" << resumeCommitPreflightStats.disabled << "\n"
+              << "conversation_resume_commit_preflight_mutation_guard_not_ready=" << resumeCommitPreflightStats.mutationGuardNotReady << "\n"
+              << "conversation_resume_commit_preflight_send_failure_guard_not_ready=" << resumeCommitPreflightStats.sendFailureGuardNotReady << "\n"
+              << "conversation_resume_commit_preflight_identity_mismatch=" << resumeCommitPreflightStats.identityMismatch << "\n"
+              << "conversation_resume_commit_preflight_missing_runtime=" << resumeCommitPreflightStats.missingRuntime << "\n"
+              << "conversation_resume_commit_preflight_missing_identity=" << resumeCommitPreflightStats.missingIdentity << "\n"
+              << "conversation_resume_commit_preflight_missing_endpoint=" << resumeCommitPreflightStats.missingEndpoint << "\n"
+              << "conversation_resume_commit_preflight_missing_datagram=" << resumeCommitPreflightStats.missingDatagram << "\n"
+              << "conversation_resume_commit_preflight_missing_conversation_session=" << resumeCommitPreflightStats.missingConversationSession << "\n"
+              << "conversation_resume_commit_preflight_already_delivery=" << resumeCommitPreflightStats.alreadyDelivery << "\n"
+              << "conversation_resume_commit_preflight_already_observer_ack_key=" << resumeCommitPreflightStats.alreadyObserverAckKey << "\n"
+              << "conversation_resume_commit_preflight_already_observer_session=" << resumeCommitPreflightStats.alreadyObserverSession << "\n"
+              << "conversation_resume_commit_preflight_missing_commit_plan_step=" << resumeCommitPreflightStats.missingCommitPlanStep << "\n"
+              << "conversation_resume_commit_preflight_duplicate_action_id=" << resumeCommitPreflightStats.duplicatePreflightActionId << "\n"
+              << "conversation_resume_commit_preflight_duplicate_ack_key=" << resumeCommitPreflightStats.duplicatePreflightAckKey << "\n"
+              << "conversation_observation_receipt_probe=" << (activeOpt.aiDialogIntentObservationReceiptProbe ? "on" : "off") << "\n"
+              << "conversation_late_resume_plans=" << conversationStats.lateResumePlans << "\n"
+              << "conversation_late_resume_skipped_already_observer=" << conversationStats.lateResumeSkippedAlreadyObserver << "\n"
+              << "conversation_late_resume_skipped_already_planned=" << conversationStats.lateResumeSkippedAlreadyPlanned << "\n"
+              << "conversation_late_resume_skipped_world_mismatch=" << conversationStats.lateResumeSkippedWorldMismatch << "\n"
+              << "conversation_late_resume_skipped_expired=" << conversationStats.lateResumeSkippedExpired << "\n"
+              << "conversation_observation_receipts=" << conversationStats.observationReceipts << "\n"
+              << "conversation_observed_receipts=" << conversationStats.observedReceipts << "\n"
+              << "conversation_skipped_observation_receipts=" << conversationStats.skippedObservationReceipts << "\n"
+              << "conversation_duplicate_observation_receipts=" << conversationStats.duplicateObservationReceipts << "\n"
+              << "conversation_unknown_observation_receipts=" << conversationStats.unknownObservationReceipts << "\n"
+              << "conversation_conflicting_observation_receipts=" << conversationStats.conflictingObservationReceipts << "\n"
+              << "conversation_invalid_observation_receipts=" << conversationStats.invalidObservationReceipts << "\n"
+              << "conversation_late_observation_receipts=" << conversationStats.lateObservationReceipts << "\n"
+              << "conversation_unknown_receipts=" << conversationStats.unknownReceipts << "\n"
+              << "conversation_duplicate_receipts=" << conversationStats.duplicateReceipts << "\n"
+              << "conversation_conflicting_receipts=" << conversationStats.conflictingReceipts << "\n"
+              << "conversation_late_receipts=" << conversationStats.lateReceipts << "\n";
     return invalid == 0 && failed == 0 && unhandled == 0 ? 0 : 2;
   } catch(const std::exception& exc) {
     std::cerr << "ERROR: " << exc.what() << "\n";
     return 2;
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 

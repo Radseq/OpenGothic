@@ -1,5 +1,5 @@
 # OpenGothic tools snapshot
-# Generated: 2026-07-08T10:12:39
+# Generated: 2026-07-09T08:33:21
 # Project root: /home/radseq/Desktop/OpenGothic
 # MAX_BYTES per file: 1500000
 
@@ -20234,6 +20234,16 @@ run("bootstrap/capture_mmo_chapter1_start_sqlite_baseline.py")
 
 
 
+===== tools/check_llm_db_changes_ledger.py =====
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import runpy
+from pathlib import Path
+
+runpy.run_path(str(Path(__file__).resolve().parent / "validation" / "check_llm_db_changes_ledger.py"), run_name="__main__")
+
+
 ===== tools/check_mmo_content_manifest_reject_health.py =====
 #!/usr/bin/env python3
 """Healthcheck content manifest reject rates from Step199 DB views."""
@@ -20615,6 +20625,19 @@ runpy.run_path(str(Path(__file__).resolve().parent / "validation" / "check_mmo_s
 
 
 
+===== tools/check_mmo_step273_ai_dialog_intent_delivery_conversation_storage.py =====
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import runpy
+from pathlib import Path
+
+runpy.run_path(
+    str(Path(__file__).resolve().parent / "validation" / "check_mmo_step273_ai_dialog_intent_delivery_conversation_storage.py"),
+    run_name="__main__",
+)
+
+
 ===== tools/check_mmo_step95_save_slot_catalog_db_continue_bridge.py =====
 #!/usr/bin/env python3
 from _tool_entrypoint import run
@@ -20717,6 +20740,16 @@ import runpy
 from pathlib import Path
 
 runpy.run_path(str(Path(__file__).resolve().parent / "bootstrap" / "export_content_build_runtime_read_model.py"), run_name="__main__")
+
+
+===== tools/export_llm_db_changes_plan.py =====
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import runpy
+from pathlib import Path
+
+runpy.run_path(str(Path(__file__).resolve().parent / "validation" / "export_llm_db_changes_plan.py"), run_name="__main__")
 
 
 ===== tools/import_content_build_snapshot_database.py =====
@@ -29824,6 +29857,14 @@ python3 tools/mmo_gothic_content_discovery_report.py \
 
 ## Current clean MMO rebuild
 
+SQLite status:
+
+- not required for the current server content/read-model/cache/NPC AI path;
+- still kept as a local baseline/oracle for old save-to-DB and clean rebuild
+  workflows;
+- do not add new server-authority dependencies on SQLite when MySQL/content
+  read-model data already covers the task.
+
 The supported destructive local rebuild remains:
 
 ```bash
@@ -29851,6 +29892,14 @@ work should target the current-state tool unless a regression needs a specific
 old step. Step53 read-model materialization remains a separate Python job and is
 still run by the clean rebuild path.
 
+For the MMO AI runtime dialog-intent delivery storage batch, validate the active
+AI runtime schema with:
+
+```bash
+tools/check_mmo_step273_ai_dialog_intent_delivery_conversation_storage.py \
+  --url "$MYSQL_URL"
+```
+
 `runtime/g2notr_ch1_pre_xardas.sqlite` is a captured New Game zero-point/oracle,
 not the MMO production database. To recreate that SQLite file, run the game once
 with the runtime SQLite capture flags, for example:
@@ -29872,6 +29921,21 @@ python3 tools/capture_mmo_chapter1_start_sqlite_baseline.py \
 The project direction is `.sav`-free server-bound MMO play: MySQL/current DB
 truth replaces native save state in `-mmo-client-server` flows, while old
 single-player behavior stays unchanged without the MMO flag.
+
+## Paused DB ledger validation
+
+When database work is paused, proposed schema/storage work must stay in
+`docs/llm/llm_db_changes/` until a later explicit SQL step. Validate the ledger
+without touching MySQL:
+
+```bash
+tools/check_llm_db_changes_ledger.py --strict
+tools/export_llm_db_changes_plan.py --strict \
+  --output runtime/llm_db_changes_plan.json
+```
+
+Both tools are read-only. They do not generate SQL, inspect live DB state or
+connect to MySQL.
 
 
 ===== tools/register_server_content_pack_manifest.py =====
@@ -31102,6 +31166,249 @@ if __name__ == "__main__":
 
 
 
+
+
+===== tools/validation/check_llm_db_changes_ledger.py =====
+#!/usr/bin/env python3
+"""Validate docs/llm/llm_db_changes while DB work is paused.
+
+This tool is intentionally read-only. It does not connect to MySQL, does not
+execute SQL and does not generate migrations. Its purpose is to make the paused
+DB-plan ledger explicit so future agents do not confuse design notes with
+applied schema state.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Iterable
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_LEDGER_DIR = ROOT / "docs" / "llm" / "llm_db_changes"
+
+ENTRY_RE = re.compile(r"^(?P<num>\d{3})-[A-Za-z0-9_.-]+\.md$")
+HEADER_RE = re.compile(r"^#\s+(?:(?P<num>\d{3})\s+-\s+.*|.*\bStep(?P<step>\d{3})\b.*)", re.IGNORECASE | re.MULTILINE)
+META_RE = re.compile(r"^\s*(?:-\s*)?(?P<key>[a-z_]+):\s*`?(?P<value>[^`\s#]+)`?\s*$", re.MULTILINE)
+SQL_FENCE_RE = re.compile(r"^```\s*(sql|mysql)\b", re.IGNORECASE | re.MULTILINE)
+EXECUTABLE_SQL_LINE_RE = re.compile(
+    r"^\s*(?:DELIMITER\b|CREATE\s+(?:TABLE|VIEW|PROCEDURE|FUNCTION|DATABASE|INDEX|TRIGGER)\b|"
+    r"ALTER\s+(?:TABLE|VIEW|PROCEDURE|FUNCTION|DATABASE)\b|DROP\s+(?:TABLE|VIEW|PROCEDURE|FUNCTION|DATABASE|INDEX|TRIGGER)\b|"
+    r"INSERT\s+INTO\b|UPDATE\s+[`A-Za-z0-9_]+\b|DELETE\s+FROM\b|TRUNCATE\s+TABLE\b|CALL\s+[`A-Za-z0-9_]+\b)",
+    re.IGNORECASE | re.MULTILINE,
+)
+FUTURE_SURFACE_RE = re.compile(
+    r"\b(dispatch receipt|dispatch receipts|ACK/NACK receipt|ACK/NACK receipts|timeout|dead-letter|retry|terminal apply|terminal procedures|terminal procedure)\b",
+    re.IGNORECASE,
+)
+
+REQUIRED_META = ("applied_to_db", "sql_created", "server_sql_touched")
+META_ALIASES = {
+    "applied_to_db": ("applied_to_db",),
+    "sql_created": ("sql_created", "sql_added", "executable_sql_added"),
+    "server_sql_touched": ("server_sql_touched", "runtime_schema_required_now", "migration_required_now"),
+}
+
+
+@dataclass(frozen=True)
+class LedgerEntry:
+    path: Path
+    number: int
+    relative_path: str
+    metadata: dict[str, str]
+    future_surface_mentions: int
+    issues: list[str]
+
+
+def normalize_boolish(value: str) -> str:
+    text = value.strip().strip("`").lower()
+    if text in {"false", "0", "none", "no", "intentionally_no_sql"}:
+        return "no"
+    if text in {"true", "1", "yes"}:
+        return "yes"
+    return text
+
+
+def rel(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def iter_entries(ledger_dir: Path) -> list[Path]:
+    return sorted(
+        path for path in ledger_dir.glob("*.md")
+        if path.name.lower() != "readme.md"
+    )
+
+
+def parse_entry(path: Path, ledger_dir: Path) -> LedgerEntry:
+    text = read_text(path)
+    issues: list[str] = []
+    name_match = ENTRY_RE.fullmatch(path.name)
+    number = -1
+    if name_match is None:
+        issues.append("filename_must_start_with_three_digit_sequence")
+    else:
+        number = int(name_match.group("num"))
+
+    header_match = HEADER_RE.search(text)
+    if header_match is None:
+        issues.append("missing_step_markdown_header")
+    else:
+        header_num = header_match.group("num")
+        if number >= 0 and header_num is not None and int(header_num) != number:
+            issues.append("filename_sequence_does_not_match_header_sequence")
+
+    raw_metadata = {m.group("key"): normalize_boolish(m.group("value")) for m in META_RE.finditer(text)}
+    metadata: dict[str, str] = {}
+    for canonical, aliases in META_ALIASES.items():
+        for alias in aliases:
+            if alias in raw_metadata:
+                metadata[canonical] = raw_metadata[alias]
+                break
+    if metadata.get("sql_created") is None and raw_metadata.get("status") == "no":
+        metadata["sql_created"] = "no"
+    if metadata.get("server_sql_touched") is None and raw_metadata.get("status") == "no":
+        metadata["server_sql_touched"] = "no"
+    for key in REQUIRED_META:
+        if key not in metadata:
+            issues.append("missing_metadata_" + key)
+        elif metadata[key] != "no":
+            issues.append("metadata_" + key + "_must_be_no_while_db_work_paused")
+
+    if SQL_FENCE_RE.search(text):
+        issues.append("ledger_entry_must_not_contain_sql_code_fence")
+    if EXECUTABLE_SQL_LINE_RE.search(text):
+        issues.append("ledger_entry_must_not_contain_executable_sql_statement")
+
+    if "not present in mysql" not in text.lower() and "not applied" not in text.lower() and "no db" not in text.lower():
+        issues.append("entry_should_explicitly_state_db_work_is_not_applied")
+
+    return LedgerEntry(
+        path=path,
+        number=number,
+        relative_path=rel(path),
+        metadata=metadata,
+        future_surface_mentions=len(FUTURE_SURFACE_RE.findall(text)),
+        issues=issues,
+    )
+
+
+def check_sequence(entries: list[LedgerEntry]) -> list[str]:
+    issues: list[str] = []
+    numbers = [entry.number for entry in entries if entry.number >= 0]
+    if len(numbers) != len(set(numbers)):
+        issues.append("duplicate_ledger_sequence_numbers")
+    if numbers:
+        expected = list(range(1, max(numbers) + 1))
+        if sorted(numbers) != expected:
+            issues.append("ledger_sequence_must_be_contiguous_from_001")
+    return issues
+
+
+def scan_for_server_sql(paths: Iterable[Path]) -> list[str]:
+    touched: list[str] = []
+    for path in paths:
+        try:
+            relative = path.resolve().relative_to(ROOT.resolve())
+        except ValueError:
+            continue
+        parts = relative.parts
+        if len(parts) >= 2 and parts[0] == "server" and parts[1] == "sql":
+            touched.append(relative.as_posix())
+    return sorted(touched)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Validate docs/llm/llm_db_changes as a no-DB paused-work ledger.")
+    parser.add_argument("--ledger-dir", default=str(DEFAULT_LEDGER_DIR))
+    parser.add_argument("--output", default="")
+    parser.add_argument("--strict", action="store_true", help="Fail if there are no future DB surface mentions in the ledger.")
+    parser.add_argument(
+        "--scan-path",
+        action="append",
+        default=[],
+        help="Optional changed-file path to check for forbidden server/sql entries. May be passed more than once.",
+    )
+    args = parser.parse_args()
+
+    ledger_dir = Path(args.ledger_dir)
+    if not ledger_dir.is_absolute():
+        ledger_dir = ROOT / ledger_dir
+
+    top_level_issues: list[str] = []
+    if not ledger_dir.exists():
+        top_level_issues.append("ledger_dir_missing")
+        entries: list[LedgerEntry] = []
+    else:
+        entries = [parse_entry(path, ledger_dir) for path in iter_entries(ledger_dir)]
+        if not entries:
+            top_level_issues.append("ledger_has_no_entries")
+
+    top_level_issues.extend(check_sequence(entries))
+    future_mentions = sum(entry.future_surface_mentions for entry in entries)
+    if args.strict and future_mentions == 0:
+        top_level_issues.append("strict_mode_requires_future_db_surface_mentions")
+
+    scan_paths = [Path(value) for value in args.scan_path]
+    server_sql_paths = scan_for_server_sql(scan_paths)
+    if server_sql_paths:
+        top_level_issues.append("server_sql_path_present_while_db_work_paused")
+
+    failed_entries = [entry for entry in entries if entry.issues]
+    status = "failed" if top_level_issues or failed_entries else "passed"
+    report = {
+        "tool": "check_llm_db_changes_ledger.py",
+        "status": status,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "ledger_dir": rel(ledger_dir),
+        "entries_checked": len(entries),
+        "latest_sequence": max((entry.number for entry in entries), default=0),
+        "future_surface_mentions": future_mentions,
+        "db_mutated": False,
+        "sql_generated": False,
+        "mysql_connection_used": False,
+        "server_sql_paths": server_sql_paths,
+        "issues": top_level_issues,
+        "entries": [
+            {
+                "path": entry.relative_path,
+                "sequence": entry.number,
+                "metadata": entry.metadata,
+                "future_surface_mentions": entry.future_surface_mentions,
+                "issues": entry.issues,
+                "status": "failed" if entry.issues else "passed",
+            }
+            for entry in entries
+        ],
+    }
+
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if status == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 
 ===== tools/validation/check_mmo_step101_db_continue_end_to_end.py =====
@@ -35523,6 +35830,274 @@ if __name__ == "__main__":
 
 
 
+
+
+===== tools/validation/check_mmo_step273_ai_dialog_intent_delivery_conversation_storage.py =====
+#!/usr/bin/env python3
+"""Check Step273 dialog-intent delivery/conversation storage contracts."""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from pathlib import Path as _MysqlCliPath
+
+_MYSQL_CLI_TOOLS_DIR = _MysqlCliPath(__file__).resolve().parents[1]
+if str(_MYSQL_CLI_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_MYSQL_CLI_TOOLS_DIR))
+try:
+    from _mysql_cli import resolve_mysql_exe
+except Exception:  # pragma: no cover - fallback for standalone patch bundles.
+    def resolve_mysql_exe() -> str | None:
+        return shutil.which("mysql")
+
+
+ROOT = Path(__file__).resolve().parents[2]
+IDENT_RE = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+@dataclass(frozen=True)
+class Target:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+
+def parse_mysql_url(url: str) -> Target:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("expected mysql://user:password@host:port/database")
+    return Target(
+        parsed.hostname or "localhost",
+        parsed.port or 3306,
+        unquote(parsed.username or ""),
+        unquote(parsed.password or ""),
+        (parsed.path or "/").lstrip("/"),
+    )
+
+
+def mysql_cmd(target: Target) -> list[str]:
+    exe = resolve_mysql_exe()
+    if exe is None:
+        raise RuntimeError("mysql executable not found in PATH")
+    cmd = [
+        exe,
+        "--default-character-set=utf8mb4",
+        "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci",
+        "--batch",
+        "--raw",
+        "--skip-column-names",
+        "-h",
+        target.host,
+        "-P",
+        str(target.port),
+        "-u",
+        target.user,
+    ]
+    if target.password:
+        cmd.append(f"-p{target.password}")
+    cmd.append(target.database)
+    return cmd
+
+
+def sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    return "'" + str(value).replace("\\", "\\\\").replace("'", "''").replace("\0", "") + "'"
+
+
+def mysql_identifier(value: str) -> str:
+    if not IDENT_RE.fullmatch(value):
+        raise ValueError("invalid MySQL identifier: " + value)
+    return "`" + value + "`"
+
+
+def run_mysql(target: Target, sql: str) -> str:
+    proc = subprocess.run(
+        mysql_cmd(target),
+        input=sql,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(ROOT),
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"mysql exited with status {proc.returncode}")
+    return proc.stdout.strip()
+
+
+def scalar_int(target: Target, sql: str) -> int:
+    output = run_mysql(target, sql).splitlines()
+    if not output:
+        return 0
+    try:
+        return int(output[-1].strip() or "0")
+    except ValueError:
+        return 0
+
+
+def json_value(target: Target, sql: str) -> object:
+    output = run_mysql(target, sql)
+    if not output:
+        return None
+    return json.loads(output.splitlines()[-1])
+
+
+def object_exists(target: Target, db_name: str, kind: str, name: str) -> int:
+    if kind == "table":
+        source = "information_schema.tables"
+        extra = "table_schema=" + sql_literal(db_name) + " AND table_name=" + sql_literal(name)
+    elif kind == "view":
+        source = "information_schema.views"
+        extra = "table_schema=" + sql_literal(db_name) + " AND table_name=" + sql_literal(name)
+    elif kind == "procedure":
+        source = "information_schema.routines"
+        extra = (
+            "routine_schema="
+            + sql_literal(db_name)
+            + " AND routine_name="
+            + sql_literal(name)
+            + " AND routine_type='PROCEDURE'"
+        )
+    else:
+        raise ValueError(kind)
+    return scalar_int(target, "SELECT COUNT(*) FROM " + source + " WHERE " + extra + ";")
+
+
+def column_exists(target: Target, db_name: str, table: str, column: str) -> int:
+    return scalar_int(
+        target,
+        "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema="
+        + sql_literal(db_name)
+        + " AND table_name="
+        + sql_literal(table)
+        + " AND column_name="
+        + sql_literal(column)
+        + ";",
+    )
+
+
+def count_table(target: Target, db_name: str, table: str) -> int:
+    return scalar_int(target, "SELECT COUNT(*) FROM " + mysql_identifier(db_name) + "." + mysql_identifier(table) + ";")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check Step273 dialog-intent delivery/conversation storage contracts.")
+    parser.add_argument("--url", required=True, help="mysql://user:password@host:port/database")
+    parser.add_argument("--ai-db-name", default="mmo_ai_runtime")
+    parser.add_argument("--output", default="")
+    args = parser.parse_args()
+
+    if not IDENT_RE.fullmatch(args.ai_db_name):
+        raise SystemExit("invalid --ai-db-name; use only letters, digits and underscore")
+
+    target = parse_mysql_url(args.url)
+    db = mysql_identifier(args.ai_db_name)
+    checks: list[dict[str, object]] = []
+
+    schema_count = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=" + sql_literal(args.ai_db_name) + ";",
+    )
+    checks.append({"name": args.ai_db_name, "kind": "schema", "status": "passed" if schema_count == 1 else "failed", "count": schema_count})
+
+    for kind, name in (
+        ("table", "dialog_intent_conversation_sessions"),
+        ("table", "gameplay_outbound_deliveries"),
+        ("table", "dialog_intent_conversation_observers"),
+        ("table", "gameplay_delivery_receipts"),
+        ("table", "gameplay_delivery_dead_letters"),
+        ("view", "v_gameplay_outbound_deliveries"),
+        ("view", "v_dialog_intent_conversation_observers"),
+        ("view", "v_gameplay_delivery_health"),
+        ("procedure", "mmo_ai_record_gameplay_delivery_sent"),
+        ("procedure", "mmo_ai_record_gameplay_delivery_receipt"),
+        ("procedure", "mmo_ai_mark_gameplay_delivery_timed_out"),
+        ("procedure", "mmo_ai_record_gameplay_delivery_dead_letter"),
+    ):
+        count = object_exists(target, args.ai_db_name, kind, name)
+        checks.append({"name": name, "kind": kind, "status": "passed" if count == 1 else "failed", "count": count})
+
+    for table, columns in {
+        "gameplay_outbound_deliveries": ("delivery_status", "action_id", "ack_key", "sent_at", "ack_deadline_at"),
+        "dialog_intent_conversation_observers": ("observer_status", "observation_status", "ack_key", "delivery_id"),
+        "gameplay_delivery_receipts": ("receipt_kind", "client_observation_status", "received_at"),
+        "gameplay_delivery_dead_letters": ("dead_letter_reason", "retryable", "send_attempts"),
+    }.items():
+        for column in columns:
+            count = column_exists(target, args.ai_db_name, table, column)
+            checks.append({"name": table + "." + column, "kind": "column", "status": "passed" if count == 1 else "failed", "count": count})
+
+    migration_count = scalar_int(
+        target,
+        "SELECT COUNT(*) FROM "
+        + db
+        + ".ai_runtime_schema_versions WHERE migration_key='step273_ai_dialog_intent_delivery_conversation_storage';",
+    )
+    checks.append({"name": "step273_schema_version_marker", "kind": "migration", "status": "passed" if migration_count == 1 else "failed", "count": migration_count})
+
+    counts = {
+        "conversation_sessions": count_table(target, args.ai_db_name, "dialog_intent_conversation_sessions"),
+        "outbound_deliveries": count_table(target, args.ai_db_name, "gameplay_outbound_deliveries"),
+        "conversation_observers": count_table(target, args.ai_db_name, "dialog_intent_conversation_observers"),
+        "delivery_receipts": count_table(target, args.ai_db_name, "gameplay_delivery_receipts"),
+        "dead_letters": count_table(target, args.ai_db_name, "gameplay_delivery_dead_letters"),
+    }
+    checks.append({"name": "gameplay_delivery_storage_counts", "kind": "data", "status": "passed", "details": counts})
+
+    health = json_value(
+        target,
+        "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT("
+        "'health_scope',health_scope,"
+        "'pending_count',pending_count,"
+        "'acked_count',acked_count,"
+        "'nacked_count',nacked_count,"
+        "'timed_out_count',timed_out_count,"
+        "'failed_count',failed_count,"
+        "'overdue_count',overdue_count,"
+        "'open_conversations',open_conversations,"
+        "'receipt_count',receipt_count,"
+        "'dead_letter_count',dead_letter_count"
+        ")),JSON_ARRAY()) FROM " + db + ".v_gameplay_delivery_health;",
+    )
+    checks.append({"name": "gameplay_delivery_health", "kind": "data", "status": "passed", "details": health})
+
+    failed = [item for item in checks if item["status"] == "failed"]
+    report = {
+        "tool": "check_mmo_step273_ai_dialog_intent_delivery_conversation_storage.py",
+        "status": "failed" if failed else "passed",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "ai_db_name": args.ai_db_name,
+        "checks": checks,
+    }
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report["status"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 
 ===== tools/validation/check_mmo_step55_live_receiver_bridge.py =====
@@ -40783,5 +41358,252 @@ if __name__ == "__main__":
 
 
 
+
+
+===== tools/validation/export_llm_db_changes_plan.py =====
+#!/usr/bin/env python3
+"""Export a read-only plan from docs/llm/llm_db_changes.
+
+This tool intentionally does not create SQL, connect to MySQL or mutate any
+runtime state. It turns the paused DB-change ledger into a machine-readable
+"planned only" manifest so future agents can see what storage surfaces are
+being discussed without mistaking them for applied schema.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_LEDGER_DIR = ROOT / "docs" / "llm" / "llm_db_changes"
+
+ENTRY_RE = re.compile(r"^(?P<num>\d{3})-[A-Za-z0-9_.-]+\.md$")
+TITLE_RE = re.compile(r"^#\s+(?P<title>.+?)\s*$", re.MULTILINE)
+META_RE = re.compile(r"^\s*(?:-\s*)?(?P<key>[a-z_]+):\s*`?(?P<value>[^`\s#]+)`?\s*$", re.MULTILINE)
+SQL_FENCE_RE = re.compile(r"^```\s*(sql|mysql)\b", re.IGNORECASE | re.MULTILINE)
+EXECUTABLE_SQL_LINE_RE = re.compile(
+    r"^\s*(?:DELIMITER\b|CREATE\s+(?:TABLE|VIEW|PROCEDURE|FUNCTION|DATABASE|INDEX|TRIGGER)\b|"
+    r"ALTER\s+(?:TABLE|VIEW|PROCEDURE|FUNCTION|DATABASE)\b|DROP\s+(?:TABLE|VIEW|PROCEDURE|FUNCTION|DATABASE|INDEX|TRIGGER)\b|"
+    r"INSERT\s+INTO\b|UPDATE\s+[`A-Za-z0-9_]+\b|DELETE\s+FROM\b|TRUNCATE\s+TABLE\b|CALL\s+[`A-Za-z0-9_]+\b)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+SURFACE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("ai_dialog_intent_dispatch_receipts", re.compile(r"\b(dispatch receipt|dispatch receipts|dispatch attempt|dispatch attempts)\b", re.IGNORECASE)),
+    ("client_ack_nack_receipts", re.compile(r"\b(ACK/NACK receipt|ACK/NACK receipts|client ACK|client NACK|client ack|client nack)\b", re.IGNORECASE)),
+    ("timeout_dead_letter_retry", re.compile(r"\b(timeout|dead-letter|dead letter|retry|retries)\b", re.IGNORECASE)),
+    ("terminal_apply_procedures", re.compile(r"\b(terminal apply|terminal procedure|terminal procedures|mark_applied|mark actions applied)\b", re.IGNORECASE)),
+    ("validation_and_replay_tools", re.compile(r"\b(validation/check tools|validation tools|replay|cleanup safety|checker|check tools)\b", re.IGNORECASE)),
+    ("endpoint_or_route_audit", re.compile(r"\b(endpoint audit|endpoint lookup|route lookup|route audit|active-session lookup)\b", re.IGNORECASE)),
+)
+
+REQUIRED_META = ("applied_to_db", "sql_created", "server_sql_touched")
+META_ALIASES = {
+    "applied_to_db": ("applied_to_db",),
+    "sql_created": ("sql_created", "sql_added", "executable_sql_added"),
+    "server_sql_touched": ("server_sql_touched", "runtime_schema_required_now", "migration_required_now"),
+}
+
+
+@dataclass(frozen=True)
+class PlanEntry:
+    path: Path
+    sequence: int
+    title: str
+    metadata: dict[str, str]
+    surfaces: list[str]
+    issues: list[str]
+
+
+def rel(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def normalize_boolish(value: str) -> str:
+    text = value.strip().strip("`").lower()
+    if text in {"false", "0", "none", "no", "intentionally_no_sql"}:
+        return "no"
+    if text in {"true", "1", "yes"}:
+        return "yes"
+    return text
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def iter_entries(ledger_dir: Path) -> list[Path]:
+    return sorted(path for path in ledger_dir.glob("*.md") if path.name.lower() != "readme.md")
+
+
+def extract_surfaces(text: str) -> list[str]:
+    surfaces: list[str] = []
+    for key, pattern in SURFACE_PATTERNS:
+        if pattern.search(text):
+            surfaces.append(key)
+    return surfaces
+
+
+def parse_metadata(text: str) -> dict[str, str]:
+    raw = {match.group("key"): normalize_boolish(match.group("value")) for match in META_RE.finditer(text)}
+    metadata: dict[str, str] = {}
+    for canonical, aliases in META_ALIASES.items():
+        for alias in aliases:
+            if alias in raw:
+                metadata[canonical] = raw[alias]
+                break
+    if metadata.get("sql_created") is None and raw.get("status") == "no":
+        metadata["sql_created"] = "no"
+    if metadata.get("server_sql_touched") is None and raw.get("status") == "no":
+        metadata["server_sql_touched"] = "no"
+    return metadata
+
+
+def parse_entry(path: Path) -> PlanEntry:
+    text = read_text(path)
+    issues: list[str] = []
+
+    name_match = ENTRY_RE.fullmatch(path.name)
+    sequence = -1
+    if name_match is None:
+        issues.append("filename_must_start_with_three_digit_sequence")
+    else:
+        sequence = int(name_match.group("num"))
+
+    title_match = TITLE_RE.search(text)
+    title = title_match.group("title").strip() if title_match else ""
+    if not title:
+        issues.append("missing_title")
+
+    metadata = parse_metadata(text)
+    for key in REQUIRED_META:
+        if metadata.get(key) != "no":
+            issues.append(f"metadata_{key}_must_be_no")
+
+    if SQL_FENCE_RE.search(text):
+        issues.append("ledger_entry_contains_sql_code_fence")
+    if EXECUTABLE_SQL_LINE_RE.search(text):
+        issues.append("ledger_entry_contains_executable_sql_statement")
+
+    if "not present in mysql" not in text.lower() and "not applied" not in text.lower() and "no db" not in text.lower():
+        issues.append("entry_should_state_design_is_not_applied")
+
+    return PlanEntry(
+        path=path,
+        sequence=sequence,
+        title=title,
+        metadata={key: metadata.get(key, "") for key in REQUIRED_META},
+        surfaces=extract_surfaces(text),
+        issues=issues,
+    )
+
+
+def sequence_issues(entries: list[PlanEntry]) -> list[str]:
+    issues: list[str] = []
+    numbers = [entry.sequence for entry in entries if entry.sequence >= 0]
+    if len(numbers) != len(set(numbers)):
+        issues.append("duplicate_ledger_sequence_numbers")
+    if numbers and sorted(numbers) != list(range(1, max(numbers) + 1)):
+        issues.append("ledger_sequence_must_be_contiguous_from_001")
+    return issues
+
+
+def build_surface_catalog(entries: list[PlanEntry]) -> dict[str, dict[str, object]]:
+    catalog: dict[str, dict[str, object]] = {}
+    for entry in entries:
+        for surface in entry.surfaces:
+            item = catalog.setdefault(surface, {"mentions": 0, "entries": []})
+            item["mentions"] = int(item["mentions"]) + 1
+            cast_entries = item["entries"]
+            assert isinstance(cast_entries, list)
+            cast_entries.append(entry.sequence)
+    return dict(sorted(catalog.items()))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Export a read-only planned-only manifest from docs/llm/llm_db_changes.")
+    parser.add_argument("--ledger-dir", default=str(DEFAULT_LEDGER_DIR))
+    parser.add_argument("--output", default="")
+    parser.add_argument("--strict", action="store_true", help="Fail if no future DB storage surfaces can be classified.")
+    parser.add_argument("--include-empty-surface-entries", action="store_true", help="Keep entries without classified future surfaces in the manifest.")
+    args = parser.parse_args()
+
+    ledger_dir = Path(args.ledger_dir)
+    if not ledger_dir.is_absolute():
+        ledger_dir = ROOT / ledger_dir
+
+    issues: list[str] = []
+    if not ledger_dir.exists():
+        entries: list[PlanEntry] = []
+        issues.append("ledger_dir_missing")
+    else:
+        entries = [parse_entry(path) for path in iter_entries(ledger_dir)]
+        if not entries:
+            issues.append("ledger_has_no_entries")
+
+    issues.extend(sequence_issues(entries))
+    failed_entries = [entry for entry in entries if entry.issues]
+    surface_catalog = build_surface_catalog(entries)
+    if args.strict and not surface_catalog:
+        issues.append("strict_mode_requires_classified_future_storage_surfaces")
+
+    filtered_entries = entries if args.include_empty_surface_entries else [entry for entry in entries if entry.surfaces or entry.issues]
+    status = "failed" if issues or failed_entries else "passed"
+    manifest = {
+        "tool": "export_llm_db_changes_plan.py",
+        "status": status,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "ledger_dir": rel(ledger_dir),
+        "planned_only": True,
+        "applied_to_db": False,
+        "db_mutated": False,
+        "sql_generated": False,
+        "server_sql_touched": False,
+        "mysql_connection_used": False,
+        "migration_files_created": False,
+        "entries_checked": len(entries),
+        "latest_sequence": max((entry.sequence for entry in entries), default=0),
+        "surface_catalog": surface_catalog,
+        "issues": issues,
+        "entries": [
+            {
+                "path": rel(entry.path),
+                "sequence": entry.sequence,
+                "title": entry.title,
+                "metadata": entry.metadata,
+                "planned_storage_surfaces": entry.surfaces,
+                "applied_to_db": False,
+                "sql_generated": False,
+                "issues": entry.issues,
+                "status": "failed" if entry.issues else "passed",
+            }
+            for entry in filtered_entries
+        ],
+    }
+
+    if args.output:
+        out = Path(args.output)
+        if not out.is_absolute():
+            out = ROOT / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("artifact=" + str(out))
+    print(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if status == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 

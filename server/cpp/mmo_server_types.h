@@ -20,13 +20,21 @@ struct Options final {
   std::string contentRevisionKey;
   std::string worldInstanceKey;
   std::string worldName;
+  std::uint64_t worldInstanceAiSchedulerIntervalMs = 250;
   std::string worldInstanceAiDatabaseName = "mmo_ai_runtime";
   std::string worldInstanceAiPerceptionKind = "PERC_ASSESSPLAYER";
+  std::string aiDialogIntentText = "MMO server dialog intent transport probe.";
+  std::string aiDialogIntentSpeakerEntityKey = "mmo.server.diagnostic_npc";
+  std::string aiDialogIntentLineId = "MMO_DIAGNOSTIC_DIALOG_INTENT";
+  std::string aiDialogIntentFanoutMode = "target_session";
   double worldInstanceAiMaxDistance = 1500.0;
+  double aiDialogIntentAoiRadius = 1800.0;
   std::uint64_t worldInstanceAiServerTick = 0;
   std::uint64_t worldInstanceAiCooldownTicks = 250;
+  std::uint64_t aiDialogIntentAckTimeoutMs = 5000;
   int worldInstanceAiPriorityValue = 100;
   std::size_t worldInstanceAiMaxNpcs = 32;
+  std::size_t aiDialogIntentMaxRecipients = 8;
   std::size_t worldInstanceAiMaxPlayers = 16;
   std::size_t worldInstanceAiMinAcceptedNpcs = 0;
   std::size_t worldInstanceAiMinPlayerActors = 0;
@@ -41,6 +49,21 @@ struct Options final {
   bool worldInstanceAiRequireDecision = false;
   bool worldInstanceAiRequireCleanNpcIdentity = false;
   bool worldInstanceAiRequireNoRecordLimitSkip = false;
+  bool enableAiDialogIntentSend = false;
+  bool aiDialogIntentConversationSessionProbe = false;
+  bool aiDialogIntentLateObserverResumePlan = false;
+  bool aiDialogIntentLateObserverResumePacketBoundary = false;
+  bool aiDialogIntentLateObserverResumeSendGate = false;
+  bool aiDialogIntentLateObserverResumeDeliveryRegistrationBoundary = false;
+  bool aiDialogIntentLateObserverResumeDispatchEnvelope = false;
+  bool aiDialogIntentLateObserverResumeMutationGuard = false;
+  bool aiDialogIntentLateObserverResumeSendFailureDeadLetterGuard = false;
+  bool aiDialogIntentLateObserverResumeCommitPreflight = false;
+  bool aiDialogIntentObservationReceiptProbe = false;
+  bool aiDialogIntentStep273PersistencePreview = false;
+  bool runtimeReadModelActiveExportPlanOnly = false;
+  bool worldInstanceNpcIdentityMaterializationPlanOnly = false;
+  bool worldInstanceAiSchedulerPlanOnly = false;
   int outboxPriority = 100;
   int outboxMaxAttempts = 5;
   int maxPackets = 0;
@@ -92,9 +115,5 @@ struct WorldItemIdentity final {
 };
 
 } // namespace Mmo::Server
-
-
-
-
 
 

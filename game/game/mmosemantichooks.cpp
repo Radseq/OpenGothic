@@ -365,72 +365,6 @@ std::string_view observedDamageKind(Npc& sourceActor) noexcept {
   return "unknown";
 }
 
-std::string_view damageKindName(const DamageCalculator::Val* observed, Npc* fallbackSource) noexcept {
-  if(observed != nullptr) {
-    switch(observed->kind) {
-      case DamageCalculator::Kind::Melee:  return "melee";
-      case DamageCalculator::Kind::Ranged: return "ranged";
-      case DamageCalculator::Kind::Magic:  return "magic";
-      case DamageCalculator::Kind::Fall:   return "fall";
-      case DamageCalculator::Kind::Unknown: break;
-    }
-  }
-  return fallbackSource != nullptr ? observedDamageKind(*fallbackSource) : std::string_view("unknown");
-}
-
-std::string_view damageModifierName(DamageCalculator::Modifier modifier) noexcept {
-  switch(modifier) {
-    case DamageCalculator::Modifier::Double:  return "double";
-    case DamageCalculator::Modifier::Half:    return "half";
-    case DamageCalculator::Modifier::Blocked: return "blocked";
-    case DamageCalculator::Modifier::Normal:  return "normal";
-  }
-  return "normal";
-}
-
-void appendDamageObservation(std::string& out, Npc& target, const DamageCalculator::Val* observed) {
-  if(observed == nullptr)
-    return;
-
-  out.append(",\"damage_calculation_present\":true");
-  out.append(",\"damage_calculation_value\":"); appendInt(out, observed->value);
-  out.append(",\"damage_calculation_has_hit\":"); appendBool(out, observed->hasHit);
-  out.append(",\"damage_calculation_invincible\":"); appendBool(out, observed->invincible);
-  out.append(",\"damage_modifier\":"); appendEscaped(out, damageModifierName(observed->modifier));
-  out.append(",\"critical_hit\":"); appendBool(out, observed->criticalHit);
-
-  if(observed->hasMeleeRoll) {
-    out.append(",\"melee_random_roll\":"); appendInt(out, observed->meleeRandomRoll);
-    out.append(",\"melee_talent_chance\":"); appendInt(out, observed->meleeTalentChance);
-    }
-
-  if(observed->hasRangedRoll) {
-    out.append(",\"projectile_distance\":"); appendFloat(out, observed->projectileDistance);
-    out.append(",\"projectile_weapon_chance\":"); appendFloat(out, observed->projectileWeaponChance);
-    out.append(",\"projectile_random_hit_roll\":"); appendFloat(out, observed->projectileRandomHitRoll);
-    out.append(",\"projectile_critical_hit\":"); appendBool(out, observed->projectileCriticalHit);
-    out.append(",\"projectile_spell\":"); appendBool(out, observed->projectileSpell);
-    }
-
-  if(observed->hasExplicitDamage) {
-    for(std::size_t i = 0; i < zenkit::DamageType::NUM; ++i) {
-      out.append(",\"damage_vector_");
-      appendUInt(out, i);
-      out.append("\":");
-      appendInt(out, observed->explicitDamage[i]);
-      }
-    }
-
-  if(observed->kind == DamageCalculator::Kind::Fall) {
-    const auto guild = target.guild();
-    const auto& guildValues = target.world().script().guildVal();
-    out.append(",\"fall_speed\":"); appendFloat(out, observed->fallSpeed);
-    out.append(",\"fall_gravity\":"); appendFloat(out, DynamicWorld::gravity);
-    out.append(",\"fall_height_threshold\":"); appendInt(out, guildValues.falldown_height[guild]);
-    out.append(",\"fall_damage_per_meter\":"); appendInt(out, guildValues.falldown_damage[guild]);
-    }
-}
-
 std::int32_t observedMeleeTalentChance(Npc& actor) {
   if(actor.isMonster() && actor.inventory().activeWeapon() == nullptr && actor.world().version().game == 2)
     return 100;
@@ -1614,8 +1548,6 @@ void onCombatIntent(Npc& actor,
   payload.append(",\"body_state\":"); appendUInt(payload, static_cast<std::uint64_t>(actor.bodyStateMasked()));
   payload.append(",\"attack_anim\":"); appendBool(payload, actor.isAttackAnim());
   payload.append(",\"prehit\":"); appendBool(payload, actor.isPrehit());
-  payload.append(",\"animation_name\":"); appendEscaped(payload, actor.primaryAnimationName());
-  payload.append(",\"attack_animation_name\":"); appendEscaped(payload, actor.primaryAttackAnimationName());
   appendWorld(payload, world);
   appendVec3(payload, "actor_position", actor.position());
   appendVec3(payload, "attacker_center", actor.collosionCenter());
@@ -1899,7 +1831,6 @@ void onCharacterAttributeChanged(Npc& actor,
     return;
 
   const auto amount = -delta;
-  const auto* observedDamage = actor.pendingDamageObservation();
 
   if(actor.isPlayer() && attribute == ATR_MANA) {
     std::string target = characterTargetKey("mana");
@@ -1933,16 +1864,15 @@ void onCharacterAttributeChanged(Npc& actor,
     payload.append(",\"target_key\":"); appendEscaped(payload, characterEntityKey());
     if(sourceActor != nullptr) {
       appendNpcIdentity(payload, "source_actor", *sourceActor);
-      payload.append(",\"damage_kind\":"); appendEscaped(payload, damageKindName(observedDamage, sourceActor));
+      payload.append(",\"damage_kind\":"); appendEscaped(payload, observedDamageKind(*sourceActor));
       appendCombatDamageProfile(payload, "source_actor", *sourceActor);
       payload.append(",\"critical_damage_multiplier\":");
       appendInt(payload, world.script().criticalDamageMultiplyer());
       }
     else {
-      payload.append(",\"damage_kind\":"); appendEscaped(payload, damageKindName(observedDamage, nullptr));
+      payload.append(",\"damage_kind\":\"unknown\"");
       }
     appendCombatDamageProfile(payload, "target", actor);
-    appendDamageObservation(payload, actor, observedDamage);
     payload.append(",\"gothic_game\":"); appendInt(payload, world.version().game);
     payload.append(",\"damage_amount\":"); appendInt(payload, amount);
     payload.append(",\"attribute_key\":"); appendEscaped(payload, attrName);
@@ -1967,10 +1897,9 @@ void onCharacterAttributeChanged(Npc& actor,
   appendNpcIdentity(payload, "source_actor", *sourceActor);
   appendNpcIdentity(payload, "target_npc", actor);
   payload.append(",\"target_key\":"); appendEscaped(payload, target);
-  payload.append(",\"damage_kind\":"); appendEscaped(payload, damageKindName(observedDamage, sourceActor));
+  payload.append(",\"damage_kind\":"); appendEscaped(payload, observedDamageKind(*sourceActor));
   appendCombatDamageProfile(payload, "source_actor", *sourceActor);
   appendCombatDamageProfile(payload, "target", actor);
-  appendDamageObservation(payload, actor, observedDamage);
   payload.append(",\"critical_damage_multiplier\":");
   appendInt(payload, world.script().criticalDamageMultiplyer());
   payload.append(",\"gothic_game\":"); appendInt(payload, world.version().game);
@@ -2111,19 +2040,6 @@ void onObservedNpcAuthorityState(Npc& actor,
   fightPayload.append(",\"opponent_key\":"); appendEscaped(fightPayload, targetEntity);
   fightPayload.append(",\"fight_state\":"); appendEscaped(fightPayload, fightState);
   fightPayload.append(",\"attack_state\":"); appendEscaped(fightPayload, attackStateName(actor));
-  fightPayload.append(",\"combo_index\":"); appendUInt(fightPayload, actor.comboLength());
-  fightPayload.append(",\"animation_name\":"); appendEscaped(fightPayload, actor.primaryAnimationName());
-  fightPayload.append(",\"attack_animation_name\":"); appendEscaped(fightPayload, actor.primaryAttackAnimationName());
-  fightPayload.append(",\"animation_elapsed_ms\":"); appendUInt(fightPayload, actor.primaryAnimationElapsed());
-  fightPayload.append(",\"attack_animation_elapsed_ms\":"); appendUInt(fightPayload, actor.primaryAttackAnimationElapsed());
-  fightPayload.append(",\"animation_total_ms\":"); appendUInt(fightPayload, actor.animationTotalTime());
-  fightPayload.append(",\"attack_total_ms\":"); appendUInt(fightPayload, actor.attackTotalTime());
-  fightPayload.append(",\"attack_optimal_ms\":"); appendUInt(fightPayload, actor.attackOptimalTime());
-  fightPayload.append(",\"attack_hit_end_ms\":"); appendUInt(fightPayload, actor.attackHitEndTime());
-  fightPayload.append(",\"parry_window_start_ms\":"); appendUInt(fightPayload, actor.parryWindowStart());
-  fightPayload.append(",\"parry_window_end_ms\":"); appendUInt(fightPayload, actor.parryWindowEnd());
-  fightPayload.append(",\"combo_window_start_ms\":"); appendUInt(fightPayload, actor.comboWindowStart());
-  fightPayload.append(",\"combo_window_end_ms\":"); appendUInt(fightPayload, actor.comboWindowEnd());
   fightPayload.append(",\"body_state\":"); appendUInt(fightPayload, static_cast<std::uint64_t>(actor.bodyStateMasked()));
   fightPayload.append(",\"attack_anim\":"); appendBool(fightPayload, actor.isAttackAnim());
   fightPayload.append(",\"prehit\":"); appendBool(fightPayload, actor.isPrehit());

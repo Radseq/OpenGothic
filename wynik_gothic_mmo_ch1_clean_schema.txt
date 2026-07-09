@@ -10489,6 +10489,216 @@ CREATE TABLE `ai_runtime_schema_versions` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `dialog_intent_conversation_observers`
+--
+
+DROP TABLE IF EXISTS `dialog_intent_conversation_observers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `dialog_intent_conversation_observers` (
+  `observer_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `conversation_id` binary(16) NOT NULL,
+  `delivery_id` binary(16) DEFAULT NULL,
+  `observer_session_uuid` char(36) NOT NULL,
+  `observer_character_uuid` char(36) NOT NULL DEFAULT '',
+  `observer_character_key` varchar(191) NOT NULL DEFAULT '',
+  `observer_kind` varchar(32) NOT NULL DEFAULT 'target_session',
+  `observer_status` varchar(32) NOT NULL DEFAULT 'pending',
+  `observation_status` varchar(32) NOT NULL DEFAULT 'none',
+  `action_id` varchar(191) NOT NULL DEFAULT '',
+  `ack_key` varchar(191) NOT NULL DEFAULT '',
+  `packet_sequence` bigint unsigned NOT NULL DEFAULT '0',
+  `local_sequence` bigint unsigned NOT NULL DEFAULT '0',
+  `distance_squared` double NOT NULL DEFAULT '0',
+  `has_position` tinyint(1) NOT NULL DEFAULT '0',
+  `terminal_reason` varchar(128) NOT NULL DEFAULT '',
+  `terminal_message` text,
+  `observation_reason` varchar(128) NOT NULL DEFAULT '',
+  `observation_message` text,
+  `observation_ui_applied` tinyint(1) NOT NULL DEFAULT '0',
+  `observation_audio_applied` tinyint(1) NOT NULL DEFAULT '0',
+  `raw_payload` json NOT NULL DEFAULT (json_object()),
+  `registered_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `sent_at` timestamp(6) NULL DEFAULT NULL,
+  `ack_deadline_at` timestamp(6) NULL DEFAULT NULL,
+  `observed_at` timestamp(6) NULL DEFAULT NULL,
+  `terminal_at` timestamp(6) NULL DEFAULT NULL,
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`observer_id`),
+  UNIQUE KEY `dialog_observer_ack_key_uk` (`ack_key`),
+  UNIQUE KEY `dialog_observer_session_uk` (`conversation_id`,`observer_session_uuid`),
+  KEY `ix_dialog_observer_delivery` (`delivery_id`),
+  KEY `ix_dialog_observer_status` (`observer_status`,`registered_at`),
+  KEY `ix_dialog_observer_observation` (`observation_status`,`observed_at`),
+  CONSTRAINT `dialog_observer_conversation_fk` FOREIGN KEY (`conversation_id`) REFERENCES `dialog_intent_conversation_sessions` (`conversation_id`) ON DELETE CASCADE,
+  CONSTRAINT `dialog_observer_delivery_fk` FOREIGN KEY (`delivery_id`) REFERENCES `gameplay_outbound_deliveries` (`delivery_id`) ON DELETE SET NULL,
+  CONSTRAINT `dialog_observer_kind_ck` CHECK ((`observer_kind` in (_utf8mb4'target_session',_utf8mb4'aoi',_utf8mb4'late_observer'))),
+  CONSTRAINT `dialog_observer_observation_ck` CHECK ((`observation_status` in (_utf8mb4'none',_utf8mb4'observed',_utf8mb4'skipped'))),
+  CONSTRAINT `dialog_observer_payload_json_ck` CHECK (json_valid(`raw_payload`)),
+  CONSTRAINT `dialog_observer_status_ck` CHECK ((`observer_status` in (_utf8mb4'pending',_utf8mb4'acked',_utf8mb4'nacked',_utf8mb4'timed_out')))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `dialog_intent_conversation_sessions`
+--
+
+DROP TABLE IF EXISTS `dialog_intent_conversation_sessions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `dialog_intent_conversation_sessions` (
+  `conversation_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `conversation_key` varchar(191) NOT NULL,
+  `world_instance_uuid` char(36) NOT NULL,
+  `world_name` varchar(191) NOT NULL DEFAULT '',
+  `content_revision_key` varchar(191) NOT NULL DEFAULT '',
+  `speaker_entity_key` varchar(191) NOT NULL DEFAULT '',
+  `speaker_npc_instance_uuid` char(36) NOT NULL DEFAULT '',
+  `line_id` varchar(191) NOT NULL DEFAULT '',
+  `audio_ref` varchar(255) NOT NULL DEFAULT '',
+  `server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `start_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `duration_ms` int unsigned NOT NULL DEFAULT '0',
+  `planned_recipients` int unsigned NOT NULL DEFAULT '0',
+  `conversation_status` varchar(32) NOT NULL DEFAULT 'open',
+  `terminal_reason` varchar(128) NOT NULL DEFAULT '',
+  `terminal_message` text,
+  `raw_payload` json NOT NULL DEFAULT (json_object()),
+  `opened_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `terminal_at` timestamp(6) NULL DEFAULT NULL,
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`conversation_id`),
+  UNIQUE KEY `dialog_intent_conversation_key_uk` (`conversation_key`),
+  KEY `ix_dialog_conversation_world_tick` (`world_instance_uuid`,`server_tick`),
+  KEY `ix_dialog_conversation_status` (`conversation_status`,`opened_at`),
+  KEY `ix_dialog_conversation_speaker` (`world_instance_uuid`,`speaker_entity_key`,`opened_at`),
+  CONSTRAINT `dialog_intent_conversation_payload_json_ck` CHECK (json_valid(`raw_payload`)),
+  CONSTRAINT `dialog_intent_conversation_status_ck` CHECK ((`conversation_status` in (_utf8mb4'open',_utf8mb4'partially_acked',_utf8mb4'acked',_utf8mb4'nacked',_utf8mb4'timed_out',_utf8mb4'mixed_terminal'))),
+  CONSTRAINT `dialog_intent_conversation_tick_ck` CHECK (((`server_tick` >= 0) and (`start_tick` >= 0)))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `gameplay_delivery_dead_letters`
+--
+
+DROP TABLE IF EXISTS `gameplay_delivery_dead_letters`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `gameplay_delivery_dead_letters` (
+  `dead_letter_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `delivery_id` binary(16) DEFAULT NULL,
+  `conversation_id` binary(16) DEFAULT NULL,
+  `action_id` varchar(191) NOT NULL DEFAULT '',
+  `ack_key` varchar(191) NOT NULL DEFAULT '',
+  `dead_letter_reason` varchar(128) NOT NULL,
+  `retryable` tinyint(1) NOT NULL DEFAULT '0',
+  `send_attempts` int unsigned NOT NULL DEFAULT '0',
+  `payload` json NOT NULL DEFAULT (json_object()),
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`dead_letter_id`),
+  KEY `ix_gameplay_dead_letter_delivery` (`delivery_id`,`created_at`),
+  KEY `ix_gameplay_dead_letter_conversation` (`conversation_id`,`created_at`),
+  KEY `ix_gameplay_dead_letter_reason` (`dead_letter_reason`,`created_at`),
+  CONSTRAINT `gameplay_dead_letter_conversation_fk` FOREIGN KEY (`conversation_id`) REFERENCES `dialog_intent_conversation_sessions` (`conversation_id`) ON DELETE SET NULL,
+  CONSTRAINT `gameplay_dead_letter_delivery_fk` FOREIGN KEY (`delivery_id`) REFERENCES `gameplay_outbound_deliveries` (`delivery_id`) ON DELETE SET NULL,
+  CONSTRAINT `gameplay_dead_letter_payload_json_ck` CHECK (json_valid(`payload`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `gameplay_delivery_receipts`
+--
+
+DROP TABLE IF EXISTS `gameplay_delivery_receipts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `gameplay_delivery_receipts` (
+  `receipt_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `delivery_id` binary(16) DEFAULT NULL,
+  `conversation_id` binary(16) DEFAULT NULL,
+  `receipt_kind` varchar(48) NOT NULL,
+  `action_id` varchar(191) NOT NULL DEFAULT '',
+  `ack_key` varchar(191) NOT NULL DEFAULT '',
+  `session_uuid` char(36) NOT NULL DEFAULT '',
+  `character_uuid` char(36) NOT NULL DEFAULT '',
+  `character_key` varchar(191) NOT NULL DEFAULT '',
+  `client_observation_status` varchar(32) NOT NULL DEFAULT '',
+  `reason` varchar(128) NOT NULL DEFAULT '',
+  `message_text` text,
+  `payload` json NOT NULL DEFAULT (json_object()),
+  `received_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`receipt_id`),
+  KEY `ix_gameplay_receipt_delivery` (`delivery_id`,`received_at`),
+  KEY `ix_gameplay_receipt_conversation` (`conversation_id`,`received_at`),
+  KEY `ix_gameplay_receipt_ack` (`ack_key`,`received_at`),
+  KEY `ix_gameplay_receipt_kind` (`receipt_kind`,`received_at`),
+  CONSTRAINT `gameplay_receipt_conversation_fk` FOREIGN KEY (`conversation_id`) REFERENCES `dialog_intent_conversation_sessions` (`conversation_id`) ON DELETE SET NULL,
+  CONSTRAINT `gameplay_receipt_delivery_fk` FOREIGN KEY (`delivery_id`) REFERENCES `gameplay_outbound_deliveries` (`delivery_id`) ON DELETE SET NULL,
+  CONSTRAINT `gameplay_receipt_kind_ck` CHECK ((`receipt_kind` in (_utf8mb4'acked',_utf8mb4'nacked',_utf8mb4'observed',_utf8mb4'skipped',_utf8mb4'duplicate',_utf8mb4'unknown_ack_key',_utf8mb4'conflicting_action_id',_utf8mb4'conflicting_terminal_status',_utf8mb4'conflicting_observation_status',_utf8mb4'invalid_receipt',_utf8mb4'late_after_timeout'))),
+  CONSTRAINT `gameplay_receipt_observation_ck` CHECK ((`client_observation_status` in (_utf8mb4'',_utf8mb4'none',_utf8mb4'observed',_utf8mb4'skipped'))),
+  CONSTRAINT `gameplay_receipt_payload_json_ck` CHECK (json_valid(`payload`))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `gameplay_outbound_deliveries`
+--
+
+DROP TABLE IF EXISTS `gameplay_outbound_deliveries`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `gameplay_outbound_deliveries` (
+  `delivery_id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid(),1)),
+  `action_queue_id` binary(16) DEFAULT NULL,
+  `decision_id` binary(16) DEFAULT NULL,
+  `conversation_id` binary(16) DEFAULT NULL,
+  `world_instance_uuid` char(36) NOT NULL,
+  `gameplay_kind` varchar(64) NOT NULL,
+  `delivery_kind` varchar(64) NOT NULL DEFAULT 'initial',
+  `action_id` varchar(191) NOT NULL,
+  `ack_key` varchar(191) NOT NULL,
+  `target_session_uuid` char(36) NOT NULL DEFAULT '',
+  `target_character_uuid` char(36) NOT NULL DEFAULT '',
+  `target_character_key` varchar(191) NOT NULL DEFAULT '',
+  `packet_kind` varchar(64) NOT NULL,
+  `packet_sequence` bigint unsigned NOT NULL DEFAULT '0',
+  `local_sequence` bigint unsigned NOT NULL DEFAULT '0',
+  `server_tick` bigint unsigned NOT NULL DEFAULT '0',
+  `payload_sha256` char(64) NOT NULL DEFAULT '',
+  `payload_bytes` int unsigned NOT NULL DEFAULT '0',
+  `send_attempts` int unsigned NOT NULL DEFAULT '0',
+  `delivery_status` varchar(32) NOT NULL DEFAULT 'pending',
+  `terminal_reason` varchar(128) NOT NULL DEFAULT '',
+  `terminal_message` text,
+  `request_payload` json NOT NULL DEFAULT (json_object()),
+  `endpoint_audit` json NOT NULL DEFAULT (json_object()),
+  `sent_at` timestamp(6) NULL DEFAULT NULL,
+  `ack_deadline_at` timestamp(6) NULL DEFAULT NULL,
+  `terminal_at` timestamp(6) NULL DEFAULT NULL,
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`delivery_id`),
+  UNIQUE KEY `gameplay_delivery_ack_key_uk` (`ack_key`),
+  UNIQUE KEY `gameplay_delivery_action_id_uk` (`action_id`),
+  KEY `ix_gameplay_delivery_action_queue` (`action_queue_id`),
+  KEY `ix_gameplay_delivery_decision` (`decision_id`),
+  KEY `ix_gameplay_delivery_conversation` (`conversation_id`),
+  KEY `ix_gameplay_delivery_world_status` (`world_instance_uuid`,`delivery_status`,`created_at`),
+  KEY `ix_gameplay_delivery_target` (`target_session_uuid`,`target_character_key`,`created_at`),
+  KEY `ix_gameplay_delivery_deadline` (`delivery_status`,`ack_deadline_at`),
+  CONSTRAINT `gameplay_delivery_action_fk` FOREIGN KEY (`action_queue_id`) REFERENCES `npc_perception_action_queue` (`action_queue_id`) ON DELETE SET NULL,
+  CONSTRAINT `gameplay_delivery_conversation_fk` FOREIGN KEY (`conversation_id`) REFERENCES `dialog_intent_conversation_sessions` (`conversation_id`) ON DELETE SET NULL,
+  CONSTRAINT `gameplay_delivery_decision_fk` FOREIGN KEY (`decision_id`) REFERENCES `npc_perception_decisions` (`decision_id`) ON DELETE SET NULL,
+  CONSTRAINT `gameplay_delivery_endpoint_json_ck` CHECK (json_valid(`endpoint_audit`)),
+  CONSTRAINT `gameplay_delivery_kind_ck` CHECK ((`gameplay_kind` in (_utf8mb4'npc_dialog_intent',_utf8mb4'npc_dialog_resume'))),
+  CONSTRAINT `gameplay_delivery_payload_json_ck` CHECK (json_valid(`request_payload`)),
+  CONSTRAINT `gameplay_delivery_payload_sha_ck` CHECK (((`payload_sha256` = _utf8mb4'') or regexp_like(`payload_sha256`,_utf8mb4'^[0-9a-f]{64}$'))),
+  CONSTRAINT `gameplay_delivery_status_ck` CHECK ((`delivery_status` in (_utf8mb4'pending',_utf8mb4'acked',_utf8mb4'nacked',_utf8mb4'timed_out',_utf8mb4'send_failed',_utf8mb4'dead_letter')))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `npc_perception_action_dispatch_log`
 --
 
@@ -10660,6 +10870,111 @@ CREATE TABLE `npc_perception_rule_catalog` (
   CONSTRAINT `npc_perception_rule_payload_json_ck` CHECK (json_valid(`raw_payload`))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Temporary view structure for view `v_dialog_intent_conversation_observers`
+--
+
+DROP TABLE IF EXISTS `v_dialog_intent_conversation_observers`;
+/*!50001 DROP VIEW IF EXISTS `v_dialog_intent_conversation_observers`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_dialog_intent_conversation_observers` AS SELECT 
+ 1 AS `conversation_uuid`,
+ 1 AS `conversation_key`,
+ 1 AS `world_instance_uuid`,
+ 1 AS `world_name`,
+ 1 AS `speaker_entity_key`,
+ 1 AS `speaker_npc_instance_uuid`,
+ 1 AS `line_id`,
+ 1 AS `audio_ref`,
+ 1 AS `server_tick`,
+ 1 AS `start_tick`,
+ 1 AS `duration_ms`,
+ 1 AS `conversation_status`,
+ 1 AS `observer_uuid`,
+ 1 AS `delivery_uuid`,
+ 1 AS `observer_session_uuid`,
+ 1 AS `observer_character_uuid`,
+ 1 AS `observer_character_key`,
+ 1 AS `observer_kind`,
+ 1 AS `observer_status`,
+ 1 AS `observation_status`,
+ 1 AS `action_id`,
+ 1 AS `ack_key`,
+ 1 AS `packet_sequence`,
+ 1 AS `local_sequence`,
+ 1 AS `distance_squared`,
+ 1 AS `has_position`,
+ 1 AS `terminal_reason`,
+ 1 AS `observation_reason`,
+ 1 AS `observation_ui_applied`,
+ 1 AS `observation_audio_applied`,
+ 1 AS `registered_at`,
+ 1 AS `sent_at`,
+ 1 AS `ack_deadline_at`,
+ 1 AS `observed_at`,
+ 1 AS `terminal_at`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_gameplay_delivery_health`
+--
+
+DROP TABLE IF EXISTS `v_gameplay_delivery_health`;
+/*!50001 DROP VIEW IF EXISTS `v_gameplay_delivery_health`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_gameplay_delivery_health` AS SELECT 
+ 1 AS `health_scope`,
+ 1 AS `pending_count`,
+ 1 AS `acked_count`,
+ 1 AS `nacked_count`,
+ 1 AS `timed_out_count`,
+ 1 AS `failed_count`,
+ 1 AS `overdue_count`,
+ 1 AS `open_conversations`,
+ 1 AS `receipt_count`,
+ 1 AS `dead_letter_count`*/;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Temporary view structure for view `v_gameplay_outbound_deliveries`
+--
+
+DROP TABLE IF EXISTS `v_gameplay_outbound_deliveries`;
+/*!50001 DROP VIEW IF EXISTS `v_gameplay_outbound_deliveries`*/;
+SET @saved_cs_client     = @@character_set_client;
+/*!50503 SET character_set_client = utf8mb4 */;
+/*!50001 CREATE VIEW `v_gameplay_outbound_deliveries` AS SELECT 
+ 1 AS `delivery_uuid`,
+ 1 AS `action_queue_uuid`,
+ 1 AS `decision_uuid`,
+ 1 AS `conversation_uuid`,
+ 1 AS `world_instance_uuid`,
+ 1 AS `gameplay_kind`,
+ 1 AS `delivery_kind`,
+ 1 AS `action_id`,
+ 1 AS `ack_key`,
+ 1 AS `target_session_uuid`,
+ 1 AS `target_character_uuid`,
+ 1 AS `target_character_key`,
+ 1 AS `packet_kind`,
+ 1 AS `packet_sequence`,
+ 1 AS `local_sequence`,
+ 1 AS `server_tick`,
+ 1 AS `payload_sha256`,
+ 1 AS `payload_bytes`,
+ 1 AS `send_attempts`,
+ 1 AS `delivery_status`,
+ 1 AS `terminal_reason`,
+ 1 AS `terminal_message`,
+ 1 AS `sent_at`,
+ 1 AS `ack_deadline_at`,
+ 1 AS `terminal_at`,
+ 1 AS `created_at`,
+ 1 AS `updated_at`*/;
+SET character_set_client = @saved_cs_client;
 
 --
 -- Temporary view structure for view `v_npc_perception_action_dispatch_health`
@@ -10912,6 +11227,48 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_ai_mark_gameplay_delivery_timed_out` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_ai_mark_gameplay_delivery_timed_out`(
+  IN p_delivery_id BINARY(16),
+  IN p_now TIMESTAMP(6),
+  OUT o_timed_out_count INT
+)
+BEGIN
+  UPDATE gameplay_outbound_deliveries
+     SET delivery_status = 'timed_out',
+         terminal_reason = 'ack_timeout',
+         terminal_at = COALESCE(p_now, CURRENT_TIMESTAMP(6)),
+         updated_at = CURRENT_TIMESTAMP(6)
+   WHERE delivery_status = 'pending'
+     AND (p_delivery_id IS NULL OR delivery_id = p_delivery_id)
+     AND ack_deadline_at IS NOT NULL
+     AND ack_deadline_at <= COALESCE(p_now, CURRENT_TIMESTAMP(6));
+
+  SET o_timed_out_count = ROW_COUNT();
+
+  UPDATE dialog_intent_conversation_observers o
+  JOIN gameplay_outbound_deliveries d ON d.delivery_id = o.delivery_id
+     SET o.observer_status = 'timed_out',
+         o.terminal_reason = 'ack_timeout',
+         o.terminal_at = COALESCE(p_now, CURRENT_TIMESTAMP(6)),
+         o.updated_at = CURRENT_TIMESTAMP(6)
+   WHERE d.delivery_status = 'timed_out'
+     AND o.observer_status = 'pending';
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!50003 DROP PROCEDURE IF EXISTS `mmo_ai_mark_npc_perception_action_applied` */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -11026,6 +11383,275 @@ BEGIN
          COALESCE(p_result_payload, JSON_OBJECT())
     FROM npc_perception_action_queue
    WHERE action_queue_id = p_action_queue_id;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_ai_record_gameplay_delivery_dead_letter` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_ai_record_gameplay_delivery_dead_letter`(
+  IN p_delivery_id BINARY(16),
+  IN p_dead_letter_reason VARCHAR(128),
+  IN p_retryable TINYINT(1),
+  IN p_payload JSON,
+  OUT o_dead_letter_id BINARY(16)
+)
+BEGIN
+  SET o_dead_letter_id = UUID_TO_BIN(UUID(), 1);
+
+  INSERT INTO gameplay_delivery_dead_letters (
+    dead_letter_id, delivery_id, conversation_id, action_id, ack_key,
+    dead_letter_reason, retryable, send_attempts, payload
+  )
+  SELECT
+    o_dead_letter_id, delivery_id, conversation_id, action_id, ack_key,
+    COALESCE(NULLIF(p_dead_letter_reason, ''), 'send_failure'),
+    COALESCE(p_retryable, 0), send_attempts,
+    COALESCE(p_payload, JSON_OBJECT())
+    FROM gameplay_outbound_deliveries
+   WHERE delivery_id = p_delivery_id;
+
+  UPDATE gameplay_outbound_deliveries
+     SET delivery_status = 'dead_letter',
+         terminal_reason = COALESCE(NULLIF(p_dead_letter_reason, ''), 'send_failure'),
+         terminal_at = CURRENT_TIMESTAMP(6),
+         updated_at = CURRENT_TIMESTAMP(6)
+   WHERE delivery_id = p_delivery_id
+     AND delivery_status IN ('pending', 'send_failed', 'timed_out');
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_ai_record_gameplay_delivery_receipt` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_ai_record_gameplay_delivery_receipt`(
+  IN p_action_id VARCHAR(191),
+  IN p_ack_key VARCHAR(191),
+  IN p_receipt_kind VARCHAR(48),
+  IN p_session_uuid CHAR(36),
+  IN p_character_uuid CHAR(36),
+  IN p_character_key VARCHAR(191),
+  IN p_client_observation_status VARCHAR(32),
+  IN p_reason VARCHAR(128),
+  IN p_message_text TEXT,
+  IN p_payload JSON,
+  OUT o_delivery_id BINARY(16),
+  OUT o_receipt_kind VARCHAR(48),
+  OUT o_delivery_status VARCHAR(32)
+)
+BEGIN
+  DECLARE v_not_found BOOL DEFAULT FALSE;
+  DECLARE v_conversation_id BINARY(16) DEFAULT NULL;
+  DECLARE v_current_status VARCHAR(32) DEFAULT NULL;
+  DECLARE v_effective_kind VARCHAR(48) DEFAULT NULL;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_not_found = TRUE;
+
+  SET o_delivery_id = NULL;
+  SET o_receipt_kind = 'invalid_receipt';
+  SET o_delivery_status = NULL;
+
+  SELECT delivery_id, conversation_id, delivery_status
+    INTO o_delivery_id, v_conversation_id, v_current_status
+    FROM gameplay_outbound_deliveries
+   WHERE ack_key = COALESCE(p_ack_key, '')
+      OR (COALESCE(p_ack_key, '') = '' AND action_id = COALESCE(p_action_id, ''))
+   ORDER BY CASE WHEN ack_key = COALESCE(p_ack_key, '') THEN 0 ELSE 1 END
+   LIMIT 1;
+
+  IF v_not_found OR o_delivery_id IS NULL THEN
+    SET v_effective_kind = 'unknown_ack_key';
+    INSERT INTO gameplay_delivery_receipts (
+      receipt_kind, action_id, ack_key, session_uuid, character_uuid,
+      character_key, client_observation_status, reason, message_text, payload
+    )
+    VALUES (
+      v_effective_kind, COALESCE(p_action_id, ''), COALESCE(p_ack_key, ''),
+      COALESCE(p_session_uuid, ''), COALESCE(p_character_uuid, ''),
+      COALESCE(p_character_key, ''), COALESCE(p_client_observation_status, ''),
+      COALESCE(p_reason, ''), p_message_text, COALESCE(p_payload, JSON_OBJECT())
+    );
+    SET o_receipt_kind = v_effective_kind;
+  ELSE
+    SET v_effective_kind = CASE
+      WHEN COALESCE(p_receipt_kind, '') IN (
+        'acked', 'nacked', 'observed', 'skipped', 'duplicate',
+        'conflicting_action_id', 'conflicting_terminal_status',
+        'conflicting_observation_status', 'late_after_timeout'
+      ) THEN p_receipt_kind
+      ELSE 'invalid_receipt'
+    END;
+
+    IF v_current_status = 'timed_out' AND v_effective_kind IN ('acked', 'nacked') THEN
+      SET v_effective_kind = 'late_after_timeout';
+    ELSEIF v_current_status IN ('acked', 'nacked', 'send_failed', 'dead_letter')
+       AND v_effective_kind IN ('acked', 'nacked') THEN
+      SET v_effective_kind = 'duplicate';
+    END IF;
+
+    INSERT INTO gameplay_delivery_receipts (
+      delivery_id, conversation_id, receipt_kind, action_id, ack_key,
+      session_uuid, character_uuid, character_key, client_observation_status,
+      reason, message_text, payload
+    )
+    VALUES (
+      o_delivery_id, v_conversation_id, v_effective_kind,
+      COALESCE(p_action_id, ''), COALESCE(p_ack_key, ''),
+      COALESCE(p_session_uuid, ''), COALESCE(p_character_uuid, ''),
+      COALESCE(p_character_key, ''), COALESCE(p_client_observation_status, ''),
+      COALESCE(p_reason, ''), p_message_text, COALESCE(p_payload, JSON_OBJECT())
+    );
+
+    IF v_current_status = 'pending' AND v_effective_kind IN ('acked', 'nacked') THEN
+      UPDATE gameplay_outbound_deliveries
+         SET delivery_status = v_effective_kind,
+             terminal_reason = COALESCE(p_reason, ''),
+             terminal_message = p_message_text,
+             terminal_at = CURRENT_TIMESTAMP(6),
+             updated_at = CURRENT_TIMESTAMP(6)
+       WHERE delivery_id = o_delivery_id;
+    END IF;
+
+    UPDATE dialog_intent_conversation_observers
+       SET observation_status = CASE
+             WHEN v_effective_kind = 'observed' THEN 'observed'
+             WHEN v_effective_kind = 'skipped' THEN 'skipped'
+             ELSE observation_status
+           END,
+           observer_status = CASE
+             WHEN v_current_status = 'pending' AND v_effective_kind = 'acked' THEN 'acked'
+             WHEN v_current_status = 'pending' AND v_effective_kind = 'nacked' THEN 'nacked'
+             ELSE observer_status
+           END,
+           observed_at = CASE
+             WHEN v_effective_kind IN ('observed', 'skipped') THEN CURRENT_TIMESTAMP(6)
+             ELSE observed_at
+           END,
+           terminal_reason = CASE
+             WHEN v_effective_kind IN ('acked', 'nacked') THEN COALESCE(p_reason, '')
+             ELSE terminal_reason
+           END,
+           terminal_message = CASE
+             WHEN v_effective_kind IN ('acked', 'nacked') THEN p_message_text
+             ELSE terminal_message
+           END,
+           terminal_at = CASE
+             WHEN v_current_status = 'pending' AND v_effective_kind IN ('acked', 'nacked') THEN CURRENT_TIMESTAMP(6)
+             ELSE terminal_at
+           END,
+           updated_at = CURRENT_TIMESTAMP(6)
+     WHERE delivery_id = o_delivery_id;
+
+    SELECT delivery_status
+      INTO o_delivery_status
+      FROM gameplay_outbound_deliveries
+     WHERE delivery_id = o_delivery_id
+     LIMIT 1;
+
+    SET o_receipt_kind = v_effective_kind;
+  END IF;
+END ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `mmo_ai_record_gameplay_delivery_sent` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`gothic`@`192.168.195.%` PROCEDURE `mmo_ai_record_gameplay_delivery_sent`(
+  IN p_action_queue_id BINARY(16),
+  IN p_decision_id BINARY(16),
+  IN p_conversation_id BINARY(16),
+  IN p_world_instance_uuid CHAR(36),
+  IN p_gameplay_kind VARCHAR(64),
+  IN p_delivery_kind VARCHAR(64),
+  IN p_action_id VARCHAR(191),
+  IN p_ack_key VARCHAR(191),
+  IN p_target_session_uuid CHAR(36),
+  IN p_target_character_uuid CHAR(36),
+  IN p_target_character_key VARCHAR(191),
+  IN p_packet_kind VARCHAR(64),
+  IN p_packet_sequence BIGINT UNSIGNED,
+  IN p_local_sequence BIGINT UNSIGNED,
+  IN p_server_tick BIGINT UNSIGNED,
+  IN p_payload_sha256 CHAR(64),
+  IN p_payload_bytes INT UNSIGNED,
+  IN p_ack_timeout_ms INT UNSIGNED,
+  IN p_request_payload JSON,
+  IN p_endpoint_audit JSON,
+  OUT o_delivery_id BINARY(16),
+  OUT o_delivery_status VARCHAR(32)
+)
+BEGIN
+  SET o_delivery_id = NULL;
+  SET o_delivery_status = NULL;
+
+  INSERT INTO gameplay_outbound_deliveries (
+    action_queue_id, decision_id, conversation_id, world_instance_uuid,
+    gameplay_kind, delivery_kind, action_id, ack_key,
+    target_session_uuid, target_character_uuid, target_character_key,
+    packet_kind, packet_sequence, local_sequence, server_tick,
+    payload_sha256, payload_bytes, send_attempts, delivery_status,
+    request_payload, endpoint_audit, sent_at, ack_deadline_at
+  )
+  VALUES (
+    p_action_queue_id, p_decision_id, p_conversation_id, p_world_instance_uuid,
+    COALESCE(NULLIF(p_gameplay_kind, ''), 'npc_dialog_intent'),
+    COALESCE(NULLIF(p_delivery_kind, ''), 'initial'),
+    p_action_id, p_ack_key,
+    COALESCE(p_target_session_uuid, ''), COALESCE(p_target_character_uuid, ''),
+    COALESCE(p_target_character_key, ''),
+    COALESCE(NULLIF(p_packet_kind, ''), 'ServerNpcDialogIntent'),
+    COALESCE(p_packet_sequence, 0), COALESCE(p_local_sequence, 0), COALESCE(p_server_tick, 0),
+    COALESCE(p_payload_sha256, ''), COALESCE(p_payload_bytes, 0), 1, 'pending',
+    COALESCE(p_request_payload, JSON_OBJECT()), COALESCE(p_endpoint_audit, JSON_OBJECT()),
+    CURRENT_TIMESTAMP(6),
+    TIMESTAMPADD(MICROSECOND, COALESCE(p_ack_timeout_ms, 0) * 1000, CURRENT_TIMESTAMP(6))
+  )
+  ON DUPLICATE KEY UPDATE
+    send_attempts = IF(delivery_status = 'pending', send_attempts + 1, send_attempts),
+    sent_at = IF(delivery_status = 'pending', CURRENT_TIMESTAMP(6), sent_at),
+    ack_deadline_at = IF(
+      delivery_status = 'pending',
+      TIMESTAMPADD(MICROSECOND, COALESCE(p_ack_timeout_ms, 0) * 1000, CURRENT_TIMESTAMP(6)),
+      ack_deadline_at
+    ),
+    endpoint_audit = IF(delivery_status = 'pending', COALESCE(p_endpoint_audit, JSON_OBJECT()), endpoint_audit),
+    updated_at = CURRENT_TIMESTAMP(6);
+
+  SELECT delivery_id, delivery_status
+    INTO o_delivery_id, o_delivery_status
+    FROM gameplay_outbound_deliveries
+   WHERE ack_key = p_ack_key OR action_id = p_action_id
+   ORDER BY CASE WHEN ack_key = p_ack_key THEN 0 ELSE 1 END
+   LIMIT 1;
 END ;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
@@ -12566,6 +13192,60 @@ USE `gothic_mmo_ch1_clean`;
 USE `mmo_ai_runtime`;
 
 --
+-- Final view structure for view `v_dialog_intent_conversation_observers`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_dialog_intent_conversation_observers`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_dialog_intent_conversation_observers` AS select bin_to_uuid(`c`.`conversation_id`,1) AS `conversation_uuid`,`c`.`conversation_key` AS `conversation_key`,`c`.`world_instance_uuid` AS `world_instance_uuid`,`c`.`world_name` AS `world_name`,`c`.`speaker_entity_key` AS `speaker_entity_key`,`c`.`speaker_npc_instance_uuid` AS `speaker_npc_instance_uuid`,`c`.`line_id` AS `line_id`,`c`.`audio_ref` AS `audio_ref`,`c`.`server_tick` AS `server_tick`,`c`.`start_tick` AS `start_tick`,`c`.`duration_ms` AS `duration_ms`,`c`.`conversation_status` AS `conversation_status`,bin_to_uuid(`o`.`observer_id`,1) AS `observer_uuid`,bin_to_uuid(`o`.`delivery_id`,1) AS `delivery_uuid`,`o`.`observer_session_uuid` AS `observer_session_uuid`,`o`.`observer_character_uuid` AS `observer_character_uuid`,`o`.`observer_character_key` AS `observer_character_key`,`o`.`observer_kind` AS `observer_kind`,`o`.`observer_status` AS `observer_status`,`o`.`observation_status` AS `observation_status`,`o`.`action_id` AS `action_id`,`o`.`ack_key` AS `ack_key`,`o`.`packet_sequence` AS `packet_sequence`,`o`.`local_sequence` AS `local_sequence`,`o`.`distance_squared` AS `distance_squared`,`o`.`has_position` AS `has_position`,`o`.`terminal_reason` AS `terminal_reason`,`o`.`observation_reason` AS `observation_reason`,`o`.`observation_ui_applied` AS `observation_ui_applied`,`o`.`observation_audio_applied` AS `observation_audio_applied`,`o`.`registered_at` AS `registered_at`,`o`.`sent_at` AS `sent_at`,`o`.`ack_deadline_at` AS `ack_deadline_at`,`o`.`observed_at` AS `observed_at`,`o`.`terminal_at` AS `terminal_at` from (`dialog_intent_conversation_sessions` `c` join `dialog_intent_conversation_observers` `o` on((`o`.`conversation_id` = `c`.`conversation_id`))) */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_gameplay_delivery_health`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_gameplay_delivery_health`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_gameplay_delivery_health` AS select 'global' AS `health_scope`,(select count(0) from `gameplay_outbound_deliveries` where (`gameplay_outbound_deliveries`.`delivery_status` = 'pending')) AS `pending_count`,(select count(0) from `gameplay_outbound_deliveries` where (`gameplay_outbound_deliveries`.`delivery_status` = 'acked')) AS `acked_count`,(select count(0) from `gameplay_outbound_deliveries` where (`gameplay_outbound_deliveries`.`delivery_status` = 'nacked')) AS `nacked_count`,(select count(0) from `gameplay_outbound_deliveries` where (`gameplay_outbound_deliveries`.`delivery_status` = 'timed_out')) AS `timed_out_count`,(select count(0) from `gameplay_outbound_deliveries` where (`gameplay_outbound_deliveries`.`delivery_status` in ('send_failed','dead_letter'))) AS `failed_count`,(select count(0) from `gameplay_outbound_deliveries` where ((`gameplay_outbound_deliveries`.`delivery_status` = 'pending') and (`gameplay_outbound_deliveries`.`ack_deadline_at` <= now(6)))) AS `overdue_count`,(select count(0) from `dialog_intent_conversation_sessions` where (`dialog_intent_conversation_sessions`.`conversation_status` = 'open')) AS `open_conversations`,(select count(0) from `gameplay_delivery_receipts`) AS `receipt_count`,(select count(0) from `gameplay_delivery_dead_letters`) AS `dead_letter_count` */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
+-- Final view structure for view `v_gameplay_outbound_deliveries`
+--
+
+/*!50001 DROP VIEW IF EXISTS `v_gameplay_outbound_deliveries`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`gothic`@`192.168.195.%` SQL SECURITY DEFINER */
+/*!50001 VIEW `v_gameplay_outbound_deliveries` AS select bin_to_uuid(`d`.`delivery_id`,1) AS `delivery_uuid`,bin_to_uuid(`d`.`action_queue_id`,1) AS `action_queue_uuid`,bin_to_uuid(`d`.`decision_id`,1) AS `decision_uuid`,bin_to_uuid(`d`.`conversation_id`,1) AS `conversation_uuid`,`d`.`world_instance_uuid` AS `world_instance_uuid`,`d`.`gameplay_kind` AS `gameplay_kind`,`d`.`delivery_kind` AS `delivery_kind`,`d`.`action_id` AS `action_id`,`d`.`ack_key` AS `ack_key`,`d`.`target_session_uuid` AS `target_session_uuid`,`d`.`target_character_uuid` AS `target_character_uuid`,`d`.`target_character_key` AS `target_character_key`,`d`.`packet_kind` AS `packet_kind`,`d`.`packet_sequence` AS `packet_sequence`,`d`.`local_sequence` AS `local_sequence`,`d`.`server_tick` AS `server_tick`,`d`.`payload_sha256` AS `payload_sha256`,`d`.`payload_bytes` AS `payload_bytes`,`d`.`send_attempts` AS `send_attempts`,`d`.`delivery_status` AS `delivery_status`,`d`.`terminal_reason` AS `terminal_reason`,`d`.`terminal_message` AS `terminal_message`,`d`.`sent_at` AS `sent_at`,`d`.`ack_deadline_at` AS `ack_deadline_at`,`d`.`terminal_at` AS `terminal_at`,`d`.`created_at` AS `created_at`,`d`.`updated_at` AS `updated_at` from `gameplay_outbound_deliveries` `d` */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
+
+--
 -- Final view structure for view `v_npc_perception_action_dispatch_health`
 --
 
@@ -12904,4 +13584,4 @@ USE `mmo_content_build`;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-07-08 10:12:45
+-- Dump completed on 2026-07-09  8:33:28

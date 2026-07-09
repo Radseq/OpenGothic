@@ -1,24 +1,19 @@
 # AI Step Archive
 
-This directory contains historical MMO step notes.
+Historical MMO step notes. Default context is the compact set in `docs/llm/*.md`.
 
-Default LLM context is now the compact set in `docs/llm/*.md`.
+Open files here only when the user references a specific step, a regression
+needs exact historical commands/outputs, or the compact context points here.
 
-Open files here only when:
-
-- the user references a specific step;
-- a regression needs exact historical commands or outputs;
-- the compact context points to a specific archive file.
-
-Useful current archive entry points:
+Useful current entries:
 
 - `114-mmo-authoritative-content-roadmap-expanded.md`
-- `133-mmo-content-build-runtime-read-model-export-step224.md`
-- `134-mmo-cpp-runtime-read-model-probe-step225.md`
-- `135-mmo-cpp-runtime-read-model-indexes-step226.md`
-- `136-mmo-world-instance-content-cache-step227.md`
-- `137-mmo-server-content-cache-startup-integration-step228.md`
-- `138-mmo-npc-perception-policy-candidate-step229.md`
-- `139-mmo-ai-runtime-recording-probe-step230.md`
-- `140`-`151` cover Step231-Step242 runtime identity, AI tick, action queue,
-  dialog-intent diagnostics and the first client fan-out plan boundary.
+- `133`-`139`: runtime read-model export, C++ loader/indexes/cache, server
+  startup cache, NPC perception policy and AI runtime recording probe.
+- `140`-`164`: Step231-Step255 runtime identity, AI tick, action queue,
+  dialog-intent proof chain and paused-DB ledger tools.
+- `165`-`180`: Step257-Step272 live diagnostic transport, client presentation
+  probes, conversation observers and late-observer resume preflight.
+- `181`: Step274 Step273 persistence preview bridge.
+
+

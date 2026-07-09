@@ -175,22 +175,45 @@ void addIssue(NpcPerceptionTypedEffectDescriptor& descriptor, std::string issue)
   descriptor.issues.push_back(std::move(issue));
 }
 
-[[nodiscard]] std::string actionIntentKind(std::string_view actionKind) {
-  if(actionKind == "npc_greet_player") {
-    return "greet_player";
-  }
-  if(actionKind == "npc_warn_player") {
-    return "warn_player";
-  }
-  return {};
-}
+struct TypedEffectStaticContract final {
+  std::string_view actionKind;
+  std::string_view effectFamily;
+  std::string_view effectKind;
+  std::string_view intentKind;
+  bool requiresDialogUi = false;
+  bool requiresAudio = false;
+  bool requiresNpcTurn = false;
+  bool requiresNpcMovement = false;
+  bool requiresCombat = false;
+};
 
-[[nodiscard]] std::string actionEffectKind(std::string_view actionKind) {
+[[nodiscard]] TypedEffectStaticContract typedEffectContract(std::string_view actionKind) noexcept {
+  if(actionKind == "npc_assess_player") {
+    return {actionKind, "assessment", "assessment_observation", "assess_player"};
+  }
+  if(actionKind == "npc_turn_to_player") {
+    return {actionKind, "orientation_intent", "npc_turn_intent", "turn_to_player", false, false, true};
+  }
+  if(actionKind == "npc_approach_player") {
+    return {actionKind, "movement_intent", "npc_approach_intent", "approach_player", false, false, false, true};
+  }
   if(actionKind == "npc_greet_player") {
-    return "dialog_greeting_intent";
+    return {actionKind, "dialog_intent", "dialog_greeting_intent", "greet_player", true};
   }
   if(actionKind == "npc_warn_player") {
-    return "dialog_warning_intent";
+    return {actionKind, "dialog_intent", "dialog_warning_intent", "warn_player", true};
+  }
+  if(actionKind == "npc_start_dialog") {
+    return {actionKind, "dialog_intent", "dialog_start_intent", "start_dialog", true};
+  }
+  if(actionKind == "npc_attack_player") {
+    return {actionKind, "combat_intent", "npc_attack_intent", "attack_player", false, false, false, false, true};
+  }
+  if(actionKind == "npc_ignore_player") {
+    return {actionKind, "noop", "noop", "ignore_player"};
+  }
+  if(actionKind == "npc_noop") {
+    return {actionKind, "noop", "noop", "noop"};
   }
   return {};
 }
@@ -209,7 +232,7 @@ void copyStableFields(NpcPerceptionTypedEffectDescriptor& out, const ClaimedNpcP
 } // namespace
 
 bool supportsNpcPerceptionTypedEffectDescriptor(std::string_view actionKind) noexcept {
-  return actionKind == "npc_greet_player" || actionKind == "npc_warn_player";
+  return npcPerceptionActionKindContract(actionKind).known;
 }
 
 NpcPerceptionTypedEffectDescriptor describeNpcPerceptionTypedEffect(
@@ -217,14 +240,16 @@ NpcPerceptionTypedEffectDescriptor describeNpcPerceptionTypedEffect(
     const NpcPerceptionActionDispatchValidation& validation) {
   NpcPerceptionTypedEffectDescriptor out;
   copyStableFields(out, action);
-  out.effectFamily = "dialog_intent";
-  out.effectKind = actionEffectKind(action.actionKind);
-  out.intentKind = actionIntentKind(action.actionKind);
-  out.requiresDialogUi = true;
-  out.requiresAudio = false;
-  out.requiresNpcTurn = false;
-  out.requiresNpcMovement = false;
-  out.requiresCombat = false;
+  const auto actionKindContract = npcPerceptionActionKindContract(action.actionKind);
+  const auto typedContract = typedEffectContract(action.actionKind);
+  out.effectFamily = std::string(typedContract.effectFamily);
+  out.effectKind = std::string(typedContract.effectKind);
+  out.intentKind = std::string(typedContract.intentKind);
+  out.requiresDialogUi = typedContract.requiresDialogUi;
+  out.requiresAudio = typedContract.requiresAudio;
+  out.requiresNpcTurn = typedContract.requiresNpcTurn;
+  out.requiresNpcMovement = typedContract.requiresNpcMovement;
+  out.requiresCombat = typedContract.requiresCombat;
   out.liveDispatchImplemented = false;
   out.liveDispatchAllowed = false;
 
@@ -257,19 +282,19 @@ NpcPerceptionTypedEffectDescriptor describeNpcPerceptionTypedEffect(
   if(trimCopy(out.actionQueueUuid).empty()) {
     addIssue(out, "missing_action_queue_uuid");
   }
-  if(trimCopy(out.decisionUuid).empty()) {
+  if(actionKindContract.requiresDecisionUuid && trimCopy(out.decisionUuid).empty()) {
     addIssue(out, "missing_decision_uuid");
   }
   if(trimCopy(out.worldInstanceUuid).empty()) {
     addIssue(out, "missing_world_instance_uuid");
   }
-  if(trimCopy(out.npcEntityKey).empty()) {
+  if(actionKindContract.requiresNpcEntityKey && trimCopy(out.npcEntityKey).empty()) {
     addIssue(out, "missing_npc_entity_key");
   }
-  if(trimCopy(out.targetKey).empty()) {
+  if(actionKindContract.requiresTargetKey && trimCopy(out.targetKey).empty()) {
     addIssue(out, "missing_target_key");
   }
-  if(trimCopy(out.perceptionKind).empty()) {
+  if(actionKindContract.requiresPerceptionKind && trimCopy(out.perceptionKind).empty()) {
     addIssue(out, "missing_perception_kind");
   }
   if(trimCopy(out.idempotencyKey).empty()) {

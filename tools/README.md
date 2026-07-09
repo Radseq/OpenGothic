@@ -111,6 +111,14 @@ work should target the current-state tool unless a regression needs a specific
 old step. Step53 read-model materialization remains a separate Python job and is
 still run by the clean rebuild path.
 
+For the MMO AI runtime dialog-intent delivery storage batch, validate the active
+AI runtime schema with:
+
+```bash
+tools/check_mmo_step273_ai_dialog_intent_delivery_conversation_storage.py \
+  --url "$MYSQL_URL"
+```
+
 `runtime/g2notr_ch1_pre_xardas.sqlite` is a captured New Game zero-point/oracle,
 not the MMO production database. To recreate that SQLite file, run the game once
 with the runtime SQLite capture flags, for example:
@@ -132,3 +140,18 @@ python3 tools/capture_mmo_chapter1_start_sqlite_baseline.py \
 The project direction is `.sav`-free server-bound MMO play: MySQL/current DB
 truth replaces native save state in `-mmo-client-server` flows, while old
 single-player behavior stays unchanged without the MMO flag.
+
+## Paused DB ledger validation
+
+When database work is paused, proposed schema/storage work must stay in
+`docs/llm/llm_db_changes/` until a later explicit SQL step. Validate the ledger
+without touching MySQL:
+
+```bash
+tools/check_llm_db_changes_ledger.py --strict
+tools/export_llm_db_changes_plan.py --strict \
+  --output runtime/llm_db_changes_plan.json
+```
+
+Both tools are read-only. They do not generate SQL, inspect live DB state or
+connect to MySQL.

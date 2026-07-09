@@ -6,8 +6,11 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "mmosemanticevents.h"
+#include "mmonetprotocol.h"
+#include "mmoserverdialogpresentation.h"
 
 class CommandLine;
 
@@ -51,6 +54,9 @@ struct SemanticActionSinkConfig final {
   std::size_t  queueCapacity = 4096;
   bool         strictOverflow = false;
   bool         serverBoundClientMode = false;
+  bool         serverDialogPresentationValidateOnly = false;
+  bool         serverDialogPresentationMainThreadProbe = false;
+  bool         serverDialogObservationReceipt = false;
 };
 
 [[nodiscard]] bool isSemanticActionCaptureEnabled() noexcept;
@@ -66,7 +72,8 @@ void configureSemanticActionSink(const SemanticActionSinkConfig& cfg);
 void configureSemanticActionSink(const CommandLine& cmd);
 void shutdownSemanticActionSink() noexcept;
 
+std::vector<Net::ServerLiveDeltaPacket> drainServerLiveDeltas() noexcept;
+std::vector<ServerDialogPresentationEvent> drainServerDialogPresentationEvents() noexcept;
+bool enqueueClientGameplayObservationReceipt(Net::ClientGameplayObservationPacket packet) noexcept;
+
 } // namespace Mmo
-
-
-

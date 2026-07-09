@@ -58,6 +58,9 @@ class CommandLine {
     std::string_view    mmoActionJsonl() const { return mmoActionJsonlPath; }
     std::string_view    mmoActionUdpEndpoint() const { return mmoActionUdp; }
     bool                mmoClientUsesServer() const { return mmoClientUsesServerState; }
+    bool                mmoClientDialogPresentationValidateOnly() const { return mmoClientDialogPresentationValidateOnlyState; }
+    bool                mmoClientDialogPresentationMainThreadProbe() const { return mmoClientDialogPresentationMainThreadProbeState; }
+    bool                mmoClientDialogObservationReceipt() const { return mmoClientDialogObservationReceiptState; }
     std::string_view    mmoServerEndpoint() const { return mmoServerEndpointValue; }
     std::string_view    mmoClientContentManifestHash() const { return mmoClientContentManifestHashValue; }
     std::string_view    mmoRestoreSnapshotJson() const { return mmoRestoreSnapshotJsonPath; }
@@ -106,6 +109,9 @@ class CommandLine {
     std::string         mmoActionJsonlPath;
     std::string         mmoActionUdp;
     bool                mmoClientUsesServerState = false;
+    bool                mmoClientDialogPresentationValidateOnlyState = false;
+    bool                mmoClientDialogPresentationMainThreadProbeState = false;
+    bool                mmoClientDialogObservationReceiptState = false;
     std::string         mmoServerEndpointValue;
     std::string         mmoClientContentManifestHashValue;
     std::string         mmoRestoreSnapshotJsonPath;
@@ -147,7 +153,3 @@ class CommandLine {
     bool                forceG2NR    = false;
     uint32_t            aaPresetId = 0;
   };
-
-
-
-

@@ -2,6 +2,7 @@
 #include "savegameheader.h"
 #include "mmoruntimesqlite.h"
 #include "mmosemantichooks.h"
+#include "mmosemanticactionsink.h"
 #include "mmorestoresnapshot.h"
 
 #include <Tempest/Log>
@@ -23,6 +24,7 @@
 #include <iterator>
 #include <functional>
 #include <optional>
+#include <utility>
 
 #include "utils/string_frm.h"
 #include "worldstatestorage.h"
@@ -137,6 +139,12 @@ struct MmoNpcIdentity final {
   std::size_t symbolIndex = std::size_t(-1);
 };
 
+struct MmoCompactNpcIdentity final {
+  bool        valid = false;
+  std::size_t persistentId = std::size_t(-1);
+  std::size_t symbolIndex = std::size_t(-1);
+};
+
 struct MmoNpcRoutineAuthorityApplyStats final {
   std::size_t applied = 0;
   std::size_t fallback = 0;
@@ -171,6 +179,28 @@ MmoNpcIdentity parseMmoNpcEntityKey(std::string_view key) {
   auto pid = parseSizeToken(rest.substr(0, marker));
   rest.remove_prefix(marker + 5);
   auto sym = parseSizeToken(rest);
+  if(!pid || !sym)
+    return out;
+  out.persistentId = *pid;
+  out.symbolIndex = *sym;
+  out.valid = true;
+  return out;
+}
+
+MmoCompactNpcIdentity parseMmoCompactNpcEntityKey(std::string_view key) {
+  MmoCompactNpcIdentity out;
+  constexpr std::string_view prefix = "npc:";
+  if(key.substr(0, prefix.size()) != prefix)
+    return out;
+  auto rest = key.substr(prefix.size());
+  if(rest.find(":pid:") != std::string_view::npos)
+    return out;
+  const auto marker = rest.find(":sym:");
+  if(marker == std::string_view::npos)
+    return out;
+  const auto pid = parseSizeToken(rest.substr(0, marker));
+  rest.remove_prefix(marker + 5);
+  const auto sym = parseSizeToken(rest);
   if(!pid || !sym)
     return out;
   out.persistentId = *pid;
@@ -444,6 +474,125 @@ Npc* findNpcByIdentity(World& world, std::size_t persistentId, std::size_t symbo
     if(isValidNpcPersistentId(persistentId) && npc->persistentId() == static_cast<std::uint32_t>(persistentId) && npcSymbolMatches(*npc, symbol))
       return npc;
     }
+}
+
+[[nodiscard]] std::string_view characterIdFromEntityKey(std::string_view key) noexcept {
+  constexpr std::string_view prefix = "character:";
+  if(key.substr(0, prefix.size()) != prefix)
+    return {};
+  auto rest = key.substr(prefix.size());
+  const auto marker = rest.find(':');
+  if(marker != std::string_view::npos)
+    rest = rest.substr(0, marker);
+  return rest;
+}
+
+void fillResolvedServerDialogSpeaker(Mmo::ServerDialogSpeakerResolution& out,
+                                     World& world,
+                                     Npc& npc,
+                                     Mmo::ServerDialogSpeakerResolutionStatus status) {
+  out.status = status;
+  out.reason = "client_dialog_speaker_resolved";
+  out.message = "ServerNpcDialogIntent speaker resolved to a local NPC/player on the main thread; presenter remains no-apply.";
+  out.resolved = true;
+  out.playerSpeaker = npc.isPlayer();
+  out.localNpcId = world.npcId(&npc);
+  out.persistentId = npc.persistentId();
+  out.symbol = npc.instanceSymbol();
+  out.displayName = std::string(npc.displayName());
+  const auto pos = npc.position();
+  out.positionX = pos.x;
+  out.positionY = pos.y;
+  out.positionZ = pos.z;
+  if(const auto* player = world.player()) {
+    const auto delta = pos - player->position();
+    out.distanceToPlayerSquared = delta.quadLength();
+  }
+}
+
+Mmo::ServerDialogSpeakerResolution resolveServerDialogSpeaker(World& world,
+                                                              const Mmo::Net::ServerNpcDialogIntentPacket& intent) {
+  Mmo::ServerDialogSpeakerResolution out;
+  out.requested = true;
+  out.requestedEntityKey = intent.speakerEntityKey;
+  out.requestedNpcInstanceUuid = intent.speakerNpcInstanceUuid;
+  out.localWorld = std::string(world.name());
+
+  if(intent.speakerEntityKey.empty()) {
+    if(!intent.speakerNpcInstanceUuid.empty()) {
+      out.status = Mmo::ServerDialogSpeakerResolutionStatus::UnsupportedNpcInstanceUuidOnly;
+      out.reason = "client_dialog_speaker_uuid_only_unresolved";
+      out.message = "ServerNpcDialogIntent provided only npc_instance_uuid; this client has no durable UUID-to-local-NPC resolver yet.";
+      return out;
+    }
+    out.status = Mmo::ServerDialogSpeakerResolutionStatus::MissingSpeakerIdentity;
+    out.reason = "client_dialog_speaker_identity_missing";
+    out.message = "ServerNpcDialogIntent has no speaker_entity_key for local main-thread speaker resolution.";
+    return out;
+  }
+
+  if(const auto characterId = characterIdFromEntityKey(intent.speakerEntityKey); !characterId.empty()) {
+    const auto localCharacterKey = CommandLine::inst().mmoCharacterKey();
+    if(!localCharacterKey.empty() && characterId != localCharacterKey) {
+      out.status = Mmo::ServerDialogSpeakerResolutionStatus::UnsupportedSpeakerIdentity;
+      out.reason = "client_dialog_speaker_character_mismatch";
+      out.message = "ServerNpcDialogIntent speaker points at a different character than the local server-bound client.";
+      return out;
+    }
+    auto* player = world.player();
+    if(player == nullptr) {
+      out.status = Mmo::ServerDialogSpeakerResolutionStatus::MissingLocalPlayer;
+      out.reason = "client_dialog_speaker_player_missing";
+      out.message = "ServerNpcDialogIntent speaker points at the local character, but no local player NPC is available.";
+      return out;
+    }
+    fillResolvedServerDialogSpeaker(out, world, *player, Mmo::ServerDialogSpeakerResolutionStatus::ResolvedCharacterPlayer);
+    return out;
+  }
+
+  if(const auto identity = parseMmoNpcEntityKey(intent.speakerEntityKey); identity.valid) {
+    out.requestedWorld = identity.world;
+    if(!identity.world.empty() && std::string_view(identity.world) != world.name()) {
+      out.status = Mmo::ServerDialogSpeakerResolutionStatus::WorldMismatch;
+      out.reason = "client_dialog_speaker_world_mismatch";
+      out.message = "ServerNpcDialogIntent speaker belongs to a different world than the local main-thread world.";
+      return out;
+    }
+    auto* npc = findNpcByIdentity(world, identity.persistentId, identity.symbolIndex);
+    if(npc == nullptr) {
+      out.status = Mmo::ServerDialogSpeakerResolutionStatus::MissingLocalNpc;
+      out.reason = "client_dialog_speaker_local_npc_missing";
+      out.message = "ServerNpcDialogIntent speaker entity key is valid, but no matching local NPC is currently materialized.";
+      if(isValidNpcPersistentId(identity.persistentId))
+        out.persistentId = static_cast<std::uint32_t>(identity.persistentId);
+      if(isValidNpcSymbol(identity.symbolIndex))
+        out.symbol = static_cast<std::uint32_t>(identity.symbolIndex);
+      return out;
+    }
+    fillResolvedServerDialogSpeaker(out, world, *npc, Mmo::ServerDialogSpeakerResolutionStatus::ResolvedNpcEntityKey);
+    return out;
+  }
+
+  if(const auto identity = parseMmoCompactNpcEntityKey(intent.speakerEntityKey); identity.valid) {
+    auto* npc = findNpcByIdentity(world, identity.persistentId, identity.symbolIndex);
+    if(npc == nullptr) {
+      out.status = Mmo::ServerDialogSpeakerResolutionStatus::MissingLocalNpc;
+      out.reason = "client_dialog_speaker_compact_npc_missing";
+      out.message = "ServerNpcDialogIntent compact speaker key parsed, but no matching local NPC is currently materialized.";
+      if(isValidNpcPersistentId(identity.persistentId))
+        out.persistentId = static_cast<std::uint32_t>(identity.persistentId);
+      if(isValidNpcSymbol(identity.symbolIndex))
+        out.symbol = static_cast<std::uint32_t>(identity.symbolIndex);
+      return out;
+    }
+    fillResolvedServerDialogSpeaker(out, world, *npc, Mmo::ServerDialogSpeakerResolutionStatus::ResolvedCompactNpcKey);
+    return out;
+  }
+
+  out.status = Mmo::ServerDialogSpeakerResolutionStatus::UnsupportedSpeakerIdentity;
+  out.reason = "client_dialog_speaker_identity_unsupported";
+  out.message = "ServerNpcDialogIntent speaker_entity_key is not a supported local NPC/player identity format.";
+  return out;
 }
 
 Npc* findNpcByApproxPosition(World& world, std::size_t symbol, const Tempest::Vec3& pos) noexcept {
@@ -1600,6 +1749,131 @@ void GameSession::pollMmoServerSnapshotRestore() noexcept {
   (void)tryApplyMmoServerWorldSnapshotRefresh();
 }
 
+void GameSession::pollMmoServerDialogPresentationEvents() noexcept {
+  const auto& cmd = CommandLine::inst();
+  if(!cmd.mmoClientDialogPresentationMainThreadProbe())
+    return;
+
+  auto events = Mmo::drainServerDialogPresentationEvents();
+  if(events.empty())
+    return;
+
+  const Mmo::ServerDialogMainThreadPresentationProbeInput baseInput {
+    .enabled = true,
+    .serverBoundClient = cmd.mmoClientUsesServer(),
+    .worldAvailable = wrld != nullptr,
+    .playerAvailable = wrld != nullptr && wrld->player() != nullptr,
+    .requireLocalSpeakerResolution = true,
+    .requirePresenterPreflight = true,
+  };
+
+  try {
+    std::filesystem::create_directories("runtime");
+    std::ofstream out("runtime/mmo_server_dialog_main_thread_probe.jsonl",
+                      std::ios::out | std::ios::app | std::ios::binary);
+
+    std::size_t observed = 0;
+    std::size_t skipped = 0;
+    std::size_t speakerResolved = 0;
+    std::size_t speakerUnresolved = 0;
+    std::size_t presenterReady = 0;
+    std::size_t presenterBlocked = 0;
+    std::size_t presenterRejected = 0;
+    std::size_t observationReceiptsQueued = 0;
+    std::size_t observationReceiptsDropped = 0;
+    for(const auto& event : events) {
+      auto input = baseInput;
+      if(wrld != nullptr)
+        input.speakerResolution = resolveServerDialogSpeaker(*wrld, event.intent);
+
+      Mmo::ServerDialogPresenterPreflightInput preflightInput;
+      preflightInput.enabled = input.enabled && input.serverBoundClient && input.worldAvailable && input.playerAvailable;
+      preflightInput.workerAccepted = event.decision.accepted();
+      preflightInput.speakerResolved = input.speakerResolution.ok();
+      preflightInput.localDialogBusy = isInDialog();
+      if(!event.intent.lineId.empty())
+        preflightInput.scriptTextByLineId = std::string(messageByName(event.intent.lineId));
+      if(!event.intent.audioRef.empty()) {
+        const auto normalizedAudioRef = Mmo::normalizeServerDialogAudioRef(event.intent.audioRef);
+        preflightInput.scriptTextByAudioRef = std::string(messageByName(normalizedAudioRef));
+        if(preflightInput.scriptTextByAudioRef.empty() && normalizedAudioRef != event.intent.audioRef)
+          preflightInput.scriptTextByAudioRef = std::string(messageByName(event.intent.audioRef));
+      }
+      input.presenterPreflight = Mmo::evaluateServerDialogPresenterPreflight(event.intent, preflightInput);
+
+      const auto result = Mmo::evaluateServerDialogMainThreadPresentationProbe(event, input);
+      if(result.observed())
+        ++observed;
+      else
+        ++skipped;
+      if(input.speakerResolution.requested) {
+        if(input.speakerResolution.ok())
+          ++speakerResolved;
+        else
+          ++speakerUnresolved;
+      }
+      if(input.presenterPreflight.requested) {
+        if(input.presenterPreflight.ready())
+          ++presenterReady;
+        else if(input.presenterPreflight.blocked())
+          ++presenterBlocked;
+        else
+          ++presenterRejected;
+      }
+      if(out.is_open())
+        out << Mmo::serverDialogMainThreadProbeJson(event, input, result) << '\n';
+
+      if(cmd.mmoClientDialogObservationReceipt()) {
+        Mmo::Net::ClientGameplayObservationPacket receipt;
+        receipt.localSequence = event.intent.localSequence;
+        receipt.clientTick = ticks;
+        receipt.status = result.observed()
+            ? Mmo::Net::ClientGameplayObservationStatus::Observed
+            : Mmo::Net::ClientGameplayObservationStatus::Skipped;
+        receipt.gameplayKind = Mmo::Net::ServerGameplayKind::NpcDialogIntent;
+        receipt.flags = Mmo::Net::ClientGameplayObservationMainThread |
+                        (result.observed() ? Mmo::Net::ClientGameplayObservationObserved
+                                           : Mmo::Net::ClientGameplayObservationSkipped) |
+                        (event.decision.accepted() ? Mmo::Net::ClientGameplayObservationWorkerAcked
+                                                   : Mmo::Net::ClientGameplayObservationWorkerNacked) |
+                        (result.uiApplied ? Mmo::Net::ClientGameplayObservationUiApplied : 0u) |
+                        (result.audioApplied ? Mmo::Net::ClientGameplayObservationAudioApplied : 0u) |
+                        (input.presenterPreflight.ready() ? Mmo::Net::ClientGameplayObservationPresenterReady : 0u);
+        receipt.sessionKey = std::string(cmd.mmoActionSessionKey());
+        receipt.sessionUuid = event.intent.sessionUuid;
+        receipt.characterKey = event.intent.targetCharacterKey.empty()
+            ? std::string(cmd.mmoCharacterKey())
+            : event.intent.targetCharacterKey;
+        receipt.actionId = event.intent.actionId;
+        receipt.ackKey = event.intent.ackKey;
+        receipt.reason = result.reason;
+        receipt.message = result.message;
+        if(Mmo::enqueueClientGameplayObservationReceipt(std::move(receipt)))
+          ++observationReceiptsQueued;
+        else
+          ++observationReceiptsDropped;
+      }
+    }
+
+    Log::i("MMO server dialog main-thread probe drained count=", events.size(),
+           " observed=", observed,
+           " skipped=", skipped,
+           " speaker_resolved=", speakerResolved,
+           " speaker_unresolved=", speakerUnresolved,
+           " presenter_ready=", presenterReady,
+           " presenter_blocked=", presenterBlocked,
+           " presenter_rejected=", presenterRejected,
+           " observation_receipts_queued=", observationReceiptsQueued,
+           " observation_receipts_dropped=", observationReceiptsDropped,
+           " world=", baseInput.worldAvailable ? 1 : 0,
+           " player=", baseInput.playerAvailable ? 1 : 0);
+  } catch(const std::exception& e) {
+    Log::e("MMO server dialog main-thread probe failed: ", e.what());
+  } catch(...) {
+    Log::e("MMO server dialog main-thread probe failed: unknown error");
+  }
+}
+
 bool GameSession::tryApplyMmoServerWorldSnapshotRefresh() noexcept {
   const auto& cmd = CommandLine::inst();
   if(!cmd.mmoClientUsesServer() || !cmd.mmoServerSnapshotApplyWorldState())
@@ -1763,6 +2037,7 @@ void GameSession::tick(uint64_t dt) {
   vm->tick(dt);
   wrld->tick(dt);
   pollMmoServerSnapshotRestore();
+  pollMmoServerDialogPresentationEvents();
 
   if(auto* pl = wrld->player()) {
     tickMmoMovementProposal(*pl, ticks);
@@ -2033,5 +2308,3 @@ void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
          " reason=", reason,
          " path=", std::string(path));
   }
-
-

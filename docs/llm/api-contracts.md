@@ -1,164 +1,135 @@
 # API Contracts
 
-## Client Flags
+## MMO Flags
 
-- `-mmo-client-server host:port` enables server-bound mode.
-- `-mmo-server-endpoint host:port` is endpoint alias/config path.
+Core client/server flags:
+
+- `-mmo-client-server host:port` enables server-bound client mode.
+- `-mmo-server-endpoint host:port` is the endpoint alias/config path.
 - `-mmo-action-session-key KEY` selects the client/server session key.
+- `--runtime-read-model PATH` or `--runtime-read-model-path PATH` loads
+  `mmo.content_build_runtime_read_model.v1`.
+- `--content-revision-key`, `--world-instance-key`, `--world-name` bind the
+  server cache to an explicit content/world instance.
+- `--startup-check-only` validates startup/cache and exits before the UDP loop.
 
-Rules:
+Diagnostic dialog-intent server flags:
 
-- No MMO/server behavior without explicit flags.
-- Native single-player saves/new game must remain unchanged.
+- `--enable-ai-dialog-intent-send`
+- `--ai-dialog-intent-fanout-mode target_session|aoi`
+- `--ai-dialog-intent-aoi-radius N`
+- `--ai-dialog-intent-max-recipients N`
+- `--ai-dialog-intent-conversation-session-probe`
+- `--ai-dialog-intent-observation-receipt-probe`
+- `--ai-dialog-intent-late-observer-resume-plan`
+- `--ai-dialog-intent-late-observer-resume-packet-boundary`
+- `--ai-dialog-intent-late-observer-resume-send-gate`
+- `--ai-dialog-intent-late-observer-resume-delivery-registration-boundary`
+- `--ai-dialog-intent-late-observer-resume-dispatch-envelope`
+- `--ai-dialog-intent-late-observer-resume-mutation-guard`
+- `--ai-dialog-intent-late-observer-resume-send-failure-dead-letter-guard`
+- `--ai-dialog-intent-late-observer-resume-commit-preflight`
+- `--ai-dialog-intent-step273-persistence-preview`
 
-Stable C++ server flags:
+Client probe flags:
 
-- `--runtime-read-model PATH` / `--runtime-read-model-path PATH` - load
-  `mmo.content_build_runtime_read_model.v1` during server startup.
-- `--content-revision-key KEY` - active server content revision expected by the
-  cache.
-- `--world-instance-key KEY` - server world instance key bound to the cache.
-- `--world-name NAME` - world name bound to the cache.
-- `--startup-check-only` - validate startup/cache and exit before UDP loop.
+- `-mmo-client-dialog-presentation-validate`
+- `-mmo-client-dialog-presentation-main-thread-probe`
+- `-mmo-client-dialog-main-thread-observation-receipt`
 
-Rules:
-
-- Cache loading is read-only.
-- Content revision mismatch is fatal by default.
-- Cache loading does not execute scripts or mutate DB.
+All MMO/server behavior requires explicit flags. Native single-player behavior
+must remain unchanged without them.
 
 ## Runtime Read-Model
 
 Schema: `mmo.content_build_runtime_read_model.v1`.
 
-Required sections:
+Required sections: `world_zen_entities`, `waypoint_edges`, `npc_templates`,
+`item_templates`, `routines`, `perception_bindings`, `dialog_infos`,
+`dialog_outputs`.
 
-- `world_zen_entities`
-- `waypoint_edges`
-- `npc_templates`
-- `item_templates`
-- `routines`
-- `perception_bindings`
-- `dialog_infos`
-- `dialog_outputs`
+The C++ loader owns typed indexes for world entities, waypoint routes,
+NPC/item templates, routines, perception bindings and dialog info/output names.
+Cache loading is read-only: it does not execute scripts and does not mutate DB.
 
-Current expected warnings:
+## NPC Perception And AI Runtime
 
-- routines without `npc_instance`: `1186`
-- perception bindings without `owner_symbol`: `38`
-
-Current C++ runtime indexes:
-
-- `worldZenEntityByKey`
-- `waypointEdgeByRoute`
-- `npcTemplateByInstance`
-- `itemTemplateByInstance`
-- `routinesByNpcInstance`
-- `routinesBySymbol`
-- `perceptionBindingsByKind`
-- `perceptionBindingsByOwner`
-- `dialogInfoBySymbol`
-- `dialogOutputByName`
-
-## NPC Perception
-
-Targets:
+Important modules:
 
 - `mmo_npc_perception_policy`
-- `mmo_npc_perception_policy_probe`
-
-Rules:
-
-- Consumes `WorldInstanceContentCache` and explicit actor sets.
-- Does not execute Daedalus scripts.
-- Does not mutate DB or broadcast packets.
-- Missing perception binding produces no decision.
-
-## AI Runtime Recording
-
-Targets:
-
 - `mmo_npc_perception_runtime_source`
 - `mmo_ai_runtime_persistence`
-- `mmo_npc_perception_record_probe`
-
-Rules:
-
-- `--dry-run` must not mutate DB.
-- Synthetic probe can use `--target-from-runtime-player` to copy target
-  `session_uuid`/`character_uuid` from a real active player while keeping the
-  NPC side synthetic.
-- Recording must call `mmo_ai_record_npc_perception_decision(...)`.
-- Required fields: `world_instance_uuid`, `npc_entity_key`, `target_key`,
-  `perception_kind`, `idempotency_key`.
-- Live actor-source rejects weak NPC identity by default.
-
-## Manual World-Instance AI Tick
-
-Targets:
-
 - `mmo_world_instance_ai_tick`
-- `mmo_world_instance_ai_tick_probe`
-- `mmo_world_instance_ai_tick_evidence`
-- `mmo_world_instance_ai_scheduler_boundary`
-
-Rules:
-
-- Default is dry-run.
-- Write requires explicit `--write`.
-- Evidence can reject missing actors, weak NPC identity, missing decisions or
-  record-limit skips.
-- `mmo_udp_server` startup hook is dry-run only and must not write decisions.
-
-## AI Action Queue And Dispatcher
-
-Targets:
-
-- `mmo_npc_perception_action_queue_probe`
 - `mmo_npc_perception_action_dispatcher_boundary`
-- `mmo_npc_perception_action_dispatcher_probe`
 
 Rules:
 
-- Queue probe is read-only by default.
-- Claiming requires explicit mutation flag.
-- Dispatcher probe never calls `mmo_ai_mark_npc_perception_action_applied`.
-- Live dispatch must report `false` until a future guarded send/apply step.
+- Policy consumes `WorldInstanceContentCache` and explicit actor sets.
+- Missing perception binding produces no decision.
+- Recording requires stable `world_instance_uuid`, NPC identity, target key,
+  perception kind and idempotency key.
+- Live actor-source rejects weak NPC identity by default.
+- Manual AI tick is dry-run by default; writes require explicit flags.
+- The dispatcher must not call `mmo_ai_mark_npc_perception_action_applied`
+  until live-send/ACK/apply/dead-letter storage is durable.
 
-## Dialog Intent Preview Chain
+## Dialog Intent Proof Chain
 
-Targets:
+Supported safe action kinds: `npc_greet_player`, `npc_warn_player`.
 
-- `mmo_npc_perception_effect_descriptor`
-- `mmo_npc_perception_dialog_intent_preview`
-- `mmo_npc_perception_dialog_intent_diagnostic_packet`
-- `mmo_npc_perception_dialog_intent_diagnostic_encoder`
-- `mmo_npc_perception_dialog_intent_durable_evidence`
-- `mmo_npc_perception_dialog_intent_fanout_plan`
+Current chain:
 
-Rules:
+- typed effect descriptor and dialog intent preview;
+- diagnostic packet contract and binary encoder;
+- JSONL evidence writer and fanout plan;
+- send boundary, sender adapter and endpoint resolution;
+- client ACK/NACK contract and server receive-loop route proof;
+- terminal ACK/NACK/timeout plan;
+- live diagnostic send behind explicit flag;
+- in-memory outbound delivery terminal/idempotency state;
+- optional AOI fanout selector;
+- no-apply client main-thread presentation, speaker resolution and presenter
+  preflight;
+- server in-memory conversation observers;
+- no-send late-observer resume plan, packet boundary, send gate, delivery
+  registration boundary, dispatch envelope, mutation guard, failure/dead-letter
+  guard and commit preflight;
+- disabled-by-default Step274 persistence preview bridge that converts the
+  commit-preflight state into typed Step273 SQL/procedure statement previews
+  while forcing `execute_mysql=off`.
 
-- Supported safe action kinds: `npc_greet_player`, `npc_warn_player`.
-- Preview/diagnostic/encoding/evidence are contract/evidence only.
-- JSONL evidence write requires explicit file-write flag.
-- Fanout plan must not send packets.
-- Fanout plan requires real target `session_uuid` and `character_uuid`.
+Hard contract: real dialog UI/audio, replay UDP send, durable apply and
+`mark_applied` remain disabled until the durable DB receipt path is validated.
 
-## MySQL Surfaces
+## Step273 DB Contract
 
-- runtime MMO DB: sessions, characters, current world state, journal/projections.
-- `mmo_content_build`: parsed static content.
-- `mmo_ai_runtime`: NPC perception decisions and action queue.
+`server/sql/step273_ai_dialog_intent_delivery_conversation_storage.sql` adds
+durable surfaces in `mmo_ai_runtime`:
 
-Rules:
+- `dialog_intent_conversation_sessions`
+- `gameplay_outbound_deliveries`
+- `dialog_intent_conversation_observers`
+- `gameplay_delivery_receipts`
+- `gameplay_delivery_dead_letters`
+- health/detail views for delivery and conversation observer inspection
+- procedures for delivery sent, delivery receipt, timeout and dead-letter
+  recording
 
-- `mmo_content_build` is not live gameplay state.
-- `mmo_ai_runtime` is runtime AI/perception decision state, not parser output.
-- Procedure/table/view renames require migration/compat updates.
+This migration is the storage prerequisite for future ACK/observation/apply
+logic. It has a focused checker and must stay green before executable C++ starts
+depending on it. Step274 only previews conversation upsert, delivery sent call,
+observer upsert, future receipt call and future dead-letter call; it does not
+open MySQL, call `runMysql` or mutate runtime DB state.
 
-## Identity
+## MySQL And Identity
+
+Runtime MMO DB stores sessions, characters, current world state, event journal
+and projections. `mmo_content_build` stores parsed static content.
+`mmo_ai_runtime` stores AI/perception decisions, action queue state and now the
+Step273 dialog-intent delivery/receipt/conversation storage contract.
 
 Durable identity should use character key, world instance, content revision,
-world name, persistent/VOB/script IDs, template keys and DB UUIDs.
+world name, persistent/VOB/script IDs, template keys and DB UUIDs. Display names
+are labels only.
 
-Never use display labels as durable identity.
+

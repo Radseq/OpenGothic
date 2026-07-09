@@ -27,8 +27,11 @@ enum class PacketKind : std::uint16_t {
   ClientNpcState       = 10,
   ClientEconomy        = 11,
   ClientSessionControl = 12,
-  ClientDialogState    = 13,
-  ClientCharacterEvent = 14,
+  ClientDialogState        = 13,
+  ClientCharacterEvent     = 14,
+  ServerNpcDialogIntent      = 15,
+  ClientGameplayAck          = 16,
+  ClientGameplayObservation  = 17,
 };
 
 enum class ServerAckKind : std::uint16_t {
@@ -55,6 +58,44 @@ enum ServerLiveDeltaFlags : std::uint32_t {
   ServerLiveDeltaHasStats                = 0x00000002u,
   ServerLiveDeltaRequiresSnapshotRefresh = 0x00000004u,
   ServerLiveDeltaHasDebugPayload         = 0x80000000u,
+};
+
+enum class ServerGameplayKind : std::uint16_t {
+  NpcDialogIntent = 1,
+};
+
+enum ServerNpcDialogIntentFlags : std::uint32_t {
+  ServerNpcDialogIntentHasText      = 0x00000001u,
+  ServerNpcDialogIntentHasAudioRef  = 0x00000002u,
+  ServerNpcDialogIntentHasLineId              = 0x00000004u,
+  ServerNpcDialogIntentLateObserverResume  = 0x00000008u,
+  ServerNpcDialogIntentDiagnostic          = 0x80000000u,
+};
+
+enum class ClientGameplayAckStatus : std::uint16_t {
+  Ack  = 1,
+  Nack = 2,
+};
+
+enum ClientGameplayAckFlags : std::uint32_t {
+  ClientGameplayAckAccepted = 0x00000001u,
+  ClientGameplayAckRejected = 0x00000002u,
+};
+
+enum class ClientGameplayObservationStatus : std::uint16_t {
+  Observed = 1,
+  Skipped  = 2,
+};
+
+enum ClientGameplayObservationFlags : std::uint32_t {
+  ClientGameplayObservationMainThread      = 0x00000001u,
+  ClientGameplayObservationObserved        = 0x00000002u,
+  ClientGameplayObservationSkipped         = 0x00000004u,
+  ClientGameplayObservationUiApplied       = 0x00000008u,
+  ClientGameplayObservationAudioApplied    = 0x00000010u,
+  ClientGameplayObservationWorkerAcked     = 0x00000020u,
+  ClientGameplayObservationWorkerNacked    = 0x00000040u,
+  ClientGameplayObservationPresenterReady  = 0x00000080u,
 };
 
 inline constexpr std::size_t CombatDamageTypeCount = 8;
@@ -740,6 +781,59 @@ struct ServerLiveDeltaPacket final {
   std::string   debugJson;
 };
 
+struct ServerNpcDialogIntentPacket final {
+  std::uint64_t packetSequence = 0;
+  std::uint64_t localSequence = 0;
+  std::uint64_t serverTick = 0;
+  std::uint64_t startTick = 0;
+  std::uint32_t durationMs = 0;
+  std::uint32_t flags = 0;
+  std::string   sessionUuid;
+  std::string   targetCharacterKey;
+  std::string   actionId;
+  std::string   ackKey;
+  std::string   conversationId;
+  std::string   worldInstanceUuid;
+  std::string   speakerEntityKey;
+  std::string   speakerNpcInstanceUuid;
+  std::string   lineId;
+  std::string   text;
+  std::string   audioRef;
+  std::string   reason;
+};
+
+struct ClientGameplayAckPacket final {
+  std::uint64_t packetSequence = 0;
+  std::uint64_t localSequence = 0;
+  std::uint64_t clientTick = 0;
+  ClientGameplayAckStatus status = ClientGameplayAckStatus::Ack;
+  ServerGameplayKind gameplayKind = ServerGameplayKind::NpcDialogIntent;
+  std::uint32_t flags = ClientGameplayAckAccepted;
+  std::string   sessionKey;
+  std::string   sessionUuid;
+  std::string   characterKey;
+  std::string   actionId;
+  std::string   ackKey;
+  std::string   reason;
+  std::string   message;
+};
+
+struct ClientGameplayObservationPacket final {
+  std::uint64_t packetSequence = 0;
+  std::uint64_t localSequence = 0;
+  std::uint64_t clientTick = 0;
+  ClientGameplayObservationStatus status = ClientGameplayObservationStatus::Observed;
+  ServerGameplayKind gameplayKind = ServerGameplayKind::NpcDialogIntent;
+  std::uint32_t flags = ClientGameplayObservationMainThread | ClientGameplayObservationObserved;
+  std::string   sessionKey;
+  std::string   sessionUuid;
+  std::string   characterKey;
+  std::string   actionId;
+  std::string   ackKey;
+  std::string   reason;
+  std::string   message;
+};
+
 struct DecodeResult final {
   DecodeError        error = DecodeError::None;
   ClientActionPacket clientAction;
@@ -860,6 +954,33 @@ struct ClientCharacterEventDecodeResult final {
 struct ServerLiveDeltaDecodeResult final {
   DecodeError           error = DecodeError::None;
   ServerLiveDeltaPacket liveDelta;
+
+  [[nodiscard]] constexpr bool ok() const noexcept {
+    return error == DecodeError::None;
+  }
+};
+
+struct ServerNpcDialogIntentDecodeResult final {
+  DecodeError                 error = DecodeError::None;
+  ServerNpcDialogIntentPacket dialogIntent;
+
+  [[nodiscard]] constexpr bool ok() const noexcept {
+    return error == DecodeError::None;
+  }
+};
+
+struct ClientGameplayAckDecodeResult final {
+  DecodeError             error = DecodeError::None;
+  ClientGameplayAckPacket ack;
+
+  [[nodiscard]] constexpr bool ok() const noexcept {
+    return error == DecodeError::None;
+  }
+};
+
+struct ClientGameplayObservationDecodeResult final {
+  DecodeError                     error = DecodeError::None;
+  ClientGameplayObservationPacket observation;
 
   [[nodiscard]] constexpr bool ok() const noexcept {
     return error == DecodeError::None;
@@ -2882,6 +3003,283 @@ inline ServerLiveDeltaDecodeResult decodeServerLiveDeltaPacket(std::string_view 
   return result;
 }
 
+inline std::vector<std::uint8_t> encodeServerNpcDialogIntentPacket(const ServerNpcDialogIntentPacket& intent) {
+  std::vector<std::uint8_t> out;
+  out.reserve(intent.sessionUuid.size() + intent.targetCharacterKey.size() + intent.actionId.size() +
+              intent.ackKey.size() + intent.conversationId.size() + intent.worldInstanceUuid.size() +
+              intent.speakerEntityKey.size() + intent.speakerNpcInstanceUuid.size() + intent.lineId.size() +
+              intent.text.size() + intent.audioRef.size() + intent.reason.size() + 160);
+  appendU32(out, PacketMagic);
+  appendU16(out, PacketVersion);
+  appendU16(out, static_cast<std::uint16_t>(PacketKind::ServerNpcDialogIntent));
+  const std::uint32_t computedFlags = intent.flags |
+                                      (intent.text.empty() ? 0u : ServerNpcDialogIntentHasText) |
+                                      (intent.audioRef.empty() ? 0u : ServerNpcDialogIntentHasAudioRef) |
+                                      (intent.lineId.empty() ? 0u : ServerNpcDialogIntentHasLineId);
+  appendU16(out, static_cast<std::uint16_t>(computedFlags & 0xffffu));
+  appendU16(out, static_cast<std::uint16_t>(ServerGameplayKind::NpcDialogIntent));
+  appendU64(out, intent.packetSequence);
+  appendU64(out, intent.localSequence);
+  appendU64(out, intent.serverTick);
+  appendU64(out, intent.startTick);
+  appendU32(out, intent.durationMs);
+  appendU32(out, computedFlags);
+  if(!appendString16(out, intent.sessionUuid) ||
+     !appendString16(out, intent.targetCharacterKey) ||
+     !appendString16(out, intent.actionId) ||
+     !appendString16(out, intent.ackKey) ||
+     !appendString16(out, intent.conversationId) ||
+     !appendString16(out, intent.worldInstanceUuid) ||
+     !appendString16(out, intent.speakerEntityKey) ||
+     !appendString16(out, intent.speakerNpcInstanceUuid) ||
+     !appendString16(out, intent.lineId) ||
+     !appendString32(out, intent.text) ||
+     !appendString16(out, intent.audioRef) ||
+     !appendString16(out, intent.reason)) {
+    return {};
+  }
+  if(out.size() > MaxDatagramBytes)
+    return {};
+  return out;
+}
+
+inline ServerNpcDialogIntentDecodeResult decodeServerNpcDialogIntentPacket(std::string_view bytes) {
+  ServerNpcDialogIntentDecodeResult result;
+  if(bytes.size() < 4 + 2 + 2 + 2 + 2 + 8 + 8 + 8 + 8 + 4 + 4 + (2 * 9) + 4 + (2 * 2)) {
+    result.error = DecodeError::TooSmall;
+    return result;
+  }
+
+  std::size_t at = 0;
+  std::uint32_t magic = 0;
+  std::uint16_t version = 0;
+  std::uint16_t packetKind = 0;
+  std::uint16_t headerFlags = 0;
+  std::uint16_t gameplayKind = 0;
+
+  if(!readU32(bytes, at, magic) || magic != PacketMagic) {
+    result.error = DecodeError::BadMagic;
+    return result;
+  }
+  if(!readU16(bytes, at, version) || version != PacketVersion) {
+    result.error = DecodeError::BadVersion;
+    return result;
+  }
+  if(!readU16(bytes, at, packetKind) || packetKind != static_cast<std::uint16_t>(PacketKind::ServerNpcDialogIntent)) {
+    result.error = DecodeError::BadPacketKind;
+    return result;
+  }
+  if(!readU16(bytes, at, headerFlags) ||
+     !readU16(bytes, at, gameplayKind) ||
+     !readU64(bytes, at, result.dialogIntent.packetSequence) ||
+     !readU64(bytes, at, result.dialogIntent.localSequence) ||
+     !readU64(bytes, at, result.dialogIntent.serverTick) ||
+     !readU64(bytes, at, result.dialogIntent.startTick) ||
+     !readU32(bytes, at, result.dialogIntent.durationMs) ||
+     !readU32(bytes, at, result.dialogIntent.flags) ||
+     !readString16(bytes, at, result.dialogIntent.sessionUuid) ||
+     !readString16(bytes, at, result.dialogIntent.targetCharacterKey) ||
+     !readString16(bytes, at, result.dialogIntent.actionId) ||
+     !readString16(bytes, at, result.dialogIntent.ackKey) ||
+     !readString16(bytes, at, result.dialogIntent.conversationId) ||
+     !readString16(bytes, at, result.dialogIntent.worldInstanceUuid) ||
+     !readString16(bytes, at, result.dialogIntent.speakerEntityKey) ||
+     !readString16(bytes, at, result.dialogIntent.speakerNpcInstanceUuid) ||
+     !readString16(bytes, at, result.dialogIntent.lineId) ||
+     !readString32(bytes, at, result.dialogIntent.text) ||
+     !readString16(bytes, at, result.dialogIntent.audioRef) ||
+     !readString16(bytes, at, result.dialogIntent.reason)) {
+    result.error = DecodeError::Truncated;
+    return result;
+  }
+  (void)headerFlags;
+  if(gameplayKind != static_cast<std::uint16_t>(ServerGameplayKind::NpcDialogIntent) ||
+     result.dialogIntent.ackKey.empty() ||
+     result.dialogIntent.actionId.empty()) {
+    result.error = DecodeError::InvalidPayload;
+  }
+  return result;
+}
+
+inline std::vector<std::uint8_t> encodeClientGameplayAckPacket(const ClientGameplayAckPacket& ack) {
+  std::vector<std::uint8_t> out;
+  out.reserve(ack.sessionKey.size() + ack.sessionUuid.size() + ack.characterKey.size() +
+              ack.actionId.size() + ack.ackKey.size() + ack.reason.size() + ack.message.size() + 96);
+  appendU32(out, PacketMagic);
+  appendU16(out, PacketVersion);
+  appendU16(out, static_cast<std::uint16_t>(PacketKind::ClientGameplayAck));
+  appendU16(out, static_cast<std::uint16_t>(ack.flags & 0xffffu));
+  appendU16(out, static_cast<std::uint16_t>(ack.status));
+  appendU16(out, static_cast<std::uint16_t>(ack.gameplayKind));
+  appendU16(out, 0);
+  appendU64(out, ack.packetSequence);
+  appendU64(out, ack.localSequence);
+  appendU64(out, ack.clientTick);
+  appendU32(out, ack.flags);
+  if(!appendString16(out, ack.sessionKey) ||
+     !appendString16(out, ack.sessionUuid) ||
+     !appendString16(out, ack.characterKey) ||
+     !appendString16(out, ack.actionId) ||
+     !appendString16(out, ack.ackKey) ||
+     !appendString16(out, ack.reason) ||
+     !appendString32(out, ack.message)) {
+    return {};
+  }
+  if(out.size() > MaxDatagramBytes)
+    return {};
+  return out;
+}
+
+inline ClientGameplayAckDecodeResult decodeClientGameplayAckPacket(std::string_view bytes) {
+  ClientGameplayAckDecodeResult result;
+  if(bytes.size() < 4 + 2 + 2 + 2 + 2 + 2 + 2 + 8 + 8 + 8 + 4 + (2 * 6) + 4) {
+    result.error = DecodeError::TooSmall;
+    return result;
+  }
+
+  std::size_t at = 0;
+  std::uint32_t magic = 0;
+  std::uint16_t version = 0;
+  std::uint16_t packetKind = 0;
+  std::uint16_t headerFlags = 0;
+  std::uint16_t ackStatus = 0;
+  std::uint16_t gameplayKind = 0;
+  std::uint16_t reserved = 0;
+
+  if(!readU32(bytes, at, magic) || magic != PacketMagic) {
+    result.error = DecodeError::BadMagic;
+    return result;
+  }
+  if(!readU16(bytes, at, version) || version != PacketVersion) {
+    result.error = DecodeError::BadVersion;
+    return result;
+  }
+  if(!readU16(bytes, at, packetKind) || packetKind != static_cast<std::uint16_t>(PacketKind::ClientGameplayAck)) {
+    result.error = DecodeError::BadPacketKind;
+    return result;
+  }
+  if(!readU16(bytes, at, headerFlags) ||
+     !readU16(bytes, at, ackStatus) ||
+     !readU16(bytes, at, gameplayKind) ||
+     !readU16(bytes, at, reserved) ||
+     !readU64(bytes, at, result.ack.packetSequence) ||
+     !readU64(bytes, at, result.ack.localSequence) ||
+     !readU64(bytes, at, result.ack.clientTick) ||
+     !readU32(bytes, at, result.ack.flags) ||
+     !readString16(bytes, at, result.ack.sessionKey) ||
+     !readString16(bytes, at, result.ack.sessionUuid) ||
+     !readString16(bytes, at, result.ack.characterKey) ||
+     !readString16(bytes, at, result.ack.actionId) ||
+     !readString16(bytes, at, result.ack.ackKey) ||
+     !readString16(bytes, at, result.ack.reason) ||
+     !readString32(bytes, at, result.ack.message)) {
+    result.error = DecodeError::Truncated;
+    return result;
+  }
+  (void)headerFlags;
+  (void)reserved;
+  result.ack.status = static_cast<ClientGameplayAckStatus>(ackStatus);
+  result.ack.gameplayKind = static_cast<ServerGameplayKind>(gameplayKind);
+  if(result.ack.gameplayKind != ServerGameplayKind::NpcDialogIntent ||
+     result.ack.ackKey.empty() ||
+     result.ack.actionId.empty() ||
+     (result.ack.status != ClientGameplayAckStatus::Ack && result.ack.status != ClientGameplayAckStatus::Nack)) {
+    result.error = DecodeError::InvalidPayload;
+  }
+  return result;
+}
+
+
+inline std::vector<std::uint8_t> encodeClientGameplayObservationPacket(const ClientGameplayObservationPacket& observation) {
+  std::vector<std::uint8_t> out;
+  out.reserve(observation.sessionKey.size() + observation.sessionUuid.size() + observation.characterKey.size() +
+              observation.actionId.size() + observation.ackKey.size() + observation.reason.size() +
+              observation.message.size() + 96);
+  appendU32(out, PacketMagic);
+  appendU16(out, PacketVersion);
+  appendU16(out, static_cast<std::uint16_t>(PacketKind::ClientGameplayObservation));
+  appendU16(out, static_cast<std::uint16_t>(observation.flags & 0xffffu));
+  appendU16(out, static_cast<std::uint16_t>(observation.status));
+  appendU16(out, static_cast<std::uint16_t>(observation.gameplayKind));
+  appendU16(out, 0);
+  appendU64(out, observation.packetSequence);
+  appendU64(out, observation.localSequence);
+  appendU64(out, observation.clientTick);
+  appendU32(out, observation.flags);
+  if(!appendString16(out, observation.sessionKey) ||
+     !appendString16(out, observation.sessionUuid) ||
+     !appendString16(out, observation.characterKey) ||
+     !appendString16(out, observation.actionId) ||
+     !appendString16(out, observation.ackKey) ||
+     !appendString16(out, observation.reason) ||
+     !appendString32(out, observation.message)) {
+    return {};
+  }
+  if(out.size() > MaxDatagramBytes)
+    return {};
+  return out;
+}
+
+inline ClientGameplayObservationDecodeResult decodeClientGameplayObservationPacket(std::string_view bytes) {
+  ClientGameplayObservationDecodeResult result;
+  if(bytes.size() < 4 + 2 + 2 + 2 + 2 + 2 + 2 + 8 + 8 + 8 + 4 + (2 * 6) + 4) {
+    result.error = DecodeError::TooSmall;
+    return result;
+  }
+
+  std::size_t at = 0;
+  std::uint32_t magic = 0;
+  std::uint16_t version = 0;
+  std::uint16_t packetKind = 0;
+  std::uint16_t headerFlags = 0;
+  std::uint16_t observationStatus = 0;
+  std::uint16_t gameplayKind = 0;
+  std::uint16_t reserved = 0;
+
+  if(!readU32(bytes, at, magic) || magic != PacketMagic) {
+    result.error = DecodeError::BadMagic;
+    return result;
+  }
+  if(!readU16(bytes, at, version) || version != PacketVersion) {
+    result.error = DecodeError::BadVersion;
+    return result;
+  }
+  if(!readU16(bytes, at, packetKind) || packetKind != static_cast<std::uint16_t>(PacketKind::ClientGameplayObservation)) {
+    result.error = DecodeError::BadPacketKind;
+    return result;
+  }
+  if(!readU16(bytes, at, headerFlags) ||
+     !readU16(bytes, at, observationStatus) ||
+     !readU16(bytes, at, gameplayKind) ||
+     !readU16(bytes, at, reserved) ||
+     !readU64(bytes, at, result.observation.packetSequence) ||
+     !readU64(bytes, at, result.observation.localSequence) ||
+     !readU64(bytes, at, result.observation.clientTick) ||
+     !readU32(bytes, at, result.observation.flags) ||
+     !readString16(bytes, at, result.observation.sessionKey) ||
+     !readString16(bytes, at, result.observation.sessionUuid) ||
+     !readString16(bytes, at, result.observation.characterKey) ||
+     !readString16(bytes, at, result.observation.actionId) ||
+     !readString16(bytes, at, result.observation.ackKey) ||
+     !readString16(bytes, at, result.observation.reason) ||
+     !readString32(bytes, at, result.observation.message)) {
+    result.error = DecodeError::Truncated;
+    return result;
+  }
+  (void)headerFlags;
+  (void)reserved;
+  result.observation.status = static_cast<ClientGameplayObservationStatus>(observationStatus);
+  result.observation.gameplayKind = static_cast<ServerGameplayKind>(gameplayKind);
+  if(result.observation.gameplayKind != ServerGameplayKind::NpcDialogIntent ||
+     result.observation.ackKey.empty() ||
+     result.observation.actionId.empty() ||
+     (result.observation.status != ClientGameplayObservationStatus::Observed &&
+      result.observation.status != ClientGameplayObservationStatus::Skipped)) {
+    result.error = DecodeError::InvalidPayload;
+  }
+  return result;
+}
+
 inline const char* decodeErrorName(DecodeError error) noexcept {
   switch(error) {
     case DecodeError::None: return "none";
@@ -2898,18 +3296,3 @@ inline const char* decodeErrorName(DecodeError error) noexcept {
 }
 
 } // namespace Mmo::Net
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

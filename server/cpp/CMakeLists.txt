@@ -56,6 +56,13 @@ target_link_libraries(mmo_world_instance_content_cache PUBLIC
   mmo_runtime_read_model_loader
 )
 
+add_library(mmo_content_build_active_read_model_selection STATIC
+  mmo_content_build_active_read_model_selection.cpp
+)
+target_include_directories(mmo_content_build_active_read_model_selection PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+
 add_executable(mmo_world_instance_content_cache_probe
   mmo_world_instance_content_cache_probe.cpp
 )
@@ -96,6 +103,16 @@ target_include_directories(mmo_npc_perception_runtime_source PUBLIC
 target_link_libraries(mmo_npc_perception_runtime_source PUBLIC
   mmo_npc_perception_policy
   mmo_server_persistence
+)
+
+add_library(mmo_runtime_npc_identity_materialization_plan STATIC
+  mmo_runtime_npc_identity_materialization_plan.cpp
+)
+target_include_directories(mmo_runtime_npc_identity_materialization_plan PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_runtime_npc_identity_materialization_plan PUBLIC
+  mmo_world_instance_content_cache
 )
 
 add_library(mmo_ai_runtime_persistence STATIC
@@ -234,11 +251,121 @@ target_link_libraries(mmo_npc_perception_dialog_intent_fanout_plan PUBLIC
   mmo_npc_perception_dialog_intent_durable_evidence
 )
 
+add_library(mmo_npc_perception_dialog_intent_send_boundary STATIC
+  mmo_npc_perception_dialog_intent_send_boundary.cpp
+)
+target_include_directories(mmo_npc_perception_dialog_intent_send_boundary PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_npc_perception_dialog_intent_send_boundary PUBLIC
+  mmo_npc_perception_dialog_intent_fanout_plan
+)
+
+add_library(mmo_npc_perception_dialog_intent_sender_adapter STATIC
+  mmo_npc_perception_dialog_intent_sender_adapter.cpp
+)
+target_include_directories(mmo_npc_perception_dialog_intent_sender_adapter PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_npc_perception_dialog_intent_sender_adapter PUBLIC
+  mmo_npc_perception_dialog_intent_send_boundary
+)
+
+add_library(mmo_npc_perception_dialog_intent_endpoint_resolution STATIC
+  mmo_npc_perception_dialog_intent_endpoint_resolution.cpp
+)
+target_include_directories(mmo_npc_perception_dialog_intent_endpoint_resolution PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_npc_perception_dialog_intent_endpoint_resolution PUBLIC
+  mmo_npc_perception_dialog_intent_sender_adapter
+)
+
+add_library(mmo_npc_perception_dialog_intent_client_ack_contract STATIC
+  mmo_npc_perception_dialog_intent_client_ack_contract.cpp
+)
+target_include_directories(mmo_npc_perception_dialog_intent_client_ack_contract PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_npc_perception_dialog_intent_client_ack_contract PUBLIC
+  mmo_npc_perception_dialog_intent_endpoint_resolution
+)
+
+add_library(mmo_npc_perception_dialog_intent_client_ack_receipt_preview STATIC
+  mmo_npc_perception_dialog_intent_client_ack_receipt_preview.cpp
+)
+target_include_directories(mmo_npc_perception_dialog_intent_client_ack_receipt_preview PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_npc_perception_dialog_intent_client_ack_receipt_preview PUBLIC
+  mmo_npc_perception_dialog_intent_client_ack_contract
+)
+
+add_library(mmo_npc_perception_dialog_intent_receive_loop_integration STATIC
+  mmo_npc_perception_dialog_intent_receive_loop_integration.cpp
+)
+target_include_directories(mmo_npc_perception_dialog_intent_receive_loop_integration PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_npc_perception_dialog_intent_receive_loop_integration PUBLIC
+  mmo_npc_perception_dialog_intent_client_ack_receipt_preview
+)
+
+add_library(mmo_npc_perception_dialog_intent_terminal_plan STATIC
+  mmo_npc_perception_dialog_intent_terminal_plan.cpp
+)
+target_include_directories(mmo_npc_perception_dialog_intent_terminal_plan PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_npc_perception_dialog_intent_terminal_plan PUBLIC
+  mmo_npc_perception_dialog_intent_receive_loop_integration
+)
+
+add_library(mmo_npc_perception_dialog_intent_chain_guard STATIC
+  mmo_npc_perception_dialog_intent_chain_guard.cpp
+)
+target_include_directories(mmo_npc_perception_dialog_intent_chain_guard PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_npc_perception_dialog_intent_chain_guard PUBLIC
+  mmo_npc_perception_dialog_intent_terminal_plan
+)
+
+add_library(mmo_npc_perception_dialog_intent_chain_report STATIC
+  mmo_npc_perception_dialog_intent_chain_report.cpp
+)
+target_include_directories(mmo_npc_perception_dialog_intent_chain_report PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_npc_perception_dialog_intent_chain_report PUBLIC
+  mmo_npc_perception_dialog_intent_chain_guard
+)
+
+add_library(mmo_npc_perception_dialog_intent_chain_gate STATIC
+  mmo_npc_perception_dialog_intent_chain_gate.cpp
+)
+target_include_directories(mmo_npc_perception_dialog_intent_chain_gate PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_npc_perception_dialog_intent_chain_gate PUBLIC
+  mmo_npc_perception_dialog_intent_chain_report
+)
+
+add_library(mmo_npc_perception_dialog_intent_chain_package STATIC
+  mmo_npc_perception_dialog_intent_chain_package.cpp
+)
+target_include_directories(mmo_npc_perception_dialog_intent_chain_package PUBLIC
+  "${CMAKE_CURRENT_LIST_DIR}"
+)
+target_link_libraries(mmo_npc_perception_dialog_intent_chain_package PUBLIC
+  mmo_npc_perception_dialog_intent_chain_gate
+)
+
 add_executable(mmo_npc_perception_action_dispatcher_probe
   mmo_npc_perception_action_dispatcher_probe.cpp
 )
 target_link_libraries(mmo_npc_perception_action_dispatcher_probe PRIVATE
-  mmo_npc_perception_dialog_intent_fanout_plan
+  mmo_npc_perception_dialog_intent_chain_package
 )
 
 add_executable(mmo_udp_server
@@ -259,6 +386,8 @@ target_include_directories(mmo_udp_server PRIVATE
 find_package(Threads REQUIRED)
 target_link_libraries(mmo_udp_server PRIVATE
   Threads::Threads
+  mmo_content_build_active_read_model_selection
+  mmo_runtime_npc_identity_materialization_plan
   mmo_world_instance_content_cache
   mmo_world_instance_ai_scheduler_boundary
 )

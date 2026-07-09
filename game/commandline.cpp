@@ -162,6 +162,33 @@ CommandLine::CommandLine(int argc, const char** argv) {
           mmoActionUdp = mmoServerEndpointValue;
         }
       }
+    else if(arg=="-mmo-client-dialog-presentation-validate" ||
+            arg=="-mmo-client-dialog-presentation-validate-only") {
+      // Guarded client-side validation boundary for server-owned dialog intents.
+      // It may return ACK/NACK based on packet presentability, but still does
+      // not play audio or open local Gothic dialog UI.
+      mmoClientUsesServerState = true;
+      mmoClientDialogPresentationValidateOnlyState = true;
+      }
+    else if(arg=="-mmo-client-dialog-presentation-main-thread-probe" ||
+            arg=="-mmo-client-dialog-main-thread-probe" ||
+            arg=="-mmo-client-dialog-presentation-probe") {
+      // Disabled-by-default bridge for future real subtitle/audio presentation.
+      // The UDP worker ACK remains fast; GameSession later observes the event
+      // on the game thread without mutating UI/audio state.
+      mmoClientUsesServerState = true;
+      mmoClientDialogPresentationMainThreadProbeState = true;
+      }
+    else if(arg=="-mmo-client-dialog-main-thread-observation-receipt" ||
+            arg=="-mmo-client-dialog-observation-receipt" ||
+            arg=="-mmo-client-dialog-apply-receipt-probe") {
+      // Disabled-by-default Step265 diagnostic receipt. This separates the
+      // fast UDP transport ACK from later game-thread observation/apply
+      // evidence without enabling real subtitle/audio presentation.
+      mmoClientUsesServerState = true;
+      mmoClientDialogPresentationMainThreadProbeState = true;
+      mmoClientDialogObservationReceiptState = true;
+      }
     else if(arg=="-mmo-client-content-manifest-hash" || arg=="-mmo-content-manifest-hash") {
       // Client-declared content pack hash for server-side content gate. The
       // server remains authoritative; this value is only a version declaration.
@@ -444,7 +471,21 @@ CommandLine::CommandLine(int argc, const char** argv) {
     // without requiring a fake -save slot on the command line.
     mmoDbContinueWithoutNativeSaveState = true;
     Log::i("MMO DB continue without native save enabled by server-bound mode");
+    if(mmoClientDialogPresentationValidateOnlyState)
+      Log::i("MMO client dialog presentation validation enabled: validate-only, UI/audio disabled");
+    if(mmoClientDialogPresentationMainThreadProbeState)
+      Log::i("MMO client dialog presentation main-thread probe enabled: UI/audio disabled");
+    if(mmoClientDialogObservationReceiptState)
+      Log::i("MMO client dialog main-thread observation receipt enabled: no UI/audio apply");
     }
+
+  if(mmoClientDialogPresentationValidateOnlyState && !mmoClientUsesServerState)
+    Log::e("-mmo-client-dialog-presentation-validate requires -mmo-client-server");
+
+  if(mmoClientDialogPresentationMainThreadProbeState && !mmoClientUsesServerState)
+    Log::e("-mmo-client-dialog-presentation-main-thread-probe requires -mmo-client-server");
+  if(mmoClientDialogObservationReceiptState && !mmoClientDialogPresentationMainThreadProbeState)
+    Log::e("-mmo-client-dialog-main-thread-observation-receipt requires main-thread probe");
 
   if(mmoDbContinueWithoutNativeSaveState && !mmoClientUsesServerState)
     Log::e("-mmo-db-continue-without-native-save requires -mmo-client-server");
@@ -547,7 +588,3 @@ bool CommandLine::validateGothicPath() const {
     return false;
   return true;
   }
-
-
-
-

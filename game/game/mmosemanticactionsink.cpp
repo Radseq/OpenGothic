@@ -21,6 +21,8 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -49,6 +51,7 @@
 
 #include "commandline.h"
 #include "mmonetprotocol.h"
+#include "mmoserverdialogpresentation.h"
 
 namespace Mmo {
 namespace {
@@ -1210,8 +1213,16 @@ std::optional<Net::ClientCharacterEventPacket> makeClientCharacterEventPacket(co
 }
 
 constexpr std::size_t MaxQueuedServerLiveDeltas = 512;
+constexpr std::size_t MaxQueuedServerDialogPresentationEvents = 256;
+constexpr std::size_t MaxQueuedClientGameplayObservationReceipts = 256;
 std::mutex serverLiveDeltaMutex;
 std::vector<Net::ServerLiveDeltaPacket> serverLiveDeltaInbox;
+std::mutex serverDialogPresentationMutex;
+std::vector<ServerDialogPresentationEvent> serverDialogPresentationInbox;
+std::mutex clientGameplayObservationReceiptMutex;
+std::vector<Net::ClientGameplayObservationPacket> clientGameplayObservationReceiptOutbox;
+std::atomic_uint64_t serverDialogPresentationReceivedOrder {0};
+std::atomic_uint64_t clientGameplayObservationReceiptSequence {0};
 
 const char* liveDeltaDomainName(Net::ServerLiveDeltaKind kind) noexcept {
   switch(kind) {
@@ -1294,11 +1305,129 @@ std::string liveDeltaDebugJson(const Net::ServerLiveDeltaPacket& delta) {
   return out;
 }
 
+
+std::string dialogPresentationDecisionDebugJson(const ServerDialogPresentationDecision& decision);
+
+std::string npcDialogIntentDebugJson(const Net::ServerNpcDialogIntentPacket& intent,
+                                     bool duplicateDelivery,
+                                     const ServerDialogPresentationDecision& decision) {
+  std::string out;
+  out.reserve(intent.text.size() + intent.audioRef.size() + intent.reason.size() + 1024);
+  out += "{\"schema\":\"mmo.client_server_npc_dialog_intent_received.v1\"";
+  out += ",\"packet_sequence\":";
+  out += std::to_string(intent.packetSequence);
+  out += ",\"local_sequence\":";
+  out += std::to_string(intent.localSequence);
+  out += ",\"server_tick\":";
+  out += std::to_string(intent.serverTick);
+  out += ",\"start_tick\":";
+  out += std::to_string(intent.startTick);
+  out += ",\"duration_ms\":";
+  out += std::to_string(intent.durationMs);
+  out += ",\"flags\":";
+  out += std::to_string(intent.flags);
+  out += ",\"session_uuid\":";
+  out += jsonEscape(intent.sessionUuid);
+  out += ",\"target_character_key\":";
+  out += jsonEscape(intent.targetCharacterKey);
+  out += ",\"action_id\":";
+  out += jsonEscape(intent.actionId);
+  out += ",\"ack_key\":";
+  out += jsonEscape(intent.ackKey);
+  out += ",\"conversation_id\":";
+  out += jsonEscape(intent.conversationId);
+  out += ",\"world_instance_uuid\":";
+  out += jsonEscape(intent.worldInstanceUuid);
+  out += ",\"speaker_entity_key\":";
+  out += jsonEscape(intent.speakerEntityKey);
+  out += ",\"speaker_npc_instance_uuid\":";
+  out += jsonEscape(intent.speakerNpcInstanceUuid);
+  out += ",\"line_id\":";
+  out += jsonEscape(intent.lineId);
+  out += ",\"text\":";
+  out += jsonEscape(intent.text);
+  out += ",\"audio_ref\":";
+  out += jsonEscape(intent.audioRef);
+  out += ",\"reason\":";
+  out += jsonEscape(intent.reason);
+  out += ",\"client_dialog_ui_applied\":";
+  out += decision.uiApplied ? "true" : "false";
+  out += ",\"client_audio_applied\":";
+  out += decision.audioApplied ? "true" : "false";
+  out += ",\"client_ack_sent_by_transport\":true";
+  out += ",\"client_ack_status\":";
+  out += jsonEscape(decision.accepted() ? "ack" : "nack");
+  out += ",\"client_ack_reason\":";
+  out += jsonEscape(decision.reason);
+  out += ",\"client_dialog_presentation_status\":";
+  out += jsonEscape(serverDialogPresentationStatusName(decision.presentationStatus));
+  out += ",\"client_dialog_presentation_validation_enabled\":";
+  out += decision.validationEnabled ? "true" : "false";
+  out += ",\"client_dialog_presentation_decision\":";
+  out += dialogPresentationDecisionDebugJson(decision);
+  out += ",\"client_duplicate_delivery\":";
+  out += duplicateDelivery ? "true" : "false";
+  out += "}";
+  return out;
+}
+
 void enqueueServerLiveDelta(Net::ServerLiveDeltaPacket delta) noexcept {
   std::lock_guard<std::mutex> lock(serverLiveDeltaMutex);
   if(serverLiveDeltaInbox.size() >= MaxQueuedServerLiveDeltas)
     serverLiveDeltaInbox.erase(serverLiveDeltaInbox.begin());
   serverLiveDeltaInbox.emplace_back(std::move(delta));
+}
+
+[[nodiscard]] bool enqueueServerDialogPresentationEvent(ServerDialogPresentationEvent event) noexcept {
+  std::lock_guard<std::mutex> lock(serverDialogPresentationMutex);
+  if(serverDialogPresentationInbox.size() >= MaxQueuedServerDialogPresentationEvents)
+    return false;
+  event.receivedOrder = serverDialogPresentationReceivedOrder.fetch_add(1, std::memory_order_relaxed) + 1;
+  serverDialogPresentationInbox.emplace_back(std::move(event));
+  return true;
+}
+
+[[nodiscard]] bool enqueueClientGameplayObservationReceiptInternal(Net::ClientGameplayObservationPacket packet) noexcept {
+  if(packet.actionId.empty() || packet.ackKey.empty())
+    return false;
+  packet.packetSequence = clientGameplayObservationReceiptSequence.fetch_add(1, std::memory_order_relaxed) + 1;
+  std::lock_guard<std::mutex> lock(clientGameplayObservationReceiptMutex);
+  if(clientGameplayObservationReceiptOutbox.size() >= MaxQueuedClientGameplayObservationReceipts)
+    return false;
+  clientGameplayObservationReceiptOutbox.emplace_back(std::move(packet));
+  return true;
+}
+
+ServerDialogPresentationConfig makeServerDialogPresentationConfig(const SemanticActionSinkConfig& cfg) noexcept {
+  ServerDialogPresentationConfig out;
+  out.validateOnly = cfg.serverBoundClientMode && cfg.serverDialogPresentationValidateOnly;
+  out.requireSpeakerEntityKey = true;
+  out.requireTextOrAudio = true;
+  out.requireLineIdentity = false;
+  out.minDurationMs = 1;
+  out.maxDurationMs = 30000;
+  return out;
+}
+
+std::string dialogPresentationDecisionDebugJson(const ServerDialogPresentationDecision& decision) {
+  std::string out;
+  out.reserve(decision.reason.size() + decision.message.size() + 256);
+  out += "{\"status\":";
+  out += jsonEscape(serverDialogPresentationStatusName(decision.presentationStatus));
+  out += ",\"ack_status\":";
+  out += jsonEscape(decision.accepted() ? "ack" : "nack");
+  out += ",\"reason\":";
+  out += jsonEscape(decision.reason);
+  out += ",\"message\":";
+  out += jsonEscape(decision.message);
+  out += ",\"validation_enabled\":";
+  out += decision.validationEnabled ? "true" : "false";
+  out += ",\"ui_applied\":";
+  out += decision.uiApplied ? "true" : "false";
+  out += ",\"audio_applied\":";
+  out += decision.audioApplied ? "true" : "false";
+  out += "}";
+  return out;
 }
 
 struct QueuedAction final {
@@ -1312,7 +1441,10 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
     explicit QueuedSemanticActionSink(SemanticActionSinkConfig cfg)
       : strictOverflow(cfg.strictOverflow),
         serverBoundUdp(cfg.serverBoundClientMode),
+        queueDialogPresentationMainThreadProbe(cfg.serverBoundClientMode && cfg.serverDialogPresentationMainThreadProbe),
+        sendDialogObservationReceipts(cfg.serverBoundClientMode && cfg.serverDialogObservationReceipt),
         configuredSessionKey(cfg.sessionKey.empty() ? std::string("local-dev") : cfg.sessionKey),
+        dialogPresentationConfig(makeServerDialogPresentationConfig(cfg)),
         queue(std::max<std::size_t>(cfg.queueCapacity, 1)) {
       worker = std::thread([this, cfg = std::move(cfg)]() mutable {
         run(std::move(cfg.jsonlPath), std::move(cfg.udpEndpoint));
@@ -1450,8 +1582,10 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
             if(stopping)
               break;
             lock.unlock();
-            if(udp && udpSocket.is_open())
+            if(udp && udpSocket.is_open()) {
+              drainClientGameplayObservationReceipts(udpSocket, udp->endpoint);
               drainServerPackets(udpSocket);
+            }
             continue;
           }
 
@@ -1469,10 +1603,12 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
         if(udp && udpSocket.is_open()) {
           asio::error_code ec;
           if(serverBoundUdp) {
+            drainClientGameplayObservationReceipts(udpSocket, udp->endpoint);
             drainServerPackets(udpSocket);
             if(action.bootstrapRequest)
               beginBootstrapSnapshotReceive();
             udpSocket.send_to(asio::buffer(action.serverPacket), udp->endpoint, 0, ec);
+            drainClientGameplayObservationReceipts(udpSocket, udp->endpoint);
             drainServerPackets(udpSocket);
             if(action.bootstrapRequest) {
               for(unsigned i = 0; i != 200; ++i) {
@@ -1494,6 +1630,7 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
       if(udp && udpSocket.is_open()) {
         for(unsigned i = 0; i != 80; ++i) {
           std::this_thread::sleep_for(std::chrono::milliseconds(5));
+          drainClientGameplayObservationReceipts(udpSocket, udp->endpoint);
           drainServerPackets(udpSocket);
         }
         logIncompleteSnapshot();
@@ -1529,7 +1666,20 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
       std::uint64_t snapshotBytes = 0;
       std::uint64_t liveDeltas = 0;
       std::uint64_t liveDeltaBytes = 0;
+      std::uint64_t dialogIntents = 0;
+      std::uint64_t dialogIntentBytes = 0;
+      std::uint64_t gameplayAcksSent = 0;
+      std::uint64_t gameplayAckSendFailures = 0;
+      std::uint64_t duplicateDialogIntents = 0;
+      std::uint64_t dialogPresentationAcks = 0;
+      std::uint64_t dialogPresentationNacks = 0;
+      std::uint64_t dialogPresentationMainThreadQueued = 0;
+      std::uint64_t dialogPresentationMainThreadDropped = 0;
+      std::uint64_t gameplayObservationReceiptsSent = 0;
+      std::uint64_t gameplayObservationReceiptSendFailures = 0;
+      std::uint64_t gameplayObservationReceiptEncodeFailures = 0;
       std::uint64_t lastLiveDeltaSeq = 0;
+      std::uint64_t lastDialogIntentSeq = 0;
       std::uint64_t lastAckSeq = 0;
       std::uint64_t lastSummaryAccepted = 0;
       std::uint64_t lastSummaryRejected = 0;
@@ -1644,6 +1794,39 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
       }
     }
 
+    void drainClientGameplayObservationReceipts(asio::ip::udp::socket& socket,
+                                                const asio::ip::udp::endpoint& remote) noexcept {
+      if(!sendDialogObservationReceipts)
+        return;
+
+      std::vector<Net::ClientGameplayObservationPacket> receipts;
+      {
+        std::lock_guard<std::mutex> lock(clientGameplayObservationReceiptMutex);
+        receipts.swap(clientGameplayObservationReceiptOutbox);
+      }
+      if(receipts.empty())
+        return;
+
+      for(const auto& receipt : receipts) {
+        const auto encoded = Net::encodeClientGameplayObservationPacket(receipt);
+        if(encoded.empty()) {
+          ++serverStats.gameplayObservationReceiptEncodeFailures;
+          Tempest::Log::e("MMO server dialog observation receipt encode failed action_id=", receipt.actionId,
+                          " ack_key=", receipt.ackKey);
+          continue;
+        }
+
+        asio::error_code ec;
+        socket.send_to(asio::buffer(encoded), remote, 0, ec);
+        if(ec) {
+          ++serverStats.gameplayObservationReceiptSendFailures;
+          Tempest::Log::e("MMO server dialog observation receipt send failed: ", ec.message());
+          continue;
+        }
+        ++serverStats.gameplayObservationReceiptsSent;
+      }
+    }
+
     void drainServerPackets(asio::ip::udp::socket& socket) noexcept {
       std::array<char, Net::MaxDatagramBytes> buffer {};
       for(unsigned i = 0; i != 256; ++i) {
@@ -1680,6 +1863,15 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
         if(auto diag = Net::decodeServerDiagnosticPacket(packet); diag.ok()) {
           ++serverStats.diagnostics;
           logServerDiagnostic(diag.diagnostic);
+          continue;
+        }
+
+        if(auto intent = Net::decodeServerNpcDialogIntentPacket(packet); intent.ok()) {
+          ++serverStats.dialogIntents;
+          serverStats.dialogIntentBytes += static_cast<std::uint64_t>(intent.dialogIntent.text.size() + intent.dialogIntent.audioRef.size());
+          serverStats.lastDialogIntentSeq = intent.dialogIntent.packetSequence;
+          acceptNpcDialogIntent(std::move(intent.dialogIntent), socket, remote);
+          maybeLogServerAckSummary(false);
           continue;
         }
 
@@ -1737,7 +1929,20 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
                       " snapshot_bytes=", serverStats.snapshotBytes,
                       " live_deltas=", serverStats.liveDeltas,
                       " live_delta_bytes=", serverStats.liveDeltaBytes,
+                      " dialog_intents=", serverStats.dialogIntents,
+                      " dialog_intent_bytes=", serverStats.dialogIntentBytes,
+                      " gameplay_acks_sent=", serverStats.gameplayAcksSent,
+                      " gameplay_ack_send_failures=", serverStats.gameplayAckSendFailures,
+                      " duplicate_dialog_intents=", serverStats.duplicateDialogIntents,
+                      " dialog_presentation_acks=", serverStats.dialogPresentationAcks,
+                      " dialog_presentation_nacks=", serverStats.dialogPresentationNacks,
+                      " dialog_main_thread_queued=", serverStats.dialogPresentationMainThreadQueued,
+                      " dialog_main_thread_dropped=", serverStats.dialogPresentationMainThreadDropped,
+                      " gameplay_observation_receipts_sent=", serverStats.gameplayObservationReceiptsSent,
+                      " gameplay_observation_receipt_send_failures=", serverStats.gameplayObservationReceiptSendFailures,
+                      " gameplay_observation_receipt_encode_failures=", serverStats.gameplayObservationReceiptEncodeFailures,
                       " last_live_delta_seq=", serverStats.lastLiveDeltaSeq,
+                      " last_dialog_intent_seq=", serverStats.lastDialogIntentSeq,
                       " last_seq=", serverStats.lastAckSeq);
       serverStats.lastSummaryAccepted = serverStats.acceptedAcks;
       serverStats.lastSummaryRejected = serverStats.rejectedAcks;
@@ -1781,7 +1986,14 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
             << "  \"ack_accepted\": " << serverStats.acceptedAcks << ",\n"
             << "  \"ack_rejected\": " << serverStats.rejectedAcks << ",\n"
             << "  \"snapshot_datagrams_seen\": " << serverStats.snapshotChunks << ",\n"
-            << "  \"live_deltas_seen\": " << serverStats.liveDeltas << "\n"
+            << "  \"live_deltas_seen\": " << serverStats.liveDeltas << ",\n"
+            << "  \"dialog_intents_seen\": " << serverStats.dialogIntents << ",\n"
+            << "  \"gameplay_acks_sent\": " << serverStats.gameplayAcksSent << ",\n"
+            << "  \"duplicate_dialog_intents_seen\": " << serverStats.duplicateDialogIntents << ",\n"
+            << "  \"dialog_presentation_acks\": " << serverStats.dialogPresentationAcks << ",\n"
+            << "  \"dialog_presentation_nacks\": " << serverStats.dialogPresentationNacks << ",\n"
+            << "  \"dialog_main_thread_queued\": " << serverStats.dialogPresentationMainThreadQueued << ",\n"
+            << "  \"dialog_main_thread_dropped\": " << serverStats.dialogPresentationMainThreadDropped << "\n"
             << "}\n";
         out.close();
         std::error_code ec;
@@ -1868,6 +2080,135 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
       snapshot = {};
     }
 
+    struct DialogIntentReceipt final {
+      Net::ClientGameplayAckStatus status = Net::ClientGameplayAckStatus::Ack;
+      std::uint32_t flags = Net::ClientGameplayAckAccepted;
+      ServerDialogPresentationStatus presentationStatus = ServerDialogPresentationStatus::Disabled;
+      std::string reason;
+      std::string message;
+      bool validationEnabled = false;
+      bool uiApplied = false;
+      bool audioApplied = false;
+    };
+
+    [[nodiscard]] static DialogIntentReceipt receiptFromDecision(const ServerDialogPresentationDecision& decision) {
+      return {decision.status,
+              decision.flags,
+              decision.presentationStatus,
+              decision.reason,
+              decision.message,
+              decision.validationEnabled,
+              decision.uiApplied,
+              decision.audioApplied};
+    }
+
+    [[nodiscard]] static ServerDialogPresentationDecision decisionFromReceipt(const DialogIntentReceipt& receipt) {
+      ServerDialogPresentationDecision out;
+      out.status = receipt.status;
+      out.flags = receipt.flags;
+      out.presentationStatus = receipt.presentationStatus;
+      out.reason = receipt.reason;
+      out.message = receipt.message;
+      out.validationEnabled = receipt.validationEnabled;
+      out.uiApplied = receipt.uiApplied;
+      out.audioApplied = receipt.audioApplied;
+      return out;
+    }
+
+    void acceptNpcDialogIntent(Net::ServerNpcDialogIntentPacket intent,
+                               asio::ip::udp::socket& socket,
+                               const asio::ip::udp::endpoint& remote) noexcept {
+      try {
+        ServerDialogPresentationDecision decision;
+        bool duplicateDelivery = false;
+
+        const auto found = seenDialogIntentReceipts.find(intent.ackKey);
+        if(found != seenDialogIntentReceipts.end()) {
+          duplicateDelivery = true;
+          decision = decisionFromReceipt(found->second);
+          decision.reason = decision.accepted()
+              ? "client_duplicate_delivery_ack_replay"
+              : "client_duplicate_delivery_nack_replay";
+          decision.message = "ServerNpcDialogIntent duplicate delivery observed; terminal client receipt replayed idempotently.";
+          ++serverStats.duplicateDialogIntents;
+        } else {
+          decision = evaluateServerDialogPresentation(intent, dialogPresentationConfig);
+          seenDialogIntentReceipts.emplace(intent.ackKey, receiptFromDecision(decision));
+        }
+
+        if(decision.accepted())
+          ++serverStats.dialogPresentationAcks;
+        else
+          ++serverStats.dialogPresentationNacks;
+
+        std::filesystem::create_directories("runtime");
+        std::ofstream out("runtime/mmo_server_npc_dialog_intents.jsonl", std::ios::out | std::ios::app | std::ios::binary);
+        if(out.is_open())
+          out << npcDialogIntentDebugJson(intent, duplicateDelivery, decision) << "\n";
+
+        if(queueDialogPresentationMainThreadProbe) {
+          ServerDialogPresentationEvent event;
+          event.intent = intent;
+          event.decision = decision;
+          event.duplicateDelivery = duplicateDelivery;
+          if(enqueueServerDialogPresentationEvent(std::move(event)))
+            ++serverStats.dialogPresentationMainThreadQueued;
+          else
+            ++serverStats.dialogPresentationMainThreadDropped;
+        }
+
+        Net::ClientGameplayAckPacket ack;
+        ack.packetSequence = ++clientGameplayAckSequence;
+        ack.localSequence = intent.localSequence;
+        ack.clientTick = intent.serverTick;
+        ack.status = decision.status;
+        ack.gameplayKind = Net::ServerGameplayKind::NpcDialogIntent;
+        ack.flags = decision.flags;
+        ack.sessionKey = configuredSessionKey;
+        ack.sessionUuid = intent.sessionUuid;
+        ack.characterKey = intent.targetCharacterKey;
+        ack.actionId = intent.actionId;
+        ack.ackKey = intent.ackKey;
+        ack.reason = decision.reason;
+        ack.message = decision.message;
+
+        const auto encoded = Net::encodeClientGameplayAckPacket(ack);
+        if(encoded.empty()) {
+          ++serverStats.gameplayAckSendFailures;
+          Tempest::Log::e("MMO server NPC dialog intent ACK encode failed action_id=", intent.actionId,
+                          " ack_key=", intent.ackKey);
+          return;
+        }
+
+        asio::error_code ec;
+        socket.send_to(asio::buffer(encoded), remote, 0, ec);
+        if(ec) {
+          ++serverStats.gameplayAckSendFailures;
+          Tempest::Log::e("MMO server NPC dialog intent ACK send failed: ", ec.message());
+          return;
+        }
+
+        ++serverStats.gameplayAcksSent;
+        Tempest::Log::i("MMO server NPC dialog intent received action_id=", intent.actionId,
+                        " speaker=", intent.speakerEntityKey,
+                        " line=", intent.lineId,
+                        " ack_key=", intent.ackKey,
+                        " seq=", intent.packetSequence,
+                        " ack_seq=", ack.packetSequence,
+                        " ack_status=", decision.accepted() ? "ack" : "nack",
+                        " presentation=", serverDialogPresentationStatusName(decision.presentationStatus).data(),
+                        " duplicate_delivery=", duplicateDelivery ? 1 : 0,
+                        " ui_applied=", decision.uiApplied ? 1 : 0,
+                        " audio_applied=", decision.audioApplied ? 1 : 0);
+      } catch(const std::exception& exc) {
+        ++serverStats.gameplayAckSendFailures;
+        Tempest::Log::e("MMO server NPC dialog intent handling failed: ", exc.what());
+      } catch(...) {
+        ++serverStats.gameplayAckSendFailures;
+        Tempest::Log::e("MMO server NPC dialog intent handling failed: unknown error");
+      }
+    }
+
     void acceptLiveDelta(Net::ServerLiveDeltaPacket delta) noexcept {
       try {
         enqueueServerLiveDelta(delta);
@@ -1897,7 +2238,10 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
 
     bool                        strictOverflow = false;
     bool                        serverBoundUdp = false;
+    bool                        queueDialogPresentationMainThreadProbe = false;
+    bool                        sendDialogObservationReceipts = false;
     std::string                 configuredSessionKey;
+    ServerDialogPresentationConfig dialogPresentationConfig;
     std::vector<QueuedAction>   queue;
     std::size_t                 head = 0;
     std::size_t                 tail = 0;
@@ -1909,6 +2253,8 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
     std::atomic_uint64_t        dropped {0};
     SnapshotAssembly            snapshot;
     ServerPacketStats           serverStats;
+    std::uint64_t               clientGameplayAckSequence = 0;
+    std::unordered_map<std::string, DialogIntentReceipt> seenDialogIntentReceipts;
     bool                        snapshotCompleteAfterBootstrap = false;
 };
 
@@ -1978,6 +2324,12 @@ void configureSemanticActionSink(const SemanticActionSinkConfig& cfg) {
     Tempest::Log::i("MMO semantic action ASIO UDP transport enabled: ", cfg.udpEndpoint);
   if(cfg.serverBoundClientMode)
     Tempest::Log::i("MMO semantic action sink is in server-bound binary UDP mode");
+  if(cfg.serverDialogPresentationValidateOnly)
+    Tempest::Log::i("MMO server dialog presentation validation enabled: validate-only, no UI/audio side effects");
+  if(cfg.serverDialogPresentationMainThreadProbe)
+    Tempest::Log::i("MMO server dialog main-thread presentation probe enabled: no UI/audio side effects");
+  if(cfg.serverDialogObservationReceipt)
+    Tempest::Log::i("MMO server dialog main-thread observation receipts enabled: no UI/audio side effects");
   setSemanticActionSink(std::make_unique<QueuedSemanticActionSink>(cfg));
 }
 
@@ -1989,6 +2341,9 @@ void configureSemanticActionSink(const CommandLine& cmd) {
   cfg.queueCapacity = cmd.mmoActionQueueCapacity();
   cfg.strictOverflow = cmd.mmoActionStrictOverflow();
   cfg.serverBoundClientMode = cmd.mmoClientUsesServer();
+  cfg.serverDialogPresentationValidateOnly = cmd.mmoClientDialogPresentationValidateOnly();
+  cfg.serverDialogPresentationMainThreadProbe = cmd.mmoClientDialogPresentationMainThreadProbe();
+  cfg.serverDialogObservationReceipt = cmd.mmoClientDialogObservationReceipt();
   configureSemanticActionSink(cfg);
 }
 
@@ -2003,23 +2358,15 @@ std::vector<Net::ServerLiveDeltaPacket> drainServerLiveDeltas() noexcept {
   return out;
 }
 
+std::vector<ServerDialogPresentationEvent> drainServerDialogPresentationEvents() noexcept {
+  std::lock_guard<std::mutex> lock(serverDialogPresentationMutex);
+  std::vector<ServerDialogPresentationEvent> out;
+  out.swap(serverDialogPresentationInbox);
+  return out;
+}
+
+bool enqueueClientGameplayObservationReceipt(Net::ClientGameplayObservationPacket packet) noexcept {
+  return enqueueClientGameplayObservationReceiptInternal(std::move(packet));
+}
+
 } // namespace Mmo
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
