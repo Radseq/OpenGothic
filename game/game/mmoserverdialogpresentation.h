@@ -6,7 +6,7 @@
 #include <string_view>
 #include <utility>
 
-#include "mmonetprotocol.h"
+#include "../../../shared/net/mmo/mmonetprotocol.h"
 
 namespace Mmo {
 
@@ -737,7 +737,6 @@ struct ServerDialogMainThreadPresentationProbeResult final {
 }
 
 } // namespace Mmo
-
 
 
 

@@ -8,8 +8,8 @@
 #include <string_view>
 #include <vector>
 
-#include "mmosemanticevents.h"
-#include "mmonetprotocol.h"
+#include "../../../shared/game/mmo/mmosemanticevents.h"
+#include "../../../shared/net/mmo/mmonetprotocol.h"
 #include "mmoserverdialogpresentation.h"
 
 class CommandLine;

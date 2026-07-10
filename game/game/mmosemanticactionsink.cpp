@@ -50,7 +50,8 @@
 #endif
 
 #include "commandline.h"
-#include "mmonetprotocol.h"
+#include "../../../shared/net/mmo/mmo_bootstrap_assembly.h"
+#include "../../../shared/net/mmo/mmonetprotocol.h"
 #include "mmoserverdialogpresentation.h"
 
 namespace Mmo {
@@ -1645,15 +1646,6 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
       }
     }
 
-    struct SnapshotAssembly final {
-      std::uint32_t id = 0;
-      std::uint16_t chunkCount = 0;
-      std::uint32_t totalBytes = 0;
-      std::uint16_t receivedChunks = 0;
-      std::size_t receivedBytes = 0;
-      std::vector<std::string> chunks;
-    };
-
     struct ServerPacketStats final {
       std::uint64_t acceptedAcks = 0;
       std::uint64_t rejectedAcks = 0;
@@ -1950,17 +1942,17 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
     }
 
     void logIncompleteSnapshot() noexcept {
-      if(snapshot.receivedChunks == 0)
+      if(!snapshot.active())
         return;
-      Tempest::Log::e("MMO server bootstrap snapshot incomplete: id=", snapshot.id,
-                      " chunks=", static_cast<unsigned>(snapshot.receivedChunks),
-                      "/", static_cast<unsigned>(snapshot.chunkCount),
-                      " bytes=", snapshot.receivedBytes,
-                      "/", snapshot.totalBytes);
+      Tempest::Log::e("MMO server bootstrap snapshot incomplete: id=", snapshot.snapshotId(),
+                      " chunks=", static_cast<unsigned>(snapshot.receivedChunks()),
+                      "/", static_cast<unsigned>(snapshot.chunkCount()),
+                      " bytes=", snapshot.receivedBytes(),
+                      "/", snapshot.totalBytes());
     }
 
     void beginBootstrapSnapshotReceive() noexcept {
-      snapshot = {};
+      snapshot.reset();
       snapshotCompleteAfterBootstrap = false;
       std::error_code ec;
       std::filesystem::create_directories("runtime", ec);
@@ -2005,59 +1997,45 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
     }
 
     void acceptSnapshotChunk(Net::ServerSnapshotChunkPacket chunk) noexcept {
-      if(chunk.chunkCount == 0 || chunk.chunkIndex >= chunk.chunkCount)
+      const auto beforeChunks = snapshot.receivedChunks();
+      const auto result = snapshot.accept(std::move(chunk));
+      if(result.status == Net::BootstrapChunkStatus::Duplicate)
         return;
-      if(snapshot.id != chunk.snapshotId || snapshot.chunkCount != chunk.chunkCount || snapshot.totalBytes != chunk.totalBytes) {
-        snapshot = {};
-        snapshot.id = chunk.snapshotId;
-        snapshot.chunkCount = chunk.chunkCount;
-        snapshot.totalBytes = chunk.totalBytes;
-        snapshot.chunks.resize(chunk.chunkCount);
-        Tempest::Log::i("MMO server bootstrap snapshot receiving: id=", snapshot.id,
-                        " bytes=", snapshot.totalBytes,
-                        " chunks=", static_cast<unsigned>(snapshot.chunkCount));
-      }
-
-      auto& slot = snapshot.chunks[chunk.chunkIndex];
-      if(!slot.empty())
-        return;
-      snapshot.receivedBytes += chunk.payloadJsonFragment.size();
-      slot = std::move(chunk.payloadJsonFragment);
-      ++snapshot.receivedChunks;
-
-      if(snapshot.receivedChunks == 1 ||
-         snapshot.receivedChunks == snapshot.chunkCount ||
-         snapshot.receivedChunks % 16u == 0) {
-        Tempest::Log::i("MMO server bootstrap snapshot progress: id=", snapshot.id,
-                        " chunks=", static_cast<unsigned>(snapshot.receivedChunks),
-                        "/", static_cast<unsigned>(snapshot.chunkCount),
-                        " bytes=", snapshot.receivedBytes,
-                        "/", snapshot.totalBytes);
-      }
-
-      if(snapshot.receivedChunks != snapshot.chunkCount)
-        return;
-
-      std::string json;
-      json.reserve(snapshot.receivedBytes);
-      for(const auto& part : snapshot.chunks)
-        json += part;
-      if(json.size() != snapshot.totalBytes) {
-        Tempest::Log::e("MMO server bootstrap snapshot rejected: size mismatch bytes=", json.size(),
-                        " expected=", snapshot.totalBytes);
-        snapshot = {};
+      if(!result.accepted()) {
+        Tempest::Log::e("MMO server bootstrap snapshot chunk rejected status=",
+                        static_cast<unsigned>(result.status));
         return;
       }
 
+      if(result.status == Net::BootstrapChunkStatus::Accepted) {
+        if(beforeChunks == 0) {
+          Tempest::Log::i("MMO server bootstrap snapshot receiving: id=", snapshot.snapshotId(),
+                          " bytes=", snapshot.totalBytes(),
+                          " chunks=", static_cast<unsigned>(snapshot.chunkCount()));
+        }
+        if(snapshot.receivedChunks() == 1 ||
+           snapshot.receivedChunks() % 16u == 0) {
+          Tempest::Log::i("MMO server bootstrap snapshot progress: id=", snapshot.snapshotId(),
+                          " chunks=", static_cast<unsigned>(snapshot.receivedChunks()),
+                          "/", static_cast<unsigned>(snapshot.chunkCount()),
+                          " bytes=", snapshot.receivedBytes(),
+                          "/", snapshot.totalBytes());
+        }
+        return;
+      }
+
+      if(!result.completed.has_value())
+        return;
+
+      auto completed = std::move(*result.completed);
       try {
         std::filesystem::create_directories("runtime");
         std::ofstream out("runtime/mmo_server_bootstrap_snapshot.json.tmp", std::ios::out | std::ios::binary | std::ios::trunc);
         if(!out.is_open()) {
           Tempest::Log::e("MMO server bootstrap snapshot: unable to open runtime/mmo_server_bootstrap_snapshot.json.tmp");
-          snapshot = {};
           return;
         }
-        out.write(json.data(), static_cast<std::streamsize>(json.size()));
+        out.write(completed.payload.data(), static_cast<std::streamsize>(completed.payload.size()));
         out.put('\n');
         out.close();
         std::error_code ec;
@@ -2066,18 +2044,16 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
                                 ec);
         if(ec) {
           Tempest::Log::e("MMO server bootstrap snapshot rename failed: ", ec.message());
-          snapshot = {};
           return;
         }
-        Tempest::Log::i("MMO server bootstrap snapshot received: bytes=", json.size(),
-                        " chunks=", static_cast<unsigned>(snapshot.chunkCount),
+        Tempest::Log::i("MMO server bootstrap snapshot received: bytes=", completed.payload.size(),
+                        " chunks=", static_cast<unsigned>(completed.chunkCount),
                         " path=runtime/mmo_server_bootstrap_snapshot.json");
-        writeSnapshotManifest(json.size(), snapshot.chunkCount, snapshot.id);
+        writeSnapshotManifest(completed.payload.size(), completed.chunkCount, completed.snapshotId);
         snapshotCompleteAfterBootstrap = true;
       } catch(const std::exception& exc) {
         Tempest::Log::e("MMO server bootstrap snapshot write failed: ", exc.what());
       }
-      snapshot = {};
     }
 
     struct DialogIntentReceipt final {
@@ -2251,7 +2227,7 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
     std::condition_variable     cv;
     std::thread                 worker;
     std::atomic_uint64_t        dropped {0};
-    SnapshotAssembly            snapshot;
+    Net::BootstrapSnapshotAssembler snapshot;
     ServerPacketStats           serverStats;
     std::uint64_t               clientGameplayAckSequence = 0;
     std::unordered_map<std::string, DialogIntentReceipt> seenDialogIntentReceipts;
