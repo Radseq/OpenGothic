@@ -14,10 +14,29 @@ set(CMAKE_SKIP_RPATH ON)
 
 add_executable(${PROJECT_NAME})
 
-set(OPENGOTHIC_LOCAL_SQLITE_INCLUDE "${CMAKE_SOURCE_DIR}/thirdparty/sqlite/include")
-set(OPENGOTHIC_LOCAL_SQLITE_LIB     "${CMAKE_SOURCE_DIR}/thirdparty/sqlite/lib/sqlite3.lib")
-set(OPENGOTHIC_LOCAL_SQLITE_DLL     "${CMAKE_SOURCE_DIR}/thirdparty/sqlite/bin/sqlite3.dll")
-set(OPENGOTHIC_ASIO_INCLUDE         "${CMAKE_SOURCE_DIR}/thirdparty/asio/include")
+set(OPENGOTHIC_THIRD_PARTY_ROOT
+    "${CMAKE_SOURCE_DIR}/thirdparty"
+    CACHE PATH
+    "Directory containing optional OpenGothic MMO dependencies")
+
+# In the MMO workspace the client is nested under src/client and shared
+# dependencies belong to the superproject. Keep the client-local default so a
+# standalone OpenGothic checkout remains buildable without the superproject.
+get_filename_component(OPENGOTHIC_MMO_WORKSPACE_ROOT "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE)
+if(OPENGOTHIC_THIRD_PARTY_ROOT STREQUAL "${CMAKE_SOURCE_DIR}/thirdparty"
+   AND EXISTS "${OPENGOTHIC_MMO_WORKSPACE_ROOT}/src/shared"
+   AND EXISTS "${OPENGOTHIC_MMO_WORKSPACE_ROOT}/third_party")
+  set(OPENGOTHIC_THIRD_PARTY_ROOT
+      "${OPENGOTHIC_MMO_WORKSPACE_ROOT}/third_party"
+      CACHE PATH
+      "Directory containing optional OpenGothic MMO dependencies"
+      FORCE)
+endif()
+
+set(OPENGOTHIC_LOCAL_SQLITE_INCLUDE "${OPENGOTHIC_THIRD_PARTY_ROOT}/sqlite/include")
+set(OPENGOTHIC_LOCAL_SQLITE_LIB     "${OPENGOTHIC_THIRD_PARTY_ROOT}/sqlite/lib/sqlite3.lib")
+set(OPENGOTHIC_LOCAL_SQLITE_DLL     "${OPENGOTHIC_THIRD_PARTY_ROOT}/sqlite/bin/sqlite3.dll")
+set(OPENGOTHIC_ASIO_INCLUDE         "${OPENGOTHIC_THIRD_PARTY_ROOT}/asio/include")
 
 if(EXISTS "${OPENGOTHIC_ASIO_INCLUDE}/asio.hpp")
   message(STATUS "Standalone ASIO found: enabling MMO ASIO UDP transport")
