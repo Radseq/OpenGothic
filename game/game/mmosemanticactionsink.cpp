@@ -51,6 +51,7 @@
 
 #include "commandline.h"
 #include "../../../shared/net/mmo/mmo_bootstrap_assembly.h"
+#include "../../../shared/net/mmo/mmo_bounded_mailbox.h"
 #include "../../../shared/net/mmo/mmonetprotocol.h"
 #include "mmoserverdialogpresentation.h"
 
@@ -1216,12 +1217,12 @@ std::optional<Net::ClientCharacterEventPacket> makeClientCharacterEventPacket(co
 constexpr std::size_t MaxQueuedServerLiveDeltas = 512;
 constexpr std::size_t MaxQueuedServerDialogPresentationEvents = 256;
 constexpr std::size_t MaxQueuedClientGameplayObservationReceipts = 256;
-std::mutex serverLiveDeltaMutex;
-std::vector<Net::ServerLiveDeltaPacket> serverLiveDeltaInbox;
-std::mutex serverDialogPresentationMutex;
-std::vector<ServerDialogPresentationEvent> serverDialogPresentationInbox;
-std::mutex clientGameplayObservationReceiptMutex;
-std::vector<Net::ClientGameplayObservationPacket> clientGameplayObservationReceiptOutbox;
+Net::BoundedMailbox<Net::ServerLiveDeltaPacket> serverLiveDeltaInbox {
+  MaxQueuedServerLiveDeltas, Net::MailboxOverflowPolicy::DropOldest};
+Net::BoundedMailbox<ServerDialogPresentationEvent> serverDialogPresentationInbox {
+  MaxQueuedServerDialogPresentationEvents, Net::MailboxOverflowPolicy::RejectNewest};
+Net::BoundedMailbox<Net::ClientGameplayObservationPacket> clientGameplayObservationReceiptOutbox {
+  MaxQueuedClientGameplayObservationReceipts, Net::MailboxOverflowPolicy::RejectNewest};
 std::atomic_uint64_t serverDialogPresentationReceivedOrder {0};
 std::atomic_uint64_t clientGameplayObservationReceiptSequence {0};
 
@@ -1373,30 +1374,19 @@ std::string npcDialogIntentDebugJson(const Net::ServerNpcDialogIntentPacket& int
 }
 
 void enqueueServerLiveDelta(Net::ServerLiveDeltaPacket delta) noexcept {
-  std::lock_guard<std::mutex> lock(serverLiveDeltaMutex);
-  if(serverLiveDeltaInbox.size() >= MaxQueuedServerLiveDeltas)
-    serverLiveDeltaInbox.erase(serverLiveDeltaInbox.begin());
-  serverLiveDeltaInbox.emplace_back(std::move(delta));
+  static_cast<void>(serverLiveDeltaInbox.push(std::move(delta)));
 }
 
 [[nodiscard]] bool enqueueServerDialogPresentationEvent(ServerDialogPresentationEvent event) noexcept {
-  std::lock_guard<std::mutex> lock(serverDialogPresentationMutex);
-  if(serverDialogPresentationInbox.size() >= MaxQueuedServerDialogPresentationEvents)
-    return false;
   event.receivedOrder = serverDialogPresentationReceivedOrder.fetch_add(1, std::memory_order_relaxed) + 1;
-  serverDialogPresentationInbox.emplace_back(std::move(event));
-  return true;
+  return serverDialogPresentationInbox.push(std::move(event)) != Net::MailboxPushStatus::RejectedFull;
 }
 
 [[nodiscard]] bool enqueueClientGameplayObservationReceiptInternal(Net::ClientGameplayObservationPacket packet) noexcept {
   if(packet.actionId.empty() || packet.ackKey.empty())
     return false;
   packet.packetSequence = clientGameplayObservationReceiptSequence.fetch_add(1, std::memory_order_relaxed) + 1;
-  std::lock_guard<std::mutex> lock(clientGameplayObservationReceiptMutex);
-  if(clientGameplayObservationReceiptOutbox.size() >= MaxQueuedClientGameplayObservationReceipts)
-    return false;
-  clientGameplayObservationReceiptOutbox.emplace_back(std::move(packet));
-  return true;
+  return clientGameplayObservationReceiptOutbox.push(std::move(packet)) != Net::MailboxPushStatus::RejectedFull;
 }
 
 ServerDialogPresentationConfig makeServerDialogPresentationConfig(const SemanticActionSinkConfig& cfg) noexcept {
@@ -1791,11 +1781,7 @@ class QueuedSemanticActionSink final : public SemanticActionSink {
       if(!sendDialogObservationReceipts)
         return;
 
-      std::vector<Net::ClientGameplayObservationPacket> receipts;
-      {
-        std::lock_guard<std::mutex> lock(clientGameplayObservationReceiptMutex);
-        receipts.swap(clientGameplayObservationReceiptOutbox);
-      }
+      auto receipts = clientGameplayObservationReceiptOutbox.drain();
       if(receipts.empty())
         return;
 
@@ -2328,17 +2314,11 @@ void shutdownSemanticActionSink() noexcept {
 }
 
 std::vector<Net::ServerLiveDeltaPacket> drainServerLiveDeltas() noexcept {
-  std::lock_guard<std::mutex> lock(serverLiveDeltaMutex);
-  std::vector<Net::ServerLiveDeltaPacket> out;
-  out.swap(serverLiveDeltaInbox);
-  return out;
+  return serverLiveDeltaInbox.drain();
 }
 
 std::vector<ServerDialogPresentationEvent> drainServerDialogPresentationEvents() noexcept {
-  std::lock_guard<std::mutex> lock(serverDialogPresentationMutex);
-  std::vector<ServerDialogPresentationEvent> out;
-  out.swap(serverDialogPresentationInbox);
-  return out;
+  return serverDialogPresentationInbox.drain();
 }
 
 bool enqueueClientGameplayObservationReceipt(Net::ClientGameplayObservationPacket packet) noexcept {
