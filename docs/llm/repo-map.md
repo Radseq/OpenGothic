@@ -1,71 +1,41 @@
-# Repository Map
+# Repository Map — Full Client MMO Boundary
 
-Use this as a navigation aid only. Verify paths in the actual repo before editing.
+Last verified: 2026-07-11.
 
-## Top-Level Areas
+## Build integration
 
-| Path | Purpose |
-| --- | --- |
-| `game/` | OpenGothic client/runtime source. Preserve native single-player behavior. |
-| `server/cpp/` | C++ MMO server, UDP path, content tools/probes/loaders. |
-| `server/sql/` | MySQL schemas/procedures/migrations/development SQL. |
-| `tools/` | Python/shell tooling for DB, content build, snapshots and checks. |
-| `docs/llm/` | Compact context for AI agents. |
-| `docs/llm/ai/` | Historical step archive. Do not load by default. |
-| `runtime/` | Generated local outputs, parser snapshots, bootstrap artifacts, check outputs. |
-| `build/` | Generated build tree. Do not commit/edit manually. |
+- `src/client/CMakeLists.txt` — links the sandbox facade and keeps SQLite tooling
+  optional/off by default.
 
-## Server C++ Areas
+## Engine/sandbox bridge
 
-Likely files/modules to inspect for current work:
+- `src/client/game/game/mmoclientbridge.h`
+- `src/client/game/game/mmoclientbridge.cpp`
+- public facade: `src/client_sandbox/include/gothic/mmo/client_runtime_facade.h`
 
-- `server/cpp/mmo_udp_server.cpp` - main UDP server/authority path.
-- `server/cpp/mmo_runtime_read_model_loader.*` - runtime read-model loading/indexing.
-- `server/cpp/*read_model*probe*` - focused validation/probe tooling.
-- `server/cpp/*content_build*` - content build importer/exporter/probes.
-- `server/cpp/CMakeLists.txt` - server-side targets.
+## Input and observations
 
-For Step226 -> next step, inspect loader/index structs first, then add a
-read-only `world_instance` cache around them.
+- `src/client/game/game/mmosemantichooks.h`
+- `src/client/game/game/mmosemantichooks.cpp`
+- `src/shared/net/mmo/mmo_client_intent.h`
+- `src/shared/net/mmo/mmo_client_intent_validation.h`
 
-## Client Areas
+## Server presentation
 
-Client changes must be conservative:
+- `mmoserverentitypresentationregistry.*`
+- `mmoserverentityinterpolator.*`
+- `mmoserverdialogpresentation.h`
+- `world/objects/npc.*` for the `mmoServerReplica` guard.
 
-- preserve default Gothic behavior;
-- isolate MMO mode behind explicit flags;
-- emit server intents/evidence rather than authoritative mutations;
-- avoid hard dependencies on local DB/server when not in MMO mode.
+## Mode and UX
 
-Likely search terms:
+- `src/client/game/commandline.*`
+- `src/client/game/ui/gamemenu.cpp`
+- save/load/session integration in `gamesession.*`, `serialize.*` and menu code.
 
-```text
-mmo-client-server
-mmo_action
-bootstrap_snapshot
-server_bound
-save/load
-PC_HERO
-```
+## Optional local tooling
 
-## SQL/DB Areas
+- `src/client/tools/mmo` — SQLite capture/restore diagnostics, excluded from the
+  production client unless explicitly enabled.
 
-When schema/procedure changes are required:
-
-- update SQL under `server/sql/`;
-- update apply/check tools under `tools/`;
-- update `testing.md` with the smallest verification command;
-- document durable contract changes in `api-contracts.md` or `decisions.md`.
-
-Do not add views/procedures just to hide unclear application logic. Prefer typed
-server logic unless the DB contract clearly owns the operation.
-
-## Tooling Areas
-
-Snapshot/context tools should:
-
-- split server and client code snapshots when possible;
-- include `docs/llm` and relevant tools;
-- avoid `build/`, `.git/`, binaries, images, logs and generated snapshots;
-- export MySQL schema without live data;
-- skip broken MySQL views when needed and report that explicitly.
+Do not recreate the removed client-side server tree.

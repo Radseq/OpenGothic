@@ -1,78 +1,53 @@
-# Next Work
+# Next Work — Full OpenGothic Client
 
-## Immediate Step
+Last updated: 2026-07-11.
 
-Build the first read-only `world_instance` content cache on top of the Step226
-`RuntimeReadModel` indexes.
+The global roadmap currently prioritizes Protocol V2, typed replication and
+binary bootstrap before broad MMO UX. Client changes should prepare that
+boundary without inventing a second transport.
 
-This is a server-side content/cache step. It should not add live NPC AI yet and
-should not add new client authority.
+## 1. Thin domain adapter over the sandbox facade
 
-## Target Inputs
+- replace wire-family knowledge in engine code with domain-level request and
+  presentation types;
+- keep packet encoding/versioning private to sandbox/shared;
+- centralize entity handle to local-object binding and stale-generation checks;
+- preserve native single-player behavior behind existing mode checks.
 
-- active content revision;
-- exported `mmo.content_build_runtime_read_model.v1` payload;
-- Step226 `RuntimeReadModel` indexed data;
-- server world instance key/world name.
+## 2. Classify semantic hooks
 
-## Target Cache APIs
+For each callback in `mmosemantichooks.*`, choose:
 
-Expose read-only queries for future server systems:
+- valid client intent;
+- non-authoritative observation/diagnostic;
+- native single-player-only behavior;
+- obsolete migration hook to delete.
 
-- resolve world ZEN entities by world/kind/key;
-- resolve waypoint edges by world/from/to;
-- resolve NPC templates by instance;
-- resolve item templates by instance;
-- enumerate routines by NPC instance and by routine symbol;
-- enumerate perception bindings by kind and owner;
-- resolve dialog infos and dialog outputs by symbol/name.
+Do not send before/after stats, damage, wallet, quest, NPC death or world-state
+results as MMO truth.
 
-## Expected Result
+## 3. Typed bootstrap and live presentation
 
-- Server code has one immutable content cache per selected `world_instance`.
-- Cache construction consumes Step226 indexes without re-parsing JSON in gameplay code.
-- Cache owns or explicitly references data with clear lifetimes.
-- Probe/check code can verify deterministic counts/lookups.
-- No live NPC/script tick yet.
+After shared/sandbox contracts exist:
 
-## Acceptance Checks
+- consume typed bootstrap sections directly from facade mailboxes;
+- create/despawn presentation objects from entity lifecycle events;
+- apply transform interpolation and corrections;
+- project inventory/equipment/dialog/quest/world events into UI;
+- handle bounded resync/reconnect without local save files.
 
-- Existing `mmo_runtime_read_model_probe` still reports `status=ready`.
-- Existing Step226 index counts and deterministic lookup checks remain stable.
-- New cache checks fail loudly when required data is missing.
-- No new gameplay authority is added on the client.
-- No DB mutation is introduced for this cache step.
-- Native single-player build still compiles.
+## 4. MMO character UX
 
-## Then
+- New Game creates a server character;
+- Continue/Load lists server characters without selecting local save files;
+- Save is disabled/replaced in MMO mode;
+- remove hardcoded development character/session identities;
+- world transitions use server approval and loading presentation.
 
-Integrate the cache into server startup/session bootstrap:
+## Acceptance
 
-- select approved content revision;
-- load runtime read-model once;
-- bind cache to active world instances;
-- expose read-only queries to future NPC/perception systems.
-
-## After That
-
-Start server NPC/perception policy as a read-only assessment pass:
-
-- active players in world instance;
-- active NPCs in world instance;
-- spatial/distance query;
-- perception binding lookup;
-- cooldown/readiness check;
-- write decision to `mmo_ai_runtime`;
-- do not broadcast movement/dialog until dispatch contract is integrated.
-
-## Defer
-
-Do not implement yet:
-
-- full Daedalus VM execution for all scripts;
-- per-player script VMs;
-- live NPC path/movement replication;
-- trade/economy rewrite;
-- final production DB rewrite.
-
-These require the read-model cache and `world_instance` boundary first.
+- no full-client MMO socket, codec, retry or bootstrap assembler;
+- no local gameplay result can be submitted as authority;
+- replicated NPCs never run local authoritative AI;
+- the same behavior is proven first in the headless sandbox;
+- native single-player remains unchanged when MMO mode is off.

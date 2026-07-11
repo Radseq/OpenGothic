@@ -1,57 +1,52 @@
-# Current State - Full OpenGothic Client
+# Current State — Full OpenGothic Client
 
-Last verified: 2026-07-11, typed client runtime phase 2.
+Last verified: 2026-07-11 against client source and CMake.
 
-## Role
+## Implemented MMO boundary
 
-The full client owns engine input and presentation. In server-bound mode it is
-not a transport implementation and not gameplay authority.
+- `mmoclientbridge.cpp` consumes
+  `src/client_sandbox/include/gothic/mmo/client_runtime_facade.h`;
+- client CMake adds the sandbox as a subdirectory and links the ASIO facade when
+  available;
+- endpoint/socket/worker/retry/bootstrap assembly are not implemented in the
+  full-client bridge;
+- client submissions use the shared client-intent variant;
+- JSON exists at a local diagnostic boundary and is not parsed back into wire
+  gameplay packets.
 
-## MMO boundary
+## Bootstrap and menu
 
-The client depends only on:
+- completed snapshot payloads and server ACKs arrive through in-memory facade
+  mailboxes;
+- menu bootstrap rejection/status reads the in-memory bridge;
+- obsolete filesystem ACK/rejection control paths are removed;
+- the snapshot body remains the historical in-memory string/JSON schema until
+  typed binary bootstrap sections replace it.
 
-```text
-<gothic/mmo/client_runtime_facade.h>
-```
+## Presentation
 
-It no longer contains ASIO, endpoint resolution, UDP workers, packet codecs,
-bootstrap chunk assembly, retry/ACK state, or generic JSON packet builders.
+- server entity transform deltas map stable server IDs/generations to local
+  objects and use interpolation;
+- replicated NPCs are marked `mmoServerReplica`, disabling local routine,
+  perception, regeneration and combat authority while retaining presentation;
+- server dialog revisions/choices drive presentation; client sends only a
+  choice request.
 
-Input hooks submit typed requests/proposals. Completed gameplay claims are
-suppressed from the network and may be recorded only as local diagnostics.
+## Transitional debt
 
-## Bootstrap
+- `mmosemantichooks.*` still exposes many observation/result-shaped callbacks
+  inherited from migration history; production submission must remain intent
+  only and these hooks need classification/reduction;
+- the facade still exposes compatibility packet types rather than a final
+  domain-level API;
+- complete character create/select/load UX, typed inventory/combat/quest UI and
+  world-transition flow are not finished;
+- MMO save replacement and reconnect recovery are not complete;
+- SQLite capture/restore tooling under `src/client/tools/mmo` is optional and
+  disabled by default; it is unrelated to the repository LLM search index.
 
-Completed server bootstrap snapshots arrive through an in-memory bounded
-mailbox. The obsolete local JSON file restore/apply path was removed. The
-current snapshot body is still the server's existing JSON schema, parsed from
-memory; migration to a versioned binary body remains server/shared work.
+## Authority rule
 
-## NPC presentation
-
-Authoritative entity transform deltas are interpolated and mapped using server
-entity ID, generation and stable key. Local NPC identity is revalidated before
-application. Replicated NPCs are marked `mmoServerReplica`, which disables local
-routine, perception, regeneration and combat authority while preserving visual,
-audio and animation presentation.
-
-## Dialog
-
-Server-published revision and choices drive the UI. The client submits only a
-typed choice intent and does not execute local dialog effects as MMO truth.
-
-## Tooling
-
-SQLite capture/restore lives under `src/client/tools/mmo` and is excluded from
-production by default. JSONL is diagnostics only.
-
-
-
-## Typed bootstrap status - 2026-07-11
-
-The menu consumes bootstrap acceptance/rejection through the in-memory
-`ServerBootstrapStatus` bridge backed by `ServerAckKind::Bootstrap`. It no
-longer creates, polls or deletes `runtime/mmo_server_bootstrap_reject.json`.
-The bootstrap snapshot body remains the historical JSON schema in memory until
-the versioned binary bootstrap-section migration is completed.
+Native single-player continues to run original local logic. MMO-bound replicas
+and server-backed UI consume server output; local animation/collision evidence
+may support prediction or validation but never decides authoritative outcomes.
