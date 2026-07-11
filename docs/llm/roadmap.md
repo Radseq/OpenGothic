@@ -1,23 +1,78 @@
 # Full Client MMO Roadmap Projection
 
-The canonical project roadmap is `docs/llm/gothic-mmo-roadmap.md`. This file
-contains only client-facing milestones and cannot reorder global work.
+Last updated: 2026-07-11. The canonical order is
+`docs/llm/gothic-mmo-roadmap.md`. This projection cannot create client
+ownership or reorder global phases.
 
 ## Established
 
 - MMO mode is opt-in and native single-player remains available.
-- client-side communication moved behind the client-sandbox facade.
-- in-memory bootstrap ACK/snapshot handoff exists.
-- replicated NPC authority guards and transform presentation exist.
+- Client communication is behind the `client_sandbox` facade.
+- In-memory bootstrap ACK/snapshot handoff exists.
+- `client_sandbox` has Protocol V2 capability negotiation, route/header/receipt
+  state, typed heartbeat/resync codecs and a real UDP session loopback; the full
+  client does not include those wire types.
+- Replicated NPC authority guards and transform presentation exist.
+- The server has a composed trigger/fanout/mover/entity runtime capable of
+  deterministic typed internal outputs and restoring pending work.
+- The server also has a directory foundation for several isolated mutable world
+  instances sharing one immutable content revision, plus a strict server-owned
+  story policy that derives safe realm/party/character/explicit cohorts and
+  commits membership reroutes atomically.
+
+The last two items are server foundations only. They are not client wire
+contracts and must not be consumed by including server headers or duplicating
+server routing/story logic.
 
 ## Required before complete MMO UX
 
-1. Protocol V2 domain facade and typed binary bootstrap.
-2. Typed entity lifecycle/live replication and resync.
-3. Inventory, equipment, combat, dialog, quest and world-event presentation.
-4. server character create/select/load and MMO save replacement.
-5. complete reconnect/world-transition UX.
-6. multi-client headless proof followed by full-client proof.
+1. Complete the Protocol V2 domain facade above the existing route/header/receipt foundation, then add typed binary bootstrap.
+2. A route-bound world-instance identity in admission, bootstrap, deltas,
+   corrections, transitions and resync.
+3. Typed entity lifecycle/live replication, revisions and resync.
+4. Thin presentation adapters for committed world-logic outputs: mover
+   transforms, interaction state, transitions, scripts/presentation and
+   rejection/correction paths.
+5. Inventory, equipment, combat, dialog, quest and world-event presentation.
+6. Server character create/select/load and MMO save replacement.
+7. Complete reconnect, world-transition and instance-reroute UX.
+8. Multi-client headless proof followed by full-client proof.
+
+## Parallel-world client contract
+
+The full client must not calculate, select or persist authoritative story
+projection or instance placement.
+
+- the server assigns the authenticated session to an instance;
+- bootstrap names the exact world/content/instance revision being presented;
+- all live deltas and receipts are rejected locally when their route identity is
+  stale or belongs to another instance;
+- a story choice is sent only as an intent; the client never supplies a
+  `partitionsWorld` flag, cohort or target instance;
+- any required fork/reroute is a committed server result containing the new
+  route identity and revision;
+- reroute is handled as a bounded transition: stop old-instance application,
+  acknowledge the transition, install the new bootstrap/snapshot, then resume;
+- local caches are keyed by content revision plus route-bound instance identity;
+- NPC alive/dead, routine location, passage, trigger and mover truth always
+  comes from the assigned instance;
+- two visually identical worlds may still have different instance identities,
+  and the client must not merge their mutable state.
+
+Character-only quest/journal/UI state can coexist with a shared world instance,
+but that distinction is received from typed server projections rather than
+inferred in rendering code.
+
+## Client boundary for the next server integrations
+
+- input produces intents only;
+- `client_sandbox` owns transport, codecs, retry and session lifecycle;
+- the full client consumes typed snapshots/deltas and performs rendering,
+  interpolation, animation, audio, camera and UI;
+- local prediction must be reversible and cannot commit trigger, mover,
+  interaction, inventory, combat, quest, script or instance-routing state;
+- no direct dependency on `src/server`, ZenKit server loaders, DB or ASIO is
+  allowed in the full-client adapter.
 
 Network scaling is not a client milestone until the global playable 1:N UDP
 gate passes.
