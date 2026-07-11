@@ -10,6 +10,12 @@
 #include "game/gamescript.h"
 #include "camera.h"
 #include "gametime.h"
+#include "mmoserverentitypresentationregistry.h"
+#include "mmoserverentityinterpolator.h"
+
+#ifndef OPENGOTHIC_MMO_SQLITE_TOOLING
+#define OPENGOTHIC_MMO_SQLITE_TOOLING 0
+#endif
 
 class World;
 class WorldView;
@@ -22,7 +28,9 @@ class VisualFx;
 class WorldStateStorage;
 class VersionInfo;
 class GthFont;
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
 class MmoRuntimeSqlite;
+#endif
 
 class GameSession final {
   public:
@@ -32,8 +40,7 @@ class GameSession final {
       NewGame,
       MmoDbContinue,
       MmoServerFreshNewGame,
-      };
-
+};
     GameSession(std::string file);
     GameSession(std::string file, StartupMode startupMode);
     GameSession(Serialize&  fin, std::string sourceSlot = {});
@@ -105,7 +112,6 @@ class GameSession final {
     bool         isWorldKnown(std::string_view name) const;
     void         initPerceptions();
     void         initScripts(bool firstTime);
-    void         consumeMmoRestoreSnapshot(std::string_view reason) noexcept;
     auto         implChangeWorld(std::unique_ptr<GameSession> &&game, std::string_view world, std::string_view wayPoint) -> std::unique_ptr<GameSession>;
     auto         findStorage(std::string_view name) -> const WorldStateStorage&;
 
@@ -114,7 +120,9 @@ class GameSession final {
     std::unique_ptr<Camera>        cam;
     std::unique_ptr<GameScript>    vm;
     std::unique_ptr<World>         wrld;
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
     std::unique_ptr<MmoRuntimeSqlite> mmoSqlite;
+#endif
 
     struct MmoActionCheckpointState final {
       bool     initialized = false;
@@ -187,6 +195,7 @@ class GameSession final {
       uint64_t    lastPollTick = 0;
       uint64_t    lastLiveRefreshPollTick = 0;
       uint32_t    lastAppliedSnapshotId = 0;
+      uint32_t    minimumSnapshotIdExclusive = 0;
       std::string reason;
       };
 
@@ -195,8 +204,15 @@ class GameSession final {
     void        waitForMmoServerSnapshotRestoreDuringLoad() noexcept;
     void        pollMmoServerSnapshotRestore() noexcept;
     void        pollMmoServerDialogPresentationEvents() noexcept;
+    void        pollMmoServerEntityTransforms() noexcept;
     bool        tryApplyMmoServerWorldSnapshotRefresh() noexcept;
     void        markMmoServerSnapshotStoryDirty() noexcept;
+
+
+    Mmo::ClientPresentation::ServerEntityPresentationRegistry
+                                   mmoServerEntityPresentation;
+    Mmo::ClientPresentation::ServerEntityInterpolator
+                                   mmoServerEntityInterpolator;
 
     uint64_t                       ticks = 0, wrldTimePart = 0;
     MmoActionCheckpointState       lastMmoActionCheckpoint;

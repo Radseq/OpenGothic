@@ -58,14 +58,9 @@ class CommandLine {
     std::string_view    mmoActionJsonl() const { return mmoActionJsonlPath; }
     std::string_view    mmoActionUdpEndpoint() const { return mmoActionUdp; }
     bool                mmoClientUsesServer() const { return mmoClientUsesServerState; }
-    bool                mmoClientDialogPresentationValidateOnly() const { return mmoClientDialogPresentationValidateOnlyState; }
-    bool                mmoClientDialogPresentationMainThreadProbe() const { return mmoClientDialogPresentationMainThreadProbeState; }
     bool                mmoClientDialogObservationReceipt() const { return mmoClientDialogObservationReceiptState; }
     std::string_view    mmoServerEndpoint() const { return mmoServerEndpointValue; }
     std::string_view    mmoClientContentManifestHash() const { return mmoClientContentManifestHashValue; }
-    std::string_view    mmoRestoreSnapshotJson() const { return mmoRestoreSnapshotJsonPath; }
-    bool                mmoRestoreSnapshotApply() const { return mmoRestoreSnapshotApplyState; }
-    std::string_view    mmoServerSnapshotJson() const { return mmoServerSnapshotJsonPath; }
     bool                mmoServerSnapshotApplyInventory() const { return mmoClientUsesServerState; }
     bool                mmoServerSnapshotApplyPosition() const { return mmoClientUsesServerState; }
     bool                mmoServerSnapshotApplyStats() const { return mmoClientUsesServerState; }
@@ -109,14 +104,9 @@ class CommandLine {
     std::string         mmoActionJsonlPath;
     std::string         mmoActionUdp;
     bool                mmoClientUsesServerState = false;
-    bool                mmoClientDialogPresentationValidateOnlyState = false;
-    bool                mmoClientDialogPresentationMainThreadProbeState = false;
     bool                mmoClientDialogObservationReceiptState = false;
     std::string         mmoServerEndpointValue;
     std::string         mmoClientContentManifestHashValue;
-    std::string         mmoRestoreSnapshotJsonPath;
-    bool                mmoRestoreSnapshotApplyState = false;
-    std::string         mmoServerSnapshotJsonPath = "runtime/mmo_server_bootstrap_snapshot.json";
     bool                mmoDbContinueWithoutNativeSaveState = false;
     bool                mmoRequireDbSaveCheckpointRestoreState = false;
     std::string         mmoDbBootstrapWorldValue;

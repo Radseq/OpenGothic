@@ -1431,12 +1431,10 @@ inline std::vector<Quest> restoreQuests(std::string_view questsArray) {
 
 } // namespace Detail
 
-inline Result loadAndValidateBootstrapSnapshot(std::string_view path,
-                                                   std::string_view expectedCharacterKey) {
+inline Result parseAndValidateBootstrapSnapshot(std::string_view text,
+                                                  std::string_view expectedCharacterKey) {
   Result result;
-  auto text = Detail::readWholeFile(path, result);
-  if(!result.fileRead)
-    return result;
+  result.fileRead = true;
 
   result.bootstrapSchemaMatches = Detail::quotedValueEquals(text, "schema", "mmo_bootstrap_snapshot_v1");
   result.source = Detail::stringValueForKey(text, "source");
@@ -1554,6 +1552,15 @@ inline Result loadAndValidateBootstrapSnapshot(std::string_view path,
   result.ok = true;
   result.message = "bootstrap snapshot validated";
   return result;
+}
+
+inline Result loadAndValidateBootstrapSnapshot(std::string_view path,
+                                               std::string_view expectedCharacterKey) {
+  Result readResult;
+  const auto text = Detail::readWholeFile(path, readResult);
+  if(!readResult.fileRead)
+    return readResult;
+  return parseAndValidateBootstrapSnapshot(text, expectedCharacterKey);
 }
 
 inline Result loadAndValidate(std::string_view path,

@@ -7,12 +7,8 @@
 
 #include <algorithm>
 #include <chrono>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <optional>
 #include <string_view>
-#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -24,8 +20,7 @@
 #include "utils/fileutil.h"
 #include "utils/keycodec.h"
 #include "game/definitions/musicdefinitions.h"
-#include "game/mmosemanticactionsink.h"
-#include "game/mmosemanticevents.h"
+#include "game/mmoclientbridge.h"
 #include "game/serialize.h"
 #include "game/savegameheader.h"
 #include "commandline.h"
@@ -44,18 +39,6 @@ struct MmoMenuCharacter final {
   std::string name;
   std::string world;
   std::string updatedAt;
-};
-
-struct MmoBootstrapReject final {
-  bool present = false;
-  bool structured = false;
-  std::string reason;
-  std::string phase;
-  std::string clientHash;
-  std::string serverRequiredHash;
-  std::string contentRevisionKey;
-  std::string message;
-  std::string signature;
 };
 
 bool shouldMmoMenuActionLoadDbCharacter(std::string_view action) noexcept {
@@ -79,19 +62,6 @@ bool isSaveMenuAction(const std::shared_ptr<zenkit::IMenuItem>& item) noexcept {
     return true;
   return item->on_sel_action_s[0] == "SAVEGAME_SAVE" ||
          item->on_sel_action_s[1] == "SAVEGAME_SAVE";
-}
-
-std::string readTextFile(std::string_view path) {
-  std::ifstream in{std::string(path), std::ios::binary};
-  if(!in)
-    return {};
-  return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-}
-
-void clearMmoBootstrapRejectFile() {
-  std::error_code ec;
-  std::filesystem::remove("runtime/mmo_server_bootstrap_reject.json", ec);
-  std::filesystem::remove("runtime/mmo_server_bootstrap_reject.json.tmp", ec);
 }
 
 std::optional<std::size_t> matchingJsonEnd(std::string_view text, std::size_t openPos, char openCh, char closeCh) noexcept {
@@ -208,82 +178,42 @@ std::string jsonStringForKey(std::string_view object, std::string_view key) {
   return out;
 }
 
-bool jsonBoolForKey(std::string_view object, std::string_view key) {
-  const std::string needle = "\"" + std::string(key) + "\"";
-  const auto keyPos = object.find(needle);
-  if(keyPos == std::string_view::npos)
-    return false;
-  const auto colon = object.find(':', keyPos + needle.size());
-  if(colon == std::string_view::npos)
-    return false;
-  auto pos = colon + 1;
-  while(pos < object.size() && static_cast<unsigned char>(object[pos]) <= ' ')
-    ++pos;
-  return object.substr(pos, 4) == "true";
+std::optional<Mmo::ServerBootstrapStatus> readMmoBootstrapReject() {
+  const auto status = Mmo::latestServerBootstrapStatus();
+  if(!status || !status->rejected())
+    return std::nullopt;
+  return status;
 }
 
-MmoBootstrapReject readMmoBootstrapReject() {
-  MmoBootstrapReject out;
-  const auto json = readTextFile("runtime/mmo_server_bootstrap_reject.json");
-  if(json.empty())
-    return out;
-
-  out.present = jsonStringForKey(json, "status") == "rejected" &&
-                jsonStringForKey(json, "reject_kind") == "content_manifest";
-  if(!out.present)
-    return out;
-
-  out.structured = jsonBoolForKey(json, "structured");
-  out.reason = jsonStringForKey(json, "reason");
-  out.phase = jsonStringForKey(json, "phase");
-  out.clientHash = jsonStringForKey(json, "client_content_manifest_hash");
-  out.serverRequiredHash = jsonStringForKey(json, "server_required_content_hash");
-  out.contentRevisionKey = jsonStringForKey(json, "content_revision_key");
-  out.message = jsonStringForKey(json, "message");
-  out.signature = json;
-  return out;
-}
-
-std::string makeMmoBootstrapRejectSummary(const MmoBootstrapReject& reject) {
-  if(!reject.present)
+std::string makeMmoBootstrapRejectSummary(
+    const std::optional<Mmo::ServerBootstrapStatus>& reject) {
+  if(!reject)
     return {};
-
-  std::string out = "MMO content rejected";
-  if(!reject.reason.empty()) {
-    out.append(": ");
-    out.append(reject.reason);
-  }
-  if(!reject.contentRevisionKey.empty()) {
-    out.append(" rev=");
-    out.append(reject.contentRevisionKey);
-  } else if(!reject.serverRequiredHash.empty()) {
-    out.append(" required_hash=");
-    out.append(reject.serverRequiredHash.substr(0, std::min<std::size_t>(12, reject.serverRequiredHash.size())));
-  }
-  return out;
+  return reject->message.empty() ? "MMO bootstrap rejected" : reject->message;
 }
 
-void logMmoBootstrapRejectOnce(const MmoBootstrapReject& reject) {
-  if(!reject.present)
+void logMmoBootstrapRejectOnce(
+    const std::optional<Mmo::ServerBootstrapStatus>& reject) {
+  if(!reject)
     return;
-  static std::string lastSignature;
-  if(reject.signature == lastSignature)
+  static std::uint64_t lastPacketSequence = 0;
+  static std::uint64_t lastLocalSequence = 0;
+  if(reject->packetSequence == lastPacketSequence &&
+     reject->localSequence == lastLocalSequence)
     return;
-  lastSignature = reject.signature;
-  Log::e("MMO bootstrap rejected by content manifest gate",
-         " reason=", reject.reason.empty() ? "<empty>" : reject.reason,
-         " phase=", reject.phase.empty() ? "<empty>" : reject.phase,
-         " client_hash=", reject.clientHash.empty() ? "<empty>" : reject.clientHash,
-         " server_required_hash=", reject.serverRequiredHash.empty() ? "<empty>" : reject.serverRequiredHash,
-         " content_revision=", reject.contentRevisionKey.empty() ? "<empty>" : reject.contentRevisionKey);
+  lastPacketSequence = reject->packetSequence;
+  lastLocalSequence = reject->localSequence;
+  Log::e("MMO bootstrap rejected",
+         " packet_sequence=", reject->packetSequence,
+         " local_sequence=", reject->localSequence,
+         " reason=", reject->message.empty() ? "<empty>" : reject->message);
 }
 
 bool hasActiveMmoContentReject() {
   const auto reject = readMmoBootstrapReject();
   logMmoBootstrapRejectOnce(reject);
-  return reject.present;
+  return reject.has_value();
 }
-
 std::vector<MmoMenuCharacter> parseMmoCharacterList(std::string_view snapshotJson) {
   std::vector<MmoMenuCharacter> out;
   const auto array = jsonArrayForKey(snapshotJson, "character_list");
@@ -303,52 +233,35 @@ std::vector<MmoMenuCharacter> parseMmoCharacterList(std::string_view snapshotJso
 }
 
 void requestMmoBootstrapSnapshot(std::string_view reason, std::string_view sourceLocation) {
-  if(!Mmo::isServerBoundClientModeEnabled() || !Mmo::isSemanticActionCaptureEnabled())
+  if(!Mmo::isServerBoundClientModeEnabled())
     return;
 
-  clearMmoBootstrapRejectFile();
-
+  Mmo::resetServerBootstrapStatus();
   const auto& cmd = CommandLine::inst();
-  const auto seq = Mmo::nextSemanticActionSequence();
-  const std::string characterKey(cmd.mmoCharacterKey());
+  const auto seq = Mmo::nextClientIntentSequence();
   std::string characterEntity = "character:";
-  characterEntity.append(characterKey);
+  characterEntity.append(cmd.mmoCharacterKey());
 
-  std::string target = characterEntity;
-  target.append(":character-list");
-
-  std::string payload;
-  payload.reserve(512);
-  payload.append("{\"actor_key\":");
-  payload.append(Mmo::jsonEscape(characterEntity));
-  payload.append(",\"character_key\":");
-  payload.append(Mmo::jsonEscape(characterKey));
-  payload.append(",\"display_name\":");
-  payload.append(Mmo::jsonEscape(cmd.mmoCharacterDisplayName()));
-  payload.append(",\"world\":");
-  payload.append(Mmo::jsonEscape(Gothic::inst().defaultWorld()));
-  payload.append(",\"server_tick\":0");
-  payload.append(",\"server_bound_client_mode\":true");
-  payload.append(",\"server_endpoint\":");
-  payload.append(Mmo::jsonEscape(cmd.mmoServerEndpoint()));
-  if(const auto hash = cmd.mmoClientContentManifestHash(); !hash.empty()) {
-    payload.append(",\"client_content_manifest_hash\":");
-    payload.append(Mmo::jsonEscape(hash));
-  }
-  payload.append(",\"reason\":");
-  payload.append(Mmo::jsonEscape(reason));
-  payload.append(",\"source_location\":");
-  payload.append(Mmo::jsonEscape(sourceLocation.empty() ? std::string_view("GameMenu") : sourceLocation));
-  payload.push_back('}');
-
-  Mmo::SemanticActionEnvelope env;
-  env.kind = Mmo::SemanticActionKind::ClientBootstrapRequest;
-  env.targetKey = std::move(target);
-  env.localSequence = seq;
-  env.clientTick = 0;
-  env.idempotencyKey = Mmo::makeIdempotencyKey(Mmo::semanticActionSessionKey(), seq, env.kind, env.targetKey);
-  env.payloadJson = std::move(payload);
-  (void)Mmo::submitSemanticAction(env);
+  Mmo::Net::ClientSessionControlPacket packet;
+  packet.kind = Mmo::SemanticActionKind::ClientBootstrapRequest;
+  packet.flags = Mmo::Net::ClientSessionControlServerBoundClientMode |
+                 Mmo::Net::ClientSessionControlDbSaveSnapshotRequested;
+  packet.localSequence = seq;
+  packet.sessionKey = std::string(Mmo::clientMmoSessionKey());
+  packet.targetKey = characterEntity + ":character-list";
+  packet.idempotencyKey = Mmo::makeIdempotencyKey(
+      packet.sessionKey, seq, packet.kind, packet.targetKey);
+  packet.source = sourceLocation.empty() ? "GameMenu" : std::string(sourceLocation);
+  packet.sourceLocation = packet.source;
+  packet.actorKey = characterEntity;
+  packet.characterKey = std::string(cmd.mmoCharacterKey());
+  packet.displayName = std::string(cmd.mmoCharacterDisplayName());
+  packet.world = std::string(Gothic::inst().defaultWorld());
+  packet.serverEndpoint = std::string(cmd.mmoServerEndpoint());
+  packet.clientContentManifestHash =
+      std::string(cmd.mmoClientContentManifestHash());
+  packet.reason = std::string(reason);
+  (void)Mmo::submitClientIntent(Mmo::Net::ClientIntentPacket{std::move(packet)});
 }
 
 void requestMmoCharacterListSnapshot() {
@@ -368,14 +281,27 @@ void startMmoNewCharacterFromMenu() {
   std::string name = "Nowa postac ";
   name.append(key.substr(std::string("PC_HERO_").size()));
   CommandLine::inst().setMmoCharacterIdentity(key, name);
+  (void)Mmo::drainServerBootstrapSnapshots();
   requestMmoBootstrapSnapshot("new_character_request", "GameMenu::execSingle(NEW_GAME)");
-  const std::string marker = "\"character_key\":\"" + key + "\"";
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+  bool confirmed = false;
   do {
-    if(readTextFile(CommandLine::inst().mmoServerSnapshotJson()).find(marker) != std::string::npos)
+    for(auto& snapshot : Mmo::drainServerBootstrapSnapshots()) {
+      const auto characters = parseMmoCharacterList(snapshot.payload);
+      confirmed = std::any_of(characters.begin(), characters.end(),
+                              [&key](const MmoMenuCharacter& value) {
+                                return value.key == key;
+                              });
+      if(confirmed)
+        break;
+    }
+    if(confirmed)
       break;
     std::this_thread::sleep_for(std::chrono::milliseconds(25));
   } while(std::chrono::steady_clock::now() < deadline);
+  if(!confirmed)
+    Log::e("MMO menu New Game: character creation confirmation timed out",
+           " character_key=", key);
   Log::i("MMO menu New Game: requested DB character creation",
          " character_key=", CommandLine::inst().mmoCharacterKey(),
          " display_name=", CommandLine::inst().mmoCharacterDisplayName());
@@ -390,11 +316,15 @@ const std::vector<MmoMenuCharacter>& mmoMenuCharacters() {
   loaded = true;
 
   const auto& cmd = CommandLine::inst();
-  const std::string snapshotPath(cmd.mmoServerSnapshotJson());
+  (void)Mmo::drainServerBootstrapSnapshots();
   requestMmoCharacterListSnapshot();
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(900);
   do {
-    cache = parseMmoCharacterList(readTextFile(snapshotPath));
+    for(auto& snapshot : Mmo::drainServerBootstrapSnapshots()) {
+      cache = parseMmoCharacterList(snapshot.payload);
+      if(!cache.empty())
+        break;
+    }
     if(!cache.empty())
       break;
     logMmoBootstrapRejectOnce(readMmoBootstrapReject());
@@ -702,7 +632,6 @@ GameMenu::GameMenu(MenuRoot &owner, KeyCodec& keyCodec, zenkit::DaedalusVm& vm, 
 
   Gothic::inst().pushPause();
   }
-
 GameMenu::~GameMenu() {
   Gothic::flushSettings();
   Gothic::inst().popPause();
@@ -1707,5 +1636,3 @@ void GameMenu::setPlayer(const Npc &pl) {
     set(string_frm("MENU_ITEM_TALENT_",i),          string_frm(val,"%"));
     }
   }
-
-

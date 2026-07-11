@@ -11,7 +11,7 @@
 namespace Mmo {
 
 struct ServerDialogPresentationConfig final {
-  bool          validateOnly = false;
+  bool          validationEnabled = false;
   bool          requireSpeakerEntityKey = true;
   bool          requireTextOrAudio = true;
   bool          requireLineIdentity = false;
@@ -87,7 +87,7 @@ struct ServerDialogPresentationDecision final {
 [[nodiscard]] inline ServerDialogPresentationDecision evaluateServerDialogPresentation(
     const Net::ServerNpcDialogIntentPacket& intent,
     const ServerDialogPresentationConfig& cfg) {
-  if(!cfg.validateOnly) {
+  if(!cfg.validationEnabled) {
     return serverDialogAck(ServerDialogPresentationStatus::Disabled,
                            "client_received_no_ui_apply",
                            "ServerNpcDialogIntent decoded and logged; UI/audio apply remains disabled.",

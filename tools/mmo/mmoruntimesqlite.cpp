@@ -26,7 +26,7 @@
 #include "world/waypoint.h"
 #include "world/world.h"
 
-#if defined(OPENGOTHIC_HAVE_SQLITE)
+#if OPENGOTHIC_HAVE_SQLITE
 #include <sqlite3.h>
 #endif
 
@@ -47,7 +47,7 @@ std::string saveSlotKey(std::string_view slotPath) {
   return "legacy-save-slot:" + std::string(slotPath);
   }
 
-#if defined(OPENGOTHIC_HAVE_SQLITE)
+#if OPENGOTHIC_HAVE_SQLITE
 
 bool exec(sqlite3* db, const char* sql) {
   char* err = nullptr;
@@ -980,7 +980,7 @@ struct MmoRuntimeSqlite::Impl {
   bool        warnedNoBackend = false;
   bool        opened = false;
 
-#if defined(OPENGOTHIC_HAVE_SQLITE)
+#if OPENGOTHIC_HAVE_SQLITE
   sqlite3* db = nullptr;
   int64_t  sessionId = 0;
 #endif
@@ -998,7 +998,7 @@ MmoRuntimeSqlite::MmoRuntimeSqlite(std::string path, uint64_t intervalMs, bool r
   }
 
 MmoRuntimeSqlite::~MmoRuntimeSqlite() {
-#if defined(OPENGOTHIC_HAVE_SQLITE)
+#if OPENGOTHIC_HAVE_SQLITE
   if(impl->db!=nullptr) {
     sqlite3_close(impl->db);
     impl->db = nullptr;
@@ -1010,7 +1010,7 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
   if(impl->path.empty())
     return false;
 
-#if !defined(OPENGOTHIC_HAVE_SQLITE)
+#if !OPENGOTHIC_HAVE_SQLITE
   if(!impl->warnedNoBackend) {
     Tempest::Log::e("mmo sqlite requested, but this build was compiled without SQLite3 support");
     impl->warnedNoBackend = true;
@@ -4886,7 +4886,7 @@ bool MmoRuntimeSqlite::open(GameSession& game) {
 void MmoRuntimeSqlite::recordDialogChoices(GameSession& game, Npc& player, Npc& npc,
                                            const std::vector<GameScript::DlgChoice>& choices,
                                            std::string_view phase, bool includeImportant) {
-#if defined(OPENGOTHIC_HAVE_SQLITE)
+#if OPENGOTHIC_HAVE_SQLITE
   (void)player;
   if(impl->db==nullptr || !impl->opened)
     return;
@@ -4979,7 +4979,7 @@ void MmoRuntimeSqlite::recordDialogChoices(GameSession& game, Npc& player, Npc& 
 void MmoRuntimeSqlite::recordDialogSelection(GameSession& game, Npc& player, Npc& npc,
                                              const GameScript::DlgChoice& choice,
                                              std::string_view phase) {
-#if defined(OPENGOTHIC_HAVE_SQLITE)
+#if OPENGOTHIC_HAVE_SQLITE
   (void)player;
   if(impl->db==nullptr || !impl->opened)
     return;
@@ -5059,7 +5059,7 @@ void MmoRuntimeSqlite::recordDialogSelection(GameSession& game, Npc& player, Npc
 
 void MmoRuntimeSqlite::recordChapterIntro(GameSession& game, std::string_view title, std::string_view subtitle,
                                           std::string_view image, std::string_view sound, int time) {
-#if defined(OPENGOTHIC_HAVE_SQLITE)
+#if OPENGOTHIC_HAVE_SQLITE
   if(impl->path.empty())
     return;
   if(!impl->opened && !open(game))
@@ -5132,7 +5132,7 @@ void MmoRuntimeSqlite::flush(GameSession& game) {
   }
 
 void MmoRuntimeSqlite::recordSaveSlot(GameSession& game, std::string_view slotPath, std::string_view displayName) {
-#if !defined(OPENGOTHIC_HAVE_SQLITE)
+#if !OPENGOTHIC_HAVE_SQLITE
   (void)game;
   (void)slotPath;
   (void)displayName;
@@ -5276,7 +5276,7 @@ void MmoRuntimeSqlite::recordSaveSlot(GameSession& game, std::string_view slotPa
   }
 
 void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
-#if !defined(OPENGOTHIC_HAVE_SQLITE)
+#if !OPENGOTHIC_HAVE_SQLITE
   (void)game;
 #else
   if(impl->db==nullptr)
@@ -8221,5 +8221,6 @@ void MmoRuntimeSqlite::flush(GameSession& game, bool materializeCurrent) {
   exec(impl->db, "COMMIT");
 #endif
   }
+
 
 

@@ -6,6 +6,9 @@
 #include <Tempest/Widget>
 #include <Tempest/SoundEffect>
 #include <Tempest/SoundDevice>
+#include <optional>
+
+#include "../../../shared/net/mmo/mmonetprotocol.h"
 
 #include "game/gamescript.h"
 #include "camera.h"
@@ -29,6 +32,8 @@ class DialogMenu : public Tempest::Widget {
     void dialogCamera(Camera& camera);
 
     void openPipe(Npc &player, Npc& npc, AiOuputPipe*& out);
+    void openServerDialog(Npc& player, Npc& npc,
+                          const Mmo::Net::ServerNpcDialogIntentPacket& intent);
     bool isNpcInDialog(const Npc* npc) const;
 
     bool isActive() const;
@@ -130,6 +135,8 @@ class DialogMenu : public Tempest::Widget {
     size_t                              dlgSel=0;
     uint32_t                            depth=0;
     std::vector<uint32_t>               except;
+    std::optional<Mmo::Net::ServerNpcDialogIntentPacket> serverDialog;
+    uint64_t                              serverChoiceSequence = 0;
 
     State                               state=State::Idle;
     Entry                               current;

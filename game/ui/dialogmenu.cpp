@@ -4,11 +4,14 @@
 #include <Tempest/Log>
 #include <algorithm>
 #include <cassert>
+#include <utility>
 
 #include "utils/gthfont.h"
 #include "utils/string_frm.h"
 #include "world/objects/npc.h"
 #include "gothic.h"
+#include "game/mmoclientbridge.h"
+#include "game/mmoserverdialogpresentation.h"
 #include "inventorymenu.h"
 #include "resources.h"
 
@@ -205,6 +208,54 @@ void DialogMenu::openPipe(Npc &player, Npc &npc, AiOuputPipe *&out) {
   state  = State::PreStart;
   }
 
+
+void DialogMenu::openServerDialog(
+    Npc& player,
+    Npc& npc,
+    const Mmo::Net::ServerNpcDialogIntentPacket& intent) {
+  if(serverDialog && serverDialog->conversationId != intent.conversationId)
+    close();
+
+  pl = &player;
+  other = &npc;
+  state = State::Active;
+  dlgTrade = false;
+  depth = 0;
+  dlgSel = 0;
+  choice.clear();
+  serverDialog = intent;
+
+  current.txt = intent.text;
+  if(current.txt.empty() && !intent.lineId.empty())
+    current.txt = Gothic::inst().messageByName(intent.lineId);
+  if(current.txt.empty() && !intent.audioRef.empty()) {
+    const auto normalized = Mmo::normalizeServerDialogAudioRef(intent.audioRef);
+    current.txt = Gothic::inst().messageByName(normalized);
+  }
+  current.msgTime = intent.durationMs;
+  current.time = intent.durationMs + (dlgAnimation ? ANIM_TIME * 2U : 0U);
+  curentIsPl = false;
+
+  if(!intent.audioRef.empty()) {
+    const auto normalized = Mmo::normalizeServerDialogAudioRef(intent.audioRef);
+    if(Mmo::classifyServerDialogAudioRef(normalized) ==
+       Mmo::ServerDialogPresenterAudioCapability::SafeReferenceNoLoad) {
+      currentSnd = soundDevice.load(
+          Resources::loadSoundBuffer(string_frm(normalized, ".wav")));
+    }
+  }
+
+  choice.reserve(intent.choices.size());
+  for(std::size_t index = 0; index < intent.choices.size(); ++index) {
+    GameScript::DlgChoice local;
+    local.title = intent.choices[index].text;
+    local.sort = static_cast<std::int32_t>(index);
+    local.scriptFn = static_cast<std::uint32_t>(index);
+    choice.push_back(std::move(local));
+  }
+  update();
+}
+
 bool DialogMenu::isNpcInDialog(const Npc* npc) const {
   if(state==State::Idle)
     return false;
@@ -328,6 +379,8 @@ void DialogMenu::print(std::string_view msg) {
   }
 
 void DialogMenu::onDoneText() {
+  if(serverDialog)
+    return;
   choice = Gothic::inst().updateDialog(selected,*pl,*other);
   dlgSel = 0;
   if(choice.size()==0){
@@ -349,6 +402,7 @@ void DialogMenu::close() {
   dlgTrade=false;
   current.time=0;
   choice.clear();
+  serverDialog.reset();
   state=State::Idle;
   currentSnd = SoundEffect();
   update();
@@ -523,15 +577,48 @@ bool DialogMenu::isChoiceMenuActive() const {
   }
 
 void DialogMenu::onSelect() {
-  if(current.time>0 || haveToWaitOutput()){
+  if(current.time>0 || haveToWaitOutput())
     return;
+
+  if(serverDialog) {
+    if(dlgSel >= serverDialog->choices.size())
+      return;
+    const auto selectedChoice = serverDialog->choices[dlgSel];
+    const auto sequence = ++serverChoiceSequence;
+    Mmo::Net::ClientDialogChoiceIntentPacket packet;
+    packet.localSequence = Mmo::nextClientIntentSequence();
+    packet.clientTick = serverDialog->serverTick;
+    packet.expectedRevision = serverDialog->revision;
+    packet.clientChoiceSequence = sequence;
+    packet.sessionKey = std::string(Mmo::clientMmoSessionKey());
+    packet.sessionUuid = serverDialog->sessionUuid;
+    packet.characterKey = serverDialog->targetCharacterKey;
+    packet.conversationId = serverDialog->conversationId;
+    packet.choiceId = selectedChoice.choiceId;
+    packet.idempotencyKey = packet.sessionUuid + ":" + packet.conversationId +
+                            ":" + std::to_string(sequence);
+    if(!Mmo::submitServerDialogChoice(std::move(packet))) {
+      Log::e("MMO server dialog choice rejected by client_sandbox",
+             " conversation=", serverDialog->conversationId,
+             " choice=", selectedChoice.choiceId);
+      return;
     }
+    choiceAnimTime = dlgAnimation ? ANIM_TIME : 0;
+    if(selectedChoice.terminal) {
+      close();
+    } else {
+      choice.clear();
+      current.time = 0;
+      update();
+    }
+    return;
+  }
 
   if(dlgSel<choice.size()) {
     onEntry(choice[dlgSel]);
     choiceAnimTime = dlgAnimation ? ANIM_TIME : 0;
-    }
   }
+}
 
 void DialogMenu::mouseDownEvent(MouseEvent &event) {
   if(state==State::Idle || trade.isOpen()!=InventoryMenu::State::Closed){
@@ -546,6 +633,7 @@ void DialogMenu::mouseDownEvent(MouseEvent &event) {
     skipPhrase();
     }
   }
+
 
 void DialogMenu::mouseWheelEvent(MouseEvent &e) {
   if(state==State::Idle || trade.isOpen()!=InventoryMenu::State::Closed){
@@ -594,4 +682,3 @@ void DialogMenu::keyUpEvent(KeyEvent &event) {
     return;
     }
   }
-

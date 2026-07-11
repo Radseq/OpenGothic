@@ -1,0 +1,105 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "../../../shared/game/mmo/mmosemanticevents.h"
+#include "../../../shared/net/mmo/mmo_client_intent.h"
+#include "../../../shared/net/mmo/mmonetprotocol.h"
+#include "mmoserverdialogpresentation.h"
+
+class CommandLine;
+
+namespace Mmo {
+
+enum class ClientMmoSubmitStatus : std::uint8_t {
+  Disabled,
+  Accepted,
+  InvalidIntent,
+  UnsupportedIntent,
+  QueueFull,
+  TransportError,
+};
+
+struct ClientMmoSubmitResult final {
+  ClientMmoSubmitStatus status = ClientMmoSubmitStatus::Disabled;
+  std::uint64_t droppedCount = 0;
+
+  [[nodiscard]] constexpr bool accepted() const noexcept {
+    return status == ClientMmoSubmitStatus::Accepted ||
+           status == ClientMmoSubmitStatus::Disabled;
+  }
+};
+
+struct ClientMmoBridgeConfig final {
+  std::string diagnosticsJsonlPath;
+  std::string udpEndpoint;
+  std::string sessionKey = "local-dev";
+  std::size_t queueCapacity = 4096;
+  std::size_t bootstrapCapacity = 4;
+  bool strictOverflow = false;
+  bool serverBoundClientMode = false;
+  bool serverDialogObservationReceipt = false;
+};
+
+struct ServerBootstrapSnapshot final {
+  std::uint32_t snapshotId = 0;
+  std::uint16_t chunkCount = 0;
+  std::string payload;
+};
+
+struct ServerBootstrapStatus final {
+  std::uint64_t packetSequence = 0;
+  std::uint64_t localSequence = 0;
+  bool accepted = false;
+  bool ready = false;
+  std::string message;
+
+  [[nodiscard]] constexpr bool rejected() const noexcept {
+    return !accepted;
+  }
+};
+
+[[nodiscard]] bool isClientMmoDiagnosticsEnabled() noexcept;
+[[nodiscard]] bool isServerBoundClientModeEnabled() noexcept;
+[[nodiscard]] std::uint64_t nextClientIntentSequence() noexcept;
+[[nodiscard]] std::string_view clientMmoSessionKey() noexcept;
+
+[[nodiscard]] ClientMmoSubmitResult submitClientIntent(
+    Net::ClientIntentPacket intent) noexcept;
+
+// JSON exists only at this local diagnostic boundary. Diagnostic envelopes are
+// never parsed back into packets and never sent over the network.
+void recordClientMmoDiagnostic(SemanticActionEnvelope envelope) noexcept;
+
+void configureClientMmoBridge(const ClientMmoBridgeConfig& config);
+void configureClientMmoBridge(const CommandLine& commandLine);
+void shutdownClientMmoBridge() noexcept;
+void flushClientMmoBridge() noexcept;
+
+[[nodiscard]] std::vector<Net::ServerLiveDeltaPacket> drainServerLiveDeltas() noexcept;
+[[nodiscard]] std::vector<ServerDialogPresentationEvent>
+drainServerDialogPresentationEvents() noexcept;
+[[nodiscard]] std::vector<Net::ServerEntityTransformDeltaPacket>
+drainServerEntityTransforms() noexcept;
+[[nodiscard]] std::vector<ServerBootstrapSnapshot>
+drainServerBootstrapSnapshots() noexcept;
+[[nodiscard]] std::optional<ServerBootstrapSnapshot>
+latestServerBootstrapSnapshot() noexcept;
+[[nodiscard]] std::vector<ServerBootstrapStatus>
+drainServerBootstrapStatuses() noexcept;
+[[nodiscard]] std::optional<ServerBootstrapStatus>
+latestServerBootstrapStatus() noexcept;
+void resetServerBootstrapStatus() noexcept;
+[[nodiscard]] bool enqueueClientGameplayObservationReceipt(
+    Net::ClientGameplayObservationPacket packet) noexcept;
+[[nodiscard]] bool submitServerDialogChoice(
+    Net::ClientDialogChoiceIntentPacket packet) noexcept;
+
+} // namespace Mmo
+
+

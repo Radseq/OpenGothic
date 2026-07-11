@@ -27,8 +27,7 @@
 #include "game/serialize.h"
 #include "game/globaleffects.h"
 #include "game/mmorestoresnapshot.h"
-#include "game/mmosemanticactionsink.h"
-#include "game/mmosemanticevents.h"
+#include "game/mmoclientbridge.h"
 #include "game/worldstateexporter.h"
 #include "utils/gthfont.h"
 #include "utils/dbgpainter.h"
@@ -55,71 +54,38 @@ std::string mmoDbBootstrapWorldName() {
   return std::string(Gothic::inst().defaultWorld());
 }
 
-std::filesystem::path mmoSnapshotTmpPath(std::string_view path) {
-  auto out = std::filesystem::path(std::string(path));
-  out += ".tmp";
-  return out;
-}
-
-void clearMmoBootstrapSnapshotFiles(std::string_view snapshotPath) {
-  std::error_code ec;
-  if(!snapshotPath.empty()) {
-    const std::filesystem::path path{std::string(snapshotPath)};
-    std::filesystem::remove(path, ec);
-    std::filesystem::remove(mmoSnapshotTmpPath(snapshotPath), ec);
-  }
-  std::filesystem::remove("runtime/mmo_server_bootstrap_snapshot_manifest.json", ec);
-  std::filesystem::remove("runtime/mmo_server_bootstrap_snapshot_manifest.json.tmp", ec);
-  std::filesystem::remove("runtime/mmo_server_bootstrap_reject.json", ec);
-  std::filesystem::remove("runtime/mmo_server_bootstrap_reject.json.tmp", ec);
-}
-
 bool requestMmoPreWorldDbContinueSnapshot(std::string_view slot) noexcept {
-  if(!Mmo::isServerBoundClientModeEnabled() || !Mmo::isSemanticActionCaptureEnabled())
+  if(!Mmo::isServerBoundClientModeEnabled())
     return false;
 
-  const auto seq = Mmo::nextSemanticActionSequence();
-  const auto characterKey = CommandLine::inst().mmoCharacterKey();
+  const auto& cmd = CommandLine::inst();
+  const auto seq = Mmo::nextClientIntentSequence();
   std::string characterEntity = "character:";
-  characterEntity.append(characterKey);
-  std::string target = characterEntity;
-  target.append(":db-continue-pre-world");
+  characterEntity.append(cmd.mmoCharacterKey());
 
-  std::string payload;
-  payload.reserve(512 + slot.size());
-  payload.append("{\"actor_key\":");
-  payload.append(Mmo::jsonEscape(characterEntity));
-  payload.append(",\"character_key\":");
-  payload.append(Mmo::jsonEscape(characterKey));
-  payload.append(",\"display_name\":");
-  payload.append(Mmo::jsonEscape(CommandLine::inst().mmoCharacterDisplayName()));
-  payload.append(",\"world\":");
-  payload.append(Mmo::jsonEscape(CommandLine::inst().mmoDbBootstrapWorld()));
-  payload.append(",\"server_tick\":0");
-  payload.append(",\"server_bound_client_mode\":true");
-  payload.append(",\"server_endpoint\":");
-  payload.append(Mmo::jsonEscape(CommandLine::inst().mmoServerEndpoint()));
-  if(const auto hash = CommandLine::inst().mmoClientContentManifestHash(); !hash.empty()) {
-    payload.append(",\"client_content_manifest_hash\":");
-    payload.append(Mmo::jsonEscape(hash));
-  }
-  payload.append(",\"reason\":\"db_continue_pre_world_request\"");
-  payload.append(",\"source_location\":\"MainWindow::loadGame\"");
-  payload.append(",\"requested_save_slot\":");
-  payload.append(Mmo::jsonEscape(slot));
-  payload.append(",\"db_save_snapshot_requested\":true");
-  payload.append(",\"pre_world_bootstrap\":true");
-  payload.push_back('}');
-
-  Mmo::SemanticActionEnvelope env;
-  env.kind = Mmo::SemanticActionKind::ClientBootstrapRequest;
-  env.targetKey = std::move(target);
-  env.localSequence = seq;
-  env.clientTick = 0;
-  env.idempotencyKey = Mmo::makeIdempotencyKey(Mmo::semanticActionSessionKey(), seq, env.kind, env.targetKey);
-  env.payloadJson = std::move(payload);
-
-  return Mmo::submitSemanticAction(env).accepted();
+  Mmo::Net::ClientSessionControlPacket packet;
+  packet.kind = Mmo::SemanticActionKind::ClientBootstrapRequest;
+  packet.flags = Mmo::Net::ClientSessionControlServerBoundClientMode |
+                 Mmo::Net::ClientSessionControlDbSaveSnapshotRequested;
+  packet.localSequence = seq;
+  packet.sessionKey = std::string(Mmo::clientMmoSessionKey());
+  packet.targetKey = characterEntity + ":db-continue-pre-world";
+  packet.idempotencyKey = Mmo::makeIdempotencyKey(
+      packet.sessionKey, seq, packet.kind, packet.targetKey);
+  packet.source = "MainWindow::loadGame";
+  packet.sourceLocation = packet.source;
+  packet.actorKey = characterEntity;
+  packet.characterKey = std::string(cmd.mmoCharacterKey());
+  packet.displayName = std::string(cmd.mmoCharacterDisplayName());
+  packet.world = std::string(cmd.mmoDbBootstrapWorld());
+  packet.serverEndpoint = std::string(cmd.mmoServerEndpoint());
+  packet.clientContentManifestHash =
+      std::string(cmd.mmoClientContentManifestHash());
+  packet.reason = "db_continue_pre_world_request";
+  packet.saveSlotKey = std::string(slot);
+  packet.checkpointKind = "db_continue_pre_world";
+  return Mmo::submitClientIntent(
+      Mmo::Net::ClientIntentPacket{std::move(packet)}).accepted();
 }
 
 bool shouldUseMmoDbContinue(std::string_view slot) noexcept {
@@ -131,47 +97,42 @@ bool shouldUseMmoDbContinue(std::string_view slot) noexcept {
 
 std::optional<std::string> mmoDbContinueWorldFromServerSnapshot(std::string_view slot) {
   const auto& cmd = CommandLine::inst();
-  if(!shouldUseMmoDbContinue(slot))
-    return std::nullopt;
-  if(!cmd.mmoDbBootstrapWorld().empty())
+  if(!shouldUseMmoDbContinue(slot) || !cmd.mmoDbBootstrapWorld().empty())
     return std::nullopt;
 
-  const auto snapshotPath = std::string(cmd.mmoServerSnapshotJson());
-  if(snapshotPath.empty())
-    return std::nullopt;
-
-  clearMmoBootstrapSnapshotFiles(snapshotPath);
+  // Discard stale snapshots before issuing a request. The bootstrap payload is
+  // kept in memory by client_sandbox; no runtime JSON file participates in the
+  // production path.
+  (void)Mmo::drainServerBootstrapSnapshots();
   if(!requestMmoPreWorldDbContinueSnapshot(slot)) {
-    Log::e("MMO DB continue pre-world bootstrap request was not accepted by the local sink");
+    Log::e("MMO DB continue pre-world bootstrap request was not accepted");
     return std::nullopt;
   }
 
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2500);
   while(std::chrono::steady_clock::now() < deadline) {
-    std::error_code ec;
-    if(std::filesystem::is_regular_file("runtime/mmo_server_bootstrap_reject.json", ec)) {
-      Log::e("MMO DB continue pre-world bootstrap rejected by content manifest gate; see runtime/mmo_server_bootstrap_reject.json");
-      return std::nullopt;
-    }
-    if(std::filesystem::is_regular_file(snapshotPath, ec)) {
-      auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(snapshotPath, cmd.mmoCharacterKey());
+    for(auto& snapshot : Mmo::drainServerBootstrapSnapshots()) {
+      auto result = Mmo::RestoreSnapshot::parseAndValidateBootstrapSnapshot(
+          snapshot.payload, cmd.mmoCharacterKey());
       if(!result.ok) {
         Log::e("MMO DB continue pre-world snapshot rejected: ", result.message);
-        return std::nullopt;
+        continue;
       }
-      if(cmd.mmoRequireDbSaveCheckpointRestore() && result.snapshotSource != "db_save_checkpoint_v1") {
+      if(cmd.mmoRequireDbSaveCheckpointRestore() &&
+         result.snapshotSource != "db_save_checkpoint_v1") {
         Log::e("MMO DB continue pre-world snapshot rejected: strict DB checkpoint restore required",
                " snapshot_source=", result.snapshotSource);
-        return std::nullopt;
+        continue;
       }
-      if(!result.worldName.empty()) {
-        Log::i("MMO DB continue pre-world snapshot selected world=", result.worldName,
-               " snapshot_source=", result.snapshotSource,
-               " manifest=", result.dbSaveCheckpointManifestUuid);
-        return result.worldName;
+      if(result.worldName.empty()) {
+        Log::e("MMO DB continue pre-world snapshot has no world_name");
+        continue;
       }
-      Log::e("MMO DB continue pre-world snapshot has no world_name");
-      return std::nullopt;
+      Log::i("MMO DB continue pre-world snapshot selected world=", result.worldName,
+             " snapshot_id=", snapshot.snapshotId,
+             " snapshot_source=", result.snapshotSource,
+             " manifest=", result.dbSaveCheckpointManifestUuid);
+      return result.worldName;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
@@ -304,6 +265,7 @@ void MainWindow::setupUi() {
   rootMenu.setMainMenu();
 
   Gothic::inst().onDialogPipe  .bind(&dialogs,&DialogMenu::openPipe);
+  Gothic::inst().onServerDialog.bind(&dialogs,&DialogMenu::openServerDialog);
   Gothic::inst().isNpcInDialogFn = std::bind(&DialogMenu::isNpcInDialog, &dialogs, std::placeholders::_1);
 
   Gothic::inst().onPrintScreen .bind(&dialogs,&DialogMenu::printScreen);

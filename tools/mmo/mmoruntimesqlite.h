@@ -39,3 +39,4 @@ class MmoRuntimeSqlite final {
     struct Impl;
     std::unique_ptr<Impl> impl;
   };
+

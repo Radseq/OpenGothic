@@ -1,5 +1,9 @@
 # MMO Roadmap
 
+> The canonical cross-project ordering, acceptance gates and deferred
+> network/scaling stage live in `docs/llm/gothic-mmo-roadmap.md`. This file is
+> a compact client-local history and must not override the canonical roadmap.
+
 This is a compact direction map for agents. Use `next-work.md` for the current
 implementation edge.
 
@@ -33,16 +37,21 @@ Status: Step224-Step226 established.
 
 ## Phase 4 - `world_instance` Content Cache
 
-Status: current next work.
+Status: established in two complementary server paths.
 
-- Create immutable per-world-instance content cache.
-- Bind active content revision and world name.
-- Provide read-only query APIs for NPCs, items, routines, perception, dialogs,
-  waypoints and world entities.
+- The Step226 runtime read-model cache exposes indexed content-build records.
+- The private-asset authority path exposes an immutable ZEN/WayNet/VOB definition.
+- Typed trigger, mover, interactive, transition and spawn payload vectors are now
+  bound to compact entity payload indices and included in the content fingerprint;
+  typed spawn enable state is applied when the server materializes its entity registry.
+- Typed mover keyframes, behavior, speed/interpolation modes and SFX identities are
+  compiled server-side into deterministic segment/stay-open timing plans.
+- Active content revision/world-instance admission still needs one production
+  composition root; the full client must not load or interpret server content.
 
 ## Phase 5 - Read-Only NPC/Perception Assessment
 
-Status: not implemented.
+Status: isolated logical foundation implemented; production world-host cutover pending.
 
 - Enumerate active players/NPCs in world instance.
 - Query nearby entities.
@@ -52,12 +61,25 @@ Status: not implemented.
 
 ## Phase 6 - Server NPC Tick and Dispatch
 
-Status: not implemented.
+Status: partial isolated implementation; not yet the production UDP path.
 
 - Server ticks routines/perception decisions.
 - Server chooses actions.
 - Server sends typed deltas/events to interested clients.
 - Client presents results without owning truth.
+
+
+## Current Server-Side Iteration - Typed ZEN World Logic
+
+- ZenKit extraction now materializes typed trigger/contact, mover/keyframe,
+  interactive/lock, level-transition and spawn metadata.
+- Immutable admission resolves VOB target names to stable server entity IDs and
+  rejects malformed references before a world is admitted.
+- A dedicated server module binds contact-capable payloads to the deterministic
+  trigger runtime and exposes world-start/external-trigger catalogs.
+- No client authority, transport code or gameplay mutation was added.
+- Target recursion, mutable mover state-machine execution, script dispatch and world
+  transitions remain server work before the full-client adapter phase.
 
 ## Phase 7 - Full MMO UX
 

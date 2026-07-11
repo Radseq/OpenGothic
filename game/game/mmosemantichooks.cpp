@@ -8,7 +8,7 @@
 #include <utility>
 #include <string_view>
 
-#include "mmosemanticactionsink.h"
+#include "mmoclientbridge.h"
 #include "world/world.h"
 #include "world/objects/interactive.h"
 #include "world/objects/item.h"
@@ -234,10 +234,10 @@ SemanticActionEnvelope makeEnvelope(SemanticActionKind kind,
                                     std::uint64_t tick) {
   SemanticActionEnvelope e;
   e.kind = kind;
-  e.localSequence = nextSemanticActionSequence();
+  e.localSequence = nextClientIntentSequence();
   e.clientTick = tick;
   e.targetKey = std::move(targetKey);
-  e.idempotencyKey = makeIdempotencyKey(semanticActionSessionKey(), e.localSequence, kind, e.targetKey);
+  e.idempotencyKey = makeIdempotencyKey(clientMmoSessionKey(), e.localSequence, kind, e.targetKey);
   e.payloadJson = std::move(payload);
   return e;
 }
@@ -882,9 +882,9 @@ void appendObservedNpcCommon(std::string& out, Npc& actor, std::string_view targ
 }
 
 void submit(SemanticActionKind kind, std::string targetKey, std::string payload, std::uint64_t tick) noexcept {
-  if(!isSemanticActionCaptureEnabled() || isCaptureSuppressed())
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || isCaptureSuppressed())
     return;
-  (void)submitSemanticAction(makeEnvelope(kind, std::move(targetKey), std::move(payload), tick));
+  recordClientMmoDiagnostic(makeEnvelope(kind, std::move(targetKey), std::move(payload), tick));
 }
 
 void submitObservedNpcState(SemanticActionKind kind, Npc& actor, std::string target, std::string payload) noexcept {
@@ -893,15 +893,6 @@ void submitObservedNpcState(SemanticActionKind kind, Npc& actor, std::string tar
   payload.push_back('}');
   submit(kind, std::move(target), std::move(payload), actor.world().tickCount());
 }
-
-void appendClientContentManifestHash(std::string& payload) {
-  const auto hash = CommandLine::inst().mmoClientContentManifestHash();
-  if(hash.empty())
-    return;
-  payload.append(",\"client_content_manifest_hash\":");
-  payload.append(jsonEscape(hash));
-}
-
 
 } // namespace
 
@@ -921,46 +912,40 @@ bool isCaptureSuppressed() noexcept {
 void onClientBootstrapRequest(World& world,
                               const char* sourceLocation,
                               const char* reason) noexcept {
-  if(!isServerBoundClientModeEnabled() || !isSemanticActionCaptureEnabled())
+  if(!isServerBoundClientModeEnabled())
     return;
 
-  const auto seq = nextSemanticActionSequence();
   const auto target = playerOrDefaultKey(world);
+  Net::ClientSessionControlPacket packet;
+  packet.kind = SemanticActionKind::ClientBootstrapRequest;
+  packet.flags = Net::ClientSessionControlServerBoundClientMode;
+  packet.clientTick = world.tickCount();
+  packet.targetKey = target;
+  packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+  packet.sourceLocation = packet.source;
+  packet.actorKey = target;
+  packet.characterKey = characterKey();
+  packet.displayName = std::string(CommandLine::inst().mmoCharacterDisplayName());
+  packet.world = std::string(world.name());
+  packet.serverEndpoint = std::string(CommandLine::inst().mmoServerEndpoint());
+  packet.clientContentManifestHash =
+      std::string(CommandLine::inst().mmoClientContentManifestHash());
+  packet.reason = reason != nullptr ? reason : "client_bootstrap_request";
+  (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
 
-  std::string payload;
-  payload.reserve(384);
-  payload.append("{\"actor_key\":");
-  payload.append(jsonEscape(target));
-  payload.append(",\"character_key\":");
-  payload.append(jsonEscape(characterKey()));
-  payload.append(",\"display_name\":");
-  payload.append(jsonEscape(CommandLine::inst().mmoCharacterDisplayName()));
-  payload.append(",\"world\":");
-  payload.append(jsonEscape(world.name()));
-  payload.append(",\"server_tick\":");
-  appendUInt(payload, world.tickCount());
-  payload.append(",\"server_bound_client_mode\":true");
-  payload.append(",\"server_endpoint\":");
-  payload.append(jsonEscape(CommandLine::inst().mmoServerEndpoint()));
-  appendClientContentManifestHash(payload);
-  payload.append(",\"reason\":");
-  payload.append(jsonEscape(reason ? reason : "client_bootstrap_request"));
-  payload.append(",\"source_location\":");
-  payload.append(jsonEscape(sourceLocation ? sourceLocation : "unknown"));
-  payload.push_back('}');
-
-  SemanticActionEnvelope env;
-  env.kind = SemanticActionKind::ClientBootstrapRequest;
-  env.targetKey = target;
-  env.localSequence = seq;
-  env.clientTick = world.tickCount();
-  env.idempotencyKey = makeIdempotencyKey(semanticActionSessionKey(), seq, env.kind, env.targetKey);
-  env.payloadJson = std::move(payload);
-  (void)submitSemanticAction(env);
+  if(isClientMmoDiagnosticsEnabled()) {
+    std::string payload = "{\"typed_intent\":true,\"character_key\":";
+    payload.append(jsonEscape(characterKey()));
+    payload.append(",\"world\":");
+    payload.append(jsonEscape(world.name()));
+    payload.push_back('}');
+    submit(SemanticActionKind::ClientBootstrapRequest, target,
+           std::move(payload), world.tickCount());
+  }
 }
 
 bool shouldCaptureScriptAction(Npc* actor) noexcept {
-  return isSemanticActionCaptureEnabled() && shouldCapturePlayerAction(actor);
+  return isClientMmoDiagnosticsEnabled() && shouldCapturePlayerAction(actor);
 }
 
 void onWorldTimeChanged(World& world,
@@ -968,7 +953,7 @@ void onWorldTimeChanged(World& world,
                         gtime after,
                         const char* sourceLocation,
                         const char* reason) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !isLiveWorldTick(world) || before == after)
+  if(!isClientMmoDiagnosticsEnabled() || !isLiveWorldTick(world) || before == after)
     return;
 
   std::string target = "world:";
@@ -1016,7 +1001,7 @@ void onCharacterMovementProposal(Npc& actor,
                                  bool fromInWater,
                                  const char* sourceLocation,
                                  const char* reason) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || !shouldCapturePlayerAction(actor))
     return;
 
   auto& world = actor.world();
@@ -1026,6 +1011,51 @@ void onCharacterMovementProposal(Npc& actor,
   const auto& cmd = CommandLine::inst();
   const std::uint64_t toTick = world.tickCount();
   const std::uint64_t deltaTick = toTick >= fromTick ? toTick - fromTick : 0;
+
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientMovementPacket packet;
+    packet.kind = SemanticActionKind::MovementProposal;
+    packet.flags = Net::ClientMovementHasFromTransform |
+                   Net::ClientMovementHasToTransform;
+    if(fromInAir) packet.flags |= Net::ClientMovementFromInAir;
+    if(fromFalling) packet.flags |= Net::ClientMovementFromFalling;
+    if(fromFallingDeep) packet.flags |= Net::ClientMovementFromFallingDeep;
+    if(fromSlide) packet.flags |= Net::ClientMovementFromSlide;
+    if(fromJump) packet.flags |= Net::ClientMovementFromJump;
+    if(fromJumpUp) packet.flags |= Net::ClientMovementFromJumpUp;
+    if(fromSwim) packet.flags |= Net::ClientMovementFromSwim;
+    if(fromDive) packet.flags |= Net::ClientMovementFromDive;
+    if(fromInWater) packet.flags |= Net::ClientMovementFromInWater;
+    if(actor.isInAir()) packet.flags |= Net::ClientMovementToInAir;
+    if(actor.isFalling()) packet.flags |= Net::ClientMovementToFalling;
+    if(actor.isFallingDeep()) packet.flags |= Net::ClientMovementToFallingDeep;
+    if(actor.isSlide()) packet.flags |= Net::ClientMovementToSlide;
+    if(actor.isJump()) packet.flags |= Net::ClientMovementToJump;
+    if(actor.isJumpUp()) packet.flags |= Net::ClientMovementToJumpUp;
+    if(actor.isSwim()) packet.flags |= Net::ClientMovementToSwim;
+    if(actor.isDive()) packet.flags |= Net::ClientMovementToDive;
+    if(actor.isInWater()) packet.flags |= Net::ClientMovementToInWater;
+    packet.clientTick = toTick;
+    packet.fromTick = fromTick;
+    packet.toTick = toTick;
+    packet.deltaMs = deltaTick;
+    packet.fromX = fromX; packet.fromY = fromY; packet.fromZ = fromZ;
+    packet.toX = pos.x; packet.toY = pos.y; packet.toZ = pos.z;
+    packet.fromYaw = fromYaw; packet.toYaw = actor.rotationY();
+    packet.cadenceIntervalMs = cmd.mmoActionMovementProposalIntervalMs();
+    packet.cadenceMinDistance = cmd.mmoActionMovementProposalMinDistance();
+    packet.cadenceMinYawDeg = cmd.mmoActionMovementProposalMinYawDeg();
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(actor);
+    packet.characterKey = characterKey();
+    packet.world = std::string(world.name());
+    packet.waypointKey = wp != nullptr ? wp->name : std::string{};
+    packet.reason = reason != nullptr ? reason : "movement_delta_proposal";
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
 
   std::string payload;
   payload.reserve(1536);
@@ -1093,19 +1123,45 @@ void onCharacterMovementProposal(Npc& actor,
   appendVec3(payload, "actor_position", pos);
   payload.push_back('}');
 
-  submit(SemanticActionKind::MovementProposal, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::MovementProposal, std::move(target), std::move(payload), world.tickCount());
 }
 
 void onCharacterCheckpoint(Npc& actor,
                            const char* sourceLocation,
                            const char* reason) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || !shouldCapturePlayerAction(actor))
     return;
 
   auto& world = actor.world();
+  const auto& cmd = CommandLine::inst();
   auto target = characterTargetKey("checkpoint");
   const auto pos = actor.position();
   const auto* wp = actor.currentWayPoint();
+
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientMovementPacket packet;
+    packet.kind = SemanticActionKind::CharacterCheckpoint;
+    packet.flags = Net::ClientMovementHasToTransform;
+    packet.clientTick = world.tickCount();
+    packet.toTick = world.tickCount();
+    packet.toX = pos.x; packet.toY = pos.y; packet.toZ = pos.z;
+    packet.toYaw = actor.rotationY();
+    packet.checkpointForceIntervalMs = cmd.mmoActionCheckpointForceIntervalMs();
+    packet.cadenceIntervalMs = cmd.mmoActionCheckpointIntervalMs();
+    packet.cadenceMinDistance = cmd.mmoActionCheckpointMinDistance();
+    packet.cadenceMinYawDeg = cmd.mmoActionCheckpointMinYawDeg();
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(actor);
+    packet.characterKey = characterKey();
+    packet.world = std::string(world.name());
+    packet.waypointKey = wp != nullptr ? wp->name : std::string{};
+    packet.reason = reason != nullptr ? reason : "periodic_checkpoint";
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
 
   std::string payload;
   payload.reserve(1152);
@@ -1133,7 +1189,6 @@ void onCharacterCheckpoint(Npc& actor,
   payload.append(",\"permanent_attitude\":"); appendInt(payload, static_cast<std::int32_t>(actor.attitude()));
   payload.append(",\"temporary_attitude\":"); appendInt(payload, static_cast<std::int32_t>(actor.tempAttitude()));
   payload.append(",\"reason\":"); appendEscaped(payload, reason != nullptr ? std::string_view(reason) : std::string_view("step39_periodic_movement_checkpoint"));
-  const auto& cmd = CommandLine::inst();
   payload.append(",\"checkpoint_interval_ms\":"); appendUInt(payload, cmd.mmoActionCheckpointIntervalMs());
   payload.append(",\"checkpoint_min_distance\":"); appendFloat(payload, cmd.mmoActionCheckpointMinDistance());
   payload.append(",\"checkpoint_min_yaw_deg\":"); appendFloat(payload, cmd.mmoActionCheckpointMinYawDeg());
@@ -1142,7 +1197,8 @@ void onCharacterCheckpoint(Npc& actor,
   appendVec3(payload, "actor_position", pos);
   payload.push_back('}');
 
-  submit(SemanticActionKind::CharacterCheckpoint, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::CharacterCheckpoint, std::move(target), std::move(payload), world.tickCount());
 }
 
 void onSaveCheckpointManifest(World& world,
@@ -1150,7 +1206,7 @@ void onSaveCheckpointManifest(World& world,
                               std::string_view displayName,
                               const char* sourceLocation,
                               const char* reason) noexcept {
-  if(!isServerBoundClientModeEnabled() || !isSemanticActionCaptureEnabled() || isCaptureSuppressed())
+  if(!isClientMmoDiagnosticsEnabled() || isCaptureSuppressed())
     return;
   if(!isLiveWorldTick(world))
     return;
@@ -1185,7 +1241,7 @@ void onInteractiveUsed(World& world,
                        Npc& actor,
                        const char* sourceLocation,
                        const char* reason) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || !shouldCapturePlayerAction(actor))
     return;
   if(!isLiveWorldTick(world))
     return;
@@ -1193,6 +1249,28 @@ void onInteractiveUsed(World& world,
   markPlayerInteractiveUse(world, interactive);
 
   auto target = interactiveEntityKey(world, interactive);
+
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientWorldStatePacket packet;
+    packet.kind = SemanticActionKind::UseInteractive;
+    packet.flags = Net::ClientWorldStateHasActorPosition;
+    packet.clientTick = world.tickCount();
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(actor);
+    packet.characterKey = characterKey();
+    packet.world = std::string(world.name());
+    packet.reason = reason != nullptr ? reason : "use_interactive";
+    packet.interactiveKey = target;
+    packet.entityKey = target;
+    packet.slotId = static_cast<std::int64_t>(world.mobsiId(&interactive));
+    packet.vobId = static_cast<std::int64_t>(interactive.getId());
+    const auto actorPos = actor.position();
+    packet.actorPosX = actorPos.x; packet.actorPosY = actorPos.y; packet.actorPosZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
 
   std::string payload;
   payload.reserve(1024);
@@ -1209,7 +1287,8 @@ void onInteractiveUsed(World& world,
   appendVec3(payload, "actor_position", actor.position());
   payload.push_back('}');
 
-  submit(SemanticActionKind::UseInteractive, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::UseInteractive, std::move(target), std::move(payload), world.tickCount());
 }
 
 void onInteractiveStateChanged(World& world,
@@ -1223,7 +1302,7 @@ void onInteractiveStateChanged(World& world,
                                bool crackedAfter,
                                const char* sourceLocation,
                                const char* reason) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !isLiveWorldTick(world))
+  if(!isClientMmoDiagnosticsEnabled() || !isLiveWorldTick(world))
     return;
   if(stateBefore == stateAfter && lockedBefore == lockedAfter && crackedBefore == crackedAfter)
     return;
@@ -1275,7 +1354,7 @@ void onWorldTriggerEvent(World& world,
                          std::string_view eventTypeName,
                          const char* sourceLocation,
                          const char* reason) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !isLiveWorldTick(world))
+  if(!isClientMmoDiagnosticsEnabled() || !isLiveWorldTick(world))
     return;
   if(!hasRecentPlayerWorldInteraction(world))
     return;
@@ -1314,7 +1393,7 @@ void onMoverStateChanged(World& world,
                          std::string_view stateAfterName,
                          const char* sourceLocation,
                          const char* reason) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !isLiveWorldTick(world))
+  if(!isClientMmoDiagnosticsEnabled() || !isLiveWorldTick(world))
     return;
   if(stateBefore == stateAfter)
     return;
@@ -1351,10 +1430,31 @@ void onWorldItemPickedUp(Npc& actor,
                          std::size_t sourceItemSymbol,
                          std::size_t sourceAmount,
                          const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || !shouldCapturePlayerAction(actor))
     return;
   auto& world = actor.world();
   auto target = worldItemKey(world.name(), sourceWorldItemPersistentId, sourceItemSymbol);
+
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientInventoryPacket packet;
+    packet.kind = SemanticActionKind::PickupWorldItem;
+    packet.flags = Net::ClientInventoryHasActorPosition;
+    packet.clientTick = world.tickCount();
+    packet.itemSymbol = static_cast<std::int64_t>(sourceItemSymbol);
+    packet.inventoryItemSymbol = static_cast<std::int64_t>(inventoryItem.clsId());
+    packet.sourceWorldItemPersistentId = static_cast<std::int64_t>(sourceWorldItemPersistentId);
+    packet.amount = static_cast<std::int64_t>(sourceAmount);
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(actor);
+    packet.itemTemplateKey = itemTemplateKey(sourceItemSymbol);
+    packet.world = std::string(world.name());
+    const auto actorPos = actor.position();
+    packet.actorPosX = actorPos.x; packet.actorPosY = actorPos.y; packet.actorPosZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
 
   std::string payload;
   payload.reserve(512);
@@ -1370,13 +1470,14 @@ void onWorldItemPickedUp(Npc& actor,
   appendVec3(payload, "actor_position", actor.position());
   payload.push_back('}');
 
-  submit(SemanticActionKind::PickupWorldItem, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::PickupWorldItem, std::move(target), std::move(payload), world.tickCount());
 }
 
 void onWorldItemRemoved(World& world,
                         const Item& worldItem,
                         const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !isLiveWorldTick(world))
+  if(!isClientMmoDiagnosticsEnabled() || !isLiveWorldTick(world))
     return;
   auto target = worldItemKey(world.name(), worldItem.persistentId(), worldItem.clsId());
 
@@ -1402,7 +1503,7 @@ void onInventoryTransfer(World& world,
                          std::size_t amount,
                          bool movedWholeInstance,
                          const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || amount == 0 || !shouldCaptureTransfer(world, sourceNpc))
+  if(!isClientMmoDiagnosticsEnabled() || amount == 0 || !shouldCaptureTransfer(world, sourceNpc))
     return;
   std::string target = itemTemplateKey(itemSymbol);
   target.append(":transfer:");
@@ -1431,7 +1532,7 @@ void onItemEquipped(Npc& actor,
                     const Item& item,
                     std::uint8_t slot,
                     const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || !shouldCapturePlayerAction(actor))
     return;
   auto& world = actor.world();
   auto target = itemTemplateKey(item.clsId());
@@ -1440,6 +1541,28 @@ void onItemEquipped(Npc& actor,
   target.push_back(':');
   appendUInt(target, slot);
 
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientInventoryPacket packet;
+    packet.kind = SemanticActionKind::EquipCharacterItem;
+    packet.flags = Net::ClientInventoryHasActorPosition | Net::ClientInventoryHasEquipmentSlot;
+    packet.clientTick = world.tickCount();
+    packet.itemSymbol = static_cast<std::int64_t>(item.clsId());
+    packet.itemPersistentId = static_cast<std::int64_t>(item.persistentId());
+    packet.amount = static_cast<std::int64_t>(item.count());
+    packet.slot = static_cast<std::int64_t>(slot);
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(actor);
+    packet.itemTemplateKey = itemTemplateKey(item.clsId());
+    packet.equipmentSlot = std::to_string(slot);
+    packet.world = std::string(world.name());
+    const auto actorPos = actor.position();
+    packet.actorPosX = actorPos.x; packet.actorPosY = actorPos.y; packet.actorPosZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
+
   std::string payload;
   payload.reserve(448);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
@@ -1453,14 +1576,15 @@ void onItemEquipped(Npc& actor,
   appendVec3(payload, "actor_position", actor.position());
   payload.push_back('}');
 
-  submit(SemanticActionKind::EquipCharacterItem, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::EquipCharacterItem, std::move(target), std::move(payload), world.tickCount());
 }
 
 void onItemUnequipped(Npc& actor,
                       const Item& item,
                       std::uint8_t slot,
                       const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || !shouldCapturePlayerAction(actor))
     return;
   auto& world = actor.world();
   auto target = itemTemplateKey(item.clsId());
@@ -1469,6 +1593,28 @@ void onItemUnequipped(Npc& actor,
   target.push_back(':');
   appendUInt(target, slot);
 
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientInventoryPacket packet;
+    packet.kind = SemanticActionKind::UnequipCharacterItem;
+    packet.flags = Net::ClientInventoryHasActorPosition | Net::ClientInventoryHasEquipmentSlot;
+    packet.clientTick = world.tickCount();
+    packet.itemSymbol = static_cast<std::int64_t>(item.clsId());
+    packet.itemPersistentId = static_cast<std::int64_t>(item.persistentId());
+    packet.amount = static_cast<std::int64_t>(item.count());
+    packet.slot = static_cast<std::int64_t>(slot);
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(actor);
+    packet.itemTemplateKey = itemTemplateKey(item.clsId());
+    packet.equipmentSlot = std::to_string(slot);
+    packet.world = std::string(world.name());
+    const auto actorPos = actor.position();
+    packet.actorPosX = actorPos.x; packet.actorPosY = actorPos.y; packet.actorPosZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
+
   std::string payload;
   payload.reserve(448);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
@@ -1482,7 +1628,8 @@ void onItemUnequipped(Npc& actor,
   appendVec3(payload, "actor_position", actor.position());
   payload.push_back('}');
 
-  submit(SemanticActionKind::UnequipCharacterItem, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::UnequipCharacterItem, std::move(target), std::move(payload), world.tickCount());
 }
 
 
@@ -1492,7 +1639,7 @@ void onWeaponStateChanged(Npc& actor,
                           WeaponState newState,
                           const char* sourceLocation,
                           const char* reason) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCaptureWorldAiAction(actor) || !shouldEmitWeaponState(actor, previousState, newState))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || !shouldCaptureWorldAiAction(actor) || !shouldEmitWeaponState(actor, previousState, newState))
     return;
   auto& world = actor.world();
   const bool holstered = newState == WeaponState::NoWeapon;
@@ -1500,6 +1647,24 @@ void onWeaponStateChanged(Npc& actor,
   target.append(holstered ? ":weapon:holster" : ":weapon:ready");
   target.push_back(':');
   appendUInt(target, world.tickCount());
+
+  if(isServerBoundClientModeEnabled() && actor.isPlayer()) {
+    Net::ClientWorldStatePacket packet;
+    packet.kind = holstered ? SemanticActionKind::HolsterWeapon : SemanticActionKind::ReadyWeapon;
+    packet.flags = Net::ClientWorldStateHasActorPosition;
+    packet.clientTick = world.tickCount();
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(actor);
+    packet.characterKey = characterKey();
+    packet.world = std::string(world.name());
+    packet.reason = reason != nullptr ? reason : "weapon_state_intent";
+    const auto actorPos = actor.position();
+    packet.actorPosX = actorPos.x; packet.actorPosY = actorPos.y; packet.actorPosZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
 
   std::string payload;
   payload.reserve(704);
@@ -1516,8 +1681,9 @@ void onWeaponStateChanged(Npc& actor,
   appendVec3(payload, "actor_position", actor.position());
   payload.push_back('}');
 
-  submit(holstered ? SemanticActionKind::HolsterWeapon : SemanticActionKind::ReadyWeapon,
-         std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(holstered ? SemanticActionKind::HolsterWeapon : SemanticActionKind::ReadyWeapon,
+           std::move(target), std::move(payload), world.tickCount());
 }
 
 void onCombatIntent(Npc& actor,
@@ -1525,7 +1691,7 @@ void onCombatIntent(Npc& actor,
                     std::string_view intentState,
                     const char* sourceLocation,
                     const char* reason) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !isLiveWorldTick(actor.world()))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || !isLiveWorldTick(actor.world()))
     return;
 
   auto& world = actor.world();
@@ -1533,6 +1699,29 @@ void onCombatIntent(Npc& actor,
   Npc* targetNpc = actor.stateVictim() != nullptr ? actor.stateVictim() :
                    actor.target() != nullptr ? actor.target() : actor.stateOther();
   const auto targetEntity = npcTargetKey(targetNpc);
+
+  if(isServerBoundClientModeEnabled() && actor.isPlayer()) {
+    Net::ClientNpcStatePacket packet;
+    packet.kind = SemanticActionKind::RecordCombatIntent;
+    packet.flags = Net::ClientNpcStateHasPosition;
+    packet.clientTick = world.tickCount();
+    packet.targetKey = targetEntity.empty() ? actorEntity : targetEntity;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.reason = reason != nullptr ? reason : "combat_intent";
+    packet.actorKey = actorKey(actor);
+    packet.npcEntityKey = actorEntity;
+    packet.npcKey = actorEntity;
+    packet.targetNpcEntityKey = targetEntity;
+    packet.targetNpcKey = targetEntity;
+    packet.world = std::string(world.name());
+    packet.combatAction = std::string(combatAction);
+    packet.intentState = std::string(intentState);
+    const auto actorPos = actor.position();
+    packet.posX = actorPos.x; packet.posY = actorPos.y; packet.posZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
 
   std::string payload;
   payload.reserve(1024);
@@ -1558,7 +1747,8 @@ void onCombatIntent(Npc& actor,
   }
   payload.push_back('}');
 
-  submit(SemanticActionKind::RecordCombatIntent, std::move(actorEntity), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::RecordCombatIntent, std::move(actorEntity), std::move(payload), world.tickCount());
 }
 
 void onContainerInventoryTaken(Npc& actor,
@@ -1567,7 +1757,7 @@ void onContainerInventoryTaken(Npc& actor,
                                std::uint32_t sourceItemPersistentId,
                                std::size_t amount,
                                const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || amount == 0 || !shouldCapturePlayerAction(actor))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || amount == 0 || !shouldCapturePlayerAction(actor))
     return;
   auto& world = actor.world();
   auto sourceKey = interactiveEntityKey(world, container);
@@ -1577,6 +1767,29 @@ void onContainerInventoryTaken(Npc& actor,
   appendUInt(target, itemSymbol);
   target.push_back(':');
   appendUInt(target, sourceItemPersistentId);
+
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientInventoryPacket packet;
+    packet.kind = SemanticActionKind::TakeContainerItem;
+    packet.flags = Net::ClientInventoryHasActorPosition;
+    packet.clientTick = world.tickCount();
+    packet.itemSymbol = static_cast<std::int64_t>(itemSymbol);
+    packet.amount = static_cast<std::int64_t>(amount);
+    packet.sourceItemPersistentId = static_cast<std::int64_t>(sourceItemPersistentId);
+    packet.sourceEntityKey = sourceKey;
+    packet.sourceContainerKey = sourceKey;
+    packet.containerKey = sourceKey;
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(actor);
+    packet.itemTemplateKey = itemTemplateKey(itemSymbol);
+    packet.world = std::string(world.name());
+    const auto actorPos = actor.position();
+    packet.actorPosX = actorPos.x; packet.actorPosY = actorPos.y; packet.actorPosZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
 
   std::string payload;
   payload.reserve(768);
@@ -1602,7 +1815,8 @@ void onContainerInventoryTaken(Npc& actor,
   appendVec3(payload, "actor_position", actor.position());
   payload.push_back('}');
 
-  submit(SemanticActionKind::TakeContainerItem, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::TakeContainerItem, std::move(target), std::move(payload), world.tickCount());
 }
 
 void onNpcInventoryLooted(Npc& looter,
@@ -1611,7 +1825,7 @@ void onNpcInventoryLooted(Npc& looter,
                           std::uint32_t sourceItemPersistentId,
                           std::size_t amount,
                           const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || amount == 0 || !shouldCapturePlayerAction(looter))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || amount == 0 || !shouldCapturePlayerAction(looter))
     return;
   if(!sourceNpc.isDead() && !sourceNpc.isUnconscious())
     return;
@@ -1622,6 +1836,30 @@ void onNpcInventoryLooted(Npc& looter,
   appendUInt(target, itemSymbol);
   target.push_back(':');
   appendUInt(target, sourceItemPersistentId);
+
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientInventoryPacket packet;
+    packet.kind = SemanticActionKind::LootNpcInventory;
+    packet.flags = Net::ClientInventoryHasActorPosition;
+    packet.clientTick = world.tickCount();
+    packet.itemSymbol = static_cast<std::int64_t>(itemSymbol);
+    packet.amount = static_cast<std::int64_t>(amount);
+    packet.sourceItemPersistentId = static_cast<std::int64_t>(sourceItemPersistentId);
+    packet.sourceNpcKey = sourceKey;
+    packet.sourceEntityKey = sourceKey;
+    if(sourceNpc.isDead()) packet.flags |= Net::ClientInventorySourceDead;
+    if(sourceNpc.isUnconscious()) packet.flags |= Net::ClientInventorySourceUnconscious;
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(looter);
+    packet.itemTemplateKey = itemTemplateKey(itemSymbol);
+    packet.world = std::string(world.name());
+    const auto actorPos = looter.position();
+    packet.actorPosX = actorPos.x; packet.actorPosY = actorPos.y; packet.actorPosZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
 
   std::string payload;
   payload.reserve(768);
@@ -1642,7 +1880,8 @@ void onNpcInventoryLooted(Npc& looter,
   appendVec3(payload, "source_npc_position", sourceNpc.position());
   payload.push_back('}');
 
-  submit(SemanticActionKind::LootNpcInventory, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::LootNpcInventory, std::move(target), std::move(payload), world.tickCount());
 }
 
 void onCharacterItemDropped(Npc& actor,
@@ -1651,10 +1890,31 @@ void onCharacterItemDropped(Npc& actor,
                             std::uint32_t sourceItemPersistentId,
                             std::size_t amount,
                             const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || amount == 0 || !shouldCapturePlayerAction(actor))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || amount == 0 || !shouldCapturePlayerAction(actor))
     return;
   auto& world = actor.world();
   auto target = worldItemKey(world.name(), worldItem.persistentId(), itemSymbol);
+
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientInventoryPacket packet;
+    packet.kind = SemanticActionKind::DropCharacterItem;
+    packet.flags = Net::ClientInventoryHasActorPosition;
+    packet.clientTick = world.tickCount();
+    packet.itemSymbol = static_cast<std::int64_t>(itemSymbol);
+    packet.amount = static_cast<std::int64_t>(amount);
+    packet.itemPersistentId = static_cast<std::int64_t>(sourceItemPersistentId);
+    packet.worldItemPersistentId = static_cast<std::int64_t>(worldItem.persistentId());
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(actor);
+    packet.itemTemplateKey = itemTemplateKey(itemSymbol);
+    packet.world = std::string(world.name());
+    const auto actorPos = actor.position();
+    packet.actorPosX = actorPos.x; packet.actorPosY = actorPos.y; packet.actorPosZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
 
   std::string payload;
   payload.reserve(640);
@@ -1673,7 +1933,8 @@ void onCharacterItemDropped(Npc& actor,
   appendVec3(payload, "item_position", worldItem.position());
   payload.push_back('}');
 
-  submit(SemanticActionKind::DropCharacterItem, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::DropCharacterItem, std::move(target), std::move(payload), world.tickCount());
 }
 
 void onTradeBuyFromNpc(Npc& buyer,
@@ -1685,7 +1946,7 @@ void onTradeBuyFromNpc(Npc& buyer,
                        std::size_t goldBefore,
                        std::size_t goldAfter,
                        const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || amount == 0 || !shouldCapturePlayerAction(buyer))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || amount == 0 || !shouldCapturePlayerAction(buyer))
     return;
   auto& world = buyer.world();
   auto target = itemTemplateKey(itemSymbol);
@@ -1695,6 +1956,28 @@ void onTradeBuyFromNpc(Npc& buyer,
   appendUInt(target, vendorItemPersistentId);
 
   const auto totalPrice = static_cast<std::int64_t>(unitPrice) * static_cast<std::int64_t>(amount);
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientInventoryPacket packet;
+    packet.kind = SemanticActionKind::TradeBuyFromNpc;
+    packet.flags = Net::ClientInventoryHasActorPosition;
+    packet.clientTick = world.tickCount();
+    packet.itemSymbol = static_cast<std::int64_t>(itemSymbol);
+    packet.vendorItemPersistentId = static_cast<std::int64_t>(vendorItemPersistentId);
+    packet.amount = static_cast<std::int64_t>(amount);
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(buyer);
+    packet.npcKey = actorKey(vendor);
+    packet.targetNpcEntityKey = npcEntityKey(world.name(), vendor.persistentId(), vendor.instanceSymbol());
+    packet.itemTemplateKey = itemTemplateKey(itemSymbol);
+    packet.world = std::string(world.name());
+    const auto actorPos = buyer.position();
+    packet.actorPosX = actorPos.x; packet.actorPosY = actorPos.y; packet.actorPosZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
+
   std::string payload;
   payload.reserve(768);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
@@ -1715,7 +1998,8 @@ void onTradeBuyFromNpc(Npc& buyer,
   appendVec3(payload, "buyer_position", buyer.position());
   payload.push_back('}');
 
-  submit(SemanticActionKind::TradeBuyFromNpc, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::TradeBuyFromNpc, std::move(target), std::move(payload), world.tickCount());
 }
 
 void onTradeSellToNpc(Npc& seller,
@@ -1727,7 +2011,7 @@ void onTradeSellToNpc(Npc& seller,
                       std::size_t goldBefore,
                       std::size_t goldAfter,
                       const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || amount == 0 || !shouldCapturePlayerAction(seller))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || amount == 0 || !shouldCapturePlayerAction(seller))
     return;
   auto& world = seller.world();
   auto target = itemTemplateKey(itemSymbol);
@@ -1737,6 +2021,28 @@ void onTradeSellToNpc(Npc& seller,
   appendUInt(target, sellerItemPersistentId);
 
   const auto totalPrice = static_cast<std::int64_t>(unitPrice) * static_cast<std::int64_t>(amount);
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientInventoryPacket packet;
+    packet.kind = SemanticActionKind::TradeSellToNpc;
+    packet.flags = Net::ClientInventoryHasActorPosition;
+    packet.clientTick = world.tickCount();
+    packet.itemSymbol = static_cast<std::int64_t>(itemSymbol);
+    packet.sellerItemPersistentId = static_cast<std::int64_t>(sellerItemPersistentId);
+    packet.amount = static_cast<std::int64_t>(amount);
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(seller);
+    packet.npcKey = actorKey(buyer);
+    packet.targetNpcEntityKey = npcEntityKey(world.name(), buyer.persistentId(), buyer.instanceSymbol());
+    packet.itemTemplateKey = itemTemplateKey(itemSymbol);
+    packet.world = std::string(world.name());
+    const auto actorPos = seller.position();
+    packet.actorPosX = actorPos.x; packet.actorPosY = actorPos.y; packet.actorPosZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
+
   std::string payload;
   payload.reserve(768);
   payload.append("{\"source\":"); appendEscaped(payload, sourceLocation);
@@ -1758,7 +2064,8 @@ void onTradeSellToNpc(Npc& seller,
   appendVec3(payload, "seller_position", seller.position());
   payload.push_back('}');
 
-  submit(SemanticActionKind::TradeSellToNpc, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::TradeSellToNpc, std::move(target), std::move(payload), world.tickCount());
 }
 
 void onCharacterItemConsumed(Npc& actor,
@@ -1767,12 +2074,33 @@ void onCharacterItemConsumed(Npc& actor,
                              std::size_t amount,
                              std::string_view reason,
                              const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || amount == 0 || !shouldCapturePlayerAction(actor))
+  if((!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) || amount == 0 || !shouldCapturePlayerAction(actor))
     return;
   auto& world = actor.world();
   auto target = itemTemplateKey(itemSymbol);
   target.append(":consume:");
   appendUInt(target, itemPersistentId);
+
+  if(isServerBoundClientModeEnabled()) {
+    Net::ClientInventoryPacket packet;
+    packet.kind = SemanticActionKind::ConsumeItem;
+    packet.flags = Net::ClientInventoryHasActorPosition;
+    packet.clientTick = world.tickCount();
+    packet.itemSymbol = static_cast<std::int64_t>(itemSymbol);
+    packet.itemPersistentId = static_cast<std::int64_t>(itemPersistentId);
+    packet.amount = static_cast<std::int64_t>(amount);
+    packet.targetKey = target;
+    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
+    packet.actorKey = actorKey(actor);
+    packet.itemTemplateKey = itemTemplateKey(itemSymbol);
+    packet.world = std::string(world.name());
+    packet.reason = std::string(reason);
+    const auto actorPos = actor.position();
+    packet.actorPosX = actorPos.x; packet.actorPosY = actorPos.y; packet.actorPosZ = actorPos.z;
+    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+  }
+  if(!isClientMmoDiagnosticsEnabled())
+    return;
 
   std::string payload;
   payload.reserve(512);
@@ -1787,7 +2115,8 @@ void onCharacterItemConsumed(Npc& actor,
   appendVec3(payload, "actor_position", actor.position());
   payload.push_back('}');
 
-  submit(SemanticActionKind::ConsumeItem, std::move(target), std::move(payload), world.tickCount());
+  if(isClientMmoDiagnosticsEnabled())
+    submit(SemanticActionKind::ConsumeItem, std::move(target), std::move(payload), world.tickCount());
 }
 
 void onCharacterAttributeChanged(Npc& actor,
@@ -1797,7 +2126,7 @@ void onCharacterAttributeChanged(Npc& actor,
                                  std::int32_t requestedDelta,
                                  Npc* sourceActor,
                                  const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || valueBefore == valueAfter || !shouldCapturePlayerRelated(actor, sourceActor))
+  if(!isClientMmoDiagnosticsEnabled() || valueBefore == valueAfter || !shouldCapturePlayerRelated(actor, sourceActor))
     return;
 
   const auto delta = valueAfter - valueBefore;
@@ -1922,7 +2251,7 @@ void onNpcLifecycleChanged(Npc& actor,
                            bool dead,
                            bool unconscious,
                            const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || actor.isPlayer() || (!dead && !unconscious) ||
+  if(!isClientMmoDiagnosticsEnabled() || actor.isPlayer() || (!dead && !unconscious) ||
      !shouldCapturePlayerRelated(actor, sourceActor))
     return;
   auto& world = actor.world();
@@ -1949,7 +2278,7 @@ void onNpcLifecycleChanged(Npc& actor,
 void onObservedNpcAuthorityState(Npc& actor,
                                  const char* sourceLocation,
                                  const char* reason) noexcept {
-  if(!isServerBoundClientModeEnabled() || !isSemanticActionCaptureEnabled() ||
+  if(!isServerBoundClientModeEnabled() || (!isClientMmoDiagnosticsEnabled() && !isServerBoundClientModeEnabled()) ||
      actor.isPlayer() || !isLiveWorldTick(actor.world()))
     return;
 
@@ -2067,7 +2396,7 @@ void onNpcDialogLineQueued(Npc& speaker,
                            Npc& listener,
                            std::string_view outputName,
                            const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCaptureWorldAiAction(speaker, &listener) || outputName.empty())
+  if(!isClientMmoDiagnosticsEnabled() || !shouldCaptureWorldAiAction(speaker, &listener) || outputName.empty())
     return;
 
   auto& world = speaker.world();
@@ -2111,7 +2440,7 @@ void onScriptIntChanged(Npc& actor,
                         std::int32_t valueBefore,
                         std::int32_t valueAfter,
                         const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor) || valueBefore == valueAfter)
+  if(!isClientMmoDiagnosticsEnabled() || !shouldCapturePlayerAction(actor) || valueBefore == valueAfter)
     return;
   auto& world = actor.world();
   auto target = scriptKey(symbolIndex, valueIndex);
@@ -2148,7 +2477,7 @@ void onCharacterProgressionChanged(Npc& actor,
                                    std::int32_t learningPointsBefore,
                                    std::int32_t learningPointsAfter,
                                    const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+  if(!isClientMmoDiagnosticsEnabled() || !shouldCapturePlayerAction(actor))
     return;
   const auto experienceDelta = experienceAfter - experienceBefore;
   const auto learningPointsDelta = learningPointsAfter - learningPointsBefore;
@@ -2193,7 +2522,7 @@ void onKnownDialogChanged(Npc& actor,
                           std::string_view infoSymbolName,
                           bool known,
                           const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor))
+  if(!isClientMmoDiagnosticsEnabled() || !shouldCapturePlayerAction(actor))
     return;
   auto& world = actor.world();
   auto target = symbolKey("dialog-info", infoSymbol);
@@ -2226,7 +2555,7 @@ void onQuestChanged(Npc& actor,
                     std::string_view status,
                     std::size_t entryCount,
                     const char* sourceLocation) noexcept {
-  if(!isSemanticActionCaptureEnabled() || !shouldCapturePlayerAction(actor) || questKey.empty())
+  if(!isClientMmoDiagnosticsEnabled() || !shouldCapturePlayerAction(actor) || questKey.empty())
     return;
   auto& world = actor.world();
   std::string target = "quest:";
@@ -2250,8 +2579,6 @@ void onQuestChanged(Npc& actor,
 }
 
 } // namespace Mmo::Hooks
-
-
 
 
 

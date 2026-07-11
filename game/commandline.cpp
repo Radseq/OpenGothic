@@ -15,6 +15,10 @@
 #include "utils/fileutil.h"
 #include "utils/string_frm.h"
 
+#ifndef OPENGOTHIC_MMO_SQLITE_TOOLING
+#define OPENGOTHIC_MMO_SQLITE_TOOLING 0
+#endif
+
 using namespace Tempest;
 using namespace FileUtil;
 
@@ -46,6 +50,7 @@ CommandLine::CommandLine(int argc, const char** argv) {
     return;
 
   std::string_view mod;
+  bool mmoSqliteOptionRequested = false;
   for(int i=1;i<argc;++i) {
     std::string_view arg = argv[i];
     if(arg.find("-game:")==0) {
@@ -88,6 +93,7 @@ CommandLine::CommandLine(int argc, const char** argv) {
         dumpSave = argv[i];
       }
     else if(arg=="-mmo-sqlite") {
+      mmoSqliteOptionRequested = true;
       // Enables local MMO persistence. The path identifies the SQLite database
       // opened after the world loads; it is used for capture and DB restore.
       ++i;
@@ -95,6 +101,7 @@ CommandLine::CommandLine(int argc, const char** argv) {
         mmoSqliteDb = argv[i];
       }
     else if(arg=="-mmo-sqlite-interval-ms") {
+      mmoSqliteOptionRequested = true;
       // Sets the minimum interval for incremental delta flushes. This does not
       // rebuild the canonical MMO projection; 250 ms prevents accidental I/O abuse.
       ++i;
@@ -108,16 +115,19 @@ CommandLine::CommandLine(int argc, const char** argv) {
         }
       }
     else if(arg=="-mmo-sqlite-no-restore") {
+      mmoSqliteOptionRequested = true;
       // Capture-only mode: writes the current session to SQLite but leaves the
       // world loaded from the regular save/New Game untouched by DB restore.
       mmoSqliteRestoreState = false;
       }
     else if(arg=="-mmo-sqlite-capture-baseline") {
+      mmoSqliteOptionRequested = true;
       // Creates the immutable MMO world baseline from a deterministic New Game.
       // It is valid only for the first session of a fresh database, never a save.
       mmoSqliteCaptureBaselineState = true;
       }
     else if(arg=="-mmo-sqlite-capture-pre-start-exit") {
+      mmoSqliteOptionRequested = true;
       // One-shot deterministic baseline capture for a fresh New Game. The SQLite
       // DB is opened and flushed before world start triggers/dialog AI can run,
       // then the process exits. This intentionally avoids Xardas auto-dialog.
@@ -162,31 +172,11 @@ CommandLine::CommandLine(int argc, const char** argv) {
           mmoActionUdp = mmoServerEndpointValue;
         }
       }
-    else if(arg=="-mmo-client-dialog-presentation-validate" ||
-            arg=="-mmo-client-dialog-presentation-validate-only") {
-      // Guarded client-side validation boundary for server-owned dialog intents.
-      // It may return ACK/NACK based on packet presentability, but still does
-      // not play audio or open local Gothic dialog UI.
-      mmoClientUsesServerState = true;
-      mmoClientDialogPresentationValidateOnlyState = true;
-      }
-    else if(arg=="-mmo-client-dialog-presentation-main-thread-probe" ||
-            arg=="-mmo-client-dialog-main-thread-probe" ||
-            arg=="-mmo-client-dialog-presentation-probe") {
-      // Disabled-by-default bridge for future real subtitle/audio presentation.
-      // The UDP worker ACK remains fast; GameSession later observes the event
-      // on the game thread without mutating UI/audio state.
-      mmoClientUsesServerState = true;
-      mmoClientDialogPresentationMainThreadProbeState = true;
-      }
     else if(arg=="-mmo-client-dialog-main-thread-observation-receipt" ||
-            arg=="-mmo-client-dialog-observation-receipt" ||
-            arg=="-mmo-client-dialog-apply-receipt-probe") {
-      // Disabled-by-default Step265 diagnostic receipt. This separates the
-      // fast UDP transport ACK from later game-thread observation/apply
-      // evidence without enabling real subtitle/audio presentation.
+            arg=="-mmo-client-dialog-observation-receipt") {
+      // Optional diagnostic evidence emitted after the production main-thread
+      // presenter applies or rejects a server-owned dialog.
       mmoClientUsesServerState = true;
-      mmoClientDialogPresentationMainThreadProbeState = true;
       mmoClientDialogObservationReceiptState = true;
       }
     else if(arg=="-mmo-client-content-manifest-hash" || arg=="-mmo-content-manifest-hash") {
@@ -198,25 +188,6 @@ CommandLine::CommandLine(int argc, const char** argv) {
         mmoClientContentManifestHashValue = argv[i];
       }
     }
-    else if(arg=="-mmo-restore-snapshot-json" || arg=="-mmo-client-restore-snapshot-json") {
-      // Guarded server-truth restore contract. Validation is allowed in
-      // server-bound mode; mutation additionally requires -mmo-restore-snapshot-apply.
-      ++i;
-      if(i<argc)
-        mmoRestoreSnapshotJsonPath = argv[i];
-      }
-    else if(arg=="-mmo-restore-snapshot-apply" || arg=="-mmo-client-restore-snapshot-apply") {
-      // Explicit second key for replacing .sav inventory/equipment with a
-      // validated server snapshot. No effect without -mmo-client-server.
-      mmoRestoreSnapshotApplyState = true;
-      }
-    else if(arg=="-mmo-server-snapshot-json" || arg=="-mmo-bootstrap-snapshot-json") {
-      // Optional path for the snapshot downloaded from the C++ server during
-      // bootstrap. The default is runtime/mmo_server_bootstrap_snapshot.json.
-      ++i;
-      if(i<argc)
-        mmoServerSnapshotJsonPath = argv[i];
-      }
     else if(arg=="-mmo-db-continue-without-native-save" || arg=="-mmo-db-continue") {
       // Step95: explicit development bridge for DB-backed Continue. When a
       // requested native .sav is missing, server-bound mode can bootstrap the
@@ -471,33 +442,19 @@ CommandLine::CommandLine(int argc, const char** argv) {
     // without requiring a fake -save slot on the command line.
     mmoDbContinueWithoutNativeSaveState = true;
     Log::i("MMO DB continue without native save enabled by server-bound mode");
-    if(mmoClientDialogPresentationValidateOnlyState)
-      Log::i("MMO client dialog presentation validation enabled: validate-only, UI/audio disabled");
-    if(mmoClientDialogPresentationMainThreadProbeState)
-      Log::i("MMO client dialog presentation main-thread probe enabled: UI/audio disabled");
     if(mmoClientDialogObservationReceiptState)
       Log::i("MMO client dialog main-thread observation receipt enabled: no UI/audio apply");
     }
 
-  if(mmoClientDialogPresentationValidateOnlyState && !mmoClientUsesServerState)
-    Log::e("-mmo-client-dialog-presentation-validate requires -mmo-client-server");
 
-  if(mmoClientDialogPresentationMainThreadProbeState && !mmoClientUsesServerState)
-    Log::e("-mmo-client-dialog-presentation-main-thread-probe requires -mmo-client-server");
-  if(mmoClientDialogObservationReceiptState && !mmoClientDialogPresentationMainThreadProbeState)
-    Log::e("-mmo-client-dialog-main-thread-observation-receipt requires main-thread probe");
+  if(mmoSqliteOptionRequested && !OPENGOTHIC_MMO_SQLITE_TOOLING)
+    throw std::invalid_argument("MMO SQLite options require OPENGOTHIC_MMO_ENABLE_SQLITE_TOOLING=ON");
 
   if(mmoDbContinueWithoutNativeSaveState && !mmoClientUsesServerState)
     Log::e("-mmo-db-continue-without-native-save requires -mmo-client-server");
 
   if(mmoRequireDbSaveCheckpointRestoreState && !mmoClientUsesServerState)
     Log::e("-mmo-require-db-save-checkpoint-restore requires -mmo-client-server");
-
-  if(mmoRestoreSnapshotApplyState && mmoRestoreSnapshotJsonPath.empty())
-    Log::e("-mmo-restore-snapshot-apply requires -mmo-restore-snapshot-json <path>");
-
-  if(mmoClientUsesServerState && mmoServerSnapshotJsonPath.empty())
-    Log::e("-mmo-client-server requires a non-empty server snapshot path");
 
   if(gpath.empty()) {
     InstallDetect inst;

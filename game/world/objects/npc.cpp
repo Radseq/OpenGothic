@@ -2471,6 +2471,12 @@ void Npc::tick(uint64_t dt) {
   if(!visual.pose().hasAnim())
     setAnim(AnimationSolver::Idle);
 
+  // A replicated NPC is a presentation proxy for server-owned gameplay. Keep
+  // animation event processing local, but never run local AI, routines, regen,
+  // perception or combat state transitions for that entity.
+  if(mmoServerReplica && !isPlayer())
+    return;
+
   if(isDive()) {
     uint32_t gl = guild();
     int32_t  v  = world().script().guildVal().dive_time[gl]*1000;

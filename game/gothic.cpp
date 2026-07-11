@@ -668,6 +668,13 @@ void Gothic::openDialogPipe(Npc &player, Npc &npc, AiOuputPipe *&pipe) {
   onDialogPipe(player,npc,pipe);
   }
 
+void Gothic::openServerDialog(
+    Npc& player,
+    Npc& npc,
+    const Mmo::Net::ServerNpcDialogIntentPacket& intent) {
+  onServerDialog(player, npc, intent);
+}
+
 bool Gothic::isNpcInDialog(const Npc& npc) const {
   return isNpcInDialogFn(&npc);
   }

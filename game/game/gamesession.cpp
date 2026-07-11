@@ -1,8 +1,10 @@
 #include "gamesession.h"
 #include "savegameheader.h"
-#include "mmoruntimesqlite.h"
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
+#include "../../tools/mmo/mmoruntimesqlite.h"
+#endif
 #include "mmosemantichooks.h"
-#include "mmosemanticactionsink.h"
+#include "mmoclientbridge.h"
 #include "mmorestoresnapshot.h"
 
 #include <Tempest/Log>
@@ -277,39 +279,15 @@ MmoNpcRoutineAuthorityApplyStats applyMmoNpcRoutineAuthorityState(World& world,
   return stats;
 }
 
-std::filesystem::path snapshotTmpPath(std::string_view path) {
-  auto out = std::filesystem::path(std::string(path));
-  out += ".tmp";
-  return out;
-}
-
-std::uint32_t readMmoSnapshotManifestId() noexcept {
+std::optional<Mmo::ServerBootstrapSnapshot> latestMmoBootstrapSnapshot() noexcept {
   try {
-    std::ifstream in("runtime/mmo_server_bootstrap_snapshot_manifest.json", std::ios::in | std::ios::binary);
-    if(!in.is_open())
-      return 0;
-    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    constexpr std::string_view Key = "\"snapshot_id\"";
-    auto pos = text.find(Key);
-    if(pos == std::string::npos)
-      return 0;
-    pos = text.find(':', pos + Key.size());
-    if(pos == std::string::npos)
-      return 0;
-    ++pos;
-    while(pos < text.size() && static_cast<unsigned char>(text[pos]) <= ' ')
-      ++pos;
-    std::uint32_t out = 0;
-    const auto* begin = text.data() + pos;
-    const auto* end = text.data() + text.size();
-    const auto r = std::from_chars(begin, end, out);
-    if(r.ec != std::errc{})
-      return 0;
-    return out;
-    }
-  catch(...) {
-    return 0;
-    }
+    // Pull newly completed snapshots from client_sandbox before consulting the
+    // retained latest value. No production file polling is involved.
+    (void)Mmo::drainServerBootstrapSnapshots();
+    return Mmo::latestServerBootstrapSnapshot();
+  } catch(...) {
+    return std::nullopt;
+  }
 }
 
 bool canReuseMmoDbContinuePreWorldSnapshot() noexcept {
@@ -317,33 +295,27 @@ bool canReuseMmoDbContinuePreWorldSnapshot() noexcept {
   if(!cmd.mmoClientUsesServer() || !cmd.mmoDbContinueWithoutNativeSave())
     return false;
 
-  const auto pathView = cmd.mmoServerSnapshotJson();
-  if(pathView.empty())
+  const auto snapshot = latestMmoBootstrapSnapshot();
+  if(!snapshot)
     return false;
-
-  const std::filesystem::path path{std::string(pathView)};
-  std::error_code ec;
-  if(!std::filesystem::is_regular_file(path, ec))
-    return false;
-
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
+  const auto result = Mmo::RestoreSnapshot::parseAndValidateBootstrapSnapshot(
+      snapshot->payload, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO DB continue pre-world snapshot reuse rejected: ", result.message,
-           " path=", std::string(pathView));
+           " snapshot_id=", snapshot->snapshotId);
     return false;
   }
-
   if(result.snapshotSource != "db_save_checkpoint_v1") {
     Log::e("MMO DB continue pre-world snapshot reuse rejected: snapshot_source=",
            result.snapshotSource,
-           " path=", std::string(pathView));
+           " snapshot_id=", snapshot->snapshotId);
     return false;
   }
 
   Log::i("MMO DB continue pre-world snapshot reuse enabled",
          " world=", result.worldName,
          " manifest=", result.dbSaveCheckpointManifestUuid,
-         " path=", std::string(pathView));
+         " snapshot_id=", snapshot->snapshotId);
   return true;
 }
 
@@ -352,17 +324,16 @@ bool loadMmoDbContinuePreWorldClock(gtime& out) noexcept {
   if(!cmd.mmoClientUsesServer() || !cmd.mmoDbContinueWithoutNativeSave())
     return false;
 
-  const auto pathView = cmd.mmoServerSnapshotJson();
-  if(pathView.empty())
+  const auto snapshot = latestMmoBootstrapSnapshot();
+  if(!snapshot)
     return false;
-
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
+  const auto result = Mmo::RestoreSnapshot::parseAndValidateBootstrapSnapshot(
+      snapshot->payload, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO DB continue pre-world clock rejected: ", result.message,
-           " path=", std::string(pathView));
+           " snapshot_id=", snapshot->snapshotId);
     return false;
-    }
-
+  }
   if(!result.worldClock.present)
     return false;
 
@@ -371,7 +342,8 @@ bool loadMmoDbContinuePreWorldClock(gtime& out) noexcept {
          " hour=", out.hour(),
          " minute=", out.minute(),
          " world=", result.worldClock.worldName,
-         " snapshot_source=", result.snapshotSource);
+         " snapshot_source=", result.snapshotSource,
+         " snapshot_id=", snapshot->snapshotId);
   return true;
 }
 
@@ -593,6 +565,30 @@ Mmo::ServerDialogSpeakerResolution resolveServerDialogSpeaker(World& world,
   out.reason = "client_dialog_speaker_identity_unsupported";
   out.message = "ServerNpcDialogIntent speaker_entity_key is not a supported local NPC/player identity format.";
   return out;
+}
+
+Npc* resolveServerEntityNpc(World& world, std::string_view stableEntityKey) noexcept {
+  if(stableEntityKey.empty())
+    return nullptr;
+
+  if(const auto characterId = characterIdFromEntityKey(stableEntityKey);
+     !characterId.empty()) {
+    const auto localCharacterKey = CommandLine::inst().mmoCharacterKey();
+    if(!localCharacterKey.empty() && characterId != localCharacterKey)
+      return nullptr;
+    return world.player();
+  }
+
+  if(const auto identity = parseMmoNpcEntityKey(stableEntityKey); identity.valid) {
+    if(!identity.world.empty() && std::string_view(identity.world) != world.name())
+      return nullptr;
+    return findNpcByIdentity(world, identity.persistentId, identity.symbolIndex);
+  }
+
+  if(const auto identity = parseMmoCompactNpcEntityKey(stableEntityKey); identity.valid)
+    return findNpcByIdentity(world, identity.persistentId, identity.symbolIndex);
+
+  return nullptr;
 }
 
 Npc* findNpcByApproxPosition(World& world, std::size_t symbol, const Tempest::Vec3& pos) noexcept {
@@ -1126,6 +1122,7 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
   if(!testMode)
     initScripts(true);
 
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
   if(CommandLine::inst().mmoSqliteCapturePreStartExit()) {
     const auto& cmd = CommandLine::inst();
     if(cmd.mmoSqlite().empty()) {
@@ -1148,6 +1145,7 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
     mmoSqlite.reset();
     std::exit(0);
     }
+#endif
 
   if(!mmoServerFreshNewGame) {
     const bool reuseDbContinueSnapshot = dbContinueRequested && canReuseMmoDbContinuePreWorldSnapshot();
@@ -1173,21 +1171,27 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
     wrld->triggerOnStart(false);
     const auto resumedNpcRoutines = wrld->resumeNpcRoutinesAfterServerRestore();
     Log::i("MMO DB continue startup NPC routines resumed: count=", resumedNpcRoutines);
-    if(auto snapshot = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(CommandLine::inst().mmoServerSnapshotJson(), CommandLine::inst().mmoCharacterKey()); snapshot.ok) {
-      const auto npcAuthority = applyMmoNpcRoutineAuthorityState(*wrld, snapshot);
-      Log::i("MMO DB continue startup NPC authority applied: routine_applied=", npcAuthority.applied,
-             " routine_fallback=", npcAuthority.fallback,
-             " missing_npc=", npcAuthority.missingNpc,
-             " skipped=", npcAuthority.skipped,
-             " records=", snapshot.npcRoutineStates.size(),
-             " snapshot_source=", snapshot.snapshotSource);
+    if(const auto bootstrap = latestMmoBootstrapSnapshot()) {
+      auto snapshot = Mmo::RestoreSnapshot::parseAndValidateBootstrapSnapshot(
+          bootstrap->payload, CommandLine::inst().mmoCharacterKey());
+      if(snapshot.ok) {
+        const auto npcAuthority = applyMmoNpcRoutineAuthorityState(*wrld, snapshot);
+        Log::i("MMO DB continue startup NPC authority applied: routine_applied=", npcAuthority.applied,
+               " routine_fallback=", npcAuthority.fallback,
+               " missing_npc=", npcAuthority.missingNpc,
+               " skipped=", npcAuthority.skipped,
+               " records=", snapshot.npcRoutineStates.size(),
+               " snapshot_source=", snapshot.snapshotSource,
+               " snapshot_id=", bootstrap->snapshotId);
       }
+    }
   } else {
     wrld->triggerOnStart(true);
   }
   cam->reset(wrld->player());
   Gothic::inst().setLoadingProgress(96);
   ticks = 1;
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
   if(!CommandLine::inst().mmoSqlite().empty()) {
     mmoSqlite.reset(new MmoRuntimeSqlite(std::string(CommandLine::inst().mmoSqlite()),
                                          CommandLine::inst().mmoSqliteIntervalMs(),
@@ -1196,8 +1200,7 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
                                          {}));
     mmoSqlite->open(*this);
     }
-  if(!mmoServerFreshNewGame)
-    consumeMmoRestoreSnapshot(dbContinueRequested ? "db_continue_session_loaded" : "new_game_session_loaded");
+#endif
   // wrld->setDayTime(8,0);
   }
 
@@ -1253,6 +1256,7 @@ GameSession::GameSession(Serialize &fin, std::string sourceSlot) {
   fin.setEntry("game/camera");
   cam->load(fin,wrld->player());
   Gothic::inst().setLoadingProgress(96);
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
   if(!CommandLine::inst().mmoSqlite().empty()) {
     mmoSqlite.reset(new MmoRuntimeSqlite(std::string(CommandLine::inst().mmoSqlite()),
                                          CommandLine::inst().mmoSqliteIntervalMs(),
@@ -1261,17 +1265,19 @@ GameSession::GameSession(Serialize &fin, std::string sourceSlot) {
                                          std::move(sourceSlot)));
     mmoSqlite->open(*this);
     }
+#endif
   scheduleMmoServerSnapshotRestore("save_session_loaded");
   Mmo::Hooks::onClientBootstrapRequest(*wrld,
                                        "game/game/gamesession.cpp:GameSession::GameSession(save)",
                                        "save_session_loaded");
   waitForMmoServerSnapshotRestoreDuringLoad();
-  consumeMmoRestoreSnapshot("save_session_loaded");
   }
 
 GameSession::~GameSession() {
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
   if(mmoSqlite!=nullptr)
     mmoSqlite->flush(*this);
+#endif
   }
 
 void GameSession::save(Serialize &fout, std::string_view name, const Pixmap& screen) {
@@ -1337,8 +1343,10 @@ void GameSession::save(Serialize &fout, std::string_view name, const Pixmap& scr
   }
 
 void GameSession::recordMmoSaveSlot(std::string_view slotPath, std::string_view displayName) {
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
   if(mmoSqlite!=nullptr)
     mmoSqlite->recordSaveSlot(*this, slotPath, displayName);
+#endif
 
   if(wrld != nullptr && CommandLine::inst().mmoClientUsesServer()) {
     if(auto* hero = wrld->player())
@@ -1364,6 +1372,8 @@ void GameSession::setWorld(std::unique_ptr<World> &&w) {
       visitedWorlds.emplace_back(*wrld);
     }
   wrld = std::move(w);
+  mmoServerEntityPresentation.clear();
+  mmoServerEntityInterpolator.clear();
   lastMmoActionCheckpoint = {};
   lastMmoActionMovementProposal = {};
   }
@@ -1374,6 +1384,8 @@ std::unique_ptr<World> GameSession::clearWorld() {
       visitedWorlds.emplace_back(*wrld);
       }
     }
+  mmoServerEntityPresentation.clear();
+  mmoServerEntityInterpolator.clear();
   lastMmoActionCheckpoint = {};
   lastMmoActionMovementProposal = {};
   return std::move(wrld);
@@ -1424,33 +1436,28 @@ Npc* GameSession::player() {
   return nullptr;
   }
 
-void GameSession::scheduleMmoServerSnapshotRestore(std::string_view reason, bool reuseExistingSnapshot) noexcept {
+void GameSession::scheduleMmoServerSnapshotRestore(std::string_view reason,
+                                                   bool reuseExistingSnapshot) noexcept {
   const auto& cmd = CommandLine::inst();
   if(!cmd.mmoClientUsesServer())
     return;
+
+  (void)Mmo::drainServerBootstrapSnapshots();
+  const auto latest = Mmo::latestServerBootstrapSnapshot();
 
   mmoServerSnapshotRestore = {};
   mmoServerSnapshotRestore.requested = true;
   mmoServerSnapshotRestore.requestedAtTick = ticks;
   mmoServerSnapshotRestore.reason = std::string(reason);
+  mmoServerSnapshotRestore.minimumSnapshotIdExclusive =
+      reuseExistingSnapshot || !latest ? 0U : latest->snapshotId;
 
-  if(!reuseExistingSnapshot) {
-    std::error_code ec;
-    const auto path = std::filesystem::path(std::string(cmd.mmoServerSnapshotJson()));
-    std::filesystem::remove(path, ec);
-    ec.clear();
-    std::filesystem::remove(snapshotTmpPath(cmd.mmoServerSnapshotJson()), ec);
-    ec.clear();
-    std::filesystem::remove("runtime/mmo_server_bootstrap_snapshot_manifest.json", ec);
-    ec.clear();
-    std::filesystem::remove("runtime/mmo_server_bootstrap_snapshot_manifest.json.tmp", ec);
-  }
-
-  Log::i("MMO server snapshot restore scheduled: server_bound=1 inventory=1 position=1 stats=1 story=1 world=1",
+  Log::i("MMO server snapshot restore scheduled: transport=client_sandbox_mailbox",
          " strict_db_checkpoint=", cmd.mmoRequireDbSaveCheckpointRestore() ? 1 : 0,
          " reuse_existing_snapshot=", reuseExistingSnapshot ? 1 : 0,
-         " reason=", std::string(reason),
-         " path=", std::string(cmd.mmoServerSnapshotJson()));
+         " minimum_snapshot_id_exclusive=",
+         mmoServerSnapshotRestore.minimumSnapshotIdExclusive,
+         " reason=", std::string(reason));
 }
 
 bool GameSession::tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept {
@@ -1462,31 +1469,30 @@ bool GameSession::tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept {
   state.lastPollTick = ticks;
 
   const auto& cmd = CommandLine::inst();
-  const auto pathView = cmd.mmoServerSnapshotJson();
-  if(pathView.empty()) {
-    Log::e("MMO server snapshot restore failed: empty snapshot path");
-    state.completed = true;
-    return true;
-    }
-
-  const auto path = std::filesystem::path(std::string(pathView));
-  std::error_code ec;
-  if(!std::filesystem::exists(path, ec)) {
-    if(!state.waitingLogged && ticks >= state.requestedAtTick + MmoServerSnapshotWaitingLogDelay) {
+  (void)Mmo::drainServerBootstrapSnapshots();
+  const auto snapshot = Mmo::latestServerBootstrapSnapshot();
+  if(!snapshot || snapshot->snapshotId <= state.minimumSnapshotIdExclusive) {
+    if(!state.waitingLogged &&
+       ticks >= state.requestedAtTick + MmoServerSnapshotWaitingLogDelay) {
       state.waitingLogged = true;
-      Log::i("MMO server snapshot restore waiting for downloaded snapshot: path=", std::string(pathView));
-      }
-    return false;
+      Log::i("MMO server snapshot restore waiting for client_sandbox mailbox",
+             " minimum_snapshot_id_exclusive=",
+             state.minimumSnapshotIdExclusive);
     }
+    return false;
+  }
 
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
+  const auto result = Mmo::RestoreSnapshot::parseAndValidateBootstrapSnapshot(
+      snapshot->payload, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO server snapshot restore rejected: ", result.message,
            " reason=", state.reason,
-           " path=", std::string(pathView));
+           " snapshot_id=", snapshot->snapshotId);
+    state.lastAppliedSnapshotId =
+        std::max(state.lastAppliedSnapshotId, snapshot->snapshotId);
     state.completed = true;
     return true;
-    }
+  }
 
   const bool restoredFromDbSaveCheckpoint = result.snapshotSource == "db_save_checkpoint_v1";
   if(cmd.mmoRequireDbSaveCheckpointRestore() && !restoredFromDbSaveCheckpoint) {
@@ -1495,12 +1501,13 @@ bool GameSession::tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept {
            " snapshot_source=", result.snapshotSource,
            " manifest_uuid=", result.dbSaveCheckpointManifestUuid,
            " reason=", state.reason,
-           " path=", std::string(pathView));
+           " snapshot_id=", snapshot->snapshotId);
     state.completed = true;
     return true;
     }
 
   Log::i("MMO server snapshot restore source: source=", result.source,
+         " snapshot_id=", snapshot->snapshotId,
          " snapshot_source=", result.snapshotSource,
          " db_checkpoint=", restoredFromDbSaveCheckpoint ? 1 : 0,
          " manifest_uuid=", result.dbSaveCheckpointManifestUuid);
@@ -1550,7 +1557,7 @@ bool GameSession::tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept {
            " equipment=", result.equipmentCount,
            " restore_items=", items.size(),
            " reason=", state.reason,
-           " path=", std::string(pathView));
+           " snapshot_id=", snapshot->snapshotId);
     }
 
   if(cmd.mmoServerSnapshotApplyPosition()) {
@@ -1723,8 +1730,8 @@ bool GameSession::tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept {
            " authority_skipped=", npcAuthority.skipped);
     }
 
-  if(const auto snapshotId = readMmoSnapshotManifestId())
-    state.lastAppliedSnapshotId = std::max(state.lastAppliedSnapshotId, snapshotId);
+  state.lastAppliedSnapshotId =
+      std::max(state.lastAppliedSnapshotId, snapshot->snapshotId);
   state.completed = true;
   return true;
 }
@@ -1749,128 +1756,274 @@ void GameSession::pollMmoServerSnapshotRestore() noexcept {
   (void)tryApplyMmoServerWorldSnapshotRefresh();
 }
 
+void GameSession::pollMmoServerEntityTransforms() noexcept {
+  const auto& cmd = CommandLine::inst();
+  if(!cmd.mmoClientUsesServer() || wrld == nullptr)
+    return;
+
+  const auto resolveLocalIdentity = [this](
+      std::string_view stableEntityKey) noexcept
+      -> std::optional<Mmo::ClientPresentation::LocalNpcPresentationIdentity> {
+    auto* npc = resolveServerEntityNpc(*wrld, stableEntityKey);
+    if(npc == nullptr || npc->isPlayer())
+      return std::nullopt;
+    const auto localNpcId = wrld->npcId(npc);
+    if(localNpcId == Mmo::ClientPresentation::InvalidLocalNpcId)
+      return std::nullopt;
+    return Mmo::ClientPresentation::LocalNpcPresentationIdentity{
+        .localNpcId = localNpcId,
+        .persistentId = npc->persistentId(),
+        .instanceSymbol = npc->instanceSymbol(),
+    };
+  };
+
+  const auto resolveBoundNpc = [this](
+      const Mmo::ClientPresentation::ServerEntityPresentationBinding& binding)
+      noexcept -> Npc* {
+    auto* npc = wrld->npcById(binding.local.localNpcId);
+    if(npc == nullptr || npc->isPlayer())
+      return nullptr;
+    if(npc->persistentId() != binding.local.persistentId ||
+       npc->instanceSymbol() != binding.local.instanceSymbol)
+      return nullptr;
+    return npc;
+  };
+
+  auto transforms = Mmo::drainServerEntityTransforms();
+  std::size_t ingested = 0;
+  std::size_t rebound = 0;
+  std::size_t despawned = 0;
+  std::size_t stale = 0;
+  std::size_t unresolved = 0;
+  std::size_t rejectedIdentity = 0;
+  std::size_t skippedPlayer = 0;
+  std::size_t invalidatedLocalBinding = 0;
+
+  for(const auto& transform : transforms) {
+    if(transform.entityId == 0 || transform.generation == 0 ||
+       transform.stableEntityKey.empty() ||
+       !std::isfinite(transform.posX) || !std::isfinite(transform.posY) ||
+       !std::isfinite(transform.posZ) || !std::isfinite(transform.yaw)) {
+      ++rejectedIdentity;
+      continue;
+    }
+
+    Npc* previouslyBoundNpc = nullptr;
+    if(const auto* previous = mmoServerEntityPresentation.find(transform.entityId))
+      previouslyBoundNpc = resolveBoundNpc(*previous);
+
+    auto observation = mmoServerEntityPresentation.observe(transform);
+    switch(observation) {
+      case Mmo::ClientPresentation::ServerEntityObservationStatus::Removed:
+        if(previouslyBoundNpc != nullptr)
+          previouslyBoundNpc->setMmoServerReplica(false);
+        mmoServerEntityInterpolator.erase(transform.entityId);
+        ++despawned;
+        continue;
+      case Mmo::ClientPresentation::ServerEntityObservationStatus::IgnoredInactive:
+        continue;
+      case Mmo::ClientPresentation::ServerEntityObservationStatus::Stale:
+        ++stale;
+        continue;
+      case Mmo::ClientPresentation::ServerEntityObservationStatus::IdentityMismatch:
+        ++rejectedIdentity;
+        continue;
+      case Mmo::ClientPresentation::ServerEntityObservationStatus::NeedsLocalBinding:
+      case Mmo::ClientPresentation::ServerEntityObservationStatus::ExistingBinding:
+        break;
+    }
+
+    if((transform.flags & Mmo::Net::ServerEntityTransformNpc) == 0U) {
+      ++skippedPlayer;
+      continue;
+    }
+
+    if(observation ==
+       Mmo::ClientPresentation::ServerEntityObservationStatus::ExistingBinding) {
+      const auto* binding = mmoServerEntityPresentation.find(transform.entityId);
+      if(binding == nullptr || resolveBoundNpc(*binding) == nullptr) {
+        mmoServerEntityPresentation.invalidate(transform.entityId);
+        mmoServerEntityInterpolator.erase(transform.entityId);
+        observation =
+            Mmo::ClientPresentation::ServerEntityObservationStatus::NeedsLocalBinding;
+        ++invalidatedLocalBinding;
+      }
+    }
+
+    if(observation ==
+       Mmo::ClientPresentation::ServerEntityObservationStatus::NeedsLocalBinding) {
+      const auto local = resolveLocalIdentity(transform.stableEntityKey);
+      if(!local || !mmoServerEntityPresentation.bind(transform, *local)) {
+        ++unresolved;
+        continue;
+      }
+      ++rebound;
+    }
+
+    const auto* binding = mmoServerEntityPresentation.find(transform.entityId);
+    if(binding == nullptr) {
+      ++unresolved;
+      continue;
+    }
+    auto* npc = resolveBoundNpc(*binding);
+    if(npc == nullptr) {
+      mmoServerEntityPresentation.invalidate(transform.entityId);
+      mmoServerEntityInterpolator.erase(transform.entityId);
+      ++unresolved;
+      continue;
+    }
+
+    const auto status = mmoServerEntityInterpolator.ingest(transform, ticks);
+    using IngestStatus =
+        Mmo::ClientPresentation::ServerEntityInterpolationIngestStatus;
+    if(status == IngestStatus::Stale) {
+      ++stale;
+      continue;
+    }
+    if(status == IngestStatus::IdentityMismatch || status == IngestStatus::Invalid ||
+       status == IngestStatus::CapacityExceeded) {
+      ++rejectedIdentity;
+      continue;
+    }
+    npc->setMmoServerReplica(true);
+    mmoServerEntityPresentation.touch(transform);
+    ++ingested;
+  }
+
+  std::size_t applied = 0;
+  for(const auto& sampled : mmoServerEntityInterpolator.sample(ticks)) {
+    const auto* binding = mmoServerEntityPresentation.find(sampled.entityId);
+    if(binding == nullptr || binding->generation != sampled.generation ||
+       binding->stableEntityKey != sampled.stableEntityKey) {
+      continue;
+    }
+    auto* npc = resolveBoundNpc(*binding);
+    if(npc == nullptr) {
+      mmoServerEntityPresentation.invalidate(sampled.entityId);
+      mmoServerEntityInterpolator.erase(sampled.entityId);
+      ++unresolved;
+      continue;
+    }
+    if(!npc->setPosition(static_cast<float>(sampled.posX),
+                         static_cast<float>(sampled.posY),
+                         static_cast<float>(sampled.posZ))) {
+      ++unresolved;
+      continue;
+    }
+    npc->setDirection(static_cast<float>(sampled.yaw));
+    ++applied;
+  }
+
+  if(!transforms.empty() || rejectedIdentity != 0 || stale != 0 ||
+     unresolved != 0 || invalidatedLocalBinding != 0) {
+    Log::i("MMO server entity transforms drained=", transforms.size(),
+           " ingested=", ingested,
+           " applied=", applied,
+           " rebound=", rebound,
+           " despawned=", despawned,
+           " stale=", stale,
+           " unresolved=", unresolved,
+           " invalidated_local_binding=", invalidatedLocalBinding,
+           " rejected_identity=", rejectedIdentity,
+           " skipped_player=", skippedPlayer,
+           " bindings=", mmoServerEntityPresentation.size(),
+           " interpolation_tracks=", mmoServerEntityInterpolator.size());
+  }
+}
+
 void GameSession::pollMmoServerDialogPresentationEvents() noexcept {
   const auto& cmd = CommandLine::inst();
-  if(!cmd.mmoClientDialogPresentationMainThreadProbe())
+  if(!cmd.mmoClientUsesServer() || wrld == nullptr)
     return;
 
   auto events = Mmo::drainServerDialogPresentationEvents();
   if(events.empty())
     return;
 
-  const Mmo::ServerDialogMainThreadPresentationProbeInput baseInput {
-    .enabled = true,
-    .serverBoundClient = cmd.mmoClientUsesServer(),
-    .worldAvailable = wrld != nullptr,
-    .playerAvailable = wrld != nullptr && wrld->player() != nullptr,
-    .requireLocalSpeakerResolution = true,
-    .requirePresenterPreflight = true,
-  };
+  auto* localPlayer = wrld->player();
+  for(const auto& event : events) {
+    const auto speakerResolution = resolveServerDialogSpeaker(*wrld, event.intent);
+    Npc* speaker = nullptr;
+    if(speakerResolution.ok())
+      speaker = wrld->npcById(speakerResolution.localNpcId);
 
-  try {
-    std::filesystem::create_directories("runtime");
-    std::ofstream out("runtime/mmo_server_dialog_main_thread_probe.jsonl",
-                      std::ios::out | std::ios::app | std::ios::binary);
-
-    std::size_t observed = 0;
-    std::size_t skipped = 0;
-    std::size_t speakerResolved = 0;
-    std::size_t speakerUnresolved = 0;
-    std::size_t presenterReady = 0;
-    std::size_t presenterBlocked = 0;
-    std::size_t presenterRejected = 0;
-    std::size_t observationReceiptsQueued = 0;
-    std::size_t observationReceiptsDropped = 0;
-    for(const auto& event : events) {
-      auto input = baseInput;
-      if(wrld != nullptr)
-        input.speakerResolution = resolveServerDialogSpeaker(*wrld, event.intent);
-
-      Mmo::ServerDialogPresenterPreflightInput preflightInput;
-      preflightInput.enabled = input.enabled && input.serverBoundClient && input.worldAvailable && input.playerAvailable;
-      preflightInput.workerAccepted = event.decision.accepted();
-      preflightInput.speakerResolved = input.speakerResolution.ok();
-      preflightInput.localDialogBusy = isInDialog();
-      if(!event.intent.lineId.empty())
-        preflightInput.scriptTextByLineId = std::string(messageByName(event.intent.lineId));
-      if(!event.intent.audioRef.empty()) {
-        const auto normalizedAudioRef = Mmo::normalizeServerDialogAudioRef(event.intent.audioRef);
-        preflightInput.scriptTextByAudioRef = std::string(messageByName(normalizedAudioRef));
-        if(preflightInput.scriptTextByAudioRef.empty() && normalizedAudioRef != event.intent.audioRef)
-          preflightInput.scriptTextByAudioRef = std::string(messageByName(event.intent.audioRef));
-      }
-      input.presenterPreflight = Mmo::evaluateServerDialogPresenterPreflight(event.intent, preflightInput);
-
-      const auto result = Mmo::evaluateServerDialogMainThreadPresentationProbe(event, input);
-      if(result.observed())
-        ++observed;
-      else
-        ++skipped;
-      if(input.speakerResolution.requested) {
-        if(input.speakerResolution.ok())
-          ++speakerResolved;
-        else
-          ++speakerUnresolved;
-      }
-      if(input.presenterPreflight.requested) {
-        if(input.presenterPreflight.ready())
-          ++presenterReady;
-        else if(input.presenterPreflight.blocked())
-          ++presenterBlocked;
-        else
-          ++presenterRejected;
-      }
-      if(out.is_open())
-        out << Mmo::serverDialogMainThreadProbeJson(event, input, result) << '\n';
-
-      if(cmd.mmoClientDialogObservationReceipt()) {
-        Mmo::Net::ClientGameplayObservationPacket receipt;
-        receipt.localSequence = event.intent.localSequence;
-        receipt.clientTick = ticks;
-        receipt.status = result.observed()
-            ? Mmo::Net::ClientGameplayObservationStatus::Observed
-            : Mmo::Net::ClientGameplayObservationStatus::Skipped;
-        receipt.gameplayKind = Mmo::Net::ServerGameplayKind::NpcDialogIntent;
-        receipt.flags = Mmo::Net::ClientGameplayObservationMainThread |
-                        (result.observed() ? Mmo::Net::ClientGameplayObservationObserved
-                                           : Mmo::Net::ClientGameplayObservationSkipped) |
-                        (event.decision.accepted() ? Mmo::Net::ClientGameplayObservationWorkerAcked
-                                                   : Mmo::Net::ClientGameplayObservationWorkerNacked) |
-                        (result.uiApplied ? Mmo::Net::ClientGameplayObservationUiApplied : 0u) |
-                        (result.audioApplied ? Mmo::Net::ClientGameplayObservationAudioApplied : 0u) |
-                        (input.presenterPreflight.ready() ? Mmo::Net::ClientGameplayObservationPresenterReady : 0u);
-        receipt.sessionKey = std::string(cmd.mmoActionSessionKey());
-        receipt.sessionUuid = event.intent.sessionUuid;
-        receipt.characterKey = event.intent.targetCharacterKey.empty()
-            ? std::string(cmd.mmoCharacterKey())
-            : event.intent.targetCharacterKey;
-        receipt.actionId = event.intent.actionId;
-        receipt.ackKey = event.intent.ackKey;
-        receipt.reason = result.reason;
-        receipt.message = result.message;
-        if(Mmo::enqueueClientGameplayObservationReceipt(std::move(receipt)))
-          ++observationReceiptsQueued;
-        else
-          ++observationReceiptsDropped;
+    Mmo::ServerDialogPresenterPreflightInput input;
+    input.enabled = true;
+    input.workerAccepted = event.decision.accepted();
+    input.speakerResolved = speaker != nullptr;
+    input.localDialogBusy = isInDialog() &&
+                            (speaker == nullptr || !isNpcInDialog(*speaker));
+    if(!event.intent.lineId.empty())
+      input.scriptTextByLineId = std::string(messageByName(event.intent.lineId));
+    if(!event.intent.audioRef.empty()) {
+      const auto normalized =
+          Mmo::normalizeServerDialogAudioRef(event.intent.audioRef);
+      input.scriptTextByAudioRef = std::string(messageByName(normalized));
+      if(input.scriptTextByAudioRef.empty() &&
+         normalized != event.intent.audioRef) {
+        input.scriptTextByAudioRef =
+            std::string(messageByName(event.intent.audioRef));
       }
     }
 
-    Log::i("MMO server dialog main-thread probe drained count=", events.size(),
-           " observed=", observed,
-           " skipped=", skipped,
-           " speaker_resolved=", speakerResolved,
-           " speaker_unresolved=", speakerUnresolved,
-           " presenter_ready=", presenterReady,
-           " presenter_blocked=", presenterBlocked,
-           " presenter_rejected=", presenterRejected,
-           " observation_receipts_queued=", observationReceiptsQueued,
-           " observation_receipts_dropped=", observationReceiptsDropped,
-           " world=", baseInput.worldAvailable ? 1 : 0,
-           " player=", baseInput.playerAvailable ? 1 : 0);
-  } catch(const std::exception& e) {
-    Log::e("MMO server dialog main-thread probe failed: ", e.what());
-  } catch(...) {
-    Log::e("MMO server dialog main-thread probe failed: unknown error");
+    const auto preflight =
+        Mmo::evaluateServerDialogPresenterPreflight(event.intent, input);
+    const bool applied = preflight.ready() && localPlayer != nullptr &&
+                         speaker != nullptr && speaker != localPlayer;
+    if(applied) {
+      Gothic::inst().openServerDialog(*localPlayer, *speaker, event.intent);
+      Log::i("MMO server dialog presented",
+             " conversation=", event.intent.conversationId,
+             " revision=", event.intent.revision,
+             " speaker=", event.intent.speakerEntityKey,
+             " choices=", event.intent.choices.size());
+    } else {
+      Log::e("MMO server dialog presentation rejected",
+             " conversation=", event.intent.conversationId,
+             " decision=", event.decision.reason,
+             " speaker_resolution=", speakerResolution.reason,
+             " preflight=", preflight.reason);
+    }
+
+    if(cmd.mmoClientDialogObservationReceipt()) {
+      Mmo::Net::ClientGameplayObservationPacket receipt;
+      receipt.localSequence = event.intent.localSequence;
+      receipt.clientTick = ticks;
+      receipt.status = applied
+          ? Mmo::Net::ClientGameplayObservationStatus::Observed
+          : Mmo::Net::ClientGameplayObservationStatus::Skipped;
+      receipt.gameplayKind = Mmo::Net::ServerGameplayKind::NpcDialogIntent;
+      receipt.flags = Mmo::Net::ClientGameplayObservationMainThread |
+                      (applied ? Mmo::Net::ClientGameplayObservationObserved
+                               : Mmo::Net::ClientGameplayObservationSkipped) |
+                      (event.decision.accepted()
+                           ? Mmo::Net::ClientGameplayObservationWorkerAcked
+                           : Mmo::Net::ClientGameplayObservationWorkerNacked) |
+                      (applied ? Mmo::Net::ClientGameplayObservationUiApplied
+                               : 0U) |
+                      (applied && !event.intent.audioRef.empty()
+                           ? Mmo::Net::ClientGameplayObservationAudioApplied
+                           : 0U) |
+                      (preflight.ready()
+                           ? Mmo::Net::ClientGameplayObservationPresenterReady
+                           : 0U);
+      receipt.sessionKey = std::string(cmd.mmoActionSessionKey());
+      receipt.sessionUuid = event.intent.sessionUuid;
+      receipt.characterKey = event.intent.targetCharacterKey.empty()
+          ? std::string(cmd.mmoCharacterKey())
+          : event.intent.targetCharacterKey;
+      receipt.actionId = event.intent.actionId;
+      receipt.ackKey = event.intent.ackKey;
+      receipt.reason = applied ? "server_dialog_presented"
+                               : preflight.reason;
+      receipt.message = applied
+          ? "Server-owned dialog line and choices were applied on the main thread."
+          : preflight.message;
+      if(!Mmo::enqueueClientGameplayObservationReceipt(std::move(receipt))) {
+        Log::e("MMO server dialog observation receipt queue rejected",
+               " conversation=", event.intent.conversationId);
+      }
+    }
   }
 }
 
@@ -1888,19 +2041,20 @@ bool GameSession::tryApplyMmoServerWorldSnapshotRefresh() noexcept {
     return false;
   state.lastLiveRefreshPollTick = ticks;
 
-  const auto snapshotId = readMmoSnapshotManifestId();
-  if(snapshotId == 0 || snapshotId <= state.lastAppliedSnapshotId)
+  (void)Mmo::drainServerBootstrapSnapshots();
+  const auto snapshot = Mmo::latestServerBootstrapSnapshot();
+  if(!snapshot || snapshot->snapshotId <= state.lastAppliedSnapshotId)
     return false;
+  const auto snapshotId = snapshot->snapshotId;
 
-  const auto pathView = cmd.mmoServerSnapshotJson();
-  const auto result = Mmo::RestoreSnapshot::loadAndValidateBootstrapSnapshot(pathView, cmd.mmoCharacterKey());
+  const auto result = Mmo::RestoreSnapshot::parseAndValidateBootstrapSnapshot(
+      snapshot->payload, cmd.mmoCharacterKey());
   if(!result.ok) {
     Log::e("MMO server live world snapshot rejected: snapshot_id=", snapshotId,
-           " message=", result.message,
-           " path=", std::string(pathView));
+           " message=", result.message);
     state.lastAppliedSnapshotId = snapshotId;
     return true;
-    }
+  }
 
   if(wrld == nullptr)
     return false;
@@ -2037,6 +2191,7 @@ void GameSession::tick(uint64_t dt) {
   vm->tick(dt);
   wrld->tick(dt);
   pollMmoServerSnapshotRestore();
+  pollMmoServerEntityTransforms();
   pollMmoServerDialogPresentationEvents();
 
   if(auto* pl = wrld->player()) {
@@ -2048,8 +2203,10 @@ void GameSession::tick(uint64_t dt) {
       }
     }
 
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
   if(mmoSqlite!=nullptr)
     mmoSqlite->tick(*this, dt);
+#endif
   // std::this_thread::sleep_for(std::chrono::milliseconds(60));
 
   if(exitSessionFlg) {
@@ -2165,31 +2322,39 @@ void GameSession::updateAnimation(uint64_t dt) {
 
 std::vector<GameScript::DlgChoice> GameSession::updateDialog(const GameScript::DlgChoice &dlg, Npc& player, Npc& npc) {
   auto ret = vm->updateDialog(dlg,player,npc);
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
   if(mmoSqlite!=nullptr) {
     mmoSqlite->recordDialogSelection(*this, player, npc, dlg, "update");
     mmoSqlite->recordDialogChoices(*this, player, npc, ret, "subchoices", false);
     }
+#endif
   return ret;
   }
 
 void GameSession::dialogExec(const GameScript::DlgChoice &dlg, Npc& player, Npc& npc) {
   markMmoServerSnapshotStoryDirty();
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
   if(mmoSqlite!=nullptr)
     mmoSqlite->recordDialogSelection(*this, player, npc, dlg, "exec");
+#endif
   return vm->exec(dlg,player,npc);
   }
 
 void GameSession::recordDialogChoices(Npc& player, Npc& npc,
                                       const std::vector<GameScript::DlgChoice>& choices,
                                       std::string_view phase, bool includeImportant) {
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
   if(mmoSqlite!=nullptr)
     mmoSqlite->recordDialogChoices(*this, player, npc, choices, phase, includeImportant);
+#endif
   }
 
 void GameSession::recordMmoChapterIntro(std::string_view title, std::string_view subtitle,
                                         std::string_view image, std::string_view sound, int time) {
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
   if(mmoSqlite!=nullptr)
     mmoSqlite->recordChapterIntro(*this, title, subtitle, image, sound, time);
+#endif
   }
 
 std::string_view GameSession::messageFromSvm(std::string_view id, int voice) const {
@@ -2259,52 +2424,4 @@ void GameSession::initScripts(bool firstTime) {
     vm->getVm().call_function(init);
 
   wrld->resetPositionToTA();
-  }
-
-void GameSession::consumeMmoRestoreSnapshot(std::string_view reason) noexcept {
-  const auto& cmd = CommandLine::inst();
-  const auto path = cmd.mmoRestoreSnapshotJson();
-  if(path.empty())
-    return;
-
-  if(!cmd.mmoClientUsesServer()) {
-    Log::i("MMO restore snapshot ignored: -mmo-restore-snapshot-json requires -mmo-client-server");
-    return;
-    }
-
-  const auto result = Mmo::RestoreSnapshot::loadAndValidate(path, cmd.mmoCharacterKey(), cmd.mmoActionSessionKey());
-  if(!result.ok) {
-    Log::e("MMO restore snapshot rejected: ", result.message,
-           " reason=", reason,
-           " path=", std::string(path));
-    return;
-    }
-
-  Log::i("MMO restore snapshot validated: inventory=", result.inventoryCount,
-         " equipment=", result.equipmentCount,
-         " restore_items=", result.items.size(),
-         " reason=", reason,
-         " path=", std::string(path));
-
-  if(!cmd.mmoRestoreSnapshotApply())
-    return;
-
-  auto* hero = player();
-  if(hero==nullptr) {
-    Log::e("MMO restore snapshot apply failed: player is not available");
-    return;
-    }
-
-  std::vector<Npc::PersistentInventoryItem> items;
-  items.reserve(result.items.size());
-  for(const auto& item : result.items) {
-    if(item.symbolIndex==size_t(-1) || item.count==0)
-      continue;
-    items.push_back({item.symbolIndex, item.count, item.equipped});
-    }
-
-  hero->restorePersistentInventory(items);
-  Log::i("MMO restore snapshot applied: restore_items=", items.size(),
-         " reason=", reason,
-         " path=", std::string(path));
   }

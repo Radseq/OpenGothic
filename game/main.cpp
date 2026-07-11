@@ -23,7 +23,7 @@
 #include "gothic.h"
 #include "build.h"
 #include "commandline.h"
-#include "game/mmosemanticactionsink.h"
+#include "game/mmoclientbridge.h"
 
 #include <dmusic.h>
 
@@ -129,7 +129,7 @@ int main(int argc,const char** argv) {
   Workers::setThreadName("Main thread");
 
   CommandLine          cmd{argc,argv};
-  Mmo::configureSemanticActionSink(cmd);
+  Mmo::configureClientMmoBridge(cmd);
   auto                 api     = mkApi(cmd);
   const auto           gpuName = selectDevice(*api);
   CrashLog::setGpu(gpuName);
@@ -145,7 +145,7 @@ int main(int argc,const char** argv) {
   MainWindow           wx(device);
   Tempest::Application app;
   const int ret = app.exec();
-  Mmo::shutdownSemanticActionSink();
+  Mmo::shutdownClientMmoBridge();
   return ret;
   }
 

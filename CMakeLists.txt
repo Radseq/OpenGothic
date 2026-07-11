@@ -22,7 +22,7 @@ set(OPENGOTHIC_THIRD_PARTY_ROOT
 # In the MMO workspace the client is nested under src/client and shared
 # dependencies belong to the superproject. Keep the client-local default so a
 # standalone OpenGothic checkout remains buildable without the superproject.
-get_filename_component(OPENGOTHIC_MMO_WORKSPACE_ROOT "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE)
+get_filename_component(OPENGOTHIC_MMO_WORKSPACE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 if(OPENGOTHIC_THIRD_PARTY_ROOT STREQUAL "${CMAKE_SOURCE_DIR}/thirdparty"
    AND EXISTS "${OPENGOTHIC_MMO_WORKSPACE_ROOT}/src/shared"
    AND EXISTS "${OPENGOTHIC_MMO_WORKSPACE_ROOT}/third_party")
@@ -32,41 +32,77 @@ if(OPENGOTHIC_THIRD_PARTY_ROOT STREQUAL "${CMAKE_SOURCE_DIR}/thirdparty"
       "Directory containing optional OpenGothic MMO dependencies"
       FORCE)
 endif()
-
-set(OPENGOTHIC_LOCAL_SQLITE_INCLUDE "${OPENGOTHIC_THIRD_PARTY_ROOT}/sqlite/include")
-set(OPENGOTHIC_LOCAL_SQLITE_LIB     "${OPENGOTHIC_THIRD_PARTY_ROOT}/sqlite/lib/sqlite3.lib")
-set(OPENGOTHIC_LOCAL_SQLITE_DLL     "${OPENGOTHIC_THIRD_PARTY_ROOT}/sqlite/bin/sqlite3.dll")
-set(OPENGOTHIC_ASIO_INCLUDE         "${OPENGOTHIC_THIRD_PARTY_ROOT}/asio/include")
-
-if(EXISTS "${OPENGOTHIC_ASIO_INCLUDE}/asio.hpp")
-  message(STATUS "Standalone ASIO found: enabling MMO ASIO UDP transport")
-  target_compile_definitions(${PROJECT_NAME} PRIVATE ASIO_STANDALONE=1)
-  if(WIN32)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE _WIN32_WINNT=0x0601)
+set(OPENGOTHIC_MMO_SANDBOX_SOURCE
+    "${OPENGOTHIC_MMO_WORKSPACE_ROOT}/src/client_sandbox")
+if(EXISTS "${OPENGOTHIC_MMO_SANDBOX_SOURCE}/CMakeLists.txt")
+  if(CMAKE_VERSION VERSION_LESS 3.28)
+    message(FATAL_ERROR
+      "OpenGothic MMO client_sandbox facade requires CMake 3.28 or newer")
   endif()
-  target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE "${OPENGOTHIC_ASIO_INCLUDE}")
+  set(GOTHIC_MMO_CLIENT_SANDBOX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(GOTHIC_MMO_CLIENT_SANDBOX_BUILD_CLI OFF CACHE BOOL "" FORCE)
+  set(GOTHIC_MMO_CLIENT_SANDBOX_BUILD_ASIO ON CACHE BOOL "" FORCE)
+  set(GOTHIC_MMO_WORKSPACE_ROOT
+      "${OPENGOTHIC_MMO_WORKSPACE_ROOT}"
+      CACHE PATH "Root of the Gothic MMO workspace" FORCE)
+  add_subdirectory(
+      "${OPENGOTHIC_MMO_SANDBOX_SOURCE}"
+      "${CMAKE_CURRENT_BINARY_DIR}/client_sandbox"
+      EXCLUDE_FROM_ALL)
+  if(TARGET gothic_mmo_client_asio_transport)
+    target_link_libraries(${PROJECT_NAME} gothic_mmo_client_asio_transport)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+      OPENGOTHIC_MMO_SANDBOX_FACADE=1)
+    message(STATUS
+      "OpenGothic MMO transport: client_sandbox facade enabled")
+  else()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+      OPENGOTHIC_MMO_SANDBOX_FACADE=0)
+    message(WARNING
+      "OpenGothic MMO transport disabled: client_sandbox ASIO backend unavailable")
+  endif()
 else()
-  message(STATUS "Standalone ASIO not found: MMO ASIO UDP transport source fallback will be used if available")
+  target_compile_definitions(${PROJECT_NAME} PRIVATE
+    OPENGOTHIC_MMO_SANDBOX_FACADE=0)
+  message(STATUS
+    "Standalone OpenGothic build: MMO client_sandbox facade unavailable")
 endif()
 
-find_package(SQLite3 QUIET)
-if(SQLite3_FOUND)
-  message(STATUS "SQLite3 found: enabling MMO runtime SQLite backend")
-  target_compile_definitions(${PROJECT_NAME} PRIVATE OPENGOTHIC_HAVE_SQLITE=1)
-  target_link_libraries(${PROJECT_NAME} SQLite::SQLite3)
-elseif(WIN32 AND EXISTS "${OPENGOTHIC_LOCAL_SQLITE_INCLUDE}/sqlite3.h" AND EXISTS "${OPENGOTHIC_LOCAL_SQLITE_LIB}")
-  message(STATUS "Local SQLite found: enabling MMO runtime SQLite backend")
-  target_compile_definitions(${PROJECT_NAME} PRIVATE OPENGOTHIC_HAVE_SQLITE=1)
-  target_include_directories(${PROJECT_NAME} PRIVATE "${OPENGOTHIC_LOCAL_SQLITE_INCLUDE}")
-  target_link_libraries(${PROJECT_NAME} "${OPENGOTHIC_LOCAL_SQLITE_LIB}")
-  if(EXISTS "${OPENGOTHIC_LOCAL_SQLITE_DLL}")
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${OPENGOTHIC_LOCAL_SQLITE_DLL}"
-        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/sqlite3.dll")
+option(OPENGOTHIC_MMO_ENABLE_SQLITE_TOOLING
+  "Build local MMO SQLite capture/restore tooling into the full client"
+  OFF)
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+  OPENGOTHIC_MMO_SQLITE_TOOLING=$<BOOL:${OPENGOTHIC_MMO_ENABLE_SQLITE_TOOLING}>)
+
+if(OPENGOTHIC_MMO_ENABLE_SQLITE_TOOLING)
+  set(OPENGOTHIC_LOCAL_SQLITE_INCLUDE "${OPENGOTHIC_THIRD_PARTY_ROOT}/sqlite/include")
+  set(OPENGOTHIC_LOCAL_SQLITE_LIB     "${OPENGOTHIC_THIRD_PARTY_ROOT}/sqlite/lib/sqlite3.lib")
+  set(OPENGOTHIC_LOCAL_SQLITE_DLL     "${OPENGOTHIC_THIRD_PARTY_ROOT}/sqlite/bin/sqlite3.dll")
+
+  find_package(SQLite3 QUIET)
+  if(SQLite3_FOUND)
+    message(STATUS "SQLite3 found: enabling explicit MMO tooling backend")
+    target_compile_definitions(${PROJECT_NAME} PRIVATE OPENGOTHIC_HAVE_SQLITE=1)
+    target_link_libraries(${PROJECT_NAME} SQLite::SQLite3)
+  elseif(WIN32 AND EXISTS "${OPENGOTHIC_LOCAL_SQLITE_INCLUDE}/sqlite3.h" AND EXISTS "${OPENGOTHIC_LOCAL_SQLITE_LIB}")
+    message(STATUS "Local SQLite found: enabling explicit MMO tooling backend")
+    target_compile_definitions(${PROJECT_NAME} PRIVATE OPENGOTHIC_HAVE_SQLITE=1)
+    target_include_directories(${PROJECT_NAME} PRIVATE "${OPENGOTHIC_LOCAL_SQLITE_INCLUDE}")
+    target_link_libraries(${PROJECT_NAME} "${OPENGOTHIC_LOCAL_SQLITE_LIB}")
+    if(EXISTS "${OPENGOTHIC_LOCAL_SQLITE_DLL}")
+      add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${OPENGOTHIC_LOCAL_SQLITE_DLL}"
+          "$<TARGET_FILE_DIR:${PROJECT_NAME}>/sqlite3.dll")
+    endif()
+  else()
+    message(FATAL_ERROR
+      "OPENGOTHIC_MMO_ENABLE_SQLITE_TOOLING=ON requires SQLite3")
   endif()
 else()
-  message(STATUS "SQLite3 not found: MMO runtime SQLite backend will be compiled as no-op")
+  target_compile_definitions(${PROJECT_NAME} PRIVATE OPENGOTHIC_HAVE_SQLITE=0)
+  message(STATUS "MMO SQLite tooling disabled (production default)")
 endif()
 
 if(MSVC)
@@ -134,6 +170,10 @@ file(GLOB_RECURSE OPENGOTHIC_SOURCES
     "game/*.cpp")
 
 target_sources(${PROJECT_NAME} PRIVATE ${OPENGOTHIC_SOURCES} ${ObjCSOURCES} icon.rc)
+if(OPENGOTHIC_MMO_ENABLE_SQLITE_TOOLING)
+  target_sources(${PROJECT_NAME} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/mmo/mmoruntimesqlite.cpp")
+endif()
 
 # shaders
 add_subdirectory(shader)

@@ -165,6 +165,8 @@ class Npc final {
     auto       processPolicy() const -> NpcProcessPolicy { return aiPolicy; }
 
     bool       isPlayer() const;
+    void       setMmoServerReplica(bool value) noexcept { mmoServerReplica = value; }
+    [[nodiscard]] bool isMmoServerReplica() const noexcept { return mmoServerReplica; }
     void       setWalkMode(WalkBit m);
     auto       walkMode() const { return wlkMode; }
     void       tick(uint64_t dt);
@@ -648,6 +650,7 @@ class Npc final {
     // inventory
     Inventory                      invent;
     bool                           invTorch = false;
+    bool                           mmoServerReplica = false;
 
     // last hit
     Npc*                           lastHit          = nullptr;

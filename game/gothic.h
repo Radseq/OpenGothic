@@ -6,6 +6,7 @@
 #include <atomic>
 
 #include <Tempest/Signal>
+#include "../../shared/net/mmo/mmonetprotocol.h"
 #include <Tempest/Dir>
 
 #include <zenkit/DaedalusVm.hh>
@@ -171,6 +172,8 @@ class Gothic final {
     void         dialogExec  (const GameScript::DlgChoice& dlg, Npc& player, Npc& npc);
 
     void         openDialogPipe (Npc& player, Npc& npc, AiOuputPipe*& pipe);
+    void         openServerDialog(Npc& player, Npc& npc,
+                                  const Mmo::Net::ServerNpcDialogIntentPacket& intent);
     bool         isNpcInDialog(const Npc& npc) const;
     bool         isInDialog() const;
 
@@ -179,6 +182,8 @@ class Gothic final {
     Tempest::Signal<void(std::string_view,std::string_view)>            onSaveGame;
 
     Tempest::Signal<void(Npc&,Npc&,AiOuputPipe*&)>                      onDialogPipe;
+    Tempest::Signal<void(Npc&,Npc&,const Mmo::Net::ServerNpcDialogIntentPacket&)>
+                                                                         onServerDialog;
     std::function<bool(const Npc*)>                                     isNpcInDialogFn;
 
     Tempest::Signal<void(std::string_view,int,int,int,const GthFont&)>  onPrintScreen;
