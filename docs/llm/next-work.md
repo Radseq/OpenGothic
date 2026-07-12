@@ -1,6 +1,6 @@
 # Next Work — Full OpenGothic Client
 
-Last updated: 2026-07-11.
+Last updated: 2026-07-12.
 
 The global roadmap currently prioritizes Protocol V2, typed replication and
 binary bootstrap before broad MMO UX. Client changes should prepare that
@@ -8,8 +8,19 @@ boundary without inventing a second transport.
 
 ## 1. Thin domain adapter over the sandbox facade
 
-- replace wire-family knowledge in engine code with domain-level request and
-  presentation types;
+Implemented first slice:
+
+- `mmoclientadapter.*` owns a non-wire movement request made of bounded identity
+  views, two movement samples and cadence policy;
+- `mmosemantichooks.cpp` no longer constructs `ClientMovementPacket` directly;
+- adapter mapping is fail-closed, omits character stats and is covered by unit
+  tests.
+
+Next slices:
+
+- add domain requests for interaction and dialog choice, then inventory/equip
+  and combat;
+- move each remaining compatibility packet construction out of engine hooks;
 - keep packet encoding/versioning private to sandbox/shared;
 - centralize entity handle to local-object binding and stale-generation checks;
 - preserve native single-player behavior behind existing mode checks.

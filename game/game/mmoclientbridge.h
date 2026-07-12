@@ -10,30 +10,12 @@
 #include "../../../shared/game/mmo/mmosemanticevents.h"
 #include "../../../shared/net/mmo/mmo_client_intent.h"
 #include "../../../shared/net/mmo/mmonetprotocol.h"
+#include "mmoclientadapter.h"
 #include "mmoserverdialogpresentation.h"
 
 class CommandLine;
 
 namespace Mmo {
-
-enum class ClientMmoSubmitStatus : std::uint8_t {
-  Disabled,
-  Accepted,
-  InvalidIntent,
-  UnsupportedIntent,
-  QueueFull,
-  TransportError,
-};
-
-struct ClientMmoSubmitResult final {
-  ClientMmoSubmitStatus status = ClientMmoSubmitStatus::Disabled;
-  std::uint64_t droppedCount = 0;
-
-  [[nodiscard]] constexpr bool accepted() const noexcept {
-    return status == ClientMmoSubmitStatus::Accepted ||
-           status == ClientMmoSubmitStatus::Disabled;
-  }
-};
 
 struct ClientMmoBridgeConfig final {
   std::string diagnosticsJsonlPath;
@@ -101,5 +83,4 @@ void resetServerBootstrapStatus() noexcept;
     Net::ClientDialogChoiceIntentPacket packet) noexcept;
 
 } // namespace Mmo
-
 

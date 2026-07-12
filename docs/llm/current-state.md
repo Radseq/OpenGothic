@@ -1,6 +1,6 @@
 # Current State — Full OpenGothic Client
 
-Last verified: 2026-07-11 against client source and CMake.
+Last verified: 2026-07-12 against client source and CMake.
 
 ## Implemented MMO boundary
 
@@ -10,7 +10,13 @@ Last verified: 2026-07-11 against client source and CMake.
   available;
 - endpoint/socket/worker/retry/bootstrap assembly are not implemented in the
   full-client bridge;
-- client submissions use the shared client-intent variant;
+- `mmoclientadapter.*` now exposes the first engine-facing domain request:
+  movement samples/state/cadence without packet kinds, sequence fields, codecs
+  or transport handles;
+- the movement semantic hook submits through that adapter, while the adapter
+  alone maps to the transitional shared client-intent variant;
+- remaining client submissions still use the compatibility shared packet types
+  and must be migrated one domain family at a time;
 - JSON exists at a local diagnostic boundary and is not parsed back into wire
   gameplay packets.
 
@@ -38,7 +44,8 @@ Last verified: 2026-07-11 against client source and CMake.
   inherited from migration history; production submission must remain intent
   only and these hooks need classification/reduction;
 - the facade still exposes compatibility packet types rather than a final
-  domain-level API;
+  domain-level API; only the full-client movement call site is currently hidden
+  behind the new domain adapter;
 - complete character create/select/load UX, typed inventory/combat/quest UI and
   world-transition flow are not finished;
 - MMO save replacement and reconnect recovery are not complete;

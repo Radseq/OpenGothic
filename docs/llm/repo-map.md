@@ -1,6 +1,6 @@
 # Repository Map — Full Client MMO Boundary
 
-Last verified: 2026-07-11.
+Last verified: 2026-07-12.
 
 ## Build integration
 
@@ -9,6 +9,10 @@ Last verified: 2026-07-11.
 
 ## Engine/sandbox bridge
 
+- `src/client/game/game/mmoclientadapter.h` — engine-facing domain request API;
+- `src/client/game/game/mmoclientadapter.cpp` — submission adapter;
+- `src/client/game/game/mmoclientadapterdetail.h` — private fail-closed mapping
+  used by implementation and focused tests;
 - `src/client/game/game/mmoclientbridge.h`
 - `src/client/game/game/mmoclientbridge.cpp`
 - public facade: `src/client_sandbox/include/gothic/mmo/client_runtime_facade.h`

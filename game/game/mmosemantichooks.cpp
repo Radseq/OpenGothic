@@ -22,6 +22,29 @@ namespace {
 
 thread_local unsigned captureSuppressionDepth = 0;
 
+[[nodiscard]] constexpr ClientMovementState movementState(
+    const bool inAir,
+    const bool falling,
+    const bool fallingDeep,
+    const bool sliding,
+    const bool jumping,
+    const bool jumpingUp,
+    const bool swimming,
+    const bool diving,
+    const bool inWater) noexcept {
+  ClientMovementState state = ClientMovementState::None;
+  if(inAir) state |= ClientMovementState::InAir;
+  if(falling) state |= ClientMovementState::Falling;
+  if(fallingDeep) state |= ClientMovementState::FallingDeep;
+  if(sliding) state |= ClientMovementState::Sliding;
+  if(jumping) state |= ClientMovementState::Jumping;
+  if(jumpingUp) state |= ClientMovementState::JumpingUp;
+  if(swimming) state |= ClientMovementState::Swimming;
+  if(diving) state |= ClientMovementState::Diving;
+  if(inWater) state |= ClientMovementState::InWater;
+  return state;
+}
+
 void appendUInt(std::string& out, std::uint64_t v) {
   char buf[32] = {};
   auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), v);
@@ -1013,46 +1036,46 @@ void onCharacterMovementProposal(Npc& actor,
   const std::uint64_t deltaTick = toTick >= fromTick ? toTick - fromTick : 0;
 
   if(isServerBoundClientModeEnabled()) {
-    Net::ClientMovementPacket packet;
-    packet.kind = SemanticActionKind::MovementProposal;
-    packet.flags = Net::ClientMovementHasFromTransform |
-                   Net::ClientMovementHasToTransform;
-    if(fromInAir) packet.flags |= Net::ClientMovementFromInAir;
-    if(fromFalling) packet.flags |= Net::ClientMovementFromFalling;
-    if(fromFallingDeep) packet.flags |= Net::ClientMovementFromFallingDeep;
-    if(fromSlide) packet.flags |= Net::ClientMovementFromSlide;
-    if(fromJump) packet.flags |= Net::ClientMovementFromJump;
-    if(fromJumpUp) packet.flags |= Net::ClientMovementFromJumpUp;
-    if(fromSwim) packet.flags |= Net::ClientMovementFromSwim;
-    if(fromDive) packet.flags |= Net::ClientMovementFromDive;
-    if(fromInWater) packet.flags |= Net::ClientMovementFromInWater;
-    if(actor.isInAir()) packet.flags |= Net::ClientMovementToInAir;
-    if(actor.isFalling()) packet.flags |= Net::ClientMovementToFalling;
-    if(actor.isFallingDeep()) packet.flags |= Net::ClientMovementToFallingDeep;
-    if(actor.isSlide()) packet.flags |= Net::ClientMovementToSlide;
-    if(actor.isJump()) packet.flags |= Net::ClientMovementToJump;
-    if(actor.isJumpUp()) packet.flags |= Net::ClientMovementToJumpUp;
-    if(actor.isSwim()) packet.flags |= Net::ClientMovementToSwim;
-    if(actor.isDive()) packet.flags |= Net::ClientMovementToDive;
-    if(actor.isInWater()) packet.flags |= Net::ClientMovementToInWater;
-    packet.clientTick = toTick;
-    packet.fromTick = fromTick;
-    packet.toTick = toTick;
-    packet.deltaMs = deltaTick;
-    packet.fromX = fromX; packet.fromY = fromY; packet.fromZ = fromZ;
-    packet.toX = pos.x; packet.toY = pos.y; packet.toZ = pos.z;
-    packet.fromYaw = fromYaw; packet.toYaw = actor.rotationY();
-    packet.cadenceIntervalMs = cmd.mmoActionMovementProposalIntervalMs();
-    packet.cadenceMinDistance = cmd.mmoActionMovementProposalMinDistance();
-    packet.cadenceMinYawDeg = cmd.mmoActionMovementProposalMinYawDeg();
-    packet.targetKey = target;
-    packet.source = sourceLocation != nullptr ? sourceLocation : "unknown";
-    packet.actorKey = actorKey(actor);
-    packet.characterKey = characterKey();
-    packet.world = std::string(world.name());
-    packet.waypointKey = wp != nullptr ? wp->name : std::string{};
-    packet.reason = reason != nullptr ? reason : "movement_delta_proposal";
-    (void)submitClientIntent(Net::ClientIntentPacket{std::move(packet)});
+    const auto actorIdentity = actorKey(actor);
+    const auto characterIdentity = characterKey();
+    ClientMovementIntent intent;
+    intent.from = {
+        .tick = fromTick,
+        .x = fromX,
+        .y = fromY,
+        .z = fromZ,
+        .yaw = fromYaw,
+        .state = movementState(fromInAir, fromFalling, fromFallingDeep,
+                               fromSlide, fromJump, fromJumpUp, fromSwim,
+                               fromDive, fromInWater),
+    };
+    intent.to = {
+        .tick = toTick,
+        .x = pos.x,
+        .y = pos.y,
+        .z = pos.z,
+        .yaw = actor.rotationY(),
+        .state = movementState(actor.isInAir(), actor.isFalling(),
+                               actor.isFallingDeep(), actor.isSlide(),
+                               actor.isJump(), actor.isJumpUp(), actor.isSwim(),
+                               actor.isDive(), actor.isInWater()),
+    };
+    intent.cadence = {
+        .intervalMs = cmd.mmoActionMovementProposalIntervalMs(),
+        .minimumDistance = cmd.mmoActionMovementProposalMinDistance(),
+        .minimumYawDegrees = cmd.mmoActionMovementProposalMinYawDeg(),
+    };
+    intent.targetKey = target;
+    intent.source = sourceLocation != nullptr ? std::string_view(sourceLocation)
+                                              : std::string_view("unknown");
+    intent.actorKey = actorIdentity;
+    intent.characterKey = characterIdentity;
+    intent.world = world.name();
+    intent.waypointKey = wp != nullptr ? std::string_view(wp->name)
+                                       : std::string_view{};
+    intent.reason = reason != nullptr ? std::string_view(reason)
+                                      : std::string_view("movement_delta_proposal");
+    (void)submitClientMovement(intent);
   }
   if(!isClientMmoDiagnosticsEnabled())
     return;
@@ -2579,7 +2602,6 @@ void onQuestChanged(Npc& actor,
 }
 
 } // namespace Mmo::Hooks
-
 
 
 
