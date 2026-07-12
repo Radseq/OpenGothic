@@ -1,24 +1,54 @@
 # API Contracts — Full Client MMO Boundary
 
 The engine-facing input boundary starts in `mmoclientadapter.h`. Domain systems
-submit presentation/input DTOs that do not expose packet kinds, route headers,
+submit synchronous DTO views that do not expose packet kinds, route headers,
 sequence allocation, codecs, sockets or ASIO types.
 
-The first implemented request is `ClientMovementIntent`. It contains two
-movement samples, reversible client movement-state hints, cadence values and
-bounded identity views. `submitClientMovement` validates and synchronously
-copies the request into the current compatibility facade contract. Character
-stats and authoritative gameplay outcomes are structurally absent.
+Implemented request families:
+
+- `ClientBootstrapRequest`;
+- `ClientMovementIntent` for movement proposals and character checkpoints;
+- `ClientInteractionRequest` with a typed verb and optional generation-safe
+  target handle;
+- `ClientInventoryRequest` with typed actions and checked unsigned-to-wire
+  narrowing;
+- `ClientWeaponStateRequest`;
+- `ClientCombatRequest`;
+- `ClientDialogChoiceRequest` with expected revision and client choice sequence.
+
+`submitClient*` functions validate and synchronously copy requests into the
+current compatibility facade contract. Character stats, authoritative state
+changes, wallet values, NPC death state and other server-owned results are
+structurally absent from these DTOs.
+
+The engine-facing presentation types live in
+`mmoserverentitypresentationtypes.h`:
+
+- `ServerEntityHandle` is `(id, generation)`;
+- `ServerPresentationRouteView` is `(local world generation, server world
+  instance)`;
+- `ServerEntityKind` distinguishes local player, remote player and NPC;
+- `ServerEntityTransformObservation` is the protocol-independent transform
+  boundary.
+
+`ServerEntityPresentationRegistry` owns the only handle-to-local-object map.
+Lookups, invalidation and despawn require the exact handle and local world
+generation. A newer entity generation releases the previous binding and cannot
+reuse it implicitly. Route reset returns all released bindings so the engine can
+remove replica presentation safely.
+
+`ServerMovementCorrectionBoundary` owns pending correction values and accepts
+only the currently bound local-player handle on the active route with a strictly
+newer server tick. Application/reconciliation is intentionally separate and
+waits for typed Protocol V2 correction delivery.
 
 `mmoclientbridge.h` remains the transitional integration boundary around
 `ClientRuntimeFacade`. Its stable responsibilities are:
 
 - configure/start/stop the facade from command-line MMO mode;
-- submit validated compatibility intents while domain adapters are migrated;
-- drain server live deltas, dialogs, entity transforms, bootstrap snapshots,
-  bootstrap ACK/status, diagnostics and faults;
-- translate server entity handles into local presentation identities.
+- submit adapter-produced compatibility intents while facade V2 is integrated;
+- drain server presentation/bootstrap events and diagnostics;
+- never expose transport ownership to gameplay/UI systems.
 
-Wire schema, endpoint retry and packet sequencing are not client API concerns.
-New engine features must consume domain requests/presentation events rather than
-including shared wire headers directly where practical.
+Wire schema, endpoint retry, logical-session continuity, sequencing and receipts
+are sandbox/facade concerns, not full-client API concerns.

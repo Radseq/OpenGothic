@@ -3,11 +3,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
-#include <string_view>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
-#include "../../../shared/net/mmo/mmonetprotocol.h"
+#include "mmoserverentitypresentationtypes.h"
 
 namespace Mmo::ClientPresentation {
 
@@ -22,12 +24,19 @@ struct LocalNpcPresentationIdentity final {
   [[nodiscard]] constexpr bool valid() const noexcept {
     return localNpcId != InvalidLocalNpcId;
   }
+
+  [[nodiscard]] friend constexpr bool operator==(
+      const LocalNpcPresentationIdentity&,
+      const LocalNpcPresentationIdentity&) noexcept = default;
 };
 
 struct ServerEntityPresentationBinding final {
-  std::uint32_t generation = 0;
+  ServerEntityHandle handle;
+  ServerEntityKind kind = ServerEntityKind::Npc;
+  std::uint64_t worldGeneration = 0;
   std::uint64_t lastServerTick = 0;
   LocalNpcPresentationIdentity local;
+  std::string worldInstanceId;
   std::string stableEntityKey;
 };
 
@@ -38,28 +47,67 @@ enum class ServerEntityObservationStatus : std::uint8_t {
   IgnoredInactive,
   Stale,
   IdentityMismatch,
+  RouteMismatch,
+  Invalid,
+};
+
+struct ServerEntityObservationResult final {
+  ServerEntityObservationStatus status = ServerEntityObservationStatus::Invalid;
+  std::optional<ServerEntityPresentationBinding> releasedBinding;
+
+  ServerEntityObservationResult(
+      const ServerEntityObservationStatus statusValue,
+      std::optional<ServerEntityPresentationBinding> released = std::nullopt) noexcept
+      : status(statusValue), releasedBinding(std::move(released)) {}
+
+  [[nodiscard]] constexpr bool needsBinding() const noexcept {
+    return status == ServerEntityObservationStatus::NeedsLocalBinding;
+  }
 };
 
 class ServerEntityPresentationRegistry final {
   public:
-    [[nodiscard]] ServerEntityObservationStatus observe(
-        const Net::ServerEntityTransformDeltaPacket& transform);
+    explicit ServerEntityPresentationRegistry(
+        std::size_t maxBindings = 4096U);
+
+    [[nodiscard]] std::vector<ServerEntityPresentationBinding> resetRoute(
+        std::uint64_t worldGeneration);
+
+    [[nodiscard]] ServerEntityObservationResult observe(
+        const ServerEntityTransformObservation& transform);
 
     [[nodiscard]] bool bind(
-        const Net::ServerEntityTransformDeltaPacket& transform,
+        const ServerEntityTransformObservation& transform,
         LocalNpcPresentationIdentity local);
 
     [[nodiscard]] const ServerEntityPresentationBinding* find(
-        std::uint64_t entityId) const noexcept;
+        ServerEntityHandle handle,
+        std::uint64_t worldGeneration) const noexcept;
 
-    void touch(const Net::ServerEntityTransformDeltaPacket& transform) noexcept;
-    void invalidate(std::uint64_t entityId) noexcept;
+    void touch(const ServerEntityTransformObservation& transform) noexcept;
+
+    [[nodiscard]] std::optional<ServerEntityPresentationBinding> invalidate(
+        ServerEntityHandle handle,
+        std::uint64_t worldGeneration) noexcept;
+
+    [[nodiscard]] std::vector<ServerEntityPresentationBinding> releaseAll();
     void clear() noexcept;
 
+    [[nodiscard]] std::uint64_t worldGeneration() const noexcept;
+    [[nodiscard]] const std::string& worldInstanceId() const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
 
   private:
+    [[nodiscard]] bool acceptRoute(
+        const ServerPresentationRouteView& route);
+    [[nodiscard]] bool routeMatches(
+        const ServerPresentationRouteView& route) const noexcept;
+
+    std::size_t maxBindings_ = 4096U;
+    std::uint64_t worldGeneration_ = 0;
+    std::string worldInstanceId_;
     std::unordered_map<std::uint64_t, ServerEntityPresentationBinding> entries_;
+    std::unordered_map<std::uint32_t, std::uint64_t> localToEntity_;
 };
 
 } // namespace Mmo::ClientPresentation

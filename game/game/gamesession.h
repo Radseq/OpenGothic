@@ -6,12 +6,14 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "game/gamescript.h"
 #include "camera.h"
 #include "gametime.h"
 #include "mmoserverentitypresentationregistry.h"
 #include "mmoserverentityinterpolator.h"
+#include "mmomovementcorrectionboundary.h"
 
 #ifndef OPENGOTHIC_MMO_SQLITE_TOOLING
 #define OPENGOTHIC_MMO_SQLITE_TOOLING 0
@@ -205,6 +207,9 @@ class GameSession final {
     void        pollMmoServerSnapshotRestore() noexcept;
     void        pollMmoServerDialogPresentationEvents() noexcept;
     void        pollMmoServerEntityTransforms() noexcept;
+    void        resetMmoServerPresentationWorld() noexcept;
+    void        releaseMmoServerPresentationBinding(
+                    const Mmo::ClientPresentation::ServerEntityPresentationBinding& binding) noexcept;
     bool        tryApplyMmoServerWorldSnapshotRefresh() noexcept;
     void        markMmoServerSnapshotStoryDirty() noexcept;
 
@@ -213,6 +218,11 @@ class GameSession final {
                                    mmoServerEntityPresentation;
     Mmo::ClientPresentation::ServerEntityInterpolator
                                    mmoServerEntityInterpolator;
+    Mmo::ClientPresentation::ServerMovementCorrectionBoundary
+                                   mmoMovementCorrectionBoundary;
+    std::vector<Mmo::ClientPresentation::ServerEntityPresentationTransform>
+                                   mmoServerEntitySamples;
+    uint64_t                       mmoPresentationWorldGeneration = 0;
 
     uint64_t                       ticks = 0, wrldTimePart = 0;
     MmoActionCheckpointState       lastMmoActionCheckpoint;

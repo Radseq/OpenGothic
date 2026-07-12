@@ -10,7 +10,7 @@
 #include "utils/string_frm.h"
 #include "world/objects/npc.h"
 #include "gothic.h"
-#include "game/mmoclientbridge.h"
+#include "game/mmoclientadapter.h"
 #include "game/mmoserverdialogpresentation.h"
 #include "inventorymenu.h"
 #include "resources.h"
@@ -585,19 +585,16 @@ void DialogMenu::onSelect() {
       return;
     const auto selectedChoice = serverDialog->choices[dlgSel];
     const auto sequence = ++serverChoiceSequence;
-    Mmo::Net::ClientDialogChoiceIntentPacket packet;
-    packet.localSequence = Mmo::nextClientIntentSequence();
-    packet.clientTick = serverDialog->serverTick;
-    packet.expectedRevision = serverDialog->revision;
-    packet.clientChoiceSequence = sequence;
-    packet.sessionKey = std::string(Mmo::clientMmoSessionKey());
-    packet.sessionUuid = serverDialog->sessionUuid;
-    packet.characterKey = serverDialog->targetCharacterKey;
-    packet.conversationId = serverDialog->conversationId;
-    packet.choiceId = selectedChoice.choiceId;
-    packet.idempotencyKey = packet.sessionUuid + ":" + packet.conversationId +
-                            ":" + std::to_string(sequence);
-    if(!Mmo::submitServerDialogChoice(std::move(packet))) {
+    const Mmo::ClientDialogChoiceRequest request{
+        .clientTick = serverDialog->serverTick,
+        .expectedRevision = serverDialog->revision,
+        .clientChoiceSequence = sequence,
+        .sessionUuid = serverDialog->sessionUuid,
+        .characterKey = serverDialog->targetCharacterKey,
+        .conversationId = serverDialog->conversationId,
+        .choiceId = selectedChoice.choiceId,
+    };
+    if(!Mmo::submitClientDialogChoice(request).accepted()) {
       Log::e("MMO server dialog choice rejected by client_sandbox",
              " conversation=", serverDialog->conversationId,
              " choice=", selectedChoice.choiceId);

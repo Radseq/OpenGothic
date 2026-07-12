@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../../../shared/net/mmo/mmonetprotocol.h"
+#include "mmoserverentitypresentationtypes.h"
 
 namespace Mmo::ClientPresentation {
 
@@ -18,10 +18,10 @@ struct ServerEntityInterpolationConfig final {
 };
 
 struct ServerEntityPresentationTransform final {
-  std::uint64_t entityId = 0;
-  std::uint32_t generation = 0;
+  ServerEntityHandle handle;
+  ServerEntityKind kind = ServerEntityKind::Npc;
+  std::uint64_t worldGeneration = 0;
   std::uint64_t serverTick = 0;
-  std::string stableEntityKey;
   double posX = 0.0;
   double posY = 0.0;
   double posZ = 0.0;
@@ -31,11 +31,11 @@ struct ServerEntityPresentationTransform final {
 
 enum class ServerEntityInterpolationIngestStatus : std::uint8_t {
   Accepted,
-  ReplacedGeneration,
-  Removed,
-  IgnoredInactive,
   Stale,
   IdentityMismatch,
+  RouteMismatch,
+  RebindRequired,
+  UnsupportedEntityKind,
   Invalid,
   CapacityExceeded,
 };
@@ -44,14 +44,20 @@ class ServerEntityInterpolator final {
  public:
   explicit ServerEntityInterpolator(ServerEntityInterpolationConfig config = {});
 
+  void resetRoute(std::uint64_t worldGeneration) noexcept;
+
   [[nodiscard]] ServerEntityInterpolationIngestStatus ingest(
-      const Net::ServerEntityTransformDeltaPacket& packet,
+      const ServerEntityTransformObservation& observation,
       std::uint64_t receivedAtMs);
+
+  void sample(std::uint64_t nowMs,
+              std::vector<ServerEntityPresentationTransform>& out) const;
 
   [[nodiscard]] std::vector<ServerEntityPresentationTransform> sample(
       std::uint64_t nowMs) const;
 
-  void erase(std::uint64_t entityId) noexcept;
+  [[nodiscard]] bool erase(ServerEntityHandle handle,
+                           std::uint64_t worldGeneration) noexcept;
   void clear() noexcept;
   [[nodiscard]] std::size_t size() const noexcept;
 
@@ -66,14 +72,22 @@ class ServerEntityInterpolator final {
   };
 
   struct Track final {
-    std::uint32_t generation = 0;
+    ServerEntityHandle handle;
+    ServerEntityKind kind = ServerEntityKind::Npc;
+    std::uint64_t worldGeneration = 0;
+    std::string worldInstanceId;
     std::string stableEntityKey;
     Sample previous;
     Sample latest;
     bool hasPrevious = false;
   };
 
+  [[nodiscard]] bool acceptRoute(
+      const ServerPresentationRouteView& route);
+
   ServerEntityInterpolationConfig config_;
+  std::uint64_t worldGeneration_ = 0;
+  std::string worldInstanceId_;
   std::unordered_map<std::uint64_t, Track> tracks_;
 };
 

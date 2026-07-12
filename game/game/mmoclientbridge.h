@@ -79,8 +79,7 @@ latestServerBootstrapStatus() noexcept;
 void resetServerBootstrapStatus() noexcept;
 [[nodiscard]] bool enqueueClientGameplayObservationReceipt(
     Net::ClientGameplayObservationPacket packet) noexcept;
-[[nodiscard]] bool submitServerDialogChoice(
+[[nodiscard]] ClientMmoSubmitResult submitClientDialogChoicePacket(
     Net::ClientDialogChoiceIntentPacket packet) noexcept;
 
 } // namespace Mmo
-

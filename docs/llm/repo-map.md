@@ -26,8 +26,11 @@ Last verified: 2026-07-12.
 
 ## Server presentation
 
-- `mmoserverentitypresentationregistry.*`
-- `mmoserverentityinterpolator.*`
+- `mmoserverentitypresentationtypes.h` — protocol-independent handles, route
+  scope, entity kinds and transform observations;
+- `mmoserverentitypresentationregistry.*` — bounded centralized local binding;
+- `mmoserverentityinterpolator.*` — route-scoped remote entity smoothing;
+- `mmomovementcorrectionboundary.*` — validated local-player correction queue;
 - `mmoserverdialogpresentation.h`
 - `world/objects/npc.*` for the `mmoServerReplica` guard.
 

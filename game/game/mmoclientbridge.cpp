@@ -208,14 +208,15 @@ class ClientMmoBridgeState final {
 #endif
     }
 
-    [[nodiscard]] bool submitDialogChoice(
+    [[nodiscard]] ClientMmoSubmitResult submitDialogChoice(
         Net::ClientDialogChoiceIntentPacket packet) noexcept {
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
-      return facade_ && facade_->submitDialogChoice(std::move(packet)).accepted();
+      if(facade_)
+        return mapResult(facade_->submitDialogChoice(std::move(packet)));
 #else
       static_cast<void>(packet);
-      return false;
 #endif
+      return {};
     }
 
     [[nodiscard]] const ServerDialogPresentationConfig& dialogConfig() const noexcept {
@@ -428,11 +429,12 @@ bool enqueueClientGameplayObservationReceipt(
   return state && state->submitObservation(std::move(packet));
 }
 
-bool submitServerDialogChoice(Net::ClientDialogChoiceIntentPacket packet) noexcept {
+ClientMmoSubmitResult submitClientDialogChoicePacket(
+    Net::ClientDialogChoiceIntentPacket packet) noexcept {
   std::lock_guard lock(stateMutex);
-  return state && state->submitDialogChoice(std::move(packet));
+  return state ? state->submitDialogChoice(std::move(packet))
+               : ClientMmoSubmitResult{};
 }
 
 } // namespace Mmo
-
 

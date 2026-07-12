@@ -2,17 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <utility>
 
 namespace Mmo::ClientPresentation {
 namespace {
-
-[[nodiscard]] bool finitePacket(
-    const Net::ServerEntityTransformDeltaPacket& packet) noexcept {
-  return std::isfinite(packet.posX) && std::isfinite(packet.posY) &&
-         std::isfinite(packet.posZ) && std::isfinite(packet.yaw);
-}
 
 [[nodiscard]] double squaredDistance(double ax, double ay, double az,
                                      double bx, double by, double bz) noexcept {
@@ -47,72 +40,74 @@ ServerEntityInterpolator::ServerEntityInterpolator(
     : config_(config) {
   config_.maxEntities = std::max<std::size_t>(1, config_.maxEntities);
   config_.snapDistance = std::max(0.0, config_.snapDistance);
+  tracks_.reserve(config_.maxEntities);
+}
+
+void ServerEntityInterpolator::resetRoute(
+    const std::uint64_t worldGeneration) noexcept {
+  tracks_.clear();
+  worldGeneration_ = worldGeneration;
+  worldInstanceId_.clear();
+}
+
+bool ServerEntityInterpolator::acceptRoute(
+    const ServerPresentationRouteView& route) {
+  if(!route.valid() || route.worldGeneration != worldGeneration_)
+    return false;
+  if(worldInstanceId_.empty()) {
+    worldInstanceId_.assign(route.worldInstanceId);
+    return true;
+  }
+  return worldInstanceId_ == route.worldInstanceId;
 }
 
 ServerEntityInterpolationIngestStatus ServerEntityInterpolator::ingest(
-    const Net::ServerEntityTransformDeltaPacket& packet,
-    std::uint64_t receivedAtMs) {
-  if(packet.entityId == 0 || packet.generation == 0 ||
-     packet.stableEntityKey.empty() || !finitePacket(packet)) {
+    const ServerEntityTransformObservation& observation,
+    const std::uint64_t receivedAtMs) {
+  if(!observation.valid() || !observation.active)
     return ServerEntityInterpolationIngestStatus::Invalid;
-  }
-
-  const bool active =
-      (packet.flags & Net::ServerEntityTransformActive) != 0U;
-  auto found = tracks_.find(packet.entityId);
-  if(!active) {
-    if(found == tracks_.end())
-      return ServerEntityInterpolationIngestStatus::IgnoredInactive;
-    if(packet.generation < found->second.generation ||
-       (packet.generation == found->second.generation &&
-        packet.serverTick < found->second.latest.serverTick)) {
-      return ServerEntityInterpolationIngestStatus::Stale;
-    }
-    if(packet.generation != found->second.generation)
-      return ServerEntityInterpolationIngestStatus::IgnoredInactive;
-    if(packet.stableEntityKey != found->second.stableEntityKey)
-      return ServerEntityInterpolationIngestStatus::IdentityMismatch;
-    tracks_.erase(found);
-    return ServerEntityInterpolationIngestStatus::Removed;
-  }
+  if(observation.kind == ServerEntityKind::LocalPlayer)
+    return ServerEntityInterpolationIngestStatus::UnsupportedEntityKind;
+  if(!acceptRoute(observation.route))
+    return ServerEntityInterpolationIngestStatus::RouteMismatch;
 
   const Sample next{
-      .serverTick = packet.serverTick,
+      .serverTick = observation.serverTick,
       .receivedAtMs = receivedAtMs,
-      .posX = packet.posX,
-      .posY = packet.posY,
-      .posZ = packet.posZ,
-      .yaw = packet.yaw,
+      .posX = observation.posX,
+      .posY = observation.posY,
+      .posZ = observation.posZ,
+      .yaw = observation.yaw,
   };
 
+  auto found = tracks_.find(observation.handle.id);
   if(found == tracks_.end()) {
     if(tracks_.size() >= config_.maxEntities)
       return ServerEntityInterpolationIngestStatus::CapacityExceeded;
     Track track;
-    track.generation = packet.generation;
-    track.stableEntityKey = packet.stableEntityKey;
+    track.handle = observation.handle;
+    track.kind = observation.kind;
+    track.worldGeneration = observation.route.worldGeneration;
+    track.worldInstanceId.assign(observation.route.worldInstanceId);
+    track.stableEntityKey.assign(observation.stableEntityKey);
     track.latest = next;
-    tracks_.emplace(packet.entityId, std::move(track));
+    tracks_.emplace(observation.handle.id, std::move(track));
     return ServerEntityInterpolationIngestStatus::Accepted;
   }
 
   auto& track = found->second;
-  if(packet.generation < track.generation ||
-     (packet.generation == track.generation &&
-      packet.serverTick <= track.latest.serverTick)) {
+  if(observation.handle.generation < track.handle.generation ||
+     (observation.handle == track.handle &&
+      observation.serverTick <= track.latest.serverTick)) {
     return ServerEntityInterpolationIngestStatus::Stale;
   }
-  if(packet.generation == track.generation &&
-     packet.stableEntityKey != track.stableEntityKey) {
+  if(observation.handle.generation > track.handle.generation)
+    return ServerEntityInterpolationIngestStatus::RebindRequired;
+  if(track.kind != observation.kind ||
+     track.worldGeneration != observation.route.worldGeneration ||
+     track.worldInstanceId != observation.route.worldInstanceId ||
+     track.stableEntityKey != observation.stableEntityKey) {
     return ServerEntityInterpolationIngestStatus::IdentityMismatch;
-  }
-  if(packet.generation > track.generation) {
-    Track replacement;
-    replacement.generation = packet.generation;
-    replacement.stableEntityKey = packet.stableEntityKey;
-    replacement.latest = next;
-    track = std::move(replacement);
-    return ServerEntityInterpolationIngestStatus::ReplacedGeneration;
   }
 
   track.previous = track.latest;
@@ -121,9 +116,10 @@ ServerEntityInterpolationIngestStatus ServerEntityInterpolator::ingest(
   return ServerEntityInterpolationIngestStatus::Accepted;
 }
 
-std::vector<ServerEntityPresentationTransform> ServerEntityInterpolator::sample(
-    std::uint64_t nowMs) const {
-  std::vector<ServerEntityPresentationTransform> out;
+void ServerEntityInterpolator::sample(
+    const std::uint64_t nowMs,
+    std::vector<ServerEntityPresentationTransform>& out) const {
+  out.clear();
   out.reserve(tracks_.size());
 
   const auto renderTime = nowMs > config_.interpolationDelayMs
@@ -132,11 +128,12 @@ std::vector<ServerEntityPresentationTransform> ServerEntityInterpolator::sample(
   const auto snapDistanceSquared = config_.snapDistance * config_.snapDistance;
 
   for(const auto& [entityId, track] : tracks_) {
+    static_cast<void>(entityId);
     ServerEntityPresentationTransform value;
-    value.entityId = entityId;
-    value.generation = track.generation;
+    value.handle = track.handle;
+    value.kind = track.kind;
+    value.worldGeneration = track.worldGeneration;
     value.serverTick = track.latest.serverTick;
-    value.stableEntityKey = track.stableEntityKey;
 
     if(!track.hasPrevious) {
       value.posX = track.latest.posX;
@@ -144,21 +141,23 @@ std::vector<ServerEntityPresentationTransform> ServerEntityInterpolator::sample(
       value.posZ = track.latest.posZ;
       value.yaw = track.latest.yaw;
       value.snapped = true;
-      out.push_back(std::move(value));
+      out.push_back(value);
       continue;
     }
 
     const auto& a = track.previous;
     const auto& b = track.latest;
-    const bool forceSnap = squaredDistance(a.posX, a.posY, a.posZ, b.posX, b.posY, b.posZ) > snapDistanceSquared ||
-                           b.receivedAtMs <= a.receivedAtMs;
+    const bool forceSnap =
+        squaredDistance(a.posX, a.posY, a.posZ,
+                        b.posX, b.posY, b.posZ) > snapDistanceSquared ||
+        b.receivedAtMs <= a.receivedAtMs;
     if(forceSnap) {
       value.posX = b.posX;
       value.posY = b.posY;
       value.posZ = b.posZ;
       value.yaw = b.yaw;
       value.snapped = true;
-      out.push_back(std::move(value));
+      out.push_back(value);
       continue;
     }
 
@@ -176,7 +175,7 @@ std::vector<ServerEntityPresentationTransform> ServerEntityInterpolator::sample(
       value.posY = lerp(a.posY, b.posY, t);
       value.posZ = lerp(a.posZ, b.posZ, t);
       value.yaw = interpolateYaw(a.yaw, b.yaw, t);
-      out.push_back(std::move(value));
+      out.push_back(value);
       continue;
     }
 
@@ -190,22 +189,39 @@ std::vector<ServerEntityPresentationTransform> ServerEntityInterpolator::sample(
     value.posX = b.posX + (b.posX - a.posX) * ratio;
     value.posY = b.posY + (b.posY - a.posY) * ratio;
     value.posZ = b.posZ + (b.posZ - a.posZ) * ratio;
-    value.yaw = interpolateYaw(b.yaw, b.yaw + normalizeRadians(b.yaw - a.yaw), ratio);
-    out.push_back(std::move(value));
+    value.yaw = interpolateYaw(
+        b.yaw, b.yaw + normalizeRadians(b.yaw - a.yaw), ratio);
+    out.push_back(value);
   }
 
   std::sort(out.begin(), out.end(), [](const auto& lhs, const auto& rhs) {
-    return lhs.entityId < rhs.entityId;
+    return lhs.handle.id < rhs.handle.id;
   });
+}
+
+std::vector<ServerEntityPresentationTransform> ServerEntityInterpolator::sample(
+    const std::uint64_t nowMs) const {
+  std::vector<ServerEntityPresentationTransform> out;
+  sample(nowMs, out);
   return out;
 }
 
-void ServerEntityInterpolator::erase(std::uint64_t entityId) noexcept {
-  tracks_.erase(entityId);
+bool ServerEntityInterpolator::erase(
+    const ServerEntityHandle handle,
+    const std::uint64_t worldGeneration) noexcept {
+  auto found = tracks_.find(handle.id);
+  if(found == tracks_.end() || found->second.handle != handle ||
+     found->second.worldGeneration != worldGeneration) {
+    return false;
+  }
+  tracks_.erase(found);
+  return true;
 }
 
 void ServerEntityInterpolator::clear() noexcept {
   tracks_.clear();
+  worldGeneration_ = 0;
+  worldInstanceId_.clear();
 }
 
 std::size_t ServerEntityInterpolator::size() const noexcept {

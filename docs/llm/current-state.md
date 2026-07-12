@@ -1,6 +1,6 @@
 # Current State — Full OpenGothic Client
 
-Last verified: 2026-07-12 against client source and CMake.
+Last verified: 2026-07-12 against client source and focused CMake tests.
 
 ## Implemented MMO boundary
 
@@ -10,13 +10,15 @@ Last verified: 2026-07-12 against client source and CMake.
   available;
 - endpoint/socket/worker/retry/bootstrap assembly are not implemented in the
   full-client bridge;
-- `mmoclientadapter.*` now exposes the first engine-facing domain request:
-  movement samples/state/cadence without packet kinds, sequence fields, codecs
-  or transport handles;
-- the movement semantic hook submits through that adapter, while the adapter
-  alone maps to the transitional shared client-intent variant;
-- remaining client submissions still use the compatibility shared packet types
-  and must be migrated one domain family at a time;
+- `mmoclientadapter.*` exposes engine-facing domain requests for bootstrap,
+  movement/checkpoints, interaction, inventory/equipment/loot/trade/consume,
+  weapon state, combat and dialog choice;
+- semantic hooks and dialog UI do not construct client wire packets; only the
+  private adapter mapping and bridge compatibility boundary know the historical
+  packet variants;
+- adapter validation is fail-closed, checks numeric narrowing/text/finite values
+  and structurally omits authoritative result fields such as character stats,
+  wallet deltas and NPC dead/unconscious flags;
 - JSON exists at a local diagnostic boundary and is not parsed back into wire
   gameplay packets.
 
@@ -31,21 +33,35 @@ Last verified: 2026-07-12 against client source and CMake.
 
 ## Presentation
 
-- server entity transform deltas map stable server IDs/generations to local
-  objects and use interpolation;
-- replicated NPCs are marked `mmoServerReplica`, disabling local routine,
-  perception, regeneration and combat authority while retaining presentation;
+- `ServerEntityPresentationRegistry` is the single owner of
+  server-handle-to-local-NPC bindings;
+- bindings are checked by entity generation, local world generation, world
+  instance, entity kind and stable identity;
+- the registry is bounded and prevents two server handles from aliasing one
+  local object;
+- despawn/invalidation is exact-handle and generation safe; generation changes
+  release the old local binding and require an explicit rebind;
+- local player, remote player and NPC presentation kinds are distinct;
+- interpolation is route-scoped, bounded, rejects stale/foreign/local-player
+  samples and reuses the frame output buffer;
+- a movement-correction boundary owns pending correction data and validates the
+  bound local-player handle, route and server tick before later application;
+- replicated non-local NPC objects are marked `mmoServerReplica`, disabling
+  local routine, perception, regeneration and combat authority while retaining
+  presentation;
 - server dialog revisions/choices drive presentation; client sends only a
-  choice request.
+  domain choice request.
 
 ## Transitional debt
 
 - `mmosemantichooks.*` still exposes many observation/result-shaped callbacks
-  inherited from migration history; production submission must remain intent
-  only and these hooks need classification/reduction;
-- the facade still exposes compatibility packet types rather than a final
-  domain-level API; only the full-client movement call site is currently hidden
-  behind the new domain adapter;
+  inherited from migration history; diagnostic-only hooks need continued
+  classification/reduction;
+- the bridge/facade still exposes compatibility packet types internally; facade
+  V2 should replace those mappings without changing engine call sites;
+- current entity transforms are translated from the legacy delta packet at the
+  presentation boundary; authoritative Protocol V2 route epochs and typed S2C
+  lifecycle/correction events are not connected yet;
 - complete character create/select/load UX, typed inventory/combat/quest UI and
   world-transition flow are not finished;
 - MMO save replacement and reconnect recovery are not complete;

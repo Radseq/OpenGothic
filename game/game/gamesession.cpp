@@ -1366,26 +1366,58 @@ void GameSession::setupSettings() {
   sound.setGlobalVolume(soundVolume);
   }
 
+void GameSession::releaseMmoServerPresentationBinding(
+    const Mmo::ClientPresentation::ServerEntityPresentationBinding& binding) noexcept {
+  if(binding.kind == Mmo::ClientPresentation::ServerEntityKind::LocalPlayer) {
+    mmoMovementCorrectionBoundary.unbindLocalPlayer();
+    return;
+  }
+  if(wrld == nullptr)
+    return;
+  auto* npc = wrld->npcById(binding.local.localNpcId);
+  if(npc == nullptr || npc->persistentId() != binding.local.persistentId ||
+     npc->instanceSymbol() != binding.local.instanceSymbol)
+    return;
+  npc->setMmoServerReplica(false);
+}
+
+void GameSession::resetMmoServerPresentationWorld() noexcept {
+  // Route changes invalidate queued legacy transforms. Protocol V2 route epochs
+  // will replace this drain-only fallback once facade C exposes them.
+  static_cast<void>(Mmo::drainServerEntityTransforms());
+
+  ++mmoPresentationWorldGeneration;
+  if(mmoPresentationWorldGeneration == 0U)
+    mmoPresentationWorldGeneration = 1U;
+
+  auto released =
+      mmoServerEntityPresentation.resetRoute(mmoPresentationWorldGeneration);
+  for(const auto& binding : released)
+    releaseMmoServerPresentationBinding(binding);
+
+  mmoServerEntityInterpolator.resetRoute(mmoPresentationWorldGeneration);
+  mmoMovementCorrectionBoundary.resetRoute(mmoPresentationWorldGeneration);
+  mmoServerEntitySamples.clear();
+}
+
 void GameSession::setWorld(std::unique_ptr<World> &&w) {
+  resetMmoServerPresentationWorld();
   if(wrld) {
     if(!isWorldKnown(wrld->name()))
       visitedWorlds.emplace_back(*wrld);
     }
   wrld = std::move(w);
-  mmoServerEntityPresentation.clear();
-  mmoServerEntityInterpolator.clear();
   lastMmoActionCheckpoint = {};
   lastMmoActionMovementProposal = {};
   }
 
 std::unique_ptr<World> GameSession::clearWorld() {
+  resetMmoServerPresentationWorld();
   if(wrld) {
     if(!isWorldKnown(wrld->name())) {
       visitedWorlds.emplace_back(*wrld);
       }
     }
-  mmoServerEntityPresentation.clear();
-  mmoServerEntityInterpolator.clear();
   lastMmoActionCheckpoint = {};
   lastMmoActionMovementProposal = {};
   return std::move(wrld);
@@ -1758,19 +1790,24 @@ void GameSession::pollMmoServerSnapshotRestore() noexcept {
 
 void GameSession::pollMmoServerEntityTransforms() noexcept {
   const auto& cmd = CommandLine::inst();
-  if(!cmd.mmoClientUsesServer() || wrld == nullptr)
+  if(!cmd.mmoClientUsesServer() || wrld == nullptr ||
+     mmoPresentationWorldGeneration == 0U)
     return;
 
+  using namespace Mmo::ClientPresentation;
+
   const auto resolveLocalIdentity = [this](
-      std::string_view stableEntityKey) noexcept
-      -> std::optional<Mmo::ClientPresentation::LocalNpcPresentationIdentity> {
-    auto* npc = resolveServerEntityNpc(*wrld, stableEntityKey);
-    if(npc == nullptr || npc->isPlayer())
+      Npc* npc,
+      const ServerEntityKind kind) noexcept
+      -> std::optional<LocalNpcPresentationIdentity> {
+    if(npc == nullptr)
+      return std::nullopt;
+    if((kind == ServerEntityKind::LocalPlayer) != npc->isPlayer())
       return std::nullopt;
     const auto localNpcId = wrld->npcId(npc);
-    if(localNpcId == Mmo::ClientPresentation::InvalidLocalNpcId)
+    if(localNpcId == InvalidLocalNpcId)
       return std::nullopt;
-    return Mmo::ClientPresentation::LocalNpcPresentationIdentity{
+    return LocalNpcPresentationIdentity{
         .localNpcId = localNpcId,
         .persistentId = npc->persistentId(),
         .instanceSymbol = npc->instanceSymbol(),
@@ -1778,14 +1815,14 @@ void GameSession::pollMmoServerEntityTransforms() noexcept {
   };
 
   const auto resolveBoundNpc = [this](
-      const Mmo::ClientPresentation::ServerEntityPresentationBinding& binding)
-      noexcept -> Npc* {
+      const ServerEntityPresentationBinding& binding) noexcept -> Npc* {
     auto* npc = wrld->npcById(binding.local.localNpcId);
-    if(npc == nullptr || npc->isPlayer())
+    if(npc == nullptr ||
+       npc->persistentId() != binding.local.persistentId ||
+       npc->instanceSymbol() != binding.local.instanceSymbol ||
+       ((binding.kind == ServerEntityKind::LocalPlayer) != npc->isPlayer())) {
       return nullptr;
-    if(npc->persistentId() != binding.local.persistentId ||
-       npc->instanceSymbol() != binding.local.instanceSymbol)
-      return nullptr;
+    }
     return npc;
   };
 
@@ -1796,111 +1833,166 @@ void GameSession::pollMmoServerEntityTransforms() noexcept {
   std::size_t stale = 0;
   std::size_t unresolved = 0;
   std::size_t rejectedIdentity = 0;
-  std::size_t skippedPlayer = 0;
+  std::size_t routeMismatch = 0;
+  std::size_t localPlayers = 0;
+  std::size_t remotePlayers = 0;
   std::size_t invalidatedLocalBinding = 0;
 
   for(const auto& transform : transforms) {
-    if(transform.entityId == 0 || transform.generation == 0 ||
-       transform.stableEntityKey.empty() ||
-       !std::isfinite(transform.posX) || !std::isfinite(transform.posY) ||
-       !std::isfinite(transform.posZ) || !std::isfinite(transform.yaw)) {
+    if(!Mmo::Net::isValidServerEntityTransform(transform)) {
       ++rejectedIdentity;
       continue;
     }
 
-    Npc* previouslyBoundNpc = nullptr;
-    if(const auto* previous = mmoServerEntityPresentation.find(transform.entityId))
-      previouslyBoundNpc = resolveBoundNpc(*previous);
+    auto* resolvedNpc = resolveServerEntityNpc(*wrld, transform.stableEntityKey);
+    ServerEntityKind kind = ServerEntityKind::Npc;
+    if((transform.flags & Mmo::Net::ServerEntityTransformPlayer) != 0U) {
+      kind = resolvedNpc != nullptr && resolvedNpc->isPlayer()
+                 ? ServerEntityKind::LocalPlayer
+                 : ServerEntityKind::RemotePlayer;
+    }
 
-    auto observation = mmoServerEntityPresentation.observe(transform);
-    switch(observation) {
-      case Mmo::ClientPresentation::ServerEntityObservationStatus::Removed:
-        if(previouslyBoundNpc != nullptr)
-          previouslyBoundNpc->setMmoServerReplica(false);
-        mmoServerEntityInterpolator.erase(transform.entityId);
+    const ServerEntityTransformObservation observation{
+        .route = {
+            .worldGeneration = mmoPresentationWorldGeneration,
+            .worldInstanceId = transform.worldInstanceUuid,
+        },
+        .handle = {
+            .id = transform.entityId,
+            .generation = transform.generation,
+        },
+        .kind = kind,
+        .serverTick = transform.serverTick,
+        .stableEntityKey = transform.stableEntityKey,
+        .posX = transform.posX,
+        .posY = transform.posY,
+        .posZ = transform.posZ,
+        .yaw = transform.yaw,
+        .active =
+            (transform.flags & Mmo::Net::ServerEntityTransformActive) != 0U,
+    };
+
+    auto result = mmoServerEntityPresentation.observe(observation);
+    if(result.releasedBinding.has_value()) {
+      releaseMmoServerPresentationBinding(*result.releasedBinding);
+      static_cast<void>(mmoServerEntityInterpolator.erase(
+          result.releasedBinding->handle,
+          result.releasedBinding->worldGeneration));
+      if(result.status == ServerEntityObservationStatus::Removed)
         ++despawned;
+    }
+
+    switch(result.status) {
+      case ServerEntityObservationStatus::Removed:
+      case ServerEntityObservationStatus::IgnoredInactive:
         continue;
-      case Mmo::ClientPresentation::ServerEntityObservationStatus::IgnoredInactive:
-        continue;
-      case Mmo::ClientPresentation::ServerEntityObservationStatus::Stale:
+      case ServerEntityObservationStatus::Stale:
         ++stale;
         continue;
-      case Mmo::ClientPresentation::ServerEntityObservationStatus::IdentityMismatch:
+      case ServerEntityObservationStatus::IdentityMismatch:
+      case ServerEntityObservationStatus::Invalid:
         ++rejectedIdentity;
         continue;
-      case Mmo::ClientPresentation::ServerEntityObservationStatus::NeedsLocalBinding:
-      case Mmo::ClientPresentation::ServerEntityObservationStatus::ExistingBinding:
+      case ServerEntityObservationStatus::RouteMismatch:
+        ++routeMismatch;
+        continue;
+      case ServerEntityObservationStatus::NeedsLocalBinding:
+      case ServerEntityObservationStatus::ExistingBinding:
         break;
     }
 
-    if((transform.flags & Mmo::Net::ServerEntityTransformNpc) == 0U) {
-      ++skippedPlayer;
-      continue;
-    }
-
-    if(observation ==
-       Mmo::ClientPresentation::ServerEntityObservationStatus::ExistingBinding) {
-      const auto* binding = mmoServerEntityPresentation.find(transform.entityId);
+    if(result.status == ServerEntityObservationStatus::ExistingBinding) {
+      const auto* binding = mmoServerEntityPresentation.find(
+          observation.handle, mmoPresentationWorldGeneration);
       if(binding == nullptr || resolveBoundNpc(*binding) == nullptr) {
-        mmoServerEntityPresentation.invalidate(transform.entityId);
-        mmoServerEntityInterpolator.erase(transform.entityId);
-        observation =
-            Mmo::ClientPresentation::ServerEntityObservationStatus::NeedsLocalBinding;
+        if(auto released = mmoServerEntityPresentation.invalidate(
+               observation.handle, mmoPresentationWorldGeneration)) {
+          releaseMmoServerPresentationBinding(*released);
+          static_cast<void>(mmoServerEntityInterpolator.erase(
+              released->handle, released->worldGeneration));
+        }
+        result.status = ServerEntityObservationStatus::NeedsLocalBinding;
         ++invalidatedLocalBinding;
       }
     }
 
-    if(observation ==
-       Mmo::ClientPresentation::ServerEntityObservationStatus::NeedsLocalBinding) {
-      const auto local = resolveLocalIdentity(transform.stableEntityKey);
-      if(!local || !mmoServerEntityPresentation.bind(transform, *local)) {
+    if(result.status == ServerEntityObservationStatus::NeedsLocalBinding) {
+      const auto local = resolveLocalIdentity(resolvedNpc, kind);
+      if(!local || !mmoServerEntityPresentation.bind(observation, *local)) {
         ++unresolved;
         continue;
       }
       ++rebound;
     }
 
-    const auto* binding = mmoServerEntityPresentation.find(transform.entityId);
+    const auto* binding = mmoServerEntityPresentation.find(
+        observation.handle, mmoPresentationWorldGeneration);
     if(binding == nullptr) {
       ++unresolved;
       continue;
     }
     auto* npc = resolveBoundNpc(*binding);
     if(npc == nullptr) {
-      mmoServerEntityPresentation.invalidate(transform.entityId);
-      mmoServerEntityInterpolator.erase(transform.entityId);
+      if(auto released = mmoServerEntityPresentation.invalidate(
+             observation.handle, mmoPresentationWorldGeneration)) {
+        releaseMmoServerPresentationBinding(*released);
+        static_cast<void>(mmoServerEntityInterpolator.erase(
+            released->handle, released->worldGeneration));
+      }
       ++unresolved;
       continue;
     }
 
-    const auto status = mmoServerEntityInterpolator.ingest(transform, ticks);
-    using IngestStatus =
-        Mmo::ClientPresentation::ServerEntityInterpolationIngestStatus;
+    if(kind == ServerEntityKind::LocalPlayer) {
+      if(!mmoMovementCorrectionBoundary.bindLocalPlayer(
+             observation.handle, observation.route)) {
+        ++routeMismatch;
+        continue;
+      }
+      mmoServerEntityPresentation.touch(observation);
+      ++localPlayers;
+      continue;
+    }
+
+    if(kind == ServerEntityKind::RemotePlayer)
+      ++remotePlayers;
+
+    const auto status = mmoServerEntityInterpolator.ingest(observation, ticks);
+    using IngestStatus = ServerEntityInterpolationIngestStatus;
     if(status == IngestStatus::Stale) {
       ++stale;
       continue;
     }
-    if(status == IngestStatus::IdentityMismatch || status == IngestStatus::Invalid ||
-       status == IngestStatus::CapacityExceeded) {
+    if(status == IngestStatus::RouteMismatch) {
+      ++routeMismatch;
+      continue;
+    }
+    if(status != IngestStatus::Accepted) {
       ++rejectedIdentity;
       continue;
     }
+
     npc->setMmoServerReplica(true);
-    mmoServerEntityPresentation.touch(transform);
+    mmoServerEntityPresentation.touch(observation);
     ++ingested;
   }
 
   std::size_t applied = 0;
-  for(const auto& sampled : mmoServerEntityInterpolator.sample(ticks)) {
-    const auto* binding = mmoServerEntityPresentation.find(sampled.entityId);
-    if(binding == nullptr || binding->generation != sampled.generation ||
-       binding->stableEntityKey != sampled.stableEntityKey) {
+  mmoServerEntityInterpolator.sample(ticks, mmoServerEntitySamples);
+  for(const auto& sampled : mmoServerEntitySamples) {
+    const auto* binding = mmoServerEntityPresentation.find(
+        sampled.handle, sampled.worldGeneration);
+    if(binding == nullptr || binding->kind != sampled.kind)
       continue;
-    }
+
     auto* npc = resolveBoundNpc(*binding);
     if(npc == nullptr) {
-      mmoServerEntityPresentation.invalidate(sampled.entityId);
-      mmoServerEntityInterpolator.erase(sampled.entityId);
+      if(auto released = mmoServerEntityPresentation.invalidate(
+             sampled.handle, sampled.worldGeneration)) {
+        releaseMmoServerPresentationBinding(*released);
+      }
+      static_cast<void>(mmoServerEntityInterpolator.erase(
+          sampled.handle, sampled.worldGeneration));
       ++unresolved;
       continue;
     }
@@ -1915,7 +2007,7 @@ void GameSession::pollMmoServerEntityTransforms() noexcept {
   }
 
   if(!transforms.empty() || rejectedIdentity != 0 || stale != 0 ||
-     unresolved != 0 || invalidatedLocalBinding != 0) {
+     unresolved != 0 || invalidatedLocalBinding != 0 || routeMismatch != 0) {
     Log::i("MMO server entity transforms drained=", transforms.size(),
            " ingested=", ingested,
            " applied=", applied,
@@ -1923,9 +2015,12 @@ void GameSession::pollMmoServerEntityTransforms() noexcept {
            " despawned=", despawned,
            " stale=", stale,
            " unresolved=", unresolved,
+           " route_mismatch=", routeMismatch,
            " invalidated_local_binding=", invalidatedLocalBinding,
            " rejected_identity=", rejectedIdentity,
-           " skipped_player=", skippedPlayer,
+           " local_players=", localPlayers,
+           " remote_players=", remotePlayers,
+           " world_generation=", mmoPresentationWorldGeneration,
            " bindings=", mmoServerEntityPresentation.size(),
            " interpolation_tracks=", mmoServerEntityInterpolator.size());
   }

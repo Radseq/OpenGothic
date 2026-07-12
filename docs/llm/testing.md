@@ -5,12 +5,30 @@
 ```bash
 python3 tools/check_client_mmo_sandbox_boundary.py --strict
 python3 tools/check_llm_context.py --strict
+rg -n "Net::Client|Packet[[:space:]]+packet|submitClientIntent" \
+  src/client/game/game/mmosemantichooks.cpp src/client/game/ui/dialogmenu.cpp
 ```
 
-## Sandbox first
+The final `rg` command must return no matches.
 
-Build and run client-sandbox tests before engine integration. The headless path
-must prove protocol/session behavior without rendering or private assets.
+## Focused adapter/presentation tests
+
+```bash
+cmake -S src/client_sandbox -B build/mmo_client_sandbox -G Ninja \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DGOTHIC_MMO_CLIENT_SANDBOX_BUILD_TESTS=ON
+cmake --build build/mmo_client_sandbox \
+  --target gothic_mmo_client_transport_tests -j"$(nproc)"
+ctest --test-dir build/mmo_client_sandbox --output-on-failure
+```
+
+Coverage includes:
+
+- domain-to-compatibility mapping and fail-closed validation;
+- route/entity-generation checks and exact despawn;
+- forced rebind and local-object alias prevention;
+- bounded interpolation, stale/route rejection and exact erase;
+- local-player movement-correction route/identity/tick checks.
 
 ## Full client
 
@@ -19,7 +37,9 @@ Configure the normal client build with the workspace sandbox available. Verify:
 - native single-player startup without MMO flags;
 - MMO facade startup/shutdown;
 - in-memory bootstrap status and snapshot delivery;
-- server-replica identity/interpolation;
+- route replacement clears old presentation bindings;
+- local/remote-player/NPC classification;
+- server-replica identity/interpolation and safe despawn;
 - dialog choice submission and presentation;
 - clean handling of missing ASIO backend/facade.
 
