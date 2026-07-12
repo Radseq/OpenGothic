@@ -10,8 +10,12 @@ ownership or reorder global phases.
 - Client communication is behind the `client_sandbox` facade.
 - In-memory bootstrap ACK/snapshot handoff exists.
 - `client_sandbox` has Protocol V2 capability negotiation, route/header/receipt
-  state, typed heartbeat/resync codecs and a real UDP session loopback; the full
-  client does not include those wire types.
+  state, typed heartbeat/resync plus movement, interaction, dialog-choice,
+  inventory-transfer, equip and combat request builders/codecs; the full client
+  does not include those wire types.
+- the real UDP loopback now drives all six initial gameplay families through
+  server admission/dispatch and verifies applied, rejected and idempotent replay
+  receipts with revision propagation.
 - Replicated NPC authority guards and transform presentation exist.
 - The server has a composed trigger/fanout/mover/entity runtime capable of
   deterministic typed internal outputs and restoring pending work.
@@ -26,7 +30,9 @@ server routing/story logic.
 
 ## Required before complete MMO UX
 
-1. Complete the Protocol V2 domain facade above the existing route/header/receipt foundation, then add typed binary bootstrap.
+1. Lift the six completed Protocol V2 sandbox request builders into the stable
+   non-wire full-client facade, add remaining intent families, then add typed
+   binary bootstrap.
 2. A route-bound world-instance identity in admission, bootstrap, deltas,
    corrections, transitions and resync.
 3. Typed entity lifecycle/live replication, revisions and resync.
@@ -76,3 +82,5 @@ inferred in rendering code.
 
 Network scaling is not a client milestone until the global playable 1:N UDP
 gate passes.
+
+
