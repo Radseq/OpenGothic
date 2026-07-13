@@ -238,30 +238,21 @@ void requestMmoBootstrapSnapshot(std::string_view reason, std::string_view sourc
 
   Mmo::resetServerBootstrapStatus();
   const auto& cmd = CommandLine::inst();
-  const auto seq = Mmo::nextClientIntentSequence();
   std::string characterEntity = "character:";
   characterEntity.append(cmd.mmoCharacterKey());
-
-  Mmo::Net::ClientSessionControlPacket packet;
-  packet.kind = Mmo::SemanticActionKind::ClientBootstrapRequest;
-  packet.flags = Mmo::Net::ClientSessionControlServerBoundClientMode |
-                 Mmo::Net::ClientSessionControlDbSaveSnapshotRequested;
-  packet.localSequence = seq;
-  packet.sessionKey = std::string(Mmo::clientMmoSessionKey());
-  packet.targetKey = characterEntity + ":character-list";
-  packet.idempotencyKey = Mmo::makeIdempotencyKey(
-      packet.sessionKey, seq, packet.kind, packet.targetKey);
-  packet.source = sourceLocation.empty() ? "GameMenu" : std::string(sourceLocation);
-  packet.sourceLocation = packet.source;
-  packet.actorKey = characterEntity;
-  packet.characterKey = std::string(cmd.mmoCharacterKey());
-  packet.displayName = std::string(cmd.mmoCharacterDisplayName());
-  packet.world = std::string(Gothic::inst().defaultWorld());
-  packet.serverEndpoint = std::string(cmd.mmoServerEndpoint());
-  packet.clientContentManifestHash =
-      std::string(cmd.mmoClientContentManifestHash());
-  packet.reason = std::string(reason);
-  (void)Mmo::submitClientIntent(Mmo::Net::ClientIntentPacket{std::move(packet)});
+  std::string target = characterEntity + ":character-list";
+  const Mmo::ClientBootstrapRequest request{
+      .targetKey = target,
+      .source = sourceLocation.empty() ? std::string_view{"GameMenu"} : sourceLocation,
+      .actorKey = characterEntity,
+      .characterKey = cmd.mmoCharacterKey(),
+      .displayName = cmd.mmoCharacterDisplayName(),
+      .world = Gothic::inst().defaultWorld(),
+      .serverEndpoint = cmd.mmoServerEndpoint(),
+      .clientContentManifestHash = cmd.mmoClientContentManifestHash(),
+      .reason = reason,
+  };
+  (void)Mmo::submitClientBootstrap(request);
 }
 
 void requestMmoCharacterListSnapshot() {

@@ -59,33 +59,22 @@ bool requestMmoPreWorldDbContinueSnapshot(std::string_view slot) noexcept {
     return false;
 
   const auto& cmd = CommandLine::inst();
-  const auto seq = Mmo::nextClientIntentSequence();
   std::string characterEntity = "character:";
   characterEntity.append(cmd.mmoCharacterKey());
-
-  Mmo::Net::ClientSessionControlPacket packet;
-  packet.kind = Mmo::SemanticActionKind::ClientBootstrapRequest;
-  packet.flags = Mmo::Net::ClientSessionControlServerBoundClientMode |
-                 Mmo::Net::ClientSessionControlDbSaveSnapshotRequested;
-  packet.localSequence = seq;
-  packet.sessionKey = std::string(Mmo::clientMmoSessionKey());
-  packet.targetKey = characterEntity + ":db-continue-pre-world";
-  packet.idempotencyKey = Mmo::makeIdempotencyKey(
-      packet.sessionKey, seq, packet.kind, packet.targetKey);
-  packet.source = "MainWindow::loadGame";
-  packet.sourceLocation = packet.source;
-  packet.actorKey = characterEntity;
-  packet.characterKey = std::string(cmd.mmoCharacterKey());
-  packet.displayName = std::string(cmd.mmoCharacterDisplayName());
-  packet.world = std::string(cmd.mmoDbBootstrapWorld());
-  packet.serverEndpoint = std::string(cmd.mmoServerEndpoint());
-  packet.clientContentManifestHash =
-      std::string(cmd.mmoClientContentManifestHash());
-  packet.reason = "db_continue_pre_world_request";
-  packet.saveSlotKey = std::string(slot);
-  packet.checkpointKind = "db_continue_pre_world";
-  return Mmo::submitClientIntent(
-      Mmo::Net::ClientIntentPacket{std::move(packet)}).accepted();
+  std::string target = characterEntity + ":db-continue-pre-world";
+  const Mmo::ClientBootstrapRequest request{
+      .targetKey = target,
+      .source = "MainWindow::loadGame",
+      .actorKey = characterEntity,
+      .characterKey = cmd.mmoCharacterKey(),
+      .displayName = cmd.mmoCharacterDisplayName(),
+      .world = cmd.mmoDbBootstrapWorld(),
+      .serverEndpoint = cmd.mmoServerEndpoint(),
+      .clientContentManifestHash = cmd.mmoClientContentManifestHash(),
+      .reason = "db_continue_pre_world_request",
+  };
+  static_cast<void>(slot);
+  return Mmo::submitClientBootstrap(request).accepted();
 }
 
 bool shouldUseMmoDbContinue(std::string_view slot) noexcept {
@@ -1479,7 +1468,6 @@ void MainWindow::BenchmarkData::clear() {
   numFrames = 0;
   fpsSum = 0;
   }
-
 
 
 

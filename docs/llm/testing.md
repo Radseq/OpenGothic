@@ -24,7 +24,8 @@ ctest --test-dir build/mmo_client_sandbox --output-on-failure
 
 Coverage includes:
 
-- domain-to-compatibility mapping and fail-closed validation;
+- domain-to-Protocol-V2 mapping and fail-closed validation of incomplete legacy
+  engine DTOs;
 - route/entity-generation checks and exact despawn;
 - forced rebind and local-object alias prevention;
 - bounded interpolation, stale/route rejection and exact erase;

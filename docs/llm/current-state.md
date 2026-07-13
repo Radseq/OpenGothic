@@ -13,9 +13,9 @@ Last verified: 2026-07-13 against client source and focused CMake tests.
 - `mmoclientadapter.*` exposes engine-facing domain requests for bootstrap,
   movement/checkpoints, interaction, inventory/equipment/loot/trade/consume,
   weapon state, combat and dialog choice;
-- semantic hooks and dialog UI do not construct client wire packets; only the
-  private adapter mapping and bridge compatibility boundary know the historical
-  packet variants;
+- semantic hooks, adapter and dialog UI do not construct client wire packets;
+  movement/interaction/combat/dialog requests map to typed Protocol V2 facade
+  requests;
 - adapter validation is fail-closed, checks numeric narrowing/text/finite values
   and structurally omits authoritative result fields such as character stats,
   wallet deltas and NPC dead/unconscious flags;
@@ -79,8 +79,10 @@ Last verified: 2026-07-13 against client source and focused CMake tests.
 - `mmosemantichooks.*` still exposes many observation/result-shaped callbacks
   inherited from migration history; diagnostic-only hooks need continued
   classification/reduction;
-- the bridge/facade still exposes compatibility packet types internally; facade
-  V2 should replace those mappings without changing engine call sites;
+- the bridge/facade compatibility packet submission boundary is removed;
+  transform-only checkpoint movement, one-shot menu bootstrap, legacy inventory
+  IDs and string-only combat/dialog targets now fail closed until their engine
+  DTOs carry exact V2 identities and revisions;
 - `mmoserverpresentationfacadeadapter.h` now performs the thin, one-way
   facade-domain mapping into `ServerPresentationBootstrap` and
   `ServerPresentationEvent`; separate facade mailboxes are merged by

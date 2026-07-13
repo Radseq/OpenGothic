@@ -1,7 +1,5 @@
 #include "mmoclientadapter.h"
 
-#include <utility>
-
 #include "mmoclientadapterdetail.h"
 #include "mmoclientbridge.h"
 
@@ -13,34 +11,28 @@ namespace {
   return {.status = status, .droppedCount = 0};
 }
 
-template<class Packet>
-[[nodiscard]] ClientMmoSubmitResult submitCompatibilityPacket(
-    std::optional<Packet> packet) noexcept {
-  if(!packet.has_value())
-    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
-  try {
-    return submitClientIntent(Net::ClientIntentPacket{std::move(*packet)});
-  } catch(...) {
-    return submitResult(ClientMmoSubmitStatus::TransportError);
-  }
-}
-
 } // namespace
 
 ClientMmoSubmitResult submitClientMovement(
     const ClientMovementIntent& intent) noexcept {
   if(!isServerBoundClientModeEnabled())
     return {};
-  return submitCompatibilityPacket(
-      ClientAdapterDetail::makeCompatibilityMovementPacket(intent));
+  if(!ClientAdapterDetail::validMovementIntent(intent))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  if(!ClientAdapterDetail::makeProtocolV2MovementRequest(intent).has_value())
+    return submitResult(ClientMmoSubmitStatus::UnsupportedIntent);
+  return submitProtocolV2Movement(intent);
 }
 
 ClientMmoSubmitResult submitClientBootstrap(
     const ClientBootstrapRequest& request) noexcept {
   if(!isServerBoundClientModeEnabled())
     return {};
-  return submitCompatibilityPacket(
-      ClientAdapterDetail::makeCompatibilityBootstrapPacket(request));
+  if(!ClientAdapterDetail::validBootstrapRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  // Bootstrap is a Protocol V2 session lifecycle, not a single compatibility
+  // packet. The menu controller must perform hello/auth/select/enter-world.
+  return submitResult(ClientMmoSubmitStatus::UnsupportedIntent);
 }
 
 ClientMmoSubmitResult submitClientInteraction(
@@ -49,34 +41,40 @@ ClientMmoSubmitResult submitClientInteraction(
     return {};
   if(!ClientAdapterDetail::validInteractionRequest(request))
     return submitResult(ClientMmoSubmitStatus::InvalidIntent);
-  if(!ClientAdapterDetail::supportsCompatibilityInteraction(request.verb))
+  if(!ClientAdapterDetail::makeProtocolV2InteractionRequest(request).has_value())
     return submitResult(ClientMmoSubmitStatus::UnsupportedIntent);
-  return submitCompatibilityPacket(
-      ClientAdapterDetail::makeCompatibilityInteractionPacket(request));
+  return submitProtocolV2Interaction(request);
 }
 
 ClientMmoSubmitResult submitClientInventory(
     const ClientInventoryRequest& request) noexcept {
   if(!isServerBoundClientModeEnabled())
     return {};
-  return submitCompatibilityPacket(
-      ClientAdapterDetail::makeCompatibilityInventoryPacket(request));
+  if(!ClientAdapterDetail::validInventoryRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  // Legacy inventory hooks do not carry Protocol V2 item/entity generations
+  // and expected revisions, so forwarding them would be non-authoritative.
+  return submitResult(ClientMmoSubmitStatus::UnsupportedIntent);
 }
 
 ClientMmoSubmitResult submitClientWeaponState(
     const ClientWeaponStateRequest& request) noexcept {
   if(!isServerBoundClientModeEnabled())
     return {};
-  return submitCompatibilityPacket(
-      ClientAdapterDetail::makeCompatibilityWeaponStatePacket(request));
+  if(!ClientAdapterDetail::validWeaponStateRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2WeaponState(request);
 }
 
 ClientMmoSubmitResult submitClientCombat(
     const ClientCombatRequest& request) noexcept {
   if(!isServerBoundClientModeEnabled())
     return {};
-  return submitCompatibilityPacket(
-      ClientAdapterDetail::makeCompatibilityCombatPacket(request));
+  if(!ClientAdapterDetail::validCombatRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  if(!ClientAdapterDetail::makeProtocolV2CombatRequest(request).has_value())
+    return submitResult(ClientMmoSubmitStatus::UnsupportedIntent);
+  return submitProtocolV2Combat(request);
 }
 
 ClientMmoSubmitResult submitClientDialogChoice(
@@ -84,15 +82,11 @@ ClientMmoSubmitResult submitClientDialogChoice(
   if(!isServerBoundClientModeEnabled())
     return {};
 
-  try {
-    auto packet = ClientAdapterDetail::makeCompatibilityDialogChoicePacket(
-        request, nextClientIntentSequence(), clientMmoSessionKey());
-    if(!packet.has_value())
-      return submitResult(ClientMmoSubmitStatus::InvalidIntent);
-    return submitClientDialogChoicePacket(std::move(*packet));
-  } catch(...) {
-    return submitResult(ClientMmoSubmitStatus::TransportError);
-  }
+  if(!ClientAdapterDetail::validDialogChoiceRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  if(!ClientAdapterDetail::makeProtocolV2DialogChoiceRequest(request).has_value())
+    return submitResult(ClientMmoSubmitStatus::UnsupportedIntent);
+  return submitProtocolV2DialogChoice(request);
 }
 
 } // namespace Mmo

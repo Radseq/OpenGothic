@@ -1,29 +1,35 @@
 # Next Work — Full OpenGothic Client
 
-Last updated: 2026-07-12.
+Last updated: 2026-07-13.
 
 The global roadmap currently prioritizes Protocol V2, typed replication and
 binary bootstrap before broad MMO UX. Client changes should connect those
 contracts to the prepared domain/presentation boundaries without inventing a
 second transport.
 
-## 1. Replace compatibility mapping with facade V2
+## 1. Complete the V2-only engine adapter
 
-Implemented independently of facade V2:
+Implemented:
 
 - engine hooks submit domain bootstrap, movement/checkpoint, interaction,
   inventory, weapon, combat and dialog requests;
-- packet construction is isolated in `mmoclientadapterdetail.h` and the bridge;
+- compatibility packet construction and bridge submission are removed;
 - validation is fail-closed and does not submit local gameplay results;
 - native single-player behavior remains behind existing mode checks.
 
-After client-sandbox facade C lands:
+Movement input, interaction handles, weapon/combat actions and numeric dialog
+choices map directly to `ClientRuntimeFacade`. Next:
 
-- map the existing request DTOs to `authenticate`, `listCharacters`,
-  `createCharacter`, `selectCharacter`, `enterWorld`, `requestMovement`,
-  `requestInteract` and `requestDialogChoice`;
-- remove compatibility packet mapping from the full client;
-- keep sequence/idempotency/receipt/retry/reconnect ownership inside the facade.
+- implement the full hello/authenticate/list/create/select/enter-world menu
+  lifecycle instead of the removed one-shot bootstrap request;
+- feed normalized movement axes and acknowledged server tick from player input,
+  replacing transform-only movement/checkpoint hooks;
+- extend inventory/equipment/container/trade hooks with V2 item/entity handles,
+  generations and expected revisions;
+- bind numeric dialog/combat identities from typed presentation state;
+- keep sequence/idempotency/receipt/retry/reconnect ownership inside the facade;
+- do not restore packet-shaped compatibility submission while these hooks are
+  incomplete.
 
 ## 2. Connect facade F to the typed presentation state
 

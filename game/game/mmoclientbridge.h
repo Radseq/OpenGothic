@@ -8,8 +8,6 @@
 #include <vector>
 
 #include "../../../shared/game/mmo/mmosemanticevents.h"
-#include "../../../shared/net/mmo/mmo_client_intent.h"
-#include "../../../shared/net/mmo/mmonetprotocol.h"
 #include "mmoclientadapter.h"
 #include "mmoserverpresentationmailbox.h"
 
@@ -77,8 +75,16 @@ void recordClientMmoProcessGatePresentation(
 [[nodiscard]] std::uint64_t nextClientIntentSequence() noexcept;
 [[nodiscard]] std::string_view clientMmoSessionKey() noexcept;
 
-[[nodiscard]] ClientMmoSubmitResult submitClientIntent(
-    Net::ClientIntentPacket intent) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2Movement(
+    const ClientMovementIntent& intent) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2Interaction(
+    const ClientInteractionRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2WeaponState(
+    const ClientWeaponStateRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2Combat(
+    const ClientCombatRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2DialogChoice(
+    const ClientDialogChoiceRequest& request) noexcept;
 
 // JSON exists only at this local diagnostic boundary. Diagnostic envelopes are
 // never parsed back into packets and never sent over the network.
@@ -89,7 +95,6 @@ void configureClientMmoBridge(const CommandLine& commandLine);
 void shutdownClientMmoBridge() noexcept;
 void flushClientMmoBridge() noexcept;
 
-[[nodiscard]] std::vector<Net::ServerLiveDeltaPacket> drainServerLiveDeltas() noexcept;
 [[nodiscard]] ClientPresentation::ServerPresentationMailboxBatch
 drainTypedServerPresentationMailbox() noexcept;
 [[nodiscard]] std::vector<ServerBootstrapSnapshot>
@@ -101,9 +106,4 @@ drainServerBootstrapStatuses() noexcept;
 [[nodiscard]] std::optional<ServerBootstrapStatus>
 latestServerBootstrapStatus() noexcept;
 void resetServerBootstrapStatus() noexcept;
-[[nodiscard]] bool enqueueClientGameplayObservationReceipt(
-    Net::ClientGameplayObservationPacket packet) noexcept;
-[[nodiscard]] ClientMmoSubmitResult submitClientDialogChoicePacket(
-    Net::ClientDialogChoiceIntentPacket packet) noexcept;
-
 } // namespace Mmo

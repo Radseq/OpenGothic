@@ -26,11 +26,14 @@ struct ClientMmoSubmitResult final {
 };
 
 struct ClientEntityHandle final {
+  std::uint64_t worldId = 0;
+  std::uint32_t worldGeneration = 0;
   std::uint64_t id = 0;
   std::uint32_t generation = 0;
 
   [[nodiscard]] constexpr bool valid() const noexcept {
-    return id != 0U && generation != 0U;
+    return worldId != 0U && worldGeneration != 0U && id != 0U &&
+           generation != 0U;
   }
 };
 
@@ -94,12 +97,33 @@ enum class ClientMovementRequestKind : std::uint8_t {
   CharacterCheckpoint,
 };
 
+enum class ClientMovementMode : std::uint8_t {
+  Walk,
+  Run,
+  Sneak,
+  Swim,
+  Dive,
+  Climb,
+};
+
 // Engine-facing movement proposal/checkpoint. This DTO deliberately contains
 // no packet kind, route header, sequence number, codec field or transport
 // handle. The adapter copies it into the current sandbox facade contract
 // synchronously. All string views need remain valid only for the call.
 struct ClientMovementIntent final {
   ClientMovementRequestKind kind = ClientMovementRequestKind::MovementProposal;
+  // Protocol V2 transports normalized input, never a completed movement
+  // result. Historical transform-only observations leave this false and are
+  // rejected instead of being translated back into Protocol V1 packets.
+  bool hasNormalizedInput = false;
+  std::int16_t forward = 0;
+  std::int16_t right = 0;
+  std::int16_t viewYaw = 0;
+  std::int16_t viewPitch = 0;
+  ClientMovementMode mode = ClientMovementMode::Walk;
+  std::uint8_t inputFlags = 0;
+  std::uint16_t predictedYaw = 0;
+  std::uint64_t lastAcknowledgedServerTick = 0;
   ClientMovementSample from;
   ClientMovementSample to;
   ClientMovementCadence cadence;
@@ -214,7 +238,26 @@ struct ClientWeaponStateRequest final {
 };
 
 struct ClientCombatRequest final {
+  enum class Action : std::uint8_t {
+    DrawWeapon,
+    HolsterWeapon,
+    PrimaryAttack,
+    SecondaryAttack,
+    Parry,
+    Dodge,
+    Cancel,
+  };
+
   std::uint64_t clientTick = 0;
+  std::optional<Action> protocolAction;
+  std::optional<ClientEntityHandle> targetHandle;
+  std::int16_t aimX = 0;
+  std::int16_t aimY = 0;
+  std::int16_t aimZ = 0;
+  std::uint16_t flags = 0;
+  std::uint16_t comboIndex = 0;
+  std::uint64_t lastAcknowledgedServerTick = 0;
+  std::uint64_t expectedTargetRevision = 0;
   ClientPosition actorPosition;
   std::string_view targetKey;
   std::string_view source;
@@ -231,6 +274,8 @@ struct ClientDialogChoiceRequest final {
   std::uint64_t clientTick = 0;
   std::uint64_t expectedRevision = 0;
   std::uint64_t clientChoiceSequence = 0;
+  std::uint64_t protocolDialogSessionId = 0;
+  std::uint64_t protocolChoiceId = 0;
   std::string_view sessionUuid;
   std::string_view characterKey;
   std::string_view conversationId;

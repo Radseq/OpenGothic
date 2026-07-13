@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "commandline.h"
+#include "mmoclientadapterdetail.h"
 
 #ifndef OPENGOTHIC_MMO_SANDBOX_FACADE
 #define OPENGOTHIC_MMO_SANDBOX_FACADE 0
@@ -85,14 +86,62 @@ class ClientMmoBridgeState final {
 #endif
     }
 
-    [[nodiscard]] ClientMmoSubmitResult submit(Net::ClientIntentPacket intent) noexcept {
+    [[nodiscard]] ClientMmoSubmitResult submitMovement(
+        const ClientMovementIntent& intent) noexcept {
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
-      if(facade_) {
-        const auto result = facade_->submitIntent(std::move(intent));
-        return mapResult(result);
-      }
+      if(facade_)
+        if(auto request = ClientAdapterDetail::makeProtocolV2MovementRequest(intent))
+          return mapResult(facade_->requestMovement(*request));
 #else
       static_cast<void>(intent);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitInteraction(
+        const ClientInteractionRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2InteractionRequest(request))
+          return mapResult(facade_->requestInteract(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitWeaponState(
+        const ClientWeaponStateRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2WeaponStateRequest(request))
+          return mapResult(facade_->requestCombatAction(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitCombat(
+        const ClientCombatRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2CombatRequest(request))
+          return mapResult(facade_->requestCombatAction(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitDialogChoice(
+        const ClientDialogChoiceRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2DialogChoiceRequest(request))
+          return mapResult(facade_->requestDialogChoice(*runtime));
+#else
+      static_cast<void>(request);
 #endif
       return {};
     }
@@ -119,13 +168,6 @@ class ClientMmoBridgeState final {
       if(facade_)
         facade_->flush();
 #endif
-    }
-
-    [[nodiscard]] std::vector<Net::ServerLiveDeltaPacket> liveDeltas() {
-      // Protocol V2 exposes typed domain mailboxes. The legacy aggregate live
-      // delta has no lossless mapping and remains inactive until the typed
-      // presentation adapter consumes those mailboxes directly.
-      return {};
     }
 
     [[nodiscard]] ClientPresentation::ServerPresentationMailboxBatch
@@ -240,27 +282,6 @@ class ClientMmoBridgeState final {
       latestBootstrapStatus_.reset();
     }
 
-    [[nodiscard]] bool submitObservation(
-        Net::ClientGameplayObservationPacket packet) noexcept {
-#if OPENGOTHIC_MMO_SANDBOX_FACADE
-      return facade_ && facade_->submitGameplayObservation(std::move(packet)).accepted();
-#else
-      static_cast<void>(packet);
-      return false;
-#endif
-    }
-
-    [[nodiscard]] ClientMmoSubmitResult submitDialogChoice(
-        Net::ClientDialogChoiceIntentPacket packet) noexcept {
-#if OPENGOTHIC_MMO_SANDBOX_FACADE
-      if(facade_)
-        return mapResult(facade_->submitDialogChoice(std::move(packet)));
-#else
-      static_cast<void>(packet);
-#endif
-      return {};
-    }
-
     [[nodiscard]] bool diagnosticsEnabled() const noexcept {
       return diagnostics_.is_open();
     }
@@ -268,27 +289,30 @@ class ClientMmoBridgeState final {
   private:
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
     [[nodiscard]] static ClientMmoSubmitResult mapResult(
-        ClientSandbox::ClientRuntimeSubmitResult result) noexcept {
+        const ClientSandbox::ClientRuntimeV2SubmitResult& result) noexcept {
       ClientMmoSubmitResult out;
       out.droppedCount = result.droppedTotal;
       switch(result.status) {
-        case ClientSandbox::ClientRuntimeSubmitStatus::Accepted:
-        case ClientSandbox::ClientRuntimeSubmitStatus::AcceptedAfterDrop:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::Accepted:
           out.status = ClientMmoSubmitStatus::Accepted;
           break;
-        case ClientSandbox::ClientRuntimeSubmitStatus::RejectedInvalid:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::LocalValidationFailed:
           out.status = ClientMmoSubmitStatus::InvalidIntent;
           break;
-        case ClientSandbox::ClientRuntimeSubmitStatus::RejectedUnsupportedIntent:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::ProtocolNotNegotiated:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::RouteUnavailable:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::RouteStageRejected:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::CapabilityNotNegotiated:
           out.status = ClientMmoSubmitStatus::UnsupportedIntent;
           break;
-        case ClientSandbox::ClientRuntimeSubmitStatus::RejectedQueueFull:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::QueueFull:
           out.status = ClientMmoSubmitStatus::QueueFull;
           break;
-        case ClientSandbox::ClientRuntimeSubmitStatus::RejectedOversized:
-        case ClientSandbox::ClientRuntimeSubmitStatus::RejectedClosed:
-        case ClientSandbox::ClientRuntimeSubmitStatus::TransportUnavailable:
-        case ClientSandbox::ClientRuntimeSubmitStatus::InternalError:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::SequenceExhausted:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::EncodingFailed:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::Closed:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::TransportUnavailable:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::InternalError:
           out.status = ClientMmoSubmitStatus::TransportError;
           break;
       }
@@ -346,9 +370,34 @@ std::string_view clientMmoSessionKey() noexcept {
   return sessionKey;
 }
 
-ClientMmoSubmitResult submitClientIntent(Net::ClientIntentPacket intent) noexcept {
+ClientMmoSubmitResult submitProtocolV2Movement(
+    const ClientMovementIntent& intent) noexcept {
   std::lock_guard lock(stateMutex);
-  return state ? state->submit(std::move(intent)) : ClientMmoSubmitResult{};
+  return state ? state->submitMovement(intent) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2Interaction(
+    const ClientInteractionRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitInteraction(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2WeaponState(
+    const ClientWeaponStateRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitWeaponState(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2Combat(
+    const ClientCombatRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitCombat(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2DialogChoice(
+    const ClientDialogChoiceRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitDialogChoice(request) : ClientMmoSubmitResult{};
 }
 
 void recordClientMmoDiagnostic(SemanticActionEnvelope envelope) noexcept {
@@ -412,11 +461,6 @@ void flushClientMmoBridge() noexcept {
     state->flush();
 }
 
-std::vector<Net::ServerLiveDeltaPacket> drainServerLiveDeltas() noexcept {
-  std::lock_guard lock(stateMutex);
-  return state ? state->liveDeltas() : std::vector<Net::ServerLiveDeltaPacket>{};
-}
-
 ClientPresentation::ServerPresentationMailboxBatch
 drainTypedServerPresentationMailbox() noexcept {
   std::lock_guard lock(stateMutex);
@@ -453,19 +497,6 @@ void resetServerBootstrapStatus() noexcept {
   std::lock_guard lock(stateMutex);
   if(state)
     state->resetBootstrapStatus();
-}
-
-bool enqueueClientGameplayObservationReceipt(
-    Net::ClientGameplayObservationPacket packet) noexcept {
-  std::lock_guard lock(stateMutex);
-  return state && state->submitObservation(std::move(packet));
-}
-
-ClientMmoSubmitResult submitClientDialogChoicePacket(
-    Net::ClientDialogChoiceIntentPacket packet) noexcept {
-  std::lock_guard lock(stateMutex);
-  return state ? state->submitDialogChoice(std::move(packet))
-               : ClientMmoSubmitResult{};
 }
 
 } // namespace Mmo

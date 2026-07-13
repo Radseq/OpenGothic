@@ -7,11 +7,9 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <string>
 #include <string_view>
 
-#include "../../../shared/game/mmo/mmosemanticevents.h"
-#include "../../../shared/net/mmo/mmonetprotocol.h"
+#include <gothic/mmo/client_runtime_facade.h>
 
 namespace Mmo::ClientAdapterDetail {
 
@@ -51,12 +49,26 @@ inline constexpr std::uint16_t KnownMovementStateMask =
 
 [[nodiscard]] constexpr bool knownMovementRequestKind(
     const ClientMovementRequestKind kind) noexcept {
-  switch(kind) {
-    case ClientMovementRequestKind::MovementProposal:
-    case ClientMovementRequestKind::CharacterCheckpoint:
+  return kind == ClientMovementRequestKind::MovementProposal ||
+         kind == ClientMovementRequestKind::CharacterCheckpoint;
+}
+
+[[nodiscard]] constexpr bool knownMovementMode(
+    const ClientMovementMode mode) noexcept {
+  switch(mode) {
+    case ClientMovementMode::Walk:
+    case ClientMovementMode::Run:
+    case ClientMovementMode::Sneak:
+    case ClientMovementMode::Swim:
+    case ClientMovementMode::Dive:
+    case ClientMovementMode::Climb:
       return true;
   }
   return false;
+}
+
+[[nodiscard]] constexpr bool normalizedAxis(const std::int16_t value) noexcept {
+  return value != std::numeric_limits<std::int16_t>::min();
 }
 
 [[nodiscard]] inline bool finiteSample(
@@ -68,13 +80,16 @@ inline constexpr std::uint16_t KnownMovementStateMask =
 [[nodiscard]] inline bool validMovementIntent(
     const ClientMovementIntent& intent) noexcept {
   return knownMovementRequestKind(intent.kind) &&
-         intent.to.tick >= intent.from.tick && finiteSample(intent.from) &&
-         finiteSample(intent.to) && validMovementState(intent.from.state) &&
+         knownMovementMode(intent.mode) && intent.to.tick >= intent.from.tick &&
+         finiteSample(intent.from) && finiteSample(intent.to) &&
+         validMovementState(intent.from.state) &&
          validMovementState(intent.to.state) &&
          std::isfinite(intent.cadence.minimumDistance) &&
          std::isfinite(intent.cadence.minimumYawDegrees) &&
          intent.cadence.minimumDistance >= 0.0 &&
          intent.cadence.minimumYawDegrees >= 0.0 &&
+         normalizedAxis(intent.forward) && normalizedAxis(intent.right) &&
+         normalizedAxis(intent.viewYaw) && normalizedAxis(intent.viewPitch) &&
          validRequiredText(intent.targetKey) &&
          validRequiredText(intent.actorKey) &&
          validRequiredText(intent.characterKey) &&
@@ -83,82 +98,48 @@ inline constexpr std::uint16_t KnownMovementStateMask =
          validOptionalText(intent.reason);
 }
 
-[[nodiscard]] constexpr std::uint32_t movementStateFlags(
-    const ClientMovementState state,
-    const bool fromSample) noexcept {
-  std::uint32_t flags = 0;
-  const auto add = [&](const ClientMovementState value,
-                       const std::uint32_t fromFlag,
-                       const std::uint32_t toFlag) constexpr {
-    if(hasMovementState(state, value))
-      flags |= fromSample ? fromFlag : toFlag;
-  };
-
-  add(ClientMovementState::InAir, Net::ClientMovementFromInAir,
-      Net::ClientMovementToInAir);
-  add(ClientMovementState::Falling, Net::ClientMovementFromFalling,
-      Net::ClientMovementToFalling);
-  add(ClientMovementState::FallingDeep, Net::ClientMovementFromFallingDeep,
-      Net::ClientMovementToFallingDeep);
-  add(ClientMovementState::Sliding, Net::ClientMovementFromSlide,
-      Net::ClientMovementToSlide);
-  add(ClientMovementState::Jumping, Net::ClientMovementFromJump,
-      Net::ClientMovementToJump);
-  add(ClientMovementState::JumpingUp, Net::ClientMovementFromJumpUp,
-      Net::ClientMovementToJumpUp);
-  add(ClientMovementState::Swimming, Net::ClientMovementFromSwim,
-      Net::ClientMovementToSwim);
-  add(ClientMovementState::Diving, Net::ClientMovementFromDive,
-      Net::ClientMovementToDive);
-  add(ClientMovementState::InWater, Net::ClientMovementFromInWater,
-      Net::ClientMovementToInWater);
-  return flags;
+[[nodiscard]] inline bool fitsQuantizedPosition(const double value) noexcept {
+  return std::isfinite(value) &&
+         value >= static_cast<double>(std::numeric_limits<std::int32_t>::min()) &&
+         value <= static_cast<double>(std::numeric_limits<std::int32_t>::max());
 }
 
-[[nodiscard]] inline std::optional<Net::ClientMovementPacket>
-makeCompatibilityMovementPacket(const ClientMovementIntent& intent) {
-  if(!validMovementIntent(intent))
-    return std::nullopt;
-
-  Net::ClientMovementPacket packet;
-  packet.clientTick = intent.to.tick;
-  packet.fromTick = intent.from.tick;
-  packet.toTick = intent.to.tick;
-  packet.deltaMs = intent.to.tick - intent.from.tick;
-  packet.fromX = intent.from.x;
-  packet.fromY = intent.from.y;
-  packet.fromZ = intent.from.z;
-  packet.fromYaw = intent.from.yaw;
-  packet.toX = intent.to.x;
-  packet.toY = intent.to.y;
-  packet.toZ = intent.to.z;
-  packet.toYaw = intent.to.yaw;
-  packet.cadenceIntervalMs = intent.cadence.intervalMs;
-  packet.cadenceMinDistance = intent.cadence.minimumDistance;
-  packet.cadenceMinYawDeg = intent.cadence.minimumYawDegrees;
-  packet.checkpointForceIntervalMs = intent.checkpointForceIntervalMs;
-  packet.targetKey = std::string(intent.targetKey);
-  packet.source = std::string(intent.source);
-  packet.actorKey = std::string(intent.actorKey);
-  packet.characterKey = std::string(intent.characterKey);
-  packet.world = std::string(intent.world);
-  packet.waypointKey = std::string(intent.waypointKey);
-  packet.reason = std::string(intent.reason);
-
-  switch(intent.kind) {
-    case ClientMovementRequestKind::MovementProposal:
-      packet.kind = SemanticActionKind::MovementProposal;
-      packet.flags = Net::ClientMovementHasFromTransform |
-                     Net::ClientMovementHasToTransform |
-                     movementStateFlags(intent.from.state, true) |
-                     movementStateFlags(intent.to.state, false);
-      break;
-    case ClientMovementRequestKind::CharacterCheckpoint:
-      packet.kind = SemanticActionKind::CharacterCheckpoint;
-      packet.flags = Net::ClientMovementHasToTransform;
-      break;
+[[nodiscard]] constexpr ClientSandbox::ClientRuntimeMovementMode
+toRuntime(const ClientMovementMode mode) noexcept {
+  using Runtime = ClientSandbox::ClientRuntimeMovementMode;
+  switch(mode) {
+    case ClientMovementMode::Walk: return Runtime::Walk;
+    case ClientMovementMode::Run: return Runtime::Run;
+    case ClientMovementMode::Sneak: return Runtime::Sneak;
+    case ClientMovementMode::Swim: return Runtime::Swim;
+    case ClientMovementMode::Dive: return Runtime::Dive;
+    case ClientMovementMode::Climb: return Runtime::Climb;
   }
-  return packet;
+  return Runtime::Walk;
+}
+
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeMovementRequest>
+makeProtocolV2MovementRequest(const ClientMovementIntent& intent) noexcept {
+  if(!validMovementIntent(intent) || !intent.hasNormalizedInput ||
+     intent.kind != ClientMovementRequestKind::MovementProposal ||
+     !fitsQuantizedPosition(intent.to.x) ||
+     !fitsQuantizedPosition(intent.to.y) ||
+     !fitsQuantizedPosition(intent.to.z)) {
+    return std::nullopt;
+  }
+  return ClientSandbox::ClientRuntimeMovementRequest{
+      .forward = intent.forward,
+      .right = intent.right,
+      .viewYaw = intent.viewYaw,
+      .viewPitch = intent.viewPitch,
+      .mode = toRuntime(intent.mode),
+      .flags = intent.inputFlags,
+      .predictedX = static_cast<std::int32_t>(std::llround(intent.to.x)),
+      .predictedY = static_cast<std::int32_t>(std::llround(intent.to.y)),
+      .predictedZ = static_cast<std::int32_t>(std::llround(intent.to.z)),
+      .predictedYaw = intent.predictedYaw,
+      .lastAcknowledgedServerTick = intent.lastAcknowledgedServerTick,
+  };
 }
 
 [[nodiscard]] inline bool validBootstrapRequest(
@@ -172,29 +153,6 @@ makeCompatibilityMovementPacket(const ClientMovementIntent& intent) {
          validOptionalText(request.displayName) &&
          validOptionalText(request.clientContentManifestHash) &&
          validOptionalText(request.reason);
-}
-
-[[nodiscard]] inline std::optional<Net::ClientSessionControlPacket>
-makeCompatibilityBootstrapPacket(const ClientBootstrapRequest& request) {
-  if(!validBootstrapRequest(request))
-    return std::nullopt;
-
-  Net::ClientSessionControlPacket packet;
-  packet.kind = SemanticActionKind::ClientBootstrapRequest;
-  packet.flags = Net::ClientSessionControlServerBoundClientMode;
-  packet.clientTick = request.clientTick;
-  packet.targetKey = std::string(request.targetKey);
-  packet.source = std::string(request.source);
-  packet.sourceLocation = packet.source;
-  packet.actorKey = std::string(request.actorKey);
-  packet.characterKey = std::string(request.characterKey);
-  packet.displayName = std::string(request.displayName);
-  packet.world = std::string(request.world);
-  packet.serverEndpoint = std::string(request.serverEndpoint);
-  packet.clientContentManifestHash =
-      std::string(request.clientContentManifestHash);
-  packet.reason = std::string(request.reason);
-  return packet;
 }
 
 [[nodiscard]] constexpr bool knownInteractionVerb(
@@ -226,37 +184,43 @@ makeCompatibilityBootstrapPacket(const ClientBootstrapRequest& request) {
          validOptionalText(request.source) && validOptionalText(request.reason);
 }
 
-[[nodiscard]] constexpr bool supportsCompatibilityInteraction(
-    const ClientInteractionVerb verb) noexcept {
-  return verb == ClientInteractionVerb::Use;
+[[nodiscard]] constexpr ClientSandbox::ClientRuntimeInteractionVerb
+toRuntime(const ClientInteractionVerb verb) noexcept {
+  using Runtime = ClientSandbox::ClientRuntimeInteractionVerb;
+  switch(verb) {
+    case ClientInteractionVerb::Use: return Runtime::Use;
+    case ClientInteractionVerb::Open: return Runtime::Open;
+    case ClientInteractionVerb::Close: return Runtime::Close;
+    case ClientInteractionVerb::Activate: return Runtime::Activate;
+    case ClientInteractionVerb::Talk: return Runtime::Talk;
+    case ClientInteractionVerb::Loot: return Runtime::Loot;
+    case ClientInteractionVerb::Sleep: return Runtime::Sleep;
+    case ClientInteractionVerb::Read: return Runtime::Read;
+    case ClientInteractionVerb::Lockpick: return Runtime::Lockpick;
+  }
+  return Runtime::Use;
 }
 
-[[nodiscard]] inline std::optional<Net::ClientWorldStatePacket>
-makeCompatibilityInteractionPacket(const ClientInteractionRequest& request) {
-  if(!validInteractionRequest(request) ||
-     !supportsCompatibilityInteraction(request.verb) ||
-     !validRequiredText(request.targetKey)) {
-    return std::nullopt;
-  }
+[[nodiscard]] constexpr ClientSandbox::ClientRuntimeEntityHandle
+toRuntime(const ClientEntityHandle handle) noexcept {
+  return {
+      .world = {.id = handle.worldId, .generation = handle.worldGeneration},
+      .id = handle.id,
+      .generation = handle.generation,
+  };
+}
 
-  Net::ClientWorldStatePacket packet;
-  packet.kind = SemanticActionKind::UseInteractive;
-  packet.flags = Net::ClientWorldStateHasActorPosition;
-  packet.clientTick = request.clientTick;
-  packet.targetKey = std::string(request.targetKey);
-  packet.source = std::string(request.source);
-  packet.actorKey = std::string(request.actorKey);
-  packet.characterKey = std::string(request.characterKey);
-  packet.world = std::string(request.world);
-  packet.reason = std::string(request.reason);
-  packet.interactiveKey = packet.targetKey;
-  packet.entityKey = packet.targetKey;
-  packet.slotId = request.localSlotId;
-  packet.vobId = request.localVobId;
-  packet.actorPosX = request.actorPosition.x;
-  packet.actorPosY = request.actorPosition.y;
-  packet.actorPosZ = request.actorPosition.z;
-  return packet;
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeInteractRequest>
+makeProtocolV2InteractionRequest(
+    const ClientInteractionRequest& request) noexcept {
+  if(!validInteractionRequest(request) || !request.targetHandle.valid())
+    return std::nullopt;
+  return ClientSandbox::ClientRuntimeInteractRequest{
+      .verb = toRuntime(request.verb),
+      .target = toRuntime(request.targetHandle),
+      .expectedTargetRevision = request.expectedTargetRevision,
+      .argumentId = request.argumentId,
+  };
 }
 
 [[nodiscard]] constexpr bool knownInventoryAction(
@@ -274,18 +238,6 @@ makeCompatibilityInteractionPacket(const ClientInteractionRequest& request) {
       return true;
   }
   return false;
-}
-
-[[nodiscard]] inline bool fitsWireInteger(
-    const std::optional<std::uint64_t>& value) noexcept {
-  return !value.has_value() ||
-         *value <= static_cast<std::uint64_t>(
-                       std::numeric_limits<std::int64_t>::max());
-}
-
-[[nodiscard]] inline std::int64_t wireInteger(
-    const std::optional<std::uint64_t>& value) noexcept {
-  return value.has_value() ? static_cast<std::int64_t>(*value) : -1;
 }
 
 [[nodiscard]] inline bool validInventoryActionFields(
@@ -328,20 +280,9 @@ makeCompatibilityInteractionPacket(const ClientInteractionRequest& request) {
 
 [[nodiscard]] inline bool validInventoryRequest(
     const ClientInventoryRequest& request) noexcept {
-  const auto amountFits =
-      request.amount != 0U &&
-      request.amount <= static_cast<std::uint64_t>(
-                            std::numeric_limits<std::int64_t>::max());
-  return knownInventoryAction(request.action) && amountFits &&
+  return knownInventoryAction(request.action) && request.amount != 0U &&
+         request.amount <= std::numeric_limits<std::uint32_t>::max() &&
          finitePosition(request.actorPosition) &&
-         fitsWireInteger(request.itemSymbol) &&
-         fitsWireInteger(request.inventoryItemSymbol) &&
-         fitsWireInteger(request.itemPersistentId) &&
-         fitsWireInteger(request.sourceItemPersistentId) &&
-         fitsWireInteger(request.sourceWorldItemPersistentId) &&
-         fitsWireInteger(request.worldItemPersistentId) &&
-         fitsWireInteger(request.vendorItemPersistentId) &&
-         fitsWireInteger(request.sellerItemPersistentId) &&
          validRequiredText(request.targetKey) &&
          validRequiredText(request.actorKey) &&
          validRequiredText(request.itemTemplateKey) &&
@@ -356,82 +297,10 @@ makeCompatibilityInteractionPacket(const ClientInteractionRequest& request) {
          validInventoryActionFields(request);
 }
 
-[[nodiscard]] constexpr SemanticActionKind inventoryActionKind(
-    const ClientInventoryAction action) noexcept {
-  switch(action) {
-    case ClientInventoryAction::PickupWorldItem:
-      return SemanticActionKind::PickupWorldItem;
-    case ClientInventoryAction::EquipCharacterItem:
-      return SemanticActionKind::EquipCharacterItem;
-    case ClientInventoryAction::UnequipCharacterItem:
-      return SemanticActionKind::UnequipCharacterItem;
-    case ClientInventoryAction::TakeContainerItem:
-      return SemanticActionKind::TakeContainerItem;
-    case ClientInventoryAction::LootNpcInventory:
-      return SemanticActionKind::LootNpcInventory;
-    case ClientInventoryAction::DropCharacterItem:
-      return SemanticActionKind::DropCharacterItem;
-    case ClientInventoryAction::TradeBuyFromNpc:
-      return SemanticActionKind::TradeBuyFromNpc;
-    case ClientInventoryAction::TradeSellToNpc:
-      return SemanticActionKind::TradeSellToNpc;
-    case ClientInventoryAction::ConsumeItem:
-      return SemanticActionKind::ConsumeItem;
-  }
-  return SemanticActionKind::PickupWorldItem;
-}
-
-[[nodiscard]] inline std::optional<Net::ClientInventoryPacket>
-makeCompatibilityInventoryPacket(const ClientInventoryRequest& request) {
-  if(!validInventoryRequest(request))
-    return std::nullopt;
-
-  Net::ClientInventoryPacket packet;
-  packet.kind = inventoryActionKind(request.action);
-  packet.flags = Net::ClientInventoryHasActorPosition;
-  if(request.action == ClientInventoryAction::EquipCharacterItem ||
-     request.action == ClientInventoryAction::UnequipCharacterItem) {
-    packet.flags |= Net::ClientInventoryHasEquipmentSlot;
-  }
-  packet.clientTick = request.clientTick;
-  packet.itemSymbol = wireInteger(request.itemSymbol);
-  packet.inventoryItemSymbol = wireInteger(request.inventoryItemSymbol);
-  packet.itemPersistentId = wireInteger(request.itemPersistentId);
-  packet.sourceItemPersistentId = wireInteger(request.sourceItemPersistentId);
-  packet.sourceWorldItemPersistentId =
-      wireInteger(request.sourceWorldItemPersistentId);
-  packet.worldItemPersistentId = wireInteger(request.worldItemPersistentId);
-  packet.vendorItemPersistentId = wireInteger(request.vendorItemPersistentId);
-  packet.sellerItemPersistentId = wireInteger(request.sellerItemPersistentId);
-  packet.amount = static_cast<std::int64_t>(request.amount);
-  packet.slot = request.equipmentSlotId;
-  packet.actorPosX = request.actorPosition.x;
-  packet.actorPosY = request.actorPosition.y;
-  packet.actorPosZ = request.actorPosition.z;
-  packet.targetKey = std::string(request.targetKey);
-  packet.source = std::string(request.source);
-  packet.actorKey = std::string(request.actorKey);
-  packet.itemTemplateKey = std::string(request.itemTemplateKey);
-  packet.equipmentSlot = std::string(request.equipmentSlot);
-  packet.sourceEntityKey = std::string(request.sourceEntityKey);
-  packet.sourceContainerKey = std::string(request.sourceContainerKey);
-  packet.containerKey = std::string(request.containerKey);
-  packet.sourceNpcKey = std::string(request.sourceNpcKey);
-  packet.targetNpcEntityKey = std::string(request.targetNpcEntityKey);
-  packet.npcKey = std::string(request.npcKey);
-  packet.world = std::string(request.world);
-  packet.reason = std::string(request.reason);
-  return packet;
-}
-
 [[nodiscard]] constexpr bool knownWeaponStateIntent(
     const ClientWeaponStateIntent intent) noexcept {
-  switch(intent) {
-    case ClientWeaponStateIntent::Ready:
-    case ClientWeaponStateIntent::Holster:
-      return true;
-  }
-  return false;
+  return intent == ClientWeaponStateIntent::Ready ||
+         intent == ClientWeaponStateIntent::Holster;
 }
 
 [[nodiscard]] inline bool validWeaponStateRequest(
@@ -445,27 +314,23 @@ makeCompatibilityInventoryPacket(const ClientInventoryRequest& request) {
          validOptionalText(request.reason);
 }
 
-[[nodiscard]] inline std::optional<Net::ClientWorldStatePacket>
-makeCompatibilityWeaponStatePacket(const ClientWeaponStateRequest& request) {
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeCombatActionRequest>
+makeProtocolV2WeaponStateRequest(
+    const ClientWeaponStateRequest& request) noexcept {
   if(!validWeaponStateRequest(request))
     return std::nullopt;
-
-  Net::ClientWorldStatePacket packet;
-  packet.kind = request.intent == ClientWeaponStateIntent::Holster
-                    ? SemanticActionKind::HolsterWeapon
-                    : SemanticActionKind::ReadyWeapon;
-  packet.flags = Net::ClientWorldStateHasActorPosition;
-  packet.clientTick = request.clientTick;
-  packet.actorPosX = request.actorPosition.x;
-  packet.actorPosY = request.actorPosition.y;
-  packet.actorPosZ = request.actorPosition.z;
-  packet.targetKey = std::string(request.targetKey);
-  packet.source = std::string(request.source);
-  packet.actorKey = std::string(request.actorKey);
-  packet.characterKey = std::string(request.characterKey);
-  packet.world = std::string(request.world);
-  packet.reason = std::string(request.reason);
-  return packet;
+  return ClientSandbox::ClientRuntimeCombatActionRequest{
+      .action = request.intent == ClientWeaponStateIntent::Holster
+                    ? ClientSandbox::ClientRuntimeCombatAction::HolsterWeapon
+                    : ClientSandbox::ClientRuntimeCombatAction::DrawWeapon,
+      .flags = 0U,
+      .aim = {},
+      .target = std::nullopt,
+      .selectedItem = std::nullopt,
+      .comboIndex = 0U,
+      .lastAcknowledgedServerTick = 0U,
+      .expectedTargetRevision = 0U,
+  };
 }
 
 [[nodiscard]] inline bool validCombatRequest(
@@ -478,33 +343,45 @@ makeCompatibilityWeaponStatePacket(const ClientWeaponStateRequest& request) {
          validRequiredText(request.combatAction) &&
          validRequiredText(request.intentState) &&
          validOptionalText(request.source) && validOptionalText(request.reason) &&
-         validOptionalText(request.targetNpcEntityKey);
+         validOptionalText(request.targetNpcEntityKey) &&
+         normalizedAxis(request.aimX) && normalizedAxis(request.aimY) &&
+         normalizedAxis(request.aimZ);
 }
 
-[[nodiscard]] inline std::optional<Net::ClientNpcStatePacket>
-makeCompatibilityCombatPacket(const ClientCombatRequest& request) {
-  if(!validCombatRequest(request))
-    return std::nullopt;
+[[nodiscard]] constexpr ClientSandbox::ClientRuntimeCombatAction
+toRuntime(const ClientCombatRequest::Action action) noexcept {
+  using Runtime = ClientSandbox::ClientRuntimeCombatAction;
+  switch(action) {
+    case ClientCombatRequest::Action::DrawWeapon: return Runtime::DrawWeapon;
+    case ClientCombatRequest::Action::HolsterWeapon: return Runtime::HolsterWeapon;
+    case ClientCombatRequest::Action::PrimaryAttack: return Runtime::PrimaryAttack;
+    case ClientCombatRequest::Action::SecondaryAttack: return Runtime::SecondaryAttack;
+    case ClientCombatRequest::Action::Parry: return Runtime::Parry;
+    case ClientCombatRequest::Action::Dodge: return Runtime::Dodge;
+    case ClientCombatRequest::Action::Cancel: return Runtime::Cancel;
+  }
+  return Runtime::Cancel;
+}
 
-  Net::ClientNpcStatePacket packet;
-  packet.kind = SemanticActionKind::RecordCombatIntent;
-  packet.flags = Net::ClientNpcStateHasPosition;
-  packet.clientTick = request.clientTick;
-  packet.targetKey = std::string(request.targetKey);
-  packet.source = std::string(request.source);
-  packet.reason = std::string(request.reason);
-  packet.actorKey = std::string(request.actorKey);
-  packet.npcEntityKey = std::string(request.npcEntityKey);
-  packet.npcKey = packet.npcEntityKey;
-  packet.targetNpcEntityKey = std::string(request.targetNpcEntityKey);
-  packet.targetNpcKey = packet.targetNpcEntityKey;
-  packet.world = std::string(request.world);
-  packet.combatAction = std::string(request.combatAction);
-  packet.intentState = std::string(request.intentState);
-  packet.posX = request.actorPosition.x;
-  packet.posY = request.actorPosition.y;
-  packet.posZ = request.actorPosition.z;
-  return packet;
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeCombatActionRequest>
+makeProtocolV2CombatRequest(const ClientCombatRequest& request) noexcept {
+  if(!validCombatRequest(request) || !request.protocolAction.has_value() ||
+     (request.targetHandle.has_value() && !request.targetHandle->valid())) {
+    return std::nullopt;
+  }
+  ClientSandbox::ClientRuntimeCombatActionRequest out{
+      .action = toRuntime(*request.protocolAction),
+      .flags = request.flags,
+      .aim = {.x = request.aimX, .y = request.aimY, .z = request.aimZ},
+      .target = std::nullopt,
+      .selectedItem = std::nullopt,
+      .comboIndex = request.comboIndex,
+      .lastAcknowledgedServerTick = request.lastAcknowledgedServerTick,
+      .expectedTargetRevision = request.expectedTargetRevision,
+  };
+  if(request.targetHandle.has_value())
+    out.target = toRuntime(*request.targetHandle);
+  return out;
 }
 
 [[nodiscard]] inline bool validDialogChoiceRequest(
@@ -517,29 +394,18 @@ makeCompatibilityCombatPacket(const ClientCombatRequest& request) {
          validRequiredText(request.choiceId);
 }
 
-[[nodiscard]] inline std::optional<Net::ClientDialogChoiceIntentPacket>
-makeCompatibilityDialogChoicePacket(
-    const ClientDialogChoiceRequest& request,
-    const std::uint64_t localSequence,
-    const std::string_view sessionKey) {
-  if(!validDialogChoiceRequest(request) || localSequence == 0U ||
-     !validRequiredText(sessionKey)) {
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeDialogChoiceRequest>
+makeProtocolV2DialogChoiceRequest(
+    const ClientDialogChoiceRequest& request) noexcept {
+  if(!validDialogChoiceRequest(request) ||
+     request.protocolDialogSessionId == 0U || request.protocolChoiceId == 0U) {
     return std::nullopt;
   }
-
-  Net::ClientDialogChoiceIntentPacket packet;
-  packet.localSequence = localSequence;
-  packet.clientTick = request.clientTick;
-  packet.expectedRevision = request.expectedRevision;
-  packet.clientChoiceSequence = request.clientChoiceSequence;
-  packet.sessionKey = std::string(sessionKey);
-  packet.sessionUuid = std::string(request.sessionUuid);
-  packet.characterKey = std::string(request.characterKey);
-  packet.conversationId = std::string(request.conversationId);
-  packet.choiceId = std::string(request.choiceId);
-  packet.idempotencyKey = packet.sessionUuid + ":" + packet.conversationId +
-                          ":" + std::to_string(request.clientChoiceSequence);
-  return packet;
+  return ClientSandbox::ClientRuntimeDialogChoiceRequest{
+      .dialogSessionId = request.protocolDialogSessionId,
+      .choiceId = request.protocolChoiceId,
+      .expectedDialogRevision = request.expectedRevision,
+  };
 }
 
 } // namespace Mmo::ClientAdapterDetail
