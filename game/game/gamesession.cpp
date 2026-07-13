@@ -1805,6 +1805,8 @@ struct GameSession::MmoServerPresentationBatchSink final {
       const Mmo::ClientPresentation::ServerPresentationRouteReplaceResult&) {
     owner.resetMmoServerPresentationProjection();
     owner.setMmoServerPresentationRoute(route);
+    Mmo::recordClientMmoProcessGatePresentation(
+        Mmo::ClientMmoProcessGatePresentationEvent::RouteApplied);
     projectionResetForRoute = true;
   }
 
@@ -1870,6 +1872,8 @@ void GameSession::installMmoServerPresentationBootstrap(
   for(const auto& state : bootstrap.movers)
     applyMmoServerMoverState(state);
 
+  Mmo::recordClientMmoProcessGatePresentation(
+      Mmo::ClientMmoProcessGatePresentationEvent::BootstrapApplied);
   Log::i("MMO typed presentation bootstrap installed",
          " route_epoch=", bootstrap.route.routeEpoch,
          " world=", bootstrap.route.world.id,
@@ -1956,6 +1960,7 @@ void GameSession::materializeMmoServerEntity(
                  ? resolveMmoPresentationBinding(*wrld, *binding)
                  : nullptr;
   bool materializedByMmo = false;
+  bool newlyMaterialized = false;
   if(npc == nullptr) {
     const auto materialized = materializeMmoServerEntityNpc(*wrld, entity);
     npc = materialized.npc;
@@ -1972,8 +1977,17 @@ void GameSession::materializeMmoServerEntity(
              " archetype=", entity.presentation.archetypeId);
       return;
     }
+    newlyMaterialized = true;
   }
 
+  if(newlyMaterialized) {
+    auto event = Mmo::ClientMmoProcessGatePresentationEvent::NpcMaterialized;
+    if(entity.kind == ServerPresentationEntityKind::LocalPlayer)
+      event = Mmo::ClientMmoProcessGatePresentationEvent::LocalPlayerMaterialized;
+    else if(entity.kind == ServerPresentationEntityKind::RemotePlayer)
+      event = Mmo::ClientMmoProcessGatePresentationEvent::RemotePlayerMaterialized;
+    Mmo::recordClientMmoProcessGatePresentation(event);
+  }
   applyMmoServerEntityTransform(entity, snap);
 }
 
@@ -2120,6 +2134,8 @@ void GameSession::applyMmoServerNpcState(
      state.activityState == ServerPresentationNpcActivityState::Interaction) {
     npc->setAiOutputBarrier(250U, true);
   }
+  Mmo::recordClientMmoProcessGatePresentation(
+      Mmo::ClientMmoProcessGatePresentationEvent::NpcStateApplied);
 }
 
 void GameSession::applyMmoServerInteractiveState(
@@ -2138,6 +2154,8 @@ void GameSession::applyMmoServerInteractiveState(
       (state.flags & Mmo::ClientPresentation::ServerPresentationInteractiveLocked) != 0U;
   interactive->restorePersistentState(
       static_cast<std::int32_t>(state.stateId), locked, false);
+  Mmo::recordClientMmoProcessGatePresentation(
+      Mmo::ClientMmoProcessGatePresentationEvent::InteractiveApplied);
 }
 
 void GameSession::applyMmoServerMoverState(
@@ -2167,7 +2185,10 @@ void GameSession::applyMmoServerMoverState(
            " phase=", static_cast<unsigned>(state.phase),
            " keyframe=", state.keyframe,
            " revision=", state.stateRevision);
+    return;
   }
+  Mmo::recordClientMmoProcessGatePresentation(
+      Mmo::ClientMmoProcessGatePresentationEvent::MoverApplied);
 }
 
 void GameSession::applyMmoServerMovementCorrection() noexcept {
@@ -2209,6 +2230,8 @@ void GameSession::applyMmoServerMovementCorrection() noexcept {
     hero->setDirection(static_cast<float>(accepted->yaw));
     if(accepted->hardSnap)
       hero->clearSpeed();
+    Mmo::recordClientMmoProcessGatePresentation(
+        Mmo::ClientMmoProcessGatePresentationEvent::MovementCorrectionApplied);
   }
 }
 
@@ -2251,13 +2274,19 @@ void GameSession::applyMmoServerPresentationEvent(
             releaseMmoServerEntity(*result.releasedEntity);
           materializeMmoServerEntity(value.entity, true);
         } else if constexpr(std::is_same_v<Event, ServerEntityDespawnEvent>) {
-          if(result.releasedEntity.has_value())
+          if(result.releasedEntity.has_value()) {
             releaseMmoServerEntity(*result.releasedEntity);
+            Mmo::recordClientMmoProcessGatePresentation(
+                Mmo::ClientMmoProcessGatePresentationEvent::EntityDespawnApplied);
+          }
         } else if constexpr(std::is_same_v<Event, ServerEntityTransformEvent>) {
           const auto* entity = mmoTypedServerPresentation.findEntity(value.entity);
-          if(entity != nullptr)
+          if(entity != nullptr) {
             applyMmoServerEntityTransform(*entity,
                                           value.transform.teleport);
+            Mmo::recordClientMmoProcessGatePresentation(
+                Mmo::ClientMmoProcessGatePresentationEvent::TransformApplied);
+          }
         } else if constexpr(std::is_same_v<Event, ServerMovementCorrectionEvent>) {
           applyMmoServerMovementCorrection();
         } else if constexpr(std::is_same_v<Event, ServerNpcStateEvent>) {
@@ -2270,17 +2299,25 @@ void GameSession::applyMmoServerPresentationEvent(
           auto* player = resolveMmoServerEntity(value.player);
           auto* npc = resolveMmoServerEntity(value.npc);
           Gothic::inst().presentTypedServerDialog(player, npc, nullptr, event);
+          Mmo::recordClientMmoProcessGatePresentation(
+              Mmo::ClientMmoProcessGatePresentationEvent::DialogApplied);
         } else if constexpr(std::is_same_v<Event, ServerDialogUpdateEvent>) {
           const auto& dialog = mmoTypedServerPresentation.dialog();
           auto* player = resolveMmoServerEntity(dialog.player);
           auto* npc = resolveMmoServerEntity(dialog.npc);
           auto* speaker = resolveMmoServerEntity(value.speaker);
           Gothic::inst().presentTypedServerDialog(player, npc, speaker, event);
+          Mmo::recordClientMmoProcessGatePresentation(
+              Mmo::ClientMmoProcessGatePresentationEvent::DialogApplied);
         } else if constexpr(std::is_same_v<Event, ServerDialogEndEvent>) {
           Gothic::inst().presentTypedServerDialog(nullptr, nullptr, nullptr, event);
+          Mmo::recordClientMmoProcessGatePresentation(
+              Mmo::ClientMmoProcessGatePresentationEvent::DialogApplied);
         } else if constexpr(std::is_same_v<Event, ServerDialogBusyEvent>) {
           auto* npc = resolveMmoServerEntity(value.npc);
           Gothic::inst().presentTypedServerDialog(nullptr, npc, nullptr, event);
+          Mmo::recordClientMmoProcessGatePresentation(
+              Mmo::ClientMmoProcessGatePresentationEvent::DialogApplied);
         } else if constexpr(std::is_same_v<Event, ServerWorldDescriptorEvent>) {
           Log::i("MMO typed world descriptor updated: revision=",
                  value.descriptor.descriptorRevision,

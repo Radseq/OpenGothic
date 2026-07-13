@@ -61,6 +61,13 @@ class CommandLine {
     bool                mmoClientDialogObservationReceipt() const { return mmoClientDialogObservationReceiptState; }
     std::string_view    mmoServerEndpoint() const { return mmoServerEndpointValue; }
     std::string_view    mmoClientContentManifestHash() const { return mmoClientContentManifestHashValue; }
+    std::string_view    mmoProcessGateReport() const { return mmoProcessGateReportPath; }
+    std::string_view    mmoProcessGateClientId() const { return mmoProcessGateClientIdValue; }
+    uint64_t            mmoProcessGateContentManifestId() const { return mmoProcessGateContentManifestIdValue; }
+    uint32_t            mmoProcessGateArchetypeId() const { return mmoProcessGateArchetypeIdValue; }
+    uint32_t            mmoProcessGateAppearanceProfileId() const { return mmoProcessGateAppearanceProfileIdValue; }
+    bool                mmoProcessGateRequireRestart() const { return mmoProcessGateRequireRestartState; }
+    bool                mmoProcessGateEnabled() const { return !mmoProcessGateReportPath.empty(); }
     bool                mmoServerSnapshotApplyInventory() const { return mmoClientUsesServerState; }
     bool                mmoServerSnapshotApplyPosition() const { return mmoClientUsesServerState; }
     bool                mmoServerSnapshotApplyStats() const { return mmoClientUsesServerState; }
@@ -107,6 +114,12 @@ class CommandLine {
     bool                mmoClientDialogObservationReceiptState = false;
     std::string         mmoServerEndpointValue;
     std::string         mmoClientContentManifestHashValue;
+    std::string         mmoProcessGateReportPath;
+    std::string         mmoProcessGateClientIdValue = "graphical";
+    uint64_t            mmoProcessGateContentManifestIdValue = 1;
+    uint32_t            mmoProcessGateArchetypeIdValue = 1;
+    uint32_t            mmoProcessGateAppearanceProfileIdValue = 1;
+    bool                mmoProcessGateRequireRestartState = true;
     bool                mmoDbContinueWithoutNativeSaveState = false;
     bool                mmoRequireDbSaveCheckpointRestoreState = false;
     std::string         mmoDbBootstrapWorldValue;

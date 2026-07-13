@@ -113,9 +113,12 @@ Last verified: 2026-07-13 against client source and focused CMake tests.
   blocked on a richer presentation/catalog contract;
 - complete character create/select/load UX, typed inventory/combat/quest UI and
   world-transition flow are not finished;
-- the two-client gate currently validates the production presentation domain
-  boundary without launching ZenEngine/Vulkan; actual two-process rendering,
-  animation, dialog UI and mover/door acceptance remains open;
+- F3 instrumentation is integrated with the public sandbox facade and records
+  route/bootstrap installation, exact local/remote/NPC materialization,
+  correction, dialog, interactive, mover and presented Vulkan frames. The
+  process runner can launch two graphical clients and restart the server, but
+  the acceptance run still requires a complete dependency checkout, `glslangValidator` and private Gothic
+  assets;
 - MMO save replacement and reconnect recovery are not complete;
 - SQLite capture/restore tooling under `src/client/tools/mmo` is optional and
   disabled by default; it is unrelated to the repository LLM search index.

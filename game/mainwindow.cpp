@@ -1417,6 +1417,9 @@ void MainWindow::render(){
     }
     sync = device.submit(cmd);
     device.present(swapchain);
+    if(Mmo::isClientMmoProcessGateEnabled())
+      Mmo::recordClientMmoProcessGatePresentation(
+          Mmo::ClientMmoProcessGatePresentationEvent::RenderedFrame);
     cmdId = (cmdId+1u)%Resources::MaxFramesInFlight;
 
     auto t = Application::tickCount();

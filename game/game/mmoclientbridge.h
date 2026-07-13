@@ -25,6 +25,29 @@ struct ClientMmoBridgeConfig final {
   std::size_t bootstrapCapacity = 4;
   bool strictOverflow = false;
   bool serverBoundClientMode = false;
+  std::string processGateReportPath;
+  std::string processGateClientId = "graphical";
+  std::string processGateCharacterName = "ProcessGateHero";
+  std::uint32_t processGateArchetypeId = 1;
+  std::uint32_t processGateAppearanceProfileId = 1;
+  std::uint64_t processGateContentManifestId = 1;
+  bool processGateRequireRestart = true;
+};
+
+enum class ClientMmoProcessGatePresentationEvent : std::uint8_t {
+  RouteApplied,
+  BootstrapApplied,
+  LocalPlayerMaterialized,
+  RemotePlayerMaterialized,
+  NpcMaterialized,
+  EntityDespawnApplied,
+  TransformApplied,
+  MovementCorrectionApplied,
+  NpcStateApplied,
+  DialogApplied,
+  InteractiveApplied,
+  MoverApplied,
+  RenderedFrame,
 };
 
 struct ServerBootstrapSnapshot final {
@@ -47,6 +70,10 @@ struct ServerBootstrapStatus final {
 
 [[nodiscard]] bool isClientMmoDiagnosticsEnabled() noexcept;
 [[nodiscard]] bool isServerBoundClientModeEnabled() noexcept;
+[[nodiscard]] bool isClientMmoProcessGateEnabled() noexcept;
+void recordClientMmoProcessGatePresentation(
+    ClientMmoProcessGatePresentationEvent event,
+    std::uint64_t amount = 1) noexcept;
 [[nodiscard]] std::uint64_t nextClientIntentSequence() noexcept;
 [[nodiscard]] std::string_view clientMmoSessionKey() noexcept;
 

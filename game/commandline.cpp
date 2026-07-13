@@ -4,6 +4,8 @@
 #include <Tempest/TextCodec>
 #include <cstring>
 #include <cassert>
+#include <limits>
+#include <stdexcept>
 
 #if defined(__APPLE__)
 #include <filesystem>
@@ -42,6 +44,22 @@ static const char16_t* toString(ScriptLang lang) {
 
 static bool boolArg(std::string_view v) {
   return std::string_view(v)!="0" && std::string_view(v)!="false";
+  }
+
+static uint64_t parseUint64Arg(const char* value, const uint64_t minimum) {
+  const std::string text(value);
+  std::size_t consumed = 0;
+  const auto parsed = std::stoull(text, &consumed, 0);
+  if(consumed != text.size() || parsed < minimum)
+    throw std::out_of_range("command-line uint64 value is outside its valid range");
+  return parsed;
+  }
+
+static uint32_t parseUint32Arg(const char* value, const uint32_t minimum) {
+  const auto parsed = parseUint64Arg(value, minimum);
+  if(parsed > std::numeric_limits<uint32_t>::max())
+    throw std::out_of_range("command-line uint32 value is outside its valid range");
+  return static_cast<uint32_t>(parsed);
   }
 
 CommandLine::CommandLine(int argc, const char** argv) {
@@ -178,6 +196,54 @@ CommandLine::CommandLine(int argc, const char** argv) {
       // presenter applies or rejects a server-owned dialog.
       mmoClientUsesServerState = true;
       mmoClientDialogObservationReceiptState = true;
+      }
+    else if(arg=="-mmo-process-gate-report") {
+      ++i;
+      if(i<argc && argv[i][0] != '\0') {
+        mmoClientUsesServerState = true;
+        mmoProcessGateReportPath = argv[i];
+        }
+      }
+    else if(arg=="-mmo-process-gate-client-id") {
+      ++i;
+      if(i<argc && argv[i][0] != '\0')
+        mmoProcessGateClientIdValue = argv[i];
+      }
+    else if(arg=="-mmo-process-gate-manifest-id") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoProcessGateContentManifestIdValue = parseUint64Arg(argv[i], 1);
+          }
+        catch(const std::exception&) {
+          Log::e("failed to read -mmo-process-gate-manifest-id: ", argv[i]);
+          }
+        }
+      }
+    else if(arg=="-mmo-process-gate-archetype") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoProcessGateArchetypeIdValue = parseUint32Arg(argv[i], 1);
+          }
+        catch(const std::exception&) {
+          Log::e("failed to read -mmo-process-gate-archetype: ", argv[i]);
+          }
+        }
+      }
+    else if(arg=="-mmo-process-gate-appearance") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoProcessGateAppearanceProfileIdValue = parseUint32Arg(argv[i], 0);
+          }
+        catch(const std::exception&) {
+          Log::e("failed to read -mmo-process-gate-appearance: ", argv[i]);
+          }
+        }
+      }
+    else if(arg=="-mmo-process-gate-no-restart") {
+      mmoProcessGateRequireRestartState = false;
       }
     else if(arg=="-mmo-client-content-manifest-hash" || arg=="-mmo-content-manifest-hash") {
       // Client-declared content pack hash for server-side content gate. The
@@ -455,6 +521,9 @@ CommandLine::CommandLine(int argc, const char** argv) {
 
   if(mmoRequireDbSaveCheckpointRestoreState && !mmoClientUsesServerState)
     Log::e("-mmo-require-db-save-checkpoint-restore requires -mmo-client-server");
+
+  if(!mmoProcessGateReportPath.empty() && mmoActionUdp.empty())
+    Log::e("-mmo-process-gate-report requires -mmo-client-server HOST:PORT");
 
   if(gpath.empty()) {
     InstallDetect inst;
