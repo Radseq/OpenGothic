@@ -20,6 +20,7 @@
 
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
 #include <gothic/mmo/client_runtime_facade.h>
+#include "mmoserverpresentationfacadeadapter.h"
 #endif
 
 namespace Mmo {
@@ -27,8 +28,7 @@ namespace {
 
 class ClientMmoBridgeState final {
   public:
-    explicit ClientMmoBridgeState(const ClientMmoBridgeConfig& config)
-      : dialogConfig_(makeDialogConfig(config)) {
+    explicit ClientMmoBridgeState(const ClientMmoBridgeConfig& config) {
       if(!config.diagnosticsJsonlPath.empty()) {
         diagnostics_.open(config.diagnosticsJsonlPath,
                           std::ios::out | std::ios::app | std::ios::binary);
@@ -105,54 +105,24 @@ class ClientMmoBridgeState final {
     }
 
     [[nodiscard]] std::vector<Net::ServerLiveDeltaPacket> liveDeltas() {
-#if OPENGOTHIC_MMO_SANDBOX_FACADE
-      if(facade_)
-        return facade_->drainLiveDeltas();
-#endif
+      // Protocol V2 exposes typed domain mailboxes. The legacy aggregate live
+      // delta has no lossless mapping and remains inactive until the typed
+      // presentation adapter consumes those mailboxes directly.
       return {};
     }
 
-    [[nodiscard]] std::vector<Net::ServerNpcDialogIntentPacket> dialogIntents() {
-#if OPENGOTHIC_MMO_SANDBOX_FACADE
-      if(facade_) {
-        auto source = facade_->drainDialogIntents();
-        std::vector<Net::ServerNpcDialogIntentPacket> out;
-        out.reserve(source.size());
-        for(auto& entry : source)
-          out.push_back(std::move(entry.packet));
-        return out;
-      }
-#endif
-      return {};
-    }
-
-    [[nodiscard]] std::vector<Net::ServerEntityTransformDeltaPacket> entityTransforms() {
+    [[nodiscard]] ClientPresentation::ServerPresentationMailboxBatch
+    typedPresentationMailbox() {
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
       if(facade_)
-        return facade_->drainEntityTransforms();
+        return ClientPresentation::drainServerPresentationMailbox(*facade_);
 #endif
       return {};
     }
 
     [[nodiscard]] std::vector<ServerBootstrapSnapshot> bootstrapSnapshots() {
-#if OPENGOTHIC_MMO_SANDBOX_FACADE
-      if(facade_) {
-        auto source = facade_->drainBootstrapSnapshots();
-        std::vector<ServerBootstrapSnapshot> out;
-        out.reserve(source.size());
-        for(auto& snapshot : source) {
-          ServerBootstrapSnapshot value{
-              .snapshotId = snapshot.snapshotId,
-              .chunkCount = snapshot.chunkCount,
-              .payload = std::move(snapshot.payload),
-          };
-          if(!latestBootstrap_ || value.snapshotId >= latestBootstrap_->snapshotId)
-            latestBootstrap_ = value;
-          out.push_back(std::move(value));
-        }
-        return out;
-      }
-#endif
+      // Completed Protocol V2 bootstraps are typed binary projections. They
+      // must not be serialized into the removed legacy string snapshot.
       return {};
     }
 
@@ -219,29 +189,11 @@ class ClientMmoBridgeState final {
       return {};
     }
 
-    [[nodiscard]] const ServerDialogPresentationConfig& dialogConfig() const noexcept {
-      return dialogConfig_;
-    }
-
     [[nodiscard]] bool diagnosticsEnabled() const noexcept {
       return diagnostics_.is_open();
     }
 
   private:
-    [[nodiscard]] static ServerDialogPresentationConfig makeDialogConfig(
-        const ClientMmoBridgeConfig& config) noexcept {
-      ServerDialogPresentationConfig out;
-      // Production server-bound dialogs are always validated before ACK and
-      // before they are offered to the main-thread presenter.
-      out.validationEnabled = config.serverBoundClientMode;
-      out.requireSpeakerEntityKey = true;
-      out.requireTextOrAudio = true;
-      out.requireLineIdentity = false;
-      out.minDurationMs = 1;
-      out.maxDurationMs = 30'000;
-      return out;
-    }
-
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
     [[nodiscard]] static ClientMmoSubmitResult mapResult(
         ClientSandbox::ClientRuntimeSubmitResult result) noexcept {
@@ -272,7 +224,6 @@ class ClientMmoBridgeState final {
     }
 #endif
 
-    ServerDialogPresentationConfig dialogConfig_;
     std::ofstream diagnostics_;
     std::mutex diagnosticMutex_;
     std::optional<ServerBootstrapSnapshot> latestBootstrap_;
@@ -287,7 +238,6 @@ std::unique_ptr<ClientMmoBridgeState> state;
 std::atomic_bool diagnosticsEnabled{false};
 std::atomic_bool serverBoundMode{false};
 std::atomic_uint64_t sequence{0};
-std::atomic_uint64_t dialogReceivedOrder{0};
 std::string sessionKey = "local-dev";
 
 } // namespace
@@ -345,8 +295,6 @@ void configureClientMmoBridge(const CommandLine& commandLine) {
   config.queueCapacity = commandLine.mmoActionQueueCapacity();
   config.strictOverflow = commandLine.mmoActionStrictOverflow();
   config.serverBoundClientMode = commandLine.mmoClientUsesServer();
-  config.serverDialogObservationReceipt =
-      commandLine.mmoClientDialogObservationReceipt();
   configureClientMmoBridge(config);
 }
 
@@ -368,33 +316,16 @@ std::vector<Net::ServerLiveDeltaPacket> drainServerLiveDeltas() noexcept {
   return state ? state->liveDeltas() : std::vector<Net::ServerLiveDeltaPacket>{};
 }
 
-std::vector<ServerDialogPresentationEvent>
-drainServerDialogPresentationEvents() noexcept {
+ClientPresentation::ServerPresentationMailboxBatch
+drainTypedServerPresentationMailbox() noexcept {
   std::lock_guard lock(stateMutex);
   if(!state)
     return {};
   try {
-    auto source = state->dialogIntents();
-    std::vector<ServerDialogPresentationEvent> out;
-    out.reserve(source.size());
-    for(auto& intent : source) {
-      ServerDialogPresentationEvent event;
-      event.decision = evaluateServerDialogPresentation(intent, state->dialogConfig());
-      event.receivedOrder = dialogReceivedOrder.fetch_add(1, std::memory_order_relaxed) + 1;
-      event.intent = std::move(intent);
-      out.push_back(std::move(event));
-    }
-    return out;
+    return state->typedPresentationMailbox();
   } catch(...) {
     return {};
   }
-}
-
-std::vector<Net::ServerEntityTransformDeltaPacket>
-drainServerEntityTransforms() noexcept {
-  std::lock_guard lock(stateMutex);
-  return state ? state->entityTransforms()
-               : std::vector<Net::ServerEntityTransformDeltaPacket>{};
 }
 
 std::vector<ServerBootstrapSnapshot> drainServerBootstrapSnapshots() noexcept {
@@ -437,4 +368,3 @@ ClientMmoSubmitResult submitClientDialogChoicePacket(
 }
 
 } // namespace Mmo
-

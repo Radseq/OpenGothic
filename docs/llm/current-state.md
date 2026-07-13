@@ -1,6 +1,6 @@
 # Current State — Full OpenGothic Client
 
-Last verified: 2026-07-12 against client source and focused CMake tests.
+Last verified: 2026-07-13 against client source and focused CMake tests.
 
 ## Implemented MMO boundary
 
@@ -33,6 +33,17 @@ Last verified: 2026-07-12 against client source and focused CMake tests.
 
 ## Presentation
 
+- `mmoserverpresentationevents.h` defines protocol-independent, typed
+  full-client DTOs for route/world descriptors, bootstrap roster/baselines and all live
+  presentation families; it has no JSON, ASIO or sandbox implementation
+  dependency;
+- `ServerPresentationState` validates connection/route epoch and server world
+  id/generation, installs bootstrap state atomically, exposes the baseline only
+  after entity/NPC/interactive/mover validation, and clears corrections/dialogs
+  on route replacement;
+- typed state application stores revisioned transforms, NPC logical state,
+  dialog/busy state, interactives and movers, distinguishes reconciliation from
+  teleport/resync hard-snap corrections, and requires exact entity generations;
 - `ServerEntityPresentationRegistry` is the single owner of
   server-handle-to-local-NPC bindings;
 - bindings are checked by entity generation, local world generation, world
@@ -46,11 +57,22 @@ Last verified: 2026-07-12 against client source and focused CMake tests.
   samples and reuses the frame output buffer;
 - a movement-correction boundary owns pending correction data and validates the
   bound local-player handle, route and server tick before later application;
-- replicated non-local NPC objects are marked `mmoServerReplica`, disabling
-  local routine, perception, regeneration and combat authority while retaining
-  presentation;
+- unknown legacy remote-player/NPC transform identities are now materialized as
+  dedicated MMO-owned presentation proxies instead of remaining unresolved;
+- local bindings carry a stable object token plus explicit MMO ownership, so
+  vector compaction cannot alias bindings and exact despawn removes only an
+  MMO-created object; pre-existing world NPCs are merely detached from replica
+  mode;
+- replicated non-local NPC objects are created without local
+  `RefreshAtInsert`, remain in `AiFar2`, and reject local routine, perception,
+  regeneration and combat authority while retaining animation/presentation;
 - server dialog revisions/choices drive presentation; client sends only a
   domain choice request.
+- the deterministic two-client Protocol V2 gate builds two independent typed
+  facade mailbox cuts and applies them through
+  `mapClientRuntimePresentationMailbox` plus `consumeServerPresentationBatch`
+  into separate `ServerPresentationState` instances, including bootstrap,
+  live deltas, corrections, despawn, reconnect reset and world transition;
 
 ## Transitional debt
 
@@ -59,11 +81,41 @@ Last verified: 2026-07-12 against client source and focused CMake tests.
   classification/reduction;
 - the bridge/facade still exposes compatibility packet types internally; facade
   V2 should replace those mappings without changing engine call sites;
-- current entity transforms are translated from the legacy delta packet at the
-  presentation boundary; authoritative Protocol V2 route epochs and typed S2C
-  lifecycle/correction events are not connected yet;
+- `mmoserverpresentationfacadeadapter.h` now performs the thin, one-way
+  facade-domain mapping into `ServerPresentationBootstrap` and
+  `ServerPresentationEvent`; separate facade mailboxes are merged by
+  `streamSequence`, invalid records are rejected fail-closed and the bridge
+  exposes one typed presentation batch without wire structs;
+- `GameSession` drains one typed presentation mailbox cut, applies route,
+  bootstrap and live records through `ServerPresentationState`, and invokes
+  engine presenters only after typed validation succeeds;
+- route replacement and world changes release exact entity bindings, clear
+  interpolation/correction state and close active typed dialog UI;
+- bootstrap installation materializes the local player first, then dedicated
+  remote-player/NPC replicas, applies authoritative transforms and installs NPC,
+  interactive and mover baselines before live deltas;
+- live transform deltas use the route-scoped interpolator, local movement
+  correction distinguishes reconciliation from teleport/resync hard snaps, and
+  exact generation replacement/despawn releases only the matching binding;
+- typed NPC state drives coarse idle/traversal and life-state presentation on
+  server replicas; dead/unconscious projection no longer invokes local
+  persistence/gameplay death hooks, preventing authority feedback loops;
+- typed dialog start/update/end/busy events now reach `DialogMenu`; unresolved
+  line IDs and absent choice payloads fail closed instead of being converted
+  back into legacy dialog wire packets;
+- the old entity-transform and dialog-presentation mailbox drains were removed
+  from the full-client bridge;
+- production `PresentationId`/`ArchetypeId` values still require a client
+  resource catalog; the direct script-symbol compatibility path is intentionally
+  bounded and rejects hashed/catalog IDs it cannot resolve;
+- the current typed dialog schema carries numeric line and choice revisions but
+  not presentation text/audio or the choice list, so those UI elements remain
+  blocked on a richer presentation/catalog contract;
 - complete character create/select/load UX, typed inventory/combat/quest UI and
   world-transition flow are not finished;
+- the two-client gate currently validates the production presentation domain
+  boundary without launching ZenEngine/Vulkan; actual two-process rendering,
+  animation, dialog UI and mover/door acceptance remains open;
 - MMO save replacement and reconnect recovery are not complete;
 - SQLite capture/restore tooling under `src/client/tools/mmo` is optional and
   disabled by default; it is unrelated to the repository LLM search index.

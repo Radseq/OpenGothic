@@ -164,9 +164,18 @@ class Npc final {
     void       setProcessPolicy(NpcProcessPolicy t);
     auto       processPolicy() const -> NpcProcessPolicy { return aiPolicy; }
 
+    enum class MmoPresentationLifeState : uint8_t {
+      Alive,
+      Unconscious,
+      Dead,
+      };
+
     bool       isPlayer() const;
-    void       setMmoServerReplica(bool value) noexcept { mmoServerReplica = value; }
+    void       setMmoServerReplica(bool value) noexcept;
     [[nodiscard]] bool isMmoServerReplica() const noexcept { return mmoServerReplica; }
+    void       applyMmoServerPresentationLifecycle(
+                   int32_t healthCurrent, int32_t healthMax,
+                   MmoPresentationLifeState lifeState);
     void       setWalkMode(WalkBit m);
     auto       walkMode() const { return wlkMode; }
     void       tick(uint64_t dt);
@@ -651,6 +660,8 @@ class Npc final {
     Inventory                      invent;
     bool                           invTorch = false;
     bool                           mmoServerReplica = false;
+    MmoPresentationLifeState       mmoPresentationLifeState =
+                                       MmoPresentationLifeState::Alive;
 
     // last hit
     Npc*                           lastHit          = nullptr;
@@ -712,7 +723,6 @@ class Npc final {
 
   friend class MoveAlgo;
   };
-
 
 
 

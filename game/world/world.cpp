@@ -633,6 +633,10 @@ bool World::restoreMoverState(std::string_view moverKey, int32_t stateAfter, int
   return wobj.restoreMoverState(moverKey, stateAfter, frameIndex, targetFrameIndex);
   }
 
+bool World::restoreMoverState(uint32_t moverId, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex) {
+  return wobj.restoreMoverState(moverId, stateAfter, frameIndex, targetFrameIndex);
+  }
+
 void World::enableDefTrigger(AbstractTrigger& t) {
   wobj.enableDefTrigger(t);
   }
@@ -723,6 +727,10 @@ Npc *World::addNpc(size_t npcInstance, std::string_view at) {
 
 Npc* World::addNpc(size_t npcInstance, const Tempest::Vec3& at) {
   return wobj.addNpc(npcInstance,at);
+  }
+
+Npc* World::addMmoServerReplica(size_t npcInstance, const Tempest::Vec3& at) {
+  return wobj.addMmoServerReplica(npcInstance, at);
   }
 
 void World::removeNpc(Npc& npc) {
@@ -1198,7 +1206,5 @@ int32_t World::guildOfRoom(std::string_view portalName) {
     }
   return GIL_NONE;
   }
-
-
 
 

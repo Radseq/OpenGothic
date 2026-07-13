@@ -28,7 +28,15 @@ Coverage includes:
 - route/entity-generation checks and exact despawn;
 - forced rebind and local-object alias prevention;
 - bounded interpolation, stale/route rejection and exact erase;
-- local-player movement-correction route/identity/tick checks.
+- local-player movement-correction route/identity/tick checks;
+- atomic typed bootstrap activation and invalid-bootstrap rollback;
+- stale route epoch/world-generation rejection;
+- local/remote/NPC roster classification, exact generation replacement and
+  despawn;
+- revisioned transform/NPC/dialog/interactive/mover application and
+  reconciliation versus hard-snap correction classification;
+- fake-facade mailbox mapping, deterministic cross-mailbox `streamSequence`
+  ordering, bootstrap conversion and fail-closed malformed-record rejection.
 
 ## Full client
 

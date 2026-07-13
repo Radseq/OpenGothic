@@ -26,13 +26,19 @@ Last verified: 2026-07-12.
 
 ## Server presentation
 
-- `mmoserverentitypresentationtypes.h` — protocol-independent handles, route
-  scope, entity kinds and transform observations;
+- `mmoserverpresentationevents.h` — protocol-independent typed route,
+  bootstrap and live presentation DTOs;
+- `mmoserverpresentationstate.h` — bounded route/baseline/revision state;
+- `mmoserverpresentationbatchconsumer.h` — authority-ordered fake-mailbox and
+  production mailbox cut application (`route -> bootstrap -> live`);
+- `mmoserverpresentationfacadeadapter.h` — facade DTO to full-client DTO map;
+- `mmoserverentitypresentationtypes.h` — exact local binding observations;
 - `mmoserverentitypresentationregistry.*` — bounded centralized local binding;
 - `mmoserverentityinterpolator.*` — route-scoped remote entity smoothing;
 - `mmomovementcorrectionboundary.*` — validated local-player correction queue;
-- `mmoserverdialogpresentation.h`
-- `world/objects/npc.*` for the `mmoServerReplica` guard.
+- `gamesession.*` — engine sink for materialization, correction and presenters;
+- `ui/dialogmenu.*` — typed dialog lifecycle UI;
+- `world/objects/npc.*` — server-replica AI and lifecycle presentation guards.
 
 ## Mode and UX
 

@@ -4,6 +4,7 @@
 #include <Tempest/IndexBuffer>
 #include <Tempest/Matrix4x4>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <functional>
 
@@ -133,6 +134,7 @@ class World final {
     void                 triggerChangeWorld(std::string_view world, std::string_view wayPoint);
     void                 execTriggerEvent(const TriggerEvent& e);
     bool                 restoreMoverState(std::string_view moverKey, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex);
+    bool                 restoreMoverState(uint32_t moverId, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex);
     void                 enableDefTrigger(AbstractTrigger& t);
     void                 enableTicks (AbstractTrigger& t);
     void                 disableTicks(AbstractTrigger& t);
@@ -159,6 +161,7 @@ class World final {
     Npc*                 addNpc     (std::string_view name, std::string_view     at);
     Npc*                 addNpc     (size_t npcInstance,    std::string_view     at);
     Npc*                 addNpc     (size_t npcInstance,    const Tempest::Vec3& at);
+    Npc*                 addMmoServerReplica(size_t npcInstance, const Tempest::Vec3& at);
     void                 removeNpc  (Npc& npc);
 
     Item*                addItem    (size_t itemInstance,   std::string_view     at);
@@ -231,4 +234,3 @@ class World final {
 
     Sound        addHitEffect(std::string_view src, std::string_view reciver, std::string_view scheme, const Tempest::Matrix4x4& pos);
   };
-

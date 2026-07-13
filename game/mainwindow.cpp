@@ -266,6 +266,10 @@ void MainWindow::setupUi() {
 
   Gothic::inst().onDialogPipe  .bind(&dialogs,&DialogMenu::openPipe);
   Gothic::inst().onServerDialog.bind(&dialogs,&DialogMenu::openServerDialog);
+  Gothic::inst().onTypedServerDialog.bind(
+      &dialogs, &DialogMenu::presentTypedServerDialog);
+  Gothic::inst().onTypedServerDialogReset.bind(
+      &dialogs, &DialogMenu::resetTypedServerDialogPresentation);
   Gothic::inst().isNpcInDialogFn = std::bind(&DialogMenu::isNpcInDialog, &dialogs, std::placeholders::_1);
 
   Gothic::inst().onPrintScreen .bind(&dialogs,&DialogMenu::printScreen);
@@ -1472,7 +1476,6 @@ void MainWindow::BenchmarkData::clear() {
   numFrames = 0;
   fpsSum = 0;
   }
-
 
 
 

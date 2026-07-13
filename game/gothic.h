@@ -12,6 +12,7 @@
 #include <zenkit/DaedalusVm.hh>
 
 #include "game/gamesession.h"
+#include "game/mmoserverpresentationevents.h"
 #include "world/world.h"
 #include "ui/documentmenu.h"
 #include "ui/chapterscreen.h"
@@ -174,6 +175,10 @@ class Gothic final {
     void         openDialogPipe (Npc& player, Npc& npc, AiOuputPipe*& pipe);
     void         openServerDialog(Npc& player, Npc& npc,
                                   const Mmo::Net::ServerNpcDialogIntentPacket& intent);
+    void         presentTypedServerDialog(
+                    Npc* player, Npc* npc, Npc* speaker,
+                    const Mmo::ClientPresentation::ServerPresentationEvent& event);
+    void         resetTypedServerDialogPresentation();
     bool         isNpcInDialog(const Npc& npc) const;
     bool         isInDialog() const;
 
@@ -184,6 +189,11 @@ class Gothic final {
     Tempest::Signal<void(Npc&,Npc&,AiOuputPipe*&)>                      onDialogPipe;
     Tempest::Signal<void(Npc&,Npc&,const Mmo::Net::ServerNpcDialogIntentPacket&)>
                                                                          onServerDialog;
+    Tempest::Signal<void(
+        Npc*, Npc*, Npc*,
+        const Mmo::ClientPresentation::ServerPresentationEvent&)>
+                                                                         onTypedServerDialog;
+    Tempest::Signal<void()>                                           onTypedServerDialogReset;
     std::function<bool(const Npc*)>                                     isNpcInDialogFn;
 
     Tempest::Signal<void(std::string_view,int,int,int,const GthFont&)>  onPrintScreen;
@@ -321,4 +331,3 @@ class Gothic final {
     void                                    printdebuginst    (std::string_view msg);
     void                                    printdebuginstch  (int ch, std::string_view msg);
   };
-

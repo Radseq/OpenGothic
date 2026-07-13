@@ -675,6 +675,18 @@ void Gothic::openServerDialog(
   onServerDialog(player, npc, intent);
 }
 
+void Gothic::presentTypedServerDialog(
+    Npc* player,
+    Npc* npc,
+    Npc* speaker,
+    const Mmo::ClientPresentation::ServerPresentationEvent& event) {
+  onTypedServerDialog(player, npc, speaker, event);
+}
+
+void Gothic::resetTypedServerDialogPresentation() {
+  onTypedServerDialogReset();
+}
+
 bool Gothic::isNpcInDialog(const Npc& npc) const {
   return isNpcInDialogFn(&npc);
   }
@@ -1271,5 +1283,4 @@ void Gothic::printdebuginstch(int ch, std::string_view msg) {
   if(version().game==2)
     Log::d("[zspy,",ch,"]: ",msg);
   }
-
 

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cassert>
 #include <utility>
+#include <type_traits>
 
 #include "utils/gthfont.h"
 #include "utils/string_frm.h"
@@ -102,7 +103,8 @@ void DialogMenu::tick(uint64_t dt) {
     if(dlgTrade && !haveToWaitOutput()) {
       startTrade();
       }
-    else if(choice.size()==0 && state!=State::Idle && !haveToWaitOutput()) {
+    else if(choice.size()==0 && state!=State::Idle &&
+            typedServerDialogSessionId==0U && !haveToWaitOutput()) {
       close();
       }
     } else {
@@ -213,6 +215,8 @@ void DialogMenu::openServerDialog(
     Npc& player,
     Npc& npc,
     const Mmo::Net::ServerNpcDialogIntentPacket& intent) {
+  if(typedServerDialogSessionId != 0U)
+    close();
   if(serverDialog && serverDialog->conversationId != intent.conversationId)
     close();
 
@@ -254,6 +258,97 @@ void DialogMenu::openServerDialog(
     choice.push_back(std::move(local));
   }
   update();
+}
+
+void DialogMenu::presentTypedServerDialog(
+    Npc* player,
+    Npc* npc,
+    Npc* speaker,
+    const Mmo::ClientPresentation::ServerPresentationEvent& event) {
+  using namespace Mmo::ClientPresentation;
+  std::visit(
+      [this, player, npc, speaker](const auto& value) {
+        using Event = std::decay_t<decltype(value)>;
+        if constexpr(std::is_same_v<Event, ServerDialogStartEvent>) {
+          if(player == nullptr || npc == nullptr) {
+            Log::e("MMO typed dialog start unresolved: session=", value.sessionId,
+                   " player=", value.player.id,
+                   " npc=", value.npc.id);
+            return;
+          }
+          if(state != State::Idle)
+            close();
+          pl = player;
+          other = npc;
+          state = State::Active;
+          dlgTrade = false;
+          depth = 0;
+          dlgSel = 0;
+          choice.clear();
+          serverDialog.reset();
+          typedServerDialogSessionId = value.sessionId;
+          current = {};
+          currentSnd = SoundEffect();
+          curentIsPl = false;
+          update();
+        } else if constexpr(std::is_same_v<Event, ServerDialogUpdateEvent>) {
+          if(typedServerDialogSessionId == 0U ||
+             typedServerDialogSessionId != value.sessionId) {
+            Log::e("MMO typed dialog update without matching UI session: session=",
+                   value.sessionId,
+                   " active_session=", typedServerDialogSessionId);
+            return;
+          }
+          if(player != nullptr)
+            pl = player;
+          if(npc != nullptr)
+            other = npc;
+          choice.clear();
+          currentSnd = SoundEffect();
+
+          const auto lineKey = std::to_string(value.lineId);
+          current.txt = Gothic::inst().messageByName(lineKey);
+          current.msgTime = current.txt.empty()
+                                ? 0U
+                                : Gothic::inst().messageTime(lineKey);
+          current.time = current.msgTime +
+                         (current.msgTime != 0U && dlgAnimation
+                              ? ANIM_TIME * 2U
+                              : 0U);
+          curentIsPl =
+              (value.flags & ServerDialogSpeakerIsPlayer) != 0U ||
+              (speaker != nullptr && speaker == pl);
+
+          if(current.txt.empty()) {
+            Log::e("MMO typed dialog line unresolved by client presentation catalog: line=",
+                   value.lineId,
+                   " session=", value.sessionId,
+                   " revision=", value.dialogRevision);
+          }
+          if((value.flags & ServerDialogAwaitingChoice) != 0U) {
+            Log::e("MMO typed dialog choices unavailable in current schema: session=",
+                   value.sessionId,
+                   " choices_revision=", value.choicesRevision);
+          }
+          update();
+        } else if constexpr(std::is_same_v<Event, ServerDialogEndEvent>) {
+          if(typedServerDialogSessionId == value.sessionId)
+            close();
+        } else if constexpr(std::is_same_v<Event, ServerDialogBusyEvent>) {
+          if(npc != nullptr && value.retryAfterMilliseconds != 0U)
+            npc->setAiOutputBarrier(value.retryAfterMilliseconds, true);
+          Log::i("MMO typed dialog busy presented: npc=", value.npc.id,
+                 " active_session=", value.activeSessionId,
+                 " reason=", static_cast<unsigned>(value.reason),
+                 " retry_ms=", value.retryAfterMilliseconds);
+        }
+      },
+      event);
+}
+
+void DialogMenu::resetTypedServerDialogPresentation() {
+  if(typedServerDialogSessionId != 0U || serverDialog.has_value())
+    close();
 }
 
 bool DialogMenu::isNpcInDialog(const Npc* npc) const {
@@ -379,7 +474,7 @@ void DialogMenu::print(std::string_view msg) {
   }
 
 void DialogMenu::onDoneText() {
-  if(serverDialog)
+  if(serverDialog || typedServerDialogSessionId != 0U)
     return;
   choice = Gothic::inst().updateDialog(selected,*pl,*other);
   dlgSel = 0;
@@ -403,6 +498,7 @@ void DialogMenu::close() {
   current.time=0;
   choice.clear();
   serverDialog.reset();
+  typedServerDialogSessionId = 0U;
   state=State::Idle;
   currentSnd = SoundEffect();
   update();
@@ -578,6 +674,9 @@ bool DialogMenu::isChoiceMenuActive() const {
 
 void DialogMenu::onSelect() {
   if(current.time>0 || haveToWaitOutput())
+    return;
+
+  if(typedServerDialogSessionId != 0U)
     return;
 
   if(serverDialog) {

@@ -299,6 +299,49 @@ void Npc::restorePersistentLifecycle(int32_t healthCurrent, int32_t healthMax, b
     physic.setEnable(true);
 }
 
+void Npc::setMmoServerReplica(const bool value) noexcept {
+  if(mmoServerReplica == value)
+    return;
+  mmoServerReplica = value;
+  if(value)
+    return;
+  mmoPresentationLifeState = MmoPresentationLifeState::Alive;
+  physic.setEnable(hnpc->attribute[ATR_HITPOINTS] > 0);
+}
+
+void Npc::applyMmoServerPresentationLifecycle(
+    const int32_t healthCurrent,
+    const int32_t healthMax,
+    const MmoPresentationLifeState lifeState) {
+  const auto previous = mmoPresentationLifeState;
+  mmoPresentationLifeState = lifeState;
+
+  if(healthMax >= 0)
+    hnpc->attribute[ATR_HITPOINTSMAX] = std::max(0, healthMax);
+  if(healthCurrent >= 0) {
+    const auto maximum = std::max(0, hnpc->attribute[ATR_HITPOINTSMAX]);
+    hnpc->attribute[ATR_HITPOINTS] = maximum > 0
+        ? std::clamp(healthCurrent, 0, maximum)
+        : std::max(0, healthCurrent);
+  }
+
+  physic.setEnable(lifeState != MmoPresentationLifeState::Dead);
+  if(previous == lifeState)
+    return;
+
+  switch(lifeState) {
+    case MmoPresentationLifeState::Alive:
+      static_cast<void>(setAnim(Anim::Idle));
+      break;
+    case MmoPresentationLifeState::Unconscious:
+      static_cast<void>(setAnim(Anim::UnconsciousA));
+      break;
+    case MmoPresentationLifeState::Dead:
+      static_cast<void>(setAnim(Anim::DeadA));
+      break;
+  }
+}
+
 void Npc::restorePersistentInventory(const std::vector<PersistentInventoryItem>& next) {
   invent.resetForPersistence(*this);
   for(const auto& item : next) {
@@ -4352,6 +4395,8 @@ bool Npc::isEnemy(const Npc &other) const {
   }
 
 bool Npc::isDead() const {
+  if(mmoServerReplica)
+    return mmoPresentationLifeState == MmoPresentationLifeState::Dead;
   return owner.script().isDead(*this);
   }
 
@@ -4360,6 +4405,8 @@ bool Npc::isLie() const {
   }
 
 bool Npc::isUnconscious() const {
+  if(mmoServerReplica)
+    return mmoPresentationLifeState == MmoPresentationLifeState::Unconscious;
   return owner.script().isUnconscious(*this);
   }
 
@@ -4413,6 +4460,9 @@ void Npc::startDialog(Npc& pl) {
   }
 
 bool Npc::perceptionProcess(Npc &pl) {
+  if(mmoServerReplica && !isPlayer())
+    return false;
+
   static bool dbg = false;
   static int  kId = -1;
   if(dbg && hnpc->id!=kId)
@@ -4458,6 +4508,9 @@ bool Npc::perceptionProcess(Npc &pl) {
   }
 
 bool Npc::perceptionProcess(Npc &pl, Npc* victim, float quadDist, PercType perc) {
+  if(mmoServerReplica && !isPlayer())
+    return false;
+
   if(!aiState.started && aiState.funcIni.isValid()) {
     // avoid ugly soft-lock (ZS_MM_Attack <-> B_MM_AssessWarn) for the orks near ramp
     return false;
@@ -5063,8 +5116,6 @@ void Npc::updateAnimation(uint64_t dt, bool force) {
   if(syncAtt)
     visual.syncAttaches();
   }
-
-
 
 
 

@@ -20,6 +20,8 @@ struct LocalNpcPresentationIdentity final {
   std::uint32_t localNpcId = InvalidLocalNpcId;
   std::uint32_t persistentId = 0;
   std::uint32_t instanceSymbol = 0;
+  std::uintptr_t localObjectToken = 0U;
+  bool materializedByMmo = false;
 
   [[nodiscard]] constexpr bool valid() const noexcept {
     return localNpcId != InvalidLocalNpcId;
@@ -107,7 +109,7 @@ class ServerEntityPresentationRegistry final {
     std::uint64_t worldGeneration_ = 0;
     std::string worldInstanceId_;
     std::unordered_map<std::uint64_t, ServerEntityPresentationBinding> entries_;
-    std::unordered_map<std::uint32_t, std::uint64_t> localToEntity_;
+    std::unordered_map<std::uintptr_t, std::uint64_t> localToEntity_;
 };
 
 } // namespace Mmo::ClientPresentation

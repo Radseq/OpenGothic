@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <memory>
+#include <cstdint>
 
 #include <zenkit/vobs/Misc.hh>
 
@@ -54,6 +55,7 @@ class WorldObjects final {
 
     Npc*           addNpc(size_t itemInstance, std::string_view     at);
     Npc*           addNpc(size_t itemInstance, const Tempest::Vec3& at);
+    Npc*           addMmoServerReplica(size_t npcInstance, const Tempest::Vec3& at);
     Npc*           insertPlayer(std::unique_ptr<Npc>&& npc, std::string_view at);
     auto           takeNpc(const Npc* npc) -> std::unique_ptr<Npc>;
     void           removeNpc(Npc& npc);
@@ -91,6 +93,7 @@ class WorldObjects final {
     void           execDelayedEvents();
     bool           execTriggerEvent(const TriggerEvent& e);
     bool           restoreMoverState(std::string_view moverKey, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex);
+    bool           restoreMoverState(uint32_t moverId, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex);
     void           enableTicks (AbstractTrigger& t);
     void           disableTicks(AbstractTrigger& t);
     void           enableCollizionZone (CollisionZone& z);
@@ -204,4 +207,3 @@ class WorldObjects final {
     uint32_t         allocItemPersistentId();
     static bool      isTargetedBy(Npc& npc,Npc& by);
   };
-

@@ -14,6 +14,7 @@
 #include "mmoserverentitypresentationregistry.h"
 #include "mmoserverentityinterpolator.h"
 #include "mmomovementcorrectionboundary.h"
+#include "mmoserverpresentationstate.h"
 
 #ifndef OPENGOTHIC_MMO_SQLITE_TOOLING
 #define OPENGOTHIC_MMO_SQLITE_TOOLING 0
@@ -205,9 +206,37 @@ class GameSession final {
     bool        tryApplyMmoServerSnapshotRestore(bool forcePoll) noexcept;
     void        waitForMmoServerSnapshotRestoreDuringLoad() noexcept;
     void        pollMmoServerSnapshotRestore() noexcept;
-    void        pollMmoServerDialogPresentationEvents() noexcept;
-    void        pollMmoServerEntityTransforms() noexcept;
+    struct MmoServerPresentationBatchSink;
+
+    void        pollMmoServerPresentationMailbox() noexcept;
+    void        resetMmoServerPresentationProjection() noexcept;
     void        resetMmoServerPresentationWorld() noexcept;
+    void        setMmoServerPresentationRoute(
+                    const Mmo::ClientPresentation::ServerPresentationRouteIdentity& route);
+    void        installMmoServerPresentationBootstrap(
+                    const Mmo::ClientPresentation::ServerPresentationBootstrap& bootstrap,
+                    bool projectionAlreadyReset) noexcept;
+    void        applyMmoServerPresentationEvent(
+                    const Mmo::ClientPresentation::ServerPresentationEvent& event,
+                    const Mmo::ClientPresentation::ServerPresentationApplyResult& result) noexcept;
+    void        materializeMmoServerEntity(
+                    const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity,
+                    bool snap) noexcept;
+    void        releaseMmoServerEntity(
+                    const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity) noexcept;
+    Npc*        resolveMmoServerEntity(
+                    Mmo::ClientPresentation::ServerPresentationEntityHandle entity) noexcept;
+    void        applyMmoServerEntityTransform(
+                    const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity,
+                    bool snap) noexcept;
+    void        applyMmoServerNpcState(
+                    const Mmo::ClientPresentation::ServerPresentationNpcStateRecord& state) noexcept;
+    void        applyMmoServerInteractiveState(
+                    const Mmo::ClientPresentation::ServerPresentationInteractiveStateRecord& state) noexcept;
+    void        applyMmoServerMoverState(
+                    const Mmo::ClientPresentation::ServerPresentationMoverStateRecord& state) noexcept;
+    void        applyMmoServerMovementCorrection() noexcept;
+    void        sampleMmoServerEntityTransforms() noexcept;
     void        releaseMmoServerPresentationBinding(
                     const Mmo::ClientPresentation::ServerEntityPresentationBinding& binding) noexcept;
     bool        tryApplyMmoServerWorldSnapshotRefresh() noexcept;
@@ -220,9 +249,12 @@ class GameSession final {
                                    mmoServerEntityInterpolator;
     Mmo::ClientPresentation::ServerMovementCorrectionBoundary
                                    mmoMovementCorrectionBoundary;
+    Mmo::ClientPresentation::ServerPresentationState
+                                   mmoTypedServerPresentation;
     std::vector<Mmo::ClientPresentation::ServerEntityPresentationTransform>
                                    mmoServerEntitySamples;
     uint64_t                       mmoPresentationWorldGeneration = 0;
+    std::string                    mmoPresentationRouteKey;
 
     uint64_t                       ticks = 0, wrldTimePart = 0;
     MmoActionCheckpointState       lastMmoActionCheckpoint;

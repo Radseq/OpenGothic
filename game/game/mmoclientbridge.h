@@ -11,7 +11,7 @@
 #include "../../../shared/net/mmo/mmo_client_intent.h"
 #include "../../../shared/net/mmo/mmonetprotocol.h"
 #include "mmoclientadapter.h"
-#include "mmoserverdialogpresentation.h"
+#include "mmoserverpresentationmailbox.h"
 
 class CommandLine;
 
@@ -25,7 +25,6 @@ struct ClientMmoBridgeConfig final {
   std::size_t bootstrapCapacity = 4;
   bool strictOverflow = false;
   bool serverBoundClientMode = false;
-  bool serverDialogObservationReceipt = false;
 };
 
 struct ServerBootstrapSnapshot final {
@@ -64,10 +63,8 @@ void shutdownClientMmoBridge() noexcept;
 void flushClientMmoBridge() noexcept;
 
 [[nodiscard]] std::vector<Net::ServerLiveDeltaPacket> drainServerLiveDeltas() noexcept;
-[[nodiscard]] std::vector<ServerDialogPresentationEvent>
-drainServerDialogPresentationEvents() noexcept;
-[[nodiscard]] std::vector<Net::ServerEntityTransformDeltaPacket>
-drainServerEntityTransforms() noexcept;
+[[nodiscard]] ClientPresentation::ServerPresentationMailboxBatch
+drainTypedServerPresentationMailbox() noexcept;
 [[nodiscard]] std::vector<ServerBootstrapSnapshot>
 drainServerBootstrapSnapshots() noexcept;
 [[nodiscard]] std::optional<ServerBootstrapSnapshot>

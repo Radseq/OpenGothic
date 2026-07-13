@@ -4,6 +4,16 @@
 #include <utility>
 
 namespace Mmo::ClientPresentation {
+namespace {
+
+[[nodiscard]] constexpr std::uintptr_t localIdentityKey(
+    const LocalNpcPresentationIdentity& local) noexcept {
+  if(local.localObjectToken != 0U)
+    return local.localObjectToken;
+  return (static_cast<std::uintptr_t>(local.localNpcId) << 1U) | 1U;
+}
+
+} // namespace
 
 ServerEntityPresentationRegistry::ServerEntityPresentationRegistry(
     const std::size_t maxBindings)
@@ -63,7 +73,7 @@ ServerEntityObservationResult ServerEntityPresentationRegistry::observe(
     }
 
     auto released = std::move(found->second);
-    localToEntity_.erase(released.local.localNpcId);
+    localToEntity_.erase(localIdentityKey(released.local));
     entries_.erase(found);
     return {ServerEntityObservationStatus::Removed, std::move(released)};
   }
@@ -84,7 +94,7 @@ ServerEntityObservationResult ServerEntityPresentationRegistry::observe(
   }
   if(transform.handle.generation > current.handle.generation) {
     auto released = std::move(found->second);
-    localToEntity_.erase(released.local.localNpcId);
+    localToEntity_.erase(localIdentityKey(released.local));
     entries_.erase(found);
     return {ServerEntityObservationStatus::NeedsLocalBinding,
             std::move(released)};
@@ -100,7 +110,8 @@ bool ServerEntityPresentationRegistry::bind(
     return false;
   }
 
-  const auto localBinding = localToEntity_.find(local.localNpcId);
+  const auto localKey = localIdentityKey(local);
+  const auto localBinding = localToEntity_.find(localKey);
   if(localBinding != localToEntity_.end() &&
      localBinding->second != transform.handle.id) {
     return false;
@@ -119,7 +130,7 @@ bool ServerEntityPresentationRegistry::bind(
     if(current.local != local)
       return false;
     current.lastServerTick = transform.serverTick;
-    localToEntity_.insert_or_assign(local.localNpcId, transform.handle.id);
+    localToEntity_.insert_or_assign(localKey, transform.handle.id);
     return true;
   }
   if(entries_.size() >= maxBindings_)
@@ -134,7 +145,7 @@ bool ServerEntityPresentationRegistry::bind(
   binding.worldInstanceId.assign(transform.route.worldInstanceId);
   binding.stableEntityKey.assign(transform.stableEntityKey);
   entries_.emplace(transform.handle.id, std::move(binding));
-  localToEntity_.emplace(local.localNpcId, transform.handle.id);
+  localToEntity_.emplace(localKey, transform.handle.id);
   return true;
 }
 
@@ -176,7 +187,7 @@ ServerEntityPresentationRegistry::invalidate(
     return std::nullopt;
   }
   auto released = std::move(found->second);
-  localToEntity_.erase(released.local.localNpcId);
+  localToEntity_.erase(localIdentityKey(released.local));
   entries_.erase(found);
   return released;
 }

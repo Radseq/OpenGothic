@@ -25,21 +25,43 @@ After client-sandbox facade C lands:
 - remove compatibility packet mapping from the full client;
 - keep sequence/idempotency/receipt/retry/reconnect ownership inside the facade.
 
-## 2. Connect typed S2C presentation
+## 2. Connect facade F to the typed presentation state
 
-The local presentation core is prepared with route-scoped handle binding,
-entity kinds, safe despawn/rebind, interpolation and movement-correction
-validation. After shared contract A lands:
+Implemented independently of facade F:
 
-- translate typed `WorldDescriptor` and route generation into
-  `ServerPresentationRoute`;
-- consume `EntitySpawn`, `EntityDespawn`, `EntityTransform`, `NpcState`,
-  dialog, interactive and mover events;
-- instantiate remote-player/NPC presentation objects when no local object is
-  available;
-- feed local-player `MovementCorrection` into the correction boundary and apply
-  snap/reconciliation only after validation;
-- clear pending route commands and presentation state on route replacement.
+- protocol-independent DTOs cover route/world descriptor, bootstrap roster,
+  movement correction, entity lifecycle/transform, NPC, dialog/busy,
+  interactive and mover presentation;
+- `ServerPresentationState` rejects stale route epochs/world generations,
+  installs a bootstrap atomically and activates its baseline only after the
+  complete roster and world-object baseline are valid;
+- generation replacement and despawn are exact-handle; route replacement clears
+  entities, world objects, dialogs and pending corrections;
+- the current transform path materializes unknown remote players/NPCs as
+  MMO-owned proxies and removes their interpolation/presentation bindings on
+  release without aliasing pre-existing world NPCs;
+- server replicas do not execute local insertion scripts, AI or perception.
+
+Facade-domain mapping now implemented:
+
+- `mmoserverpresentationfacadeadapter.h` maps completed bootstraps and every
+  typed S2C mailbox into `ServerPresentationEvent`/`ServerPresentationBootstrap`;
+- the adapter validates route/baseline/enum/flag invariants, drops malformed
+  records, and restores global event order with `streamSequence`;
+- `mmoclientbridge` exposes a single protocol-independent typed batch; no wire
+  struct reaches `GameSession`.
+
+Next integration:
+
+- replace the bounded direct `ArchetypeId -> script symbol` compatibility rule
+  with a production client resource catalog for hashed/catalog
+  `PresentationId`/`ArchetypeId` values;
+- extend the typed dialog presentation contract or catalog lookup so numeric
+  line IDs resolve to subtitle/audio metadata and awaiting-choice updates carry
+  the actual revisioned choice list;
+- add engine-level integration fixtures for route replacement, bootstrap
+  materialization, mover/interactive application and dialog UI lifecycle in a
+  complete OpenGothic checkout with third-party dependencies.
 
 ## 3. Classify remaining semantic hooks
 

@@ -42,6 +42,24 @@ only the currently bound local-player handle on the active route with a strictly
 newer server tick. Application/reconciliation is intentionally separate and
 waits for typed Protocol V2 correction delivery.
 
+The typed presentation event boundary lives in
+`mmoserverpresentationevents.h`; `mmoserverpresentationstate.h` owns its
+bounded state machine. Both are independent of facade and wire types:
+
+- `ServerPresentationRouteIdentity` is `(connection id, route epoch, server
+  world id, server world generation)`;
+- `ServerPresentationBootstrap` carries a world descriptor, entity roster, NPC
+  states and interactive/mover baselines under one baseline;
+- `ServerPresentationEvent` is the closed variant consumed by the full-client
+  state machine;
+- `ServerPresentationApplyResult` reports the engine mutation, released exact
+  entity and whether a correction requires hard snap;
+- `ServerPresentationState` is bounded, installs bootstrap atomically and never
+  parses JSON.
+
+Facade F should map its domain DTOs into this boundary in one direction. It must
+not make `GameSession` depend on Protocol V2 wire structs.
+
 `mmoclientbridge.h` remains the transitional integration boundary around
 `ClientRuntimeFacade`. Its stable responsibilities are:
 

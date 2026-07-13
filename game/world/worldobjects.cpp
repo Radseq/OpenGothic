@@ -350,7 +350,13 @@ void WorldObjects::tick(uint64_t dt, uint64_t dtPlayer) {
   auto cpos  = camera!=nullptr ? camera->originLwc() : Vec3();
   auto plPos = pl!=nullptr ? pl->position() : cpos;
   for(auto& i:npcArr) {
-    float dist = (i->position()-plPos).quadLength();
+    const float dist = (i->position()-plPos).quadLength();
+    if(i->isMmoServerReplica()) {
+      i->setProcessPolicy(NpcProcessPolicy::AiFar2);
+      if(dist<nearDist)
+        npcNear.push_back(i.get());
+      continue;
+      }
     if(dist<nearDist){
       npcNear.push_back(i.get());
       if(i.get()!=pl)
@@ -372,7 +378,7 @@ void WorldObjects::tick(uint64_t dt, uint64_t dtPlayer) {
 
   for(auto& ptr:npcNear) {
     Npc& i = *ptr;
-    if(i.isPlayer() || i.isDead())
+    if(i.isPlayer() || i.isDead() || i.isMmoServerReplica())
       continue;
 
     const uint64_t percNextTime = i.percNextTime();
@@ -456,6 +462,25 @@ Npc* WorldObjects::addNpc(size_t npcInstance, const Vec3& pos) {
 
   npcArr.emplace_back(npc);
   return npc;
+  }
+
+Npc* WorldObjects::addMmoServerReplica(size_t npcInstance, const Vec3& pos) {
+  auto point = owner.findWayPoint(pos);
+  if(point==nullptr)
+    point = owner.findFreePoint(pos, "");
+
+  const auto waypoint =
+      point==nullptr ? std::string_view{} : std::string_view(point->name);
+  auto npc = std::make_unique<Npc>(
+      owner, npcInstance, waypoint, NpcProcessPolicy::AiFar2);
+  npc->setMmoServerReplica(true);
+  npc->setPersistentId(allocNpcPersistentId());
+  npc->setPosition(pos.x, pos.y, pos.z);
+  npc->updateTransform();
+
+  auto* result = npc.get();
+  npcArr.emplace_back(std::move(npc));
+  return result;
   }
 
 Npc* WorldObjects::insertPlayer(std::unique_ptr<Npc> &&npc, std::string_view at) {
@@ -556,6 +581,16 @@ bool WorldObjects::restoreMoverState(std::string_view moverKey, int32_t stateAft
     if(mover == nullptr)
       continue;
     if(!mover->matchesPersistentKey(moverKey, owner.name()))
+      continue;
+    return mover->restorePersistentState(stateAfter, frameIndex, targetFrameIndex);
+    }
+  return false;
+  }
+
+bool WorldObjects::restoreMoverState(uint32_t moverId, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex) {
+  for(auto* trigger : triggers) {
+    auto* mover = dynamic_cast<MoveTrigger*>(trigger);
+    if(mover == nullptr || mover->getId() != moverId)
       continue;
     return mover->restorePersistentState(stateAfter, frameIndex, targetFrameIndex);
     }
@@ -1277,6 +1312,4 @@ bool WorldObjects::testObj(T &src, const Npc &pl, const WorldObjects::SearchOpt 
     }
   return false;
   }
-
-
 

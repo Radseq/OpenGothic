@@ -9,6 +9,7 @@
 #include <optional>
 
 #include "../../../shared/net/mmo/mmonetprotocol.h"
+#include "game/mmoserverpresentationevents.h"
 
 #include "game/gamescript.h"
 #include "camera.h"
@@ -34,6 +35,10 @@ class DialogMenu : public Tempest::Widget {
     void openPipe(Npc &player, Npc& npc, AiOuputPipe*& out);
     void openServerDialog(Npc& player, Npc& npc,
                           const Mmo::Net::ServerNpcDialogIntentPacket& intent);
+    void presentTypedServerDialog(
+        Npc* player, Npc* npc, Npc* speaker,
+        const Mmo::ClientPresentation::ServerPresentationEvent& event);
+    void resetTypedServerDialogPresentation();
     bool isNpcInDialog(const Npc* npc) const;
 
     bool isActive() const;
@@ -137,6 +142,7 @@ class DialogMenu : public Tempest::Widget {
     std::vector<uint32_t>               except;
     std::optional<Mmo::Net::ServerNpcDialogIntentPacket> serverDialog;
     uint64_t                              serverChoiceSequence = 0;
+    uint64_t                              typedServerDialogSessionId = 0;
 
     State                               state=State::Idle;
     Entry                               current;
