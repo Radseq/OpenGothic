@@ -1,6 +1,11 @@
 #include "playercontrol.h"
 
+#include <Tempest/Log>
+
 #include <cmath>
+#include <optional>
+#include <string>
+#include <string_view>
 
 #include "world/objects/npc.h"
 #include "world/objects/item.h"
@@ -8,7 +13,115 @@
 #include "world/world.h"
 #include "ui/dialogmenu.h"
 #include "ui/inventorymenu.h"
+#include "commandline.h"
+#include "gamesession.h"
 #include "gothic.h"
+#include "mmoclientbridge.h"
+
+namespace {
+
+[[nodiscard]] bool submitMmoInteraction(
+    World& world,
+    const Npc& player,
+    const GameSession::MmoServerEntityTarget& target,
+    const Mmo::ClientInteractionVerb verb,
+    const std::string_view source,
+    const std::string_view reason) {
+  const auto position = player.position();
+  std::string actorKey = "character:";
+  actorKey.append(CommandLine::inst().mmoCharacterKey());
+  const Mmo::ClientInteractionRequest request{
+      .clientTick = world.tickCount(),
+      .verb = verb,
+      .targetHandle = target.handle,
+      .expectedTargetRevision = target.revision,
+      .actorPosition = {position.x, position.y, position.z},
+      .targetKey = "server-entity",
+      .source = source,
+      .actorKey = actorKey,
+      .characterKey = CommandLine::inst().mmoCharacterKey(),
+      .world = world.name(),
+      .reason = reason,
+  };
+  const auto result = Mmo::submitClientInteraction(request);
+  if(!result.accepted()) {
+    Tempest::Log::e("MMO interaction submission failed source=", source,
+                    " status=", static_cast<unsigned>(result.status),
+                    " target=", target.handle.id, ":",
+                    target.handle.generation);
+  }
+  return true;
+}
+
+[[nodiscard]] std::string_view combatActionName(
+    const Mmo::ClientCombatRequest::Action action) noexcept {
+  using Action = Mmo::ClientCombatRequest::Action;
+  switch(action) {
+    case Action::DrawWeapon: return "draw_weapon";
+    case Action::HolsterWeapon: return "holster_weapon";
+    case Action::PrimaryAttack: return "primary_attack";
+    case Action::SecondaryAttack: return "secondary_attack";
+    case Action::Parry: return "parry";
+    case Action::Dodge: return "dodge";
+    case Action::Cancel: return "cancel";
+  }
+  return "cancel";
+}
+
+void submitMmoCombatAction(
+    World& world,
+    const Npc& player,
+    const Npc* targetNpc,
+    const Mmo::ClientCombatRequest::Action action,
+    const std::string_view source) {
+  if(!CommandLine::inst().mmoClientUsesServer())
+    return;
+
+  const auto session = Mmo::clientMmoSessionSnapshot();
+  if(!session.inWorld())
+    return;
+
+  std::optional<GameSession::MmoServerEntityTarget> target;
+  if(targetNpc != nullptr) {
+    if(auto* game = Gothic::inst().gameSession())
+      target = game->mmoServerEntityTarget(*targetNpc);
+  }
+
+  const auto position = player.position();
+  std::string actorKey = "character:";
+  actorKey.append(CommandLine::inst().mmoCharacterKey());
+  const auto actionName = combatActionName(action);
+
+  Mmo::ClientCombatRequest request;
+  request.clientTick = world.tickCount();
+  request.protocolAction = action;
+  request.lastAcknowledgedServerTick = session.lastServerTick;
+  request.actorPosition = {position.x, position.y, position.z};
+  request.targetKey = target.has_value() ? "server-entity" : "self";
+  request.source = source;
+  request.reason = "player_input";
+  request.actorKey = actorKey;
+  request.npcEntityKey = actorKey;
+  request.targetNpcEntityKey = target.has_value() ? "server-entity" : "";
+  request.world = world.name();
+  request.combatAction = actionName;
+  request.intentState = "pressed";
+  if(target.has_value()) {
+    constexpr std::uint16_t CombatFlagLockOn = 1U << 1U;
+    request.targetHandle = target->handle;
+    request.expectedTargetRevision = target->revision;
+    request.flags |= CombatFlagLockOn;
+  }
+
+  const auto result = Mmo::submitClientCombat(request);
+  if(!result.accepted()) {
+    Tempest::Log::e("MMO combat submission failed source=", source,
+                    " action=", actionName,
+                    " status=", static_cast<unsigned>(result.status));
+  }
+}
+
+} // namespace
 
 PlayerControl::PlayerControl(DialogMenu& dlg, InventoryMenu &inv)
   :dlg(dlg),inv(inv) {
@@ -71,6 +184,12 @@ void PlayerControl::onKeyPressed(KeyCodec::Action a, Tempest::KeyEvent::KeyType 
 
   if(pl!=nullptr) {
     if(a==Action::Weapon) {
+      submitMmoCombatAction(
+          *w, *pl, pl->target(),
+          ws!=WeaponState::NoWeapon
+              ? Mmo::ClientCombatRequest::Action::HolsterWeapon
+              : Mmo::ClientCombatRequest::Action::DrawWeapon,
+          "PlayerControl::onKeyPressed(Weapon)");
       if(ws!=WeaponState::NoWeapon) //Currently a weapon is active
         wctrl[WeaponClose] = true;
       else {
@@ -84,6 +203,13 @@ void PlayerControl::onKeyPressed(KeyCodec::Action a, Tempest::KeyEvent::KeyType 
       }
 
     if(a==Action::WeaponMele) {
+      submitMmoCombatAction(
+          *w, *pl, pl->target(),
+          (ws==WeaponState::Fist || ws==WeaponState::W1H ||
+           ws==WeaponState::W2H)
+              ? Mmo::ClientCombatRequest::Action::HolsterWeapon
+              : Mmo::ClientCombatRequest::Action::DrawWeapon,
+          "PlayerControl::onKeyPressed(WeaponMele)");
       if(ws==WeaponState::Fist || ws==WeaponState::W1H || ws==WeaponState::W2H)
         wctrl[WeaponClose] = true; else
         wctrl[WeaponMele ] = true;
@@ -91,6 +217,12 @@ void PlayerControl::onKeyPressed(KeyCodec::Action a, Tempest::KeyEvent::KeyType 
       }
 
     if(a==Action::WeaponBow) {
+      submitMmoCombatAction(
+          *w, *pl, pl->target(),
+          (ws==WeaponState::Bow || ws==WeaponState::CBow)
+              ? Mmo::ClientCombatRequest::Action::HolsterWeapon
+              : Mmo::ClientCombatRequest::Action::DrawWeapon,
+          "PlayerControl::onKeyPressed(WeaponBow)");
       if(ws==WeaponState::Bow || ws==WeaponState::CBow)
         wctrl[WeaponClose] = true; else
         wctrl[WeaponBow  ] = true;
@@ -99,6 +231,12 @@ void PlayerControl::onKeyPressed(KeyCodec::Action a, Tempest::KeyEvent::KeyType 
 
     if(a>=Action::WeaponMage3 && a<=Action::WeaponMage10) {
       int id = (a-Action::WeaponMage3+3);
+      submitMmoCombatAction(
+          *w, *pl, pl->target(),
+          (ws==WeaponState::Mage && slot==id)
+              ? Mmo::ClientCombatRequest::Action::HolsterWeapon
+              : Mmo::ClientCombatRequest::Action::DrawWeapon,
+          "PlayerControl::onKeyPressed(WeaponMage)");
       if(ws==WeaponState::Mage && slot==id)
         wctrl[WeaponClose] = true; else
         wctrl[id         ] = true;
@@ -159,6 +297,16 @@ void PlayerControl::onKeyPressed(KeyCodec::Action a, Tempest::KeyEvent::KeyType 
     }
 
   if(fk>=0) {
+    if(pl!=nullptr && ws!=WeaponState::NoWeapon) {
+      using CombatAction = Mmo::ClientCombatRequest::Action;
+      const auto action = fk == ActBack
+                              ? CombatAction::Parry
+                              : ((fk == ActLeft || fk == ActRight)
+                                     ? CombatAction::SecondaryAttack
+                                     : CombatAction::PrimaryAttack);
+      submitMmoCombatAction(*w, *pl, pl->target(), action,
+                            "PlayerControl::onKeyPressed(Combat)");
+    }
     std::memset(actrl,0,sizeof(actrl));
     actrl[ActGeneric] = ctrl[KeyCodec::ActionGeneric];
     actrl[fk]         = true;
@@ -323,6 +471,21 @@ bool PlayerControl::interact(Interactive &it) {
     return true;
   if(!canInteract())
     return false;
+
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    auto* session = Gothic::inst().gameSession();
+    if(session == nullptr)
+      return true;
+    const auto target = session->mmoServerEntityTarget(it);
+    if(!target.has_value())
+      return true;
+    return submitMmoInteraction(
+        *w, *pl, *target, Mmo::ClientInteractionVerb::Use,
+        "PlayerControl::interact(Interactive)",
+        it.isContainer() ? "use_container" :
+        (it.isDoor() ? "use_door" : "use_interactive"));
+  }
+
   if(it.isContainer()){
     inv.open(*pl,it);
     return true;
@@ -341,6 +504,23 @@ bool PlayerControl::interact(Npc &other) {
     return true;
   if(!canInteract())
     return false;
+
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    auto* session = Gothic::inst().gameSession();
+    const auto target = session != nullptr
+                            ? session->mmoServerEntityTarget(other)
+                            : std::nullopt;
+    if(!target.has_value())
+      return true;
+
+    return submitMmoInteraction(
+        *w, *pl, *target,
+        other.isDown() ? Mmo::ClientInteractionVerb::Loot
+                       : Mmo::ClientInteractionVerb::Talk,
+        "PlayerControl::interact(Npc)",
+        other.isDown() ? "loot_npc" : "talk_to_npc");
+  }
+
   auto state = pl->bodyStateMasked();
   if(other.isDown()) {
     if(state!=BS_STAND && state!=BS_SNEAK && state!=BS_SWIM && state!=BS_DIVE)
@@ -366,6 +546,16 @@ bool PlayerControl::interact(Item &item) {
     return true;
   if(!canInteract())
     return false;
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    static bool warnedMissingWorldItemHandle = false;
+    if(!warnedMissingWorldItemHandle) {
+      warnedMissingWorldItemHandle = true;
+      Tempest::Log::e(
+          "MMO item pickup blocked: graphical presentation does not yet expose "
+          "the Protocol V2 world-item handle/revision");
+    }
+    return true;
+  }
   return pl->takeItem(item)!=nullptr;
   }
 
@@ -549,6 +739,17 @@ bool PlayerControl::tickCameraMove(uint64_t dt) {
     camera->moveBack(dt);
   return true;
   }
+
+PlayerControl::MovementInputSnapshot
+PlayerControl::movementInputSnapshot() const noexcept {
+  return {
+      .forward = movement.forwardBackward.value(),
+      .right = movement.strafeRightLeft.value(),
+      .turn = movement.turnRightLeft.value(),
+      .jump = ctrl[Action::Jump],
+      .action = ctrl[Action::ActionGeneric],
+  };
+}
 
 bool PlayerControl::tickMove(uint64_t dt) {
   auto w = Gothic::inst().world();

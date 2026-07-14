@@ -10,6 +10,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -55,19 +56,26 @@ class ClientMmoBridgeState final {
           Tempest::Log::e("MMO client_sandbox facade failed to start endpoint=",
                           config.udpEndpoint);
           facade_.reset();
-        } else if(!config.processGateReportPath.empty()) {
-          ClientSandbox::ClientRuntimeProcessGateConfig gate;
-          gate.reportPath = config.processGateReportPath;
-          gate.clientId = config.processGateClientId;
-          gate.characterName = config.processGateCharacterName;
-          gate.guestCredential.assign(config.sessionKey.begin(), config.sessionKey.end());
-          gate.archetypeId = config.processGateArchetypeId;
-          gate.appearanceProfileId = config.processGateAppearanceProfileId;
-          gate.contentManifestId = config.processGateContentManifestId;
-          gate.mode = ClientSandbox::ClientRuntimeProcessGateMode::Graphical;
-          gate.requireServerRestart = config.processGateRequireRestart;
-          processGate_ = std::make_unique<ClientSandbox::ClientRuntimeProcessGate>(
-              *facade_, std::move(gate));
+        } else {
+          sessionKey_ = config.sessionKey.empty() ? "local-dev" : config.sessionKey;
+          observedReconnectSuccesses_ = facade_->stats().reconnectSuccesses;
+          sessionSnapshot_.phase = ClientMmoSessionPhase::Connecting;
+          if(!config.processGateReportPath.empty()) {
+            ClientSandbox::ClientRuntimeProcessGateConfig gate;
+            gate.reportPath = config.processGateReportPath;
+            gate.clientId = config.processGateClientId;
+            gate.characterName = config.processGateCharacterName;
+            gate.guestCredential.assign(
+                config.sessionKey.begin(), config.sessionKey.end());
+            gate.archetypeId = config.processGateArchetypeId;
+            gate.appearanceProfileId = config.processGateAppearanceProfileId;
+            gate.contentManifestId = config.processGateContentManifestId;
+            gate.mode = ClientSandbox::ClientRuntimeProcessGateMode::Graphical;
+            gate.requireServerRestart = config.processGateRequireRestart;
+            processGate_ =
+                std::make_unique<ClientSandbox::ClientRuntimeProcessGate>(
+                    *facade_, std::move(gate));
+          }
         }
       }
 #else
@@ -84,6 +92,87 @@ class ClientMmoBridgeState final {
       if(facade_)
         facade_->stop();
 #endif
+    }
+
+    [[nodiscard]] bool beginSession(
+        const ClientMmoSessionRequest& request) {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(!facade_)
+        return false;
+      constexpr std::size_t MaximumCharacterNameUtf8Bytes = 48U;
+      if(request.contentManifestId == 0U ||
+         request.characterName.size() > MaximumCharacterNameUtf8Bytes ||
+         (request.enterWorld && request.characterId == 0U &&
+          request.characterName.empty())) {
+        failSession("invalid graphical client session request");
+        return false;
+      }
+
+      sessionSnapshot_.phase = ClientMmoSessionPhase::Disabled;
+      sessionSnapshot_.error.clear();
+      sessionRequest_ = request;
+      sessionActive_ = true;
+      selectedCharacter_.reset();
+      createIssued_ = false;
+      selectIssued_ = false;
+      enterIssued_ = false;
+
+      const auto route = facade_->protocolV2State();
+      if(route.routeStage == ClientSandbox::ClientRuntimeRouteStage::Connected) {
+        authenticated_ = false;
+        authenticationIssued_ = false;
+        rosterIssued_ = false;
+      } else {
+        authenticated_ = true;
+        authenticationIssued_ = true;
+      }
+
+      if(hasRosterSnapshot_)
+        resolveRequestedCharacter();
+
+      if(route.routeStage == ClientSandbox::ClientRuntimeRouteStage::InWorld) {
+        if(request.characterId != 0U && request.characterId != route.characterId) {
+          failSession("cannot replace an active in-world character without a new logical session");
+          return false;
+        }
+        sessionSnapshot_.characterId = route.characterId;
+        setSessionPhase(ClientMmoSessionPhase::InWorld);
+        return true;
+      }
+
+      setSessionPhase(route.routeBound
+                          ? ClientMmoSessionPhase::Authenticating
+                          : ClientMmoSessionPhase::Connecting);
+      pollSession();
+      return !sessionSnapshot_.failed();
+#else
+      static_cast<void>(request);
+      return false;
+#endif
+    }
+
+    void pollSession() noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(!facade_)
+        return;
+      try {
+        processSessionFaults();
+        processSessionTickets();
+        processSessionResults();
+        processSessionCompletions();
+        processReconnect();
+        driveSession();
+        driveHeartbeat();
+      } catch(const std::exception& error) {
+        failSession(std::string("graphical MMO session exception: ") + error.what());
+      } catch(...) {
+        failSession("graphical MMO session failed with an unknown exception");
+      }
+#endif
+    }
+
+    [[nodiscard]] ClientMmoSessionSnapshot sessionSnapshot() const {
+      return sessionSnapshot_;
     }
 
     [[nodiscard]] ClientMmoSubmitResult submitMovement(
@@ -174,6 +263,7 @@ class ClientMmoBridgeState final {
     typedPresentationMailbox() {
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
       if(facade_) {
+        pollSession();
         if(processGate_)
           processGate_->poll();
         auto source = ClientPresentation::drainClientRuntimePresentationMailbox(*facade_);
@@ -183,9 +273,9 @@ class ClientMmoBridgeState final {
           processGate_->observeEntitySpawns(source.entitySpawns);
           processGate_->observeEntityTransforms(source.entityTransforms.size());
           processGate_->observeMovementCorrections(source.movementCorrections.size());
-          processGate_->observeDialogEvents(source.dialogEvents.size());
-          processGate_->observeInteractiveStates(source.interactiveStates.size());
-          processGate_->observeMoverStates(source.moverStates.size());
+          processGate_->observeDialogEvents(source.dialogEvents);
+          processGate_->observeInteractiveStates(source.interactiveStates);
+          processGate_->observeMoverStates(source.moverStates);
         }
         return ClientPresentation::mapClientRuntimePresentationMailbox(
             std::move(source));
@@ -288,6 +378,370 @@ class ClientMmoBridgeState final {
 
   private:
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
+    using RuntimeCharacterSelection =
+        ClientSandbox::ClientRuntimeCharacterSelection;
+
+    [[nodiscard]] static std::string_view sessionPhaseName(
+        const ClientMmoSessionPhase phase) noexcept {
+      switch(phase) {
+        case ClientMmoSessionPhase::Disabled: return "disabled";
+        case ClientMmoSessionPhase::Connecting: return "connecting";
+        case ClientMmoSessionPhase::Authenticating: return "authenticating";
+        case ClientMmoSessionPhase::LoadingRoster: return "loading_roster";
+        case ClientMmoSessionPhase::RosterReady: return "roster_ready";
+        case ClientMmoSessionPhase::CreatingCharacter: return "creating_character";
+        case ClientMmoSessionPhase::SelectingCharacter: return "selecting_character";
+        case ClientMmoSessionPhase::EnteringWorld: return "entering_world";
+        case ClientMmoSessionPhase::InWorld: return "in_world";
+        case ClientMmoSessionPhase::Recovering: return "recovering";
+        case ClientMmoSessionPhase::Failed: return "failed";
+      }
+      return "unknown";
+    }
+
+    void setSessionPhase(const ClientMmoSessionPhase next) noexcept {
+      if(sessionSnapshot_.phase == next)
+        return;
+      Tempest::Log::i("MMO graphical session phase ",
+                      sessionPhaseName(sessionSnapshot_.phase), " -> ",
+                      sessionPhaseName(next));
+      sessionSnapshot_.phase = next;
+    }
+
+    void failSession(std::string message) noexcept {
+      if(sessionSnapshot_.failed())
+        return;
+      sessionSnapshot_.error = std::move(message);
+      setSessionPhase(ClientMmoSessionPhase::Failed);
+      sessionActive_ = false;
+      Tempest::Log::e("MMO graphical session failed: ", sessionSnapshot_.error);
+    }
+
+    [[nodiscard]] static bool isSessionCommand(
+        const ClientSandbox::ClientRuntimeV2CommandKind kind) noexcept {
+      using Kind = ClientSandbox::ClientRuntimeV2CommandKind;
+      return kind == Kind::Authenticate || kind == Kind::ListCharacters ||
+             kind == Kind::CreateCharacter || kind == Kind::SelectCharacter ||
+             kind == Kind::EnterWorld;
+    }
+
+    void processSessionFaults() {
+      for(const auto& fault : facade_->drainFaults()) {
+        if(!fault.recoverable) {
+          failSession("facade fault " + std::to_string(fault.code) + ": " +
+                      fault.message);
+          return;
+        }
+      }
+    }
+
+    void processSessionTickets() {
+      for(auto& ticket : facade_->drainResumeTickets()) {
+        if(!ticket.ticket.empty())
+          resumeTicket_ = std::move(ticket.ticket);
+      }
+      for(const auto& accepted : facade_->drainResumeAcceptances()) {
+        sessionSnapshot_.accountId = accepted.accountId;
+        sessionSnapshot_.rosterRevision = accepted.rosterRevision;
+        if(accepted.selectedCharacter.has_value()) {
+          selectedCharacter_ = accepted.selectedCharacter;
+          sessionSnapshot_.characterId = accepted.selectedCharacter->characterId;
+          sessionSnapshot_.characterRevision =
+              accepted.selectedCharacter->characterRevision;
+        }
+        authenticated_ = true;
+        recovering_ = false;
+      }
+    }
+
+    void processSessionResults() {
+      for(const auto& result : facade_->drainAuthenticationResults()) {
+        sessionSnapshot_.accountId = result.accountId;
+        sessionSnapshot_.rosterRevision = result.rosterRevision;
+        if(result.selectedCharacter.has_value()) {
+          selectedCharacter_ = result.selectedCharacter;
+          sessionSnapshot_.characterId = result.selectedCharacter->characterId;
+          sessionSnapshot_.characterRevision =
+              result.selectedCharacter->characterRevision;
+        }
+        authenticated_ = true;
+      }
+
+      for(const auto& roster : facade_->drainCharacterRosters()) {
+        sessionSnapshot_.accountId = roster.accountId;
+        sessionSnapshot_.rosterRevision = roster.rosterRevision;
+        sessionSnapshot_.characters.clear();
+        sessionSnapshot_.characters.reserve(roster.characters.size());
+        for(const auto& value : roster.characters) {
+          sessionSnapshot_.characters.push_back({
+              .characterId = value.characterId,
+              .characterRevision = value.characterRevision,
+              .archetypeId = value.archetypeId,
+              .appearanceProfileId = value.appearanceProfileId,
+              .name = value.nameUtf8,
+              .temporary = value.temporary,
+          });
+        }
+        hasRosterSnapshot_ = true;
+        rosterIssued_ = true;
+        resolveRequestedCharacter();
+      }
+    }
+
+    void processSessionCompletions() {
+      using Kind = ClientSandbox::ClientRuntimeV2CommandKind;
+      for(const auto& completion : facade_->drainProtocolV2CommandCompletions()) {
+        if(completion.command.kind == Kind::Heartbeat) {
+          heartbeatPending_ = false;
+          continue;
+        }
+        if(!isSessionCommand(completion.command.kind)) {
+          if(completion.status ==
+             ClientSandbox::ClientRuntimeV2CompletionStatus::Rejected) {
+            ++gameplayRejectedCount_;
+            if(gameplayRejectedCount_ == 1U ||
+               (gameplayRejectedCount_ % 100U) == 0U) {
+              Tempest::Log::e(
+                  "MMO gameplay command rejected kind=",
+                  static_cast<unsigned>(completion.command.kind),
+                  " code=", completion.rejectionCode,
+                  " rejected_total=", gameplayRejectedCount_);
+            }
+          }
+          continue;
+        }
+        if(completion.status ==
+           ClientSandbox::ClientRuntimeV2CompletionStatus::Rejected) {
+          failSession("session command rejected kind=" +
+                      std::to_string(static_cast<unsigned>(completion.command.kind)) +
+                      " code=" + std::to_string(completion.rejectionCode));
+          return;
+        }
+      }
+    }
+
+    void processReconnect() {
+      const auto stats = facade_->stats();
+      if(stats.reconnectSuccesses <= observedReconnectSuccesses_)
+        return;
+      observedReconnectSuccesses_ = stats.reconnectSuccesses;
+      if(resumeTicket_.empty()) {
+        failSession("transport reconnected before a resume ticket was issued");
+        return;
+      }
+      recovering_ = true;
+      authenticationIssued_ = false;
+      authenticated_ = false;
+      heartbeatPending_ = false;
+      setSessionPhase(ClientMmoSessionPhase::Recovering);
+      if(!facade_->restartProtocolV2Session())
+        failSession("unable to restart Protocol V2 after transport replacement");
+    }
+
+    void resolveRequestedCharacter() noexcept {
+      selectedCharacter_.reset();
+      const auto found = std::find_if(
+          sessionSnapshot_.characters.begin(),
+          sessionSnapshot_.characters.end(),
+          [this](const ClientMmoCharacter& value) {
+            if(sessionRequest_.characterId != 0U)
+              return value.characterId == sessionRequest_.characterId;
+            return !sessionRequest_.characterName.empty() &&
+                   value.name == sessionRequest_.characterName;
+          });
+      if(found == sessionSnapshot_.characters.end())
+        return;
+      selectedCharacter_ = RuntimeCharacterSelection{
+          .characterId = found->characterId,
+          .characterRevision = found->characterRevision,
+      };
+      sessionSnapshot_.characterId = found->characterId;
+      sessionSnapshot_.characterRevision = found->characterRevision;
+      createIssued_ = true;
+    }
+
+    [[nodiscard]] bool submitAccepted(
+        const ClientSandbox::ClientRuntimeV2SubmitResult& result,
+        const std::string_view operation) {
+      if(result.accepted())
+        return true;
+      failSession(std::string(operation) + " submission failed status=" +
+                  std::to_string(static_cast<unsigned>(result.status)));
+      return false;
+    }
+
+    void driveSession() {
+      const auto route = facade_->protocolV2State();
+      sessionSnapshot_.connectionId = route.connectionId;
+      sessionSnapshot_.routeEpoch = route.routeEpoch;
+      sessionSnapshot_.lastServerTick = route.lastServerTick;
+      sessionSnapshot_.worldId = route.world.id;
+      sessionSnapshot_.worldGeneration = route.world.generation;
+      if(route.accountId != 0U)
+        sessionSnapshot_.accountId = route.accountId;
+      if(route.characterId != 0U)
+        sessionSnapshot_.characterId = route.characterId;
+
+      if(route.phase == ClientSandbox::ClientRuntimeProtocolV2Phase::Rejected) {
+        failSession("server rejected Protocol V2 negotiation");
+        return;
+      }
+      if(!route.routeBound || sessionSnapshot_.failed())
+        return;
+
+      if(route.routeStage == ClientSandbox::ClientRuntimeRouteStage::Connected &&
+         !authenticationIssued_) {
+        ClientSandbox::ClientRuntimeAuthenticateRequest request;
+        if(recovering_) {
+          request.credentialKind =
+              ClientSandbox::ClientRuntimeCredentialKind::ResumeTicket;
+          request.credential = resumeTicket_;
+        } else {
+          request.credentialKind =
+              ClientSandbox::ClientRuntimeCredentialKind::GuestAdmissionToken;
+          constexpr std::size_t MaximumCredentialBytes = 64U;
+          const auto size = std::min<std::size_t>(sessionKey_.size(),
+                                                  MaximumCredentialBytes);
+          request.credential.assign(sessionKey_.begin(),
+                                    sessionKey_.begin() + size);
+          if(request.credential.empty() ||
+             std::none_of(request.credential.begin(), request.credential.end(),
+                          [](const auto value) { return value != 0U; })) {
+            request.credential = {1U};
+          }
+        }
+        if(submitAccepted(facade_->authenticate(request), "authenticate")) {
+          authenticationIssued_ = true;
+          setSessionPhase(recovering_ ? ClientMmoSessionPhase::Recovering
+                                      : ClientMmoSessionPhase::Authenticating);
+        }
+        return;
+      }
+
+      if(recovering_)
+        return;
+
+      if(!sessionActive_) {
+        if(route.routeStage == ClientSandbox::ClientRuntimeRouteStage::InWorld)
+          setSessionPhase(ClientMmoSessionPhase::InWorld);
+        return;
+      }
+
+      if(route.routeStage ==
+             ClientSandbox::ClientRuntimeRouteStage::AccountAuthenticated &&
+         authenticated_ && !rosterIssued_) {
+        if(submitAccepted(facade_->listCharacters({.knownRosterRevision = 0U}),
+                          "listCharacters")) {
+          rosterIssued_ = true;
+          setSessionPhase(ClientMmoSessionPhase::LoadingRoster);
+        }
+        return;
+      }
+
+      if(route.routeStage ==
+             ClientSandbox::ClientRuntimeRouteStage::AccountAuthenticated &&
+         hasRosterSnapshot_ && !selectedCharacter_.has_value()) {
+        if(!sessionRequest_.enterWorld && sessionRequest_.characterName.empty() &&
+           sessionRequest_.characterId == 0U) {
+          sessionActive_ = false;
+          setSessionPhase(ClientMmoSessionPhase::RosterReady);
+          return;
+        }
+        if(!sessionRequest_.createIfMissing) {
+          failSession("requested character does not exist in the account roster");
+          return;
+        }
+        if(!createIssued_) {
+          if(sessionRequest_.characterName.empty() ||
+             sessionRequest_.archetypeId == 0U) {
+            failSession("character creation requires a name and archetype");
+            return;
+          }
+          if(submitAccepted(facade_->createCharacter({
+                                .nameUtf8 = sessionRequest_.characterName,
+                                .archetypeId = sessionRequest_.archetypeId,
+                                .appearanceProfileId =
+                                    sessionRequest_.appearanceProfileId,
+                                .expectedRosterRevision =
+                                    sessionSnapshot_.rosterRevision,
+                              }),
+                              "createCharacter")) {
+            createIssued_ = true;
+            setSessionPhase(ClientMmoSessionPhase::CreatingCharacter);
+          }
+        }
+        return;
+      }
+
+      if(route.routeStage ==
+             ClientSandbox::ClientRuntimeRouteStage::AccountAuthenticated &&
+         selectedCharacter_.has_value() && !selectIssued_) {
+        if(submitAccepted(facade_->selectCharacter({
+                              .characterId = selectedCharacter_->characterId,
+                              .expectedRosterRevision =
+                                  sessionSnapshot_.rosterRevision,
+                            }),
+                            "selectCharacter")) {
+          selectIssued_ = true;
+          setSessionPhase(ClientMmoSessionPhase::SelectingCharacter);
+        }
+        return;
+      }
+
+      if(route.routeStage ==
+             ClientSandbox::ClientRuntimeRouteStage::CharacterSelected &&
+         !sessionRequest_.enterWorld) {
+        sessionActive_ = false;
+        setSessionPhase(ClientMmoSessionPhase::RosterReady);
+        return;
+      }
+
+      if(route.routeStage ==
+             ClientSandbox::ClientRuntimeRouteStage::CharacterSelected &&
+         !enterIssued_) {
+        const auto revision = selectedCharacter_.has_value()
+                                  ? selectedCharacter_->characterRevision
+                                  : route.aggregateRevision;
+        if(submitAccepted(facade_->enterWorld({
+                              .expectedCharacterRevision = revision,
+                              .clientContentManifestId =
+                                  sessionRequest_.contentManifestId,
+                              .lastAppliedServerTick = route.lastServerTick,
+                            }),
+                            "enterWorld")) {
+          enterIssued_ = true;
+          setSessionPhase(ClientMmoSessionPhase::EnteringWorld);
+        }
+        return;
+      }
+
+      if(route.routeStage == ClientSandbox::ClientRuntimeRouteStage::InWorld) {
+        sessionActive_ = false;
+        setSessionPhase(ClientMmoSessionPhase::InWorld);
+      }
+    }
+
+    void driveHeartbeat() noexcept {
+      const auto route = facade_->protocolV2State();
+      if(!route.routeBound ||
+         route.routeStage != ClientSandbox::ClientRuntimeRouteStage::InWorld)
+        return;
+      const auto now = std::chrono::steady_clock::now();
+      if(heartbeatPending_ && now - heartbeatIssuedAt_ <
+                                  std::chrono::milliseconds(1500))
+        return;
+      if(heartbeatIssuedAt_ != std::chrono::steady_clock::time_point{} &&
+         now - heartbeatIssuedAt_ < std::chrono::milliseconds(500))
+        return;
+      const auto result = facade_->heartbeat({
+          .lastAppliedServerTick = route.lastServerTick,
+      });
+      if(result.accepted()) {
+        heartbeatPending_ = true;
+        heartbeatIssuedAt_ = now;
+      }
+    }
+
     [[nodiscard]] static ClientMmoSubmitResult mapResult(
         const ClientSandbox::ClientRuntimeV2SubmitResult& result) noexcept {
       ClientMmoSubmitResult out;
@@ -327,6 +781,24 @@ class ClientMmoBridgeState final {
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
     std::unique_ptr<ClientSandbox::ClientRuntimeFacade> facade_;
     std::unique_ptr<ClientSandbox::ClientRuntimeProcessGate> processGate_;
+    ClientMmoSessionRequest sessionRequest_;
+    ClientMmoSessionSnapshot sessionSnapshot_;
+    std::optional<RuntimeCharacterSelection> selectedCharacter_;
+    std::vector<std::uint8_t> resumeTicket_;
+    std::string sessionKey_;
+    std::chrono::steady_clock::time_point heartbeatIssuedAt_{};
+    std::uint64_t observedReconnectSuccesses_ = 0;
+    std::uint64_t gameplayRejectedCount_ = 0;
+    bool sessionActive_ = false;
+    bool authenticationIssued_ = false;
+    bool authenticated_ = false;
+    bool rosterIssued_ = false;
+    bool hasRosterSnapshot_ = false;
+    bool createIssued_ = false;
+    bool selectIssued_ = false;
+    bool enterIssued_ = false;
+    bool recovering_ = false;
+    bool heartbeatPending_ = false;
 #endif
 };
 
@@ -368,6 +840,56 @@ std::uint64_t nextClientIntentSequence() noexcept {
 
 std::string_view clientMmoSessionKey() noexcept {
   return sessionKey;
+}
+
+bool beginClientMmoSession(const ClientMmoSessionRequest& request) {
+  std::lock_guard lock(stateMutex);
+  return state && state->beginSession(request);
+}
+
+void pollClientMmoSession() noexcept {
+  std::lock_guard lock(stateMutex);
+  if(state)
+    state->pollSession();
+}
+
+ClientMmoSessionSnapshot clientMmoSessionSnapshot() {
+  std::lock_guard lock(stateMutex);
+  return state ? state->sessionSnapshot() : ClientMmoSessionSnapshot{};
+}
+
+ClientMmoSessionSnapshot waitForClientMmoSession(
+    const ClientMmoSessionRequest& request,
+    const std::uint64_t timeoutMilliseconds) {
+  if(!beginClientMmoSession(request))
+    return clientMmoSessionSnapshot();
+
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::milliseconds(timeoutMilliseconds);
+  for(;;) {
+    pollClientMmoSession();
+    auto snapshot = clientMmoSessionSnapshot();
+    const bool ready = request.enterWorld ? snapshot.inWorld()
+                                          : snapshot.rosterReady();
+    if(ready || snapshot.failed() ||
+       std::chrono::steady_clock::now() >= deadline) {
+      if(!ready && !snapshot.failed()) {
+        Tempest::Log::e("MMO graphical session timed out phase=",
+                        static_cast<unsigned>(snapshot.phase),
+                        " timeout_ms=", timeoutMilliseconds);
+      }
+      return snapshot;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+}
+
+ClientMmoSessionSnapshot waitForClientMmoRoster(
+    const std::uint64_t timeoutMilliseconds) {
+  ClientMmoSessionRequest request;
+  request.createIfMissing = false;
+  request.enterWorld = false;
+  return waitForClientMmoSession(request, timeoutMilliseconds);
 }
 
 ClientMmoSubmitResult submitProtocolV2Movement(

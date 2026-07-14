@@ -15,6 +15,7 @@ struct ServerEntityInterpolationConfig final {
   std::uint64_t maxExtrapolationMs = 120;
   double snapDistance = 600.0;
   std::size_t maxEntities = 4096;
+  double movementThreshold = 0.5;
 };
 
 struct ServerEntityPresentationTransform final {
@@ -27,6 +28,7 @@ struct ServerEntityPresentationTransform final {
   double posZ = 0.0;
   double yaw = 0.0;
   bool snapped = false;
+  bool moving = false;
 };
 
 enum class ServerEntityInterpolationIngestStatus : std::uint8_t {

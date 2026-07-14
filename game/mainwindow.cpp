@@ -9,10 +9,10 @@
 #include <Tempest/Application>
 #include <Tempest/Log>
 
+#include <algorithm>
 #include <chrono>
-#include <filesystem>
-#include <optional>
-#include <system_error>
+#include <cmath>
+#include <limits>
 #include <thread>
 
 #include "ui/dialogmenu.h"
@@ -26,7 +26,6 @@
 #include "world/objects/npc.h"
 #include "game/serialize.h"
 #include "game/globaleffects.h"
-#include "game/mmorestoresnapshot.h"
 #include "game/mmoclientbridge.h"
 #include "game/worldstateexporter.h"
 #include "utils/gthfont.h"
@@ -39,95 +38,71 @@ using namespace Tempest;
 
 namespace {
 
-bool nativeSaveFileExists(std::string_view slot) noexcept {
-  if(slot.empty())
+Mmo::ClientMmoSessionRequest mmoSessionRequestFromCommandLine(
+    const bool createIfMissing) {
+  const auto& cmd = CommandLine::inst();
+  Mmo::ClientMmoSessionRequest request;
+  request.characterId = cmd.mmoCharacterId();
+  request.characterName = std::string(cmd.mmoCharacterDisplayName());
+  request.archetypeId = cmd.mmoCharacterArchetypeId();
+  request.appearanceProfileId = cmd.mmoCharacterAppearanceProfileId();
+  request.contentManifestId = cmd.mmoContentManifestId();
+  request.createIfMissing = createIfMissing;
+  request.enterWorld = true;
+  return request;
+}
+
+bool ensureMmoServerWorld(const bool createIfMissing,
+                          const std::string_view source) {
+  if(!CommandLine::inst().mmoClientUsesServer())
+    return true;
+
+  const auto session = Mmo::waitForClientMmoSession(
+      mmoSessionRequestFromCommandLine(createIfMissing), 15'000U);
+  if(!session.inWorld()) {
+    Log::e("MMO full client cannot start world source=", source,
+           " phase=", static_cast<unsigned>(session.phase),
+           " error=", session.error.empty() ? "timeout" : session.error);
     return false;
-  std::error_code ec;
-  const std::filesystem::path path{std::string(slot)};
-  return std::filesystem::is_regular_file(path, ec) || std::filesystem::exists(path, ec);
-}
-
-std::string mmoDbBootstrapWorldName() {
-  const auto explicitWorld = CommandLine::inst().mmoDbBootstrapWorld();
-  if(!explicitWorld.empty())
-    return std::string(explicitWorld);
-  return std::string(Gothic::inst().defaultWorld());
-}
-
-bool requestMmoPreWorldDbContinueSnapshot(std::string_view slot) noexcept {
-  if(!Mmo::isServerBoundClientModeEnabled())
-    return false;
-
-  const auto& cmd = CommandLine::inst();
-  std::string characterEntity = "character:";
-  characterEntity.append(cmd.mmoCharacterKey());
-  std::string target = characterEntity + ":db-continue-pre-world";
-  const Mmo::ClientBootstrapRequest request{
-      .targetKey = target,
-      .source = "MainWindow::loadGame",
-      .actorKey = characterEntity,
-      .characterKey = cmd.mmoCharacterKey(),
-      .displayName = cmd.mmoCharacterDisplayName(),
-      .world = cmd.mmoDbBootstrapWorld(),
-      .serverEndpoint = cmd.mmoServerEndpoint(),
-      .clientContentManifestHash = cmd.mmoClientContentManifestHash(),
-      .reason = "db_continue_pre_world_request",
-  };
-  static_cast<void>(slot);
-  return Mmo::submitClientBootstrap(request).accepted();
-}
-
-bool shouldUseMmoDbContinue(std::string_view slot) noexcept {
-  const auto& cmd = CommandLine::inst();
-  return cmd.mmoClientUsesServer() &&
-         cmd.mmoDbContinueWithoutNativeSave() &&
-         (!nativeSaveFileExists(slot) || slot == cmd.mmoDbContinueSyntheticSlot());
-}
-
-std::optional<std::string> mmoDbContinueWorldFromServerSnapshot(std::string_view slot) {
-  const auto& cmd = CommandLine::inst();
-  if(!shouldUseMmoDbContinue(slot) || !cmd.mmoDbBootstrapWorld().empty())
-    return std::nullopt;
-
-  // Discard stale snapshots before issuing a request. The bootstrap payload is
-  // kept in memory by client_sandbox; no runtime JSON file participates in the
-  // production path.
-  (void)Mmo::drainServerBootstrapSnapshots();
-  if(!requestMmoPreWorldDbContinueSnapshot(slot)) {
-    Log::e("MMO DB continue pre-world bootstrap request was not accepted");
-    return std::nullopt;
   }
 
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2500);
-  while(std::chrono::steady_clock::now() < deadline) {
-    for(auto& snapshot : Mmo::drainServerBootstrapSnapshots()) {
-      auto result = Mmo::RestoreSnapshot::parseAndValidateBootstrapSnapshot(
-          snapshot.payload, cmd.mmoCharacterKey());
-      if(!result.ok) {
-        Log::e("MMO DB continue pre-world snapshot rejected: ", result.message);
-        continue;
-      }
-      if(cmd.mmoRequireDbSaveCheckpointRestore() &&
-         result.snapshotSource != "db_save_checkpoint_v1") {
-        Log::e("MMO DB continue pre-world snapshot rejected: strict DB checkpoint restore required",
-               " snapshot_source=", result.snapshotSource);
-        continue;
-      }
-      if(result.worldName.empty()) {
-        Log::e("MMO DB continue pre-world snapshot has no world_name");
-        continue;
-      }
-      Log::i("MMO DB continue pre-world snapshot selected world=", result.worldName,
-             " snapshot_id=", snapshot.snapshotId,
-             " snapshot_source=", result.snapshotSource,
-             " manifest=", result.dbSaveCheckpointManifestUuid);
-      return result.worldName;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
+  const auto& cmd = CommandLine::inst();
+  cmd.setMmoCharacterSelection(session.characterId,
+                               cmd.mmoCharacterKey(),
+                               cmd.mmoCharacterDisplayName());
+  return true;
+}
 
-  Log::e("MMO DB continue pre-world snapshot timed out, falling back to configured/default world");
-  return std::nullopt;
+[[nodiscard]] constexpr std::int16_t quantizeMovementAxis(
+    const float value) noexcept {
+  if(value >= 1.f)
+    return std::numeric_limits<std::int16_t>::max();
+  if(value <= -1.f)
+    return -std::numeric_limits<std::int16_t>::max();
+  return static_cast<std::int16_t>(
+      value * static_cast<float>(std::numeric_limits<std::int16_t>::max()));
+}
+
+[[nodiscard]] std::uint16_t quantizeYawDegrees(float value) noexcept {
+  value = std::fmod(value, 360.f);
+  if(value < 0.f)
+    value += 360.f;
+  constexpr float Scale =
+      static_cast<float>(std::numeric_limits<std::uint16_t>::max()) / 360.f;
+  return static_cast<std::uint16_t>(std::lround(value * Scale));
+}
+
+[[nodiscard]] Mmo::ClientMovementMode movementModeFor(const Npc& player) noexcept {
+  if(player.isDive())
+    return Mmo::ClientMovementMode::Dive;
+  if(player.isSwim())
+    return Mmo::ClientMovementMode::Swim;
+  const auto walkMode = player.walkMode();
+  if((walkMode & WalkBit::WM_Sneak) == WalkBit::WM_Sneak)
+    return Mmo::ClientMovementMode::Sneak;
+  if((walkMode & WalkBit::WM_Walk) == WalkBit::WM_Walk)
+    return Mmo::ClientMovementMode::Walk;
+  return Mmo::ClientMovementMode::Run;
 }
 
 } // namespace
@@ -183,7 +158,13 @@ MainWindow::MainWindow(Device& device)
     }
   else if(!CommandLine::inst().doStartMenu()) {
     startGame(Gothic::inst().defaultWorld());
-    rootMenu.popMenu();
+    if(!CommandLine::inst().mmoClientUsesServer() ||
+       Mmo::clientMmoSessionSnapshot().inWorld()) {
+      rootMenu.popMenu();
+    } else {
+      rootMenu.setMainMenu();
+      rootMenu.processMusicTheme();
+    }
     }
   else {
     rootMenu.processMusicTheme();
@@ -655,6 +636,13 @@ void MainWindow::keyUpEvent(KeyEvent &event) {
     clearInput();
     }
   else if(act==KeyCodec::Inventory && !dialogs.isActive()) {
+    if(CommandLine::inst().mmoClientUsesServer()) {
+      Log::i("MMO inventory UI is read-disabled until typed item-stack and "
+             "inventory revision presentation is connected");
+      clearInput();
+      player.onKeyReleased(act, mapping);
+      return;
+    }
     if(inventory.isActive()) {
       inventory.close();
       } else {
@@ -1035,9 +1023,91 @@ uint64_t MainWindow::tick() {
     clearInput();
   tickMouse(dt);
   player.tickMove(dt);
+  tickMmoMovement(dt);
   update();
   return dt;
   }
+
+void MainWindow::tickMmoMovement(const uint64_t dt) {
+  if(!CommandLine::inst().mmoClientUsesServer())
+    return;
+
+  Mmo::pollClientMmoSession();
+  const auto session = Mmo::clientMmoSessionSnapshot();
+  if(!session.inWorld())
+    return;
+
+  mmoMovementElapsed += dt;
+  const auto interval = std::max<std::uint64_t>(
+      50U, CommandLine::inst().mmoActionMovementProposalIntervalMs());
+  if(mmoMovementElapsed < interval)
+    return;
+  mmoMovementElapsed %= interval;
+
+  auto* actor = Gothic::inst().player();
+  if(actor == nullptr)
+    return;
+
+  const auto input = player.movementInputSnapshot();
+  const auto position = actor->position();
+  constexpr std::uint8_t MovementFlagJump = 1U << 0U;
+  constexpr std::uint8_t MovementFlagStrafe = 1U << 1U;
+  constexpr std::uint8_t MovementFlagAction = 1U << 2U;
+  constexpr std::uint8_t MovementFlagWeaponDrawn = 1U << 3U;
+
+  std::uint8_t flags = 0U;
+  if(input.jump)
+    flags |= MovementFlagJump;
+  if(input.right != 0.f)
+    flags |= MovementFlagStrafe;
+  if(input.action)
+    flags |= MovementFlagAction;
+  if(actor->weaponState() != WeaponState::NoWeapon)
+    flags |= MovementFlagWeaponDrawn;
+
+  const auto& cmd = CommandLine::inst();
+  std::string actorKey = "character:";
+  actorKey.append(cmd.mmoCharacterKey());
+  Mmo::ClientMovementIntent intent;
+  intent.hasNormalizedInput = true;
+  intent.forward = quantizeMovementAxis(input.forward);
+  intent.right = quantizeMovementAxis(input.right);
+  intent.viewYaw = quantizeMovementAxis(input.turn);
+  intent.viewPitch = 0;
+  intent.mode = movementModeFor(*actor);
+  intent.inputFlags = flags;
+  intent.predictedYaw = quantizeYawDegrees(actor->rotation());
+  intent.lastAcknowledgedServerTick = session.lastServerTick;
+  intent.from.tick = session.lastServerTick;
+  intent.from.x = position.x;
+  intent.from.y = position.y;
+  intent.from.z = position.z;
+  intent.from.yaw = actor->rotation();
+  intent.to = intent.from;
+  intent.targetKey = actorKey;
+  intent.source = "MainWindow::tickMmoMovement";
+  intent.actorKey = actorKey;
+  intent.characterKey = cmd.mmoCharacterKey();
+  const auto* world = Gothic::inst().world();
+  intent.world = world != nullptr ? world->name()
+                                  : Gothic::inst().defaultWorld();
+  intent.reason = "player_input";
+
+  const auto result = Mmo::submitClientMovement(intent);
+  if(result.status == Mmo::ClientMmoSubmitStatus::QueueFull ||
+     result.status == Mmo::ClientMmoSubmitStatus::TransportError) {
+    ++mmoMovementFailureCount;
+    if(mmoMovementFailureCount == 1U ||
+       (mmoMovementFailureCount % 100U) == 0U) {
+      Log::e("MMO movement submission failed status=",
+             static_cast<unsigned>(result.status),
+             " consecutive_failures=", mmoMovementFailureCount,
+             " dropped=", result.droppedCount);
+    }
+    return;
+  }
+  mmoMovementFailureCount = 0U;
+}
 
 void MainWindow::updateAnimation(uint64_t dt) {
   Gothic::inst().updateAnimation(dt);
@@ -1143,6 +1213,8 @@ Camera::Mode MainWindow::solveCameraMode() const {
 void MainWindow::startGame(std::string_view slot) {
   // gothic.emitGlobalSound(gothic.loadSoundFx("NEWGAME"));
   const bool mmoServerFreshNewGame = CommandLine::inst().mmoClientUsesServer();
+  if(mmoServerFreshNewGame && !ensureMmoServerWorld(true, "MainWindow::startGame"))
+    return;
   if(mmoServerFreshNewGame)
     Log::i("MMO menu New Game: starting fresh server-bound client baseline without DB Continue restore",
            " character_key=", CommandLine::inst().mmoCharacterKey(),
@@ -1168,6 +1240,13 @@ void MainWindow::startGame(std::string_view slot) {
   }
 
 void MainWindow::loadGame(std::string_view slot) {
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    if(!ensureMmoServerWorld(false, "MainWindow::loadGame"))
+      return;
+    startGame(Gothic::inst().defaultWorld());
+    return;
+  }
+
   if(Gothic::inst().checkLoading()==Gothic::LoadState::Idle){
     setGameImpl(nullptr);
     }
@@ -1175,16 +1254,6 @@ void MainWindow::loadGame(std::string_view slot) {
   Gothic::inst().setBenchmarkMode(Benchmark::None);
   Gothic::inst().startLoad("LOADING.TGA",[slot=std::string(slot)](std::unique_ptr<GameSession>&& game){
     game = nullptr; // clear world-memory now
-
-    if(shouldUseMmoDbContinue(slot)) {
-      auto world = mmoDbBootstrapWorldName();
-      if(auto serverWorld = mmoDbContinueWorldFromServerSnapshot(slot))
-        world = std::move(*serverWorld);
-      Log::i("MMO DB continue: native save is missing, bootstrapping baseline world ", world,
-             " and applying server snapshot for slot ", slot);
-      std::unique_ptr<GameSession> w(new GameSession(std::move(world), GameSession::StartupMode::MmoDbContinue));
-      return w;
-      }
 
     Tempest::RFile file(slot);
     Serialize      s(file);

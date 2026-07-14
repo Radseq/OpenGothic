@@ -1,6 +1,6 @@
 # Next Work — Full OpenGothic Client
 
-Last updated: 2026-07-13.
+Last updated: 2026-07-14.
 
 The global roadmap currently prioritizes Protocol V2, typed replication and
 binary bootstrap before broad MMO UX. Client changes should connect those
@@ -18,15 +18,22 @@ Implemented:
 - native single-player behavior remains behind existing mode checks.
 
 Movement input, interaction handles, weapon/combat actions and numeric dialog
-choices map directly to `ClientRuntimeFacade`. Next:
+choices map directly to `ClientRuntimeFacade`. Implemented in the graphical
+client:
 
-- implement the full hello/authenticate/list/create/select/enter-world menu
-  lifecycle instead of the removed one-shot bootstrap request;
-- feed normalized movement axes and acknowledged server tick from player input,
-  replacing transform-only movement/checkpoint hooks;
+- full hello/authenticate/list/create/select/enter-world lifecycle;
+- typed roster-backed New Game and Continue/Load;
+- normalized movement axes, movement mode, input flags, predicted pose and
+  acknowledged server tick;
+- exact NPC/interactive reverse lookup for Talk/Loot/Use;
+- typed draw/holster/primary/secondary/parry submission and local-damage
+  suppression for server replicas.
+
+Next:
+
 - extend inventory/equipment/container/trade hooks with V2 item/entity handles,
   generations and expected revisions;
-- bind numeric dialog/combat identities from typed presentation state;
+- enrich numeric dialog identities and choice metadata from typed presentation state;
 - keep sequence/idempotency/receipt/retry/reconnect ownership inside the facade;
 - do not restore packet-shaped compatibility submission while these hooks are
   incomplete.
@@ -59,9 +66,10 @@ Facade-domain mapping now implemented:
 
 Next integration:
 
-- replace the bounded direct `ArchetypeId -> script symbol` compatibility rule
-  with a production client resource catalog for hashed/catalog
-  `PresentationId`/`ArchetypeId` values;
+- deploy the importer-generated shared binary presentation catalog next to the
+  client build, then pass `-mmo-client-presentation-catalog` together with the
+  admitted `-mmo-client-presentation-manifest-id`; the runtime consumer and exact
+  `(ArchetypeId, PresentationId) -> Daedalus instance` lookup are implemented;
 - extend the typed dialog presentation contract or catalog lookup so numeric
   line IDs resolve to subtitle/audio metadata and awaiting-choice updates carry
   the actual revisioned choice list;
@@ -83,11 +91,22 @@ results as MMO truth.
 
 ## 4. MMO character UX
 
+Implemented:
+
 - New Game creates a server character;
 - Continue/Load lists server characters without selecting local save files;
-- Save is disabled/replaced in MMO mode;
-- remove hardcoded development character/session identities;
-- world transitions use server approval and loading presentation.
+- Save is disabled in MMO mode;
+- command-line character/session identities are configurable;
+- `-nomenu` can auto-enter a server session, and the launcher starts a local
+  server plus graphical client.
+
+Next:
+
+- replace development guest identity with production account login/token UX;
+- add character deletion/rename/appearance selection;
+- make world transitions use server approval plus explicit loading
+  presentation;
+- present reconnect/recovery state in UI instead of logs only.
 
 ## Acceptance
 

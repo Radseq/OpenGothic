@@ -278,12 +278,24 @@ class ServerPresentationState final {
                : nullptr;
   }
 
+  [[nodiscard]] const ServerPresentationInteractiveStateRecord*
+  findInteractiveById(const std::uint64_t entityId) const noexcept {
+    const auto found = interactives_.find(entityId);
+    return found != interactives_.end() ? &found->second : nullptr;
+  }
+
   [[nodiscard]] const ServerPresentationMoverStateRecord* findMover(
       const ServerPresentationEntityHandle handle) const noexcept {
     const auto found = movers_.find(handle.id);
     return found != movers_.end() && found->second.entity == handle
                ? &found->second
                : nullptr;
+  }
+
+  [[nodiscard]] const ServerPresentationMoverStateRecord* findMoverById(
+      const std::uint64_t entityId) const noexcept {
+    const auto found = movers_.find(entityId);
+    return found != movers_.end() ? &found->second : nullptr;
   }
 
   [[nodiscard]] const ServerPresentationDialogState& dialog() const noexcept {

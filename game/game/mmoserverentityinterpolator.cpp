@@ -15,6 +15,13 @@ namespace {
   return dx * dx + dy * dy + dz * dz;
 }
 
+[[nodiscard]] double horizontalSquaredDistance(double ax, double az,
+                                               double bx, double bz) noexcept {
+  const auto dx = bx - ax;
+  const auto dz = bz - az;
+  return dx * dx + dz * dz;
+}
+
 [[nodiscard]] double normalizeRadians(double value) noexcept {
   constexpr double Pi = 3.14159265358979323846264338327950288;
   constexpr double TwoPi = Pi * 2.0;
@@ -40,6 +47,7 @@ ServerEntityInterpolator::ServerEntityInterpolator(
     : config_(config) {
   config_.maxEntities = std::max<std::size_t>(1, config_.maxEntities);
   config_.snapDistance = std::max(0.0, config_.snapDistance);
+  config_.movementThreshold = std::max(0.0, config_.movementThreshold);
   tracks_.reserve(config_.maxEntities);
 }
 
@@ -126,6 +134,8 @@ void ServerEntityInterpolator::sample(
                               ? nowMs - config_.interpolationDelayMs
                               : 0U;
   const auto snapDistanceSquared = config_.snapDistance * config_.snapDistance;
+  const auto movementThresholdSquared =
+      config_.movementThreshold * config_.movementThreshold;
 
   for(const auto& [entityId, track] : tracks_) {
     static_cast<void>(entityId);
@@ -147,6 +157,9 @@ void ServerEntityInterpolator::sample(
 
     const auto& a = track.previous;
     const auto& b = track.latest;
+    const bool sourceMoving =
+        horizontalSquaredDistance(a.posX, a.posZ, b.posX, b.posZ) >
+        movementThresholdSquared;
     const bool forceSnap =
         squaredDistance(a.posX, a.posY, a.posZ,
                         b.posX, b.posY, b.posZ) > snapDistanceSquared ||
@@ -175,12 +188,14 @@ void ServerEntityInterpolator::sample(
       value.posY = lerp(a.posY, b.posY, t);
       value.posZ = lerp(a.posZ, b.posZ, t);
       value.yaw = interpolateYaw(a.yaw, b.yaw, t);
+      value.moving = sourceMoving;
       out.push_back(value);
       continue;
     }
 
+    const auto elapsedAfterLatest = renderTime - b.receivedAtMs;
     const auto extrapolateMs = std::min(
-        renderTime - b.receivedAtMs, config_.maxExtrapolationMs);
+        elapsedAfterLatest, config_.maxExtrapolationMs);
     const auto sourceDuration = b.receivedAtMs - a.receivedAtMs;
     const auto ratio = sourceDuration == 0U
                            ? 0.0
@@ -191,6 +206,8 @@ void ServerEntityInterpolator::sample(
     value.posZ = b.posZ + (b.posZ - a.posZ) * ratio;
     value.yaw = interpolateYaw(
         b.yaw, b.yaw + normalizeRadians(b.yaw - a.yaw), ratio);
+    value.moving = sourceMoving &&
+                   elapsedAfterLatest <= config_.maxExtrapolationMs;
     out.push_back(value);
   }
 

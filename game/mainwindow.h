@@ -99,6 +99,7 @@ class MainWindow : public Tempest::Window {
     uint64_t tick();
     void     updateAnimation(uint64_t dt);
     void     tickCamera(uint64_t dt);
+    void     tickMmoMovement(uint64_t dt);
     void     isDialogClosed(bool& ret);
 
     template<Tempest::KeyEvent::KeyType k>
@@ -159,6 +160,8 @@ class MainWindow : public Tempest::Window {
     Tempest::Point            dMouse;
     PlayerControl             player;
     uint64_t                  lastTick=0;
+    uint64_t                  mmoMovementElapsed=0;
+    uint64_t                  mmoMovementFailureCount=0;
 
     Tempest::Shortcut         funcKey[11];
     Tempest::Shortcut         displayPos;

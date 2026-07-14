@@ -48,6 +48,71 @@ enum class ClientMmoProcessGatePresentationEvent : std::uint8_t {
   RenderedFrame,
 };
 
+
+enum class ClientMmoSessionPhase : std::uint8_t {
+  Disabled,
+  Connecting,
+  Authenticating,
+  LoadingRoster,
+  RosterReady,
+  CreatingCharacter,
+  SelectingCharacter,
+  EnteringWorld,
+  InWorld,
+  Recovering,
+  Failed,
+};
+
+struct ClientMmoCharacter final {
+  std::uint64_t characterId = 0;
+  std::uint64_t characterRevision = 0;
+  std::uint32_t archetypeId = 0;
+  std::uint32_t appearanceProfileId = 0;
+  std::string name;
+  bool temporary = false;
+};
+
+struct ClientMmoSessionRequest final {
+  std::uint64_t characterId = 0;
+  std::string characterName;
+  std::uint32_t archetypeId = 1;
+  std::uint32_t appearanceProfileId = 1;
+  std::uint64_t contentManifestId = 1;
+  bool createIfMissing = true;
+  bool enterWorld = true;
+};
+
+struct ClientMmoSessionSnapshot final {
+  ClientMmoSessionPhase phase = ClientMmoSessionPhase::Disabled;
+  std::uint64_t connectionId = 0;
+  std::uint64_t routeEpoch = 0;
+  std::uint64_t accountId = 0;
+  std::uint64_t characterId = 0;
+  std::uint64_t characterRevision = 0;
+  std::uint64_t rosterRevision = 0;
+  std::uint64_t lastServerTick = 0;
+  std::uint64_t worldId = 0;
+  std::uint32_t worldGeneration = 0;
+  std::vector<ClientMmoCharacter> characters;
+  std::string error;
+
+  [[nodiscard]] constexpr bool rosterReady() const noexcept {
+    return phase == ClientMmoSessionPhase::RosterReady ||
+           phase == ClientMmoSessionPhase::CreatingCharacter ||
+           phase == ClientMmoSessionPhase::SelectingCharacter ||
+           phase == ClientMmoSessionPhase::EnteringWorld ||
+           phase == ClientMmoSessionPhase::InWorld;
+  }
+
+  [[nodiscard]] constexpr bool inWorld() const noexcept {
+    return phase == ClientMmoSessionPhase::InWorld;
+  }
+
+  [[nodiscard]] constexpr bool failed() const noexcept {
+    return phase == ClientMmoSessionPhase::Failed;
+  }
+};
+
 struct ServerBootstrapSnapshot final {
   std::uint32_t snapshotId = 0;
   std::uint16_t chunkCount = 0;
@@ -74,6 +139,17 @@ void recordClientMmoProcessGatePresentation(
     std::uint64_t amount = 1) noexcept;
 [[nodiscard]] std::uint64_t nextClientIntentSequence() noexcept;
 [[nodiscard]] std::string_view clientMmoSessionKey() noexcept;
+
+
+[[nodiscard]] bool beginClientMmoSession(
+    const ClientMmoSessionRequest& request);
+void pollClientMmoSession() noexcept;
+[[nodiscard]] ClientMmoSessionSnapshot clientMmoSessionSnapshot();
+[[nodiscard]] ClientMmoSessionSnapshot waitForClientMmoSession(
+    const ClientMmoSessionRequest& request,
+    std::uint64_t timeoutMilliseconds);
+[[nodiscard]] ClientMmoSessionSnapshot waitForClientMmoRoster(
+    std::uint64_t timeoutMilliseconds);
 
 [[nodiscard]] ClientMmoSubmitResult submitProtocolV2Movement(
     const ClientMovementIntent& intent) noexcept;

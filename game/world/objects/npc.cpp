@@ -2182,6 +2182,8 @@ void Npc::commitDamage() {
   }
 
 void Npc::takeDamage(Npc &other, const Bullet* b) {
+  if(mmoServerReplica && !isPlayer())
+    return;
   if(isDown())
     return;
 
@@ -2206,6 +2208,8 @@ void Npc::takeDamage(Npc &other, const Bullet* b) {
   }
 
 void Npc::takeDamage(Npc& other, const Bullet* b, const VisualFx* vfx, int32_t splId) {
+  if(mmoServerReplica && !isPlayer())
+    return;
   if(isDown())
     return;
 
@@ -2221,6 +2225,11 @@ void Npc::takeDamage(Npc& other, const Bullet* b, const VisualFx* vfx, int32_t s
   }
 
 void Npc::takeDamage(Npc& other, const Bullet* b, const CollideMask bMask, int32_t splId, bool isSpell) {
+  // The full client may still play predicted attack animations, but a
+  // server-owned replica must never accept local hit resolution or mutate its
+  // gameplay attributes. NpcState replication remains the only owner here.
+  if(mmoServerReplica && !isPlayer())
+    return;
   float a  = angleDir(other.x-x,other.z-z);
   float da = a-angle;
   if(std::cos(da*M_PI/180.0)<0)

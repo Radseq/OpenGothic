@@ -30,9 +30,19 @@ ClientMmoSubmitResult submitClientBootstrap(
     return {};
   if(!ClientAdapterDetail::validBootstrapRequest(request))
     return submitResult(ClientMmoSubmitStatus::InvalidIntent);
-  // Bootstrap is a Protocol V2 session lifecycle, not a single compatibility
-  // packet. The menu controller must perform hello/auth/select/enter-world.
-  return submitResult(ClientMmoSubmitStatus::UnsupportedIntent);
+  try {
+    ClientMmoSessionRequest session;
+    session.characterName = request.displayName.empty()
+                                ? std::string(request.characterKey)
+                                : std::string(request.displayName);
+    session.createIfMissing = true;
+    session.enterWorld = true;
+    return beginClientMmoSession(session)
+               ? submitResult(ClientMmoSubmitStatus::Accepted)
+               : submitResult(ClientMmoSubmitStatus::TransportError);
+  } catch(...) {
+    return submitResult(ClientMmoSubmitStatus::TransportError);
+  }
 }
 
 ClientMmoSubmitResult submitClientInteraction(

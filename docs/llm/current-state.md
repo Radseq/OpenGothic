@@ -1,11 +1,17 @@
 # Current State — Full OpenGothic Client
 
-Last verified: 2026-07-13 against client source and focused CMake tests.
+Last verified: 2026-07-14 against client source, focused CMake tests and graphical-launch integration review.
 
 ## Implemented MMO boundary
 
 - `mmoclientbridge.cpp` consumes
   `src/client_sandbox/include/gothic/mmo/client_runtime_facade.h`;
+- the bridge now owns a thin graphical-session coordinator over the facade for
+  Protocol V2 hello/route binding, guest authentication, character roster,
+  create/select, enter-world, heartbeat and resume after transport replacement;
+- `ClientMmoSessionSnapshot` is the UI/GameSession-facing typed status model;
+  the full client still owns no socket, codec, retry ledger or bootstrap
+  assembler;
 - client CMake adds the sandbox as a subdirectory and links the ASIO facade when
   available;
 - endpoint/socket/worker/retry/bootstrap assembly are not implemented in the
@@ -22,14 +28,20 @@ Last verified: 2026-07-13 against client source and focused CMake tests.
 - JSON exists at a local diagnostic boundary and is not parsed back into wire
   gameplay packets.
 
-## Bootstrap and menu
+## Session, bootstrap and menu
 
-- completed snapshot payloads and server ACKs arrive through in-memory facade
-  mailboxes;
-- menu bootstrap rejection/status reads the in-memory bridge;
-- obsolete filesystem ACK/rejection control paths are removed;
-- the snapshot body remains the historical in-memory string/JSON schema until
-  typed binary bootstrap sections replace it.
+- New Game authenticates, creates/selects a server character and enters the
+  authoritative world before constructing the graphical `GameSession`;
+- Continue/Load obtains the typed server roster and selects by stable
+  `CharacterId`; native `.sav` slots are not authoritative in MMO mode;
+- Save is disabled in server-bound mode;
+- `-nomenu` auto-entry keeps the menu visible when the network/session step
+  fails instead of hiding the only recovery UI;
+- completed typed bootstrap sections and server ACKs arrive through in-memory
+  facade mailboxes; obsolete filesystem and legacy string/JSON bootstrap
+  control paths are removed;
+- `tools/run_mmo_graphical_client.py` starts the fixture-backed production UDP
+  server and launches `Gothic2Notr` directly into the graphical MMO session.
 
 ## Presentation
 
@@ -68,6 +80,14 @@ Last verified: 2026-07-13 against client source and focused CMake tests.
   regeneration and combat authority while retaining animation/presentation;
 - server dialog revisions/choices drive presentation; client sends only a
   domain choice request.
+- the main loop submits normalized movement axes, movement mode, input flags,
+  predicted pose and last acknowledged server tick at a bounded cadence;
+- player interaction resolves local NPC/interactive objects back to the exact
+  server entity handle and revision before sending Talk/Loot/Use;
+- weapon and melee input submits typed draw/holster/primary/secondary/parry
+  commands with exact target handle/revision where available;
+- replicated NPCs reject local damage mutation, so predicted attack animation
+  cannot become client-side combat authority.
 - the deterministic two-client Protocol V2 gate builds two independent typed
   facade mailbox cuts and applies them through
   `mapClientRuntimePresentationMailbox` plus `consumeServerPresentationBatch`
@@ -107,21 +127,31 @@ Last verified: 2026-07-13 against client source and focused CMake tests.
   back into legacy dialog wire packets;
 - the old entity-transform and dialog-presentation mailbox drains were removed
   from the full-client bridge;
-- production `PresentationId`/`ArchetypeId` values still require a client
-  resource catalog; the direct script-symbol compatibility path is intentionally
-  bounded and rejects hashed/catalog IDs it cannot resolve;
+- the optional bounded binary presentation-catalog runtime validates the
+  admitted `ContentManifestId` and maps an exact
+  `(ArchetypeId, PresentationId)` pair to a Daedalus instance name before NPC
+  or remote-player materialization; the offline importer can publish the
+  matching NPC `GMPCAT01` artifact and failed reloads clear the prior catalog;
+- the direct script-symbol compatibility path remains intentionally bounded
+  when no production catalog is configured and rejects hashed/catalog IDs it
+  cannot resolve;
 - the current typed dialog schema carries numeric line and choice revisions but
   not presentation text/audio or the choice list, so those UI elements remain
   blocked on a richer presentation/catalog contract;
-- complete character create/select/load UX, typed inventory/combat/quest UI and
-  world-transition flow are not finished;
-- F3 instrumentation is integrated with the public sandbox facade and records
-  route/bootstrap installation, exact local/remote/NPC materialization,
-  correction, dialog, interactive, mover and presented Vulkan frames. The
-  process runner can launch two graphical clients and restart the server, but
-  the acceptance run still requires a complete dependency checkout, `glslangValidator` and private Gothic
-  assets;
-- MMO save replacement and reconnect recovery are not complete;
+- character create/select/load is functional for the initial graphical flow;
+  richer account UX, character deletion/renaming and world-transition loading
+  presentation remain open;
+- typed inventory/equipment/container/trade/use-item and quest UI are still
+  blocked on exact item-stack/world-item handles and revisioned presentation;
+- combat input is wired for draw/holster/primary/secondary/parry, but health,
+  damage-result, projectile/spell and death presentation contracts remain
+  incomplete;
+- the two-client gate currently validates the production presentation domain
+  boundary without launching ZenEngine/Vulkan; actual two-process rendering,
+  animation, dialog UI and mover/door acceptance remains open;
+- logical-session reconnect/resume is wired through the facade and bridge;
+  durable recovery across a server-process restart still depends on the server
+  durable-state configuration;
 - SQLite capture/restore tooling under `src/client/tools/mmo` is optional and
   disabled by default; it is unrelated to the repository LLM search index.
 

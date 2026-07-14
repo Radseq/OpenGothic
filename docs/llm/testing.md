@@ -49,8 +49,38 @@ Configure the normal client build with the workspace sandbox available. Verify:
 - route replacement clears old presentation bindings;
 - local/remote-player/NPC classification;
 - server-replica identity/interpolation and safe despawn;
+- presentation-catalog decode, manifest admission and exact NPC resource
+  lookup, including fail-closed replacement of a previously installed catalog;
 - dialog choice submission and presentation;
 - clean handling of missing ASIO backend/facade.
 
 Record commands actually run. Do not preserve local credentials, absolute paths
 or full logs in canonical context.
+
+## Graphical client smoke run
+
+Build the server and the normal graphical client in a complete checkout, then:
+
+```bash
+python3 tools/run_mmo_graphical_client.py \
+  --server-exe build/mmo_cpp_server/mmo_udp_server \
+  --client-exe build/client/opengothic/Gothic2Notr \
+  --gothic-dir "/path/to/Gothic II"
+```
+
+The default run starts the production UDP server with the deterministic
+Protocol V2 gameplay fixture and launches the client with `-nomenu`. Verify in
+`runtime/graphical-mmo/server.log` and the client log:
+
+- session reaches `in_world`;
+- local player accepts keyboard movement while server corrections remain
+  authoritative;
+- replicated players/NPCs materialize;
+- Talk/Loot/Use resolves an exact server handle;
+- draw/holster/attack/parry submit typed combat actions;
+- local attacks do not mutate replicated NPC hit points;
+- stopping/restarting transport uses the resume ticket when the server durable
+  state remains available.
+
+Use `--menu` to verify typed roster-backed New Game and Continue/Load, or
+`--existing-server` when the server is started separately.

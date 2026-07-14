@@ -61,6 +61,8 @@ class CommandLine {
     bool                mmoClientDialogObservationReceipt() const { return mmoClientDialogObservationReceiptState; }
     std::string_view    mmoServerEndpoint() const { return mmoServerEndpointValue; }
     std::string_view    mmoClientContentManifestHash() const { return mmoClientContentManifestHashValue; }
+    std::string_view    mmoClientPresentationCatalog() const { return mmoClientPresentationCatalogPath; }
+    uint64_t            mmoClientPresentationManifestId() const { return mmoClientPresentationManifestIdValue; }
     std::string_view    mmoProcessGateReport() const { return mmoProcessGateReportPath; }
     std::string_view    mmoProcessGateClientId() const { return mmoProcessGateClientIdValue; }
     uint64_t            mmoProcessGateContentManifestId() const { return mmoProcessGateContentManifestIdValue; }
@@ -80,7 +82,14 @@ class CommandLine {
     std::string_view    mmoActionSessionKey() const { return mmoActionSession; }
     std::string_view    mmoCharacterKey() const { return mmoCharacterKeyValue; }
     std::string_view    mmoCharacterDisplayName() const { return mmoCharacterDisplayNameValue; }
+    uint64_t            mmoCharacterId() const { return mmoCharacterIdValue; }
+    uint32_t            mmoCharacterArchetypeId() const { return mmoCharacterArchetypeIdValue; }
+    uint32_t            mmoCharacterAppearanceProfileId() const { return mmoCharacterAppearanceProfileIdValue; }
+    uint64_t            mmoContentManifestId() const { return mmoContentManifestIdValue; }
     void                setMmoCharacterIdentity(std::string_view key, std::string_view displayName) const;
+    void                setMmoCharacterSelection(uint64_t characterId,
+                                                 std::string_view key,
+                                                 std::string_view displayName) const;
     uint64_t            mmoActionQueueCapacity() const { return mmoActionQueueCap; }
     bool                mmoActionStrictOverflow() const { return mmoActionStrictOverflowState; }
     uint64_t            mmoActionCheckpointIntervalMs() const { return mmoActionCheckpointInterval; }
@@ -114,6 +123,8 @@ class CommandLine {
     bool                mmoClientDialogObservationReceiptState = false;
     std::string         mmoServerEndpointValue;
     std::string         mmoClientContentManifestHashValue;
+    std::string         mmoClientPresentationCatalogPath;
+    uint64_t            mmoClientPresentationManifestIdValue = 0U;
     std::string         mmoProcessGateReportPath;
     std::string         mmoProcessGateClientIdValue = "graphical";
     uint64_t            mmoProcessGateContentManifestIdValue = 1;
@@ -126,6 +137,10 @@ class CommandLine {
     std::string         mmoActionSession = "local-dev-PC_HERO_TEST";
     mutable std::string mmoCharacterKeyValue = "PC_HERO";
     mutable std::string mmoCharacterDisplayNameValue = "Ja";
+    mutable uint64_t    mmoCharacterIdValue = 0;
+    uint32_t            mmoCharacterArchetypeIdValue = 1;
+    uint32_t            mmoCharacterAppearanceProfileIdValue = 1;
+    uint64_t            mmoContentManifestIdValue = 1;
     uint64_t            mmoActionQueueCap = 4096;
     bool                mmoActionStrictOverflowState = false;
     uint64_t            mmoActionCheckpointInterval = 5000;

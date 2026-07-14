@@ -161,6 +161,22 @@ const ServerEntityPresentationBinding* ServerEntityPresentationRegistry::find(
              : nullptr;
 }
 
+const ServerEntityPresentationBinding*
+ServerEntityPresentationRegistry::findLocal(
+    const std::uintptr_t localObjectToken) const noexcept {
+  if(localObjectToken == 0U)
+    return nullptr;
+  const auto local = localToEntity_.find(localObjectToken);
+  if(local == localToEntity_.end())
+    return nullptr;
+  const auto entity = entries_.find(local->second);
+  if(entity == entries_.end() ||
+     entity->second.local.localObjectToken != localObjectToken) {
+    return nullptr;
+  }
+  return &entity->second;
+}
+
 void ServerEntityPresentationRegistry::touch(
     const ServerEntityTransformObservation& transform) noexcept {
   if(!routeMatches(transform.route))

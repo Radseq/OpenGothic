@@ -5,6 +5,7 @@
 #endif
 #include "mmosemantichooks.h"
 #include "mmoclientbridge.h"
+#include "mmoclientpresentationcatalog.h"
 #include "mmoserverpresentationbatchconsumer.h"
 #include "mmorestoresnapshot.h"
 
@@ -511,30 +512,54 @@ Npc* findNpcByPresentationIdentity(
   return findNpcByObjectToken(world, local.localObjectToken);
 }
 
-[[nodiscard]] bool directMmoPresentationNpcSymbol(
-    const Mmo::ClientPresentation::ServerPresentationMapping& mapping,
-    std::uint32_t& instanceSymbol) noexcept {
-  // The current fake-mailbox contract may use an OpenGothic script symbol as
-  // ArchetypeId. Production hashed/catalog IDs intentionally fail closed until
-  // a PresentationId/ArchetypeId resource catalog is installed.
-  if(!mapping.valid() ||
-     mapping.archetypeId > std::numeric_limits<std::uint32_t>::max()) {
-    return false;
-  }
-  instanceSymbol = static_cast<std::uint32_t>(mapping.archetypeId);
-  return instanceSymbol != 0U;
-}
-
 MmoServerEntityMaterialization materializeMmoServerEntityNpc(
     World& world,
+    GameScript& scripts,
+    const Mmo::ClientPresentation::ClientPresentationCatalogRuntime* catalog,
     const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity) noexcept {
   using Kind = Mmo::ClientPresentation::ServerPresentationEntityKind;
   if(entity.kind == Kind::LocalPlayer)
     return {world.player(), false};
 
-  std::uint32_t instanceSymbol = 0U;
-  if(!directMmoPresentationNpcSymbol(entity.presentation, instanceSymbol))
+  if(!entity.presentation.valid())
     return {};
+
+  std::optional<std::uint32_t> catalogSymbol;
+  if(catalog != nullptr && catalog->installed()) {
+    auto instanceName = entity.kind == Kind::RemotePlayer
+                            ? catalog->playerInstanceName(
+                                  entity.presentation.archetypeId,
+                                  entity.presentation.presentationId)
+                            : catalog->npcInstanceName(
+                                  entity.presentation.archetypeId,
+                                  entity.presentation.presentationId);
+    if(!instanceName.has_value() && entity.kind == Kind::RemotePlayer) {
+      instanceName = catalog->npcInstanceName(
+          entity.presentation.archetypeId,
+          entity.presentation.presentationId);
+    }
+    if(instanceName.has_value()) {
+      const auto symbol = scripts.findSymbolIndex(*instanceName);
+      if(symbol != size_t(-1) &&
+         symbol <= std::numeric_limits<std::uint32_t>::max()) {
+        catalogSymbol = static_cast<std::uint32_t>(symbol);
+      }
+    }
+  }
+
+  const auto* localPlayer = world.player();
+  const auto localPlayerSymbol = localPlayer != nullptr
+                                     ? localPlayer->instanceSymbol()
+                                     : 0U;
+  const auto resolvedSymbol = catalogSymbol.has_value()
+                                  ? catalogSymbol
+                                  : resolveServerReplicaInstanceSymbol(
+                                        presentationRegistryKind(entity.kind),
+                                        entity.presentation.archetypeId,
+                                        localPlayerSymbol);
+  if(!resolvedSymbol.has_value() || !isValidNpcSymbol(*resolvedSymbol))
+    return {};
+  const auto instanceSymbol = *resolvedSymbol;
 
   try {
     const Tempest::Vec3 position{
@@ -951,7 +976,7 @@ void GameSession::recordMmoActionMovementProposalState(const Npc& npc, uint64_t 
 
 void GameSession::tickMmoMovementProposal(Npc& npc, uint64_t now) noexcept {
   const auto& cmd = CommandLine::inst();
-  if(cmd.mmoActionMovementProposalIntervalMs() == 0)
+  if(cmd.mmoClientUsesServer() || cmd.mmoActionMovementProposalIntervalMs() == 0)
     return;
 
   if(!lastMmoActionMovementProposal.initialized) {
@@ -1085,6 +1110,7 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
     }
 
   vm.reset(new GameScript(*this));
+  loadMmoClientPresentationCatalog();
   initPerceptions();
 
   setWorld(std::unique_ptr<World>(new World(*this,std::move(file),true,[&](int v){
@@ -1228,6 +1254,7 @@ GameSession::GameSession(Serialize &fin, std::string sourceSlot) {
 
   cam.reset(new Camera());
   vm.reset(new GameScript(*this));
+  loadMmoClientPresentationCatalog();
   vm->initDialogs();
 
   if(true) {
@@ -1278,6 +1305,33 @@ GameSession::~GameSession() {
     mmoSqlite->flush(*this);
 #endif
   }
+
+void GameSession::loadMmoClientPresentationCatalog() noexcept {
+  const auto& cmd = CommandLine::inst();
+  if(cmd.mmoClientPresentationCatalog().empty())
+    return;
+
+  auto runtime = std::make_unique<
+      Mmo::ClientPresentation::ClientPresentationCatalogRuntime>();
+  const auto result = runtime->load(
+      std::filesystem::path{cmd.mmoClientPresentationCatalog()},
+      Mmo::Presentation::ContentManifestId{
+          cmd.mmoClientPresentationManifestId()});
+  if(!result.applied()) {
+    Log::e(
+        "MMO client presentation catalog rejected: status=",
+        Mmo::ClientPresentation::toString(result.status),
+        " codec=", Mmo::Presentation::toString(result.codecStatus),
+        " path=", cmd.mmoClientPresentationCatalog());
+    return;
+  }
+  Log::i(
+      "MMO client presentation catalog installed: manifest=",
+      runtime->manifest().value,
+      " fingerprint=", runtime->contentFingerprint(),
+      " path=", cmd.mmoClientPresentationCatalog());
+  mmoClientPresentationCatalog = std::move(runtime);
+}
 
 void GameSession::save(Serialize &fout, std::string_view name, const Pixmap& screen) {
   SaveGameHeader hdr;
@@ -1901,6 +1955,68 @@ void GameSession::releaseMmoServerEntity(
   }
 }
 
+std::optional<GameSession::MmoServerEntityTarget>
+GameSession::mmoServerEntityTarget(const Npc& npc) const noexcept {
+  const auto* binding = mmoServerEntityPresentation.findLocal(
+      reinterpret_cast<std::uintptr_t>(&npc));
+  if(binding == nullptr)
+    return std::nullopt;
+
+  const Mmo::ClientPresentation::ServerPresentationEntityHandle entity{
+      .id = binding->handle.id,
+      .generation = binding->handle.generation,
+  };
+  const auto* record = mmoTypedServerPresentation.findEntity(entity);
+  const auto session = Mmo::clientMmoSessionSnapshot();
+  if(record == nullptr || !session.inWorld() || session.worldId == 0U ||
+     session.worldGeneration == 0U ||
+     binding->worldGeneration != session.worldGeneration) {
+    return std::nullopt;
+  }
+
+  return MmoServerEntityTarget{
+      .handle = {
+          .worldId = session.worldId,
+          .worldGeneration = session.worldGeneration,
+          .id = binding->handle.id,
+          .generation = binding->handle.generation,
+      },
+      .revision = record->entityRevision,
+  };
+}
+
+std::optional<GameSession::MmoServerEntityTarget>
+GameSession::mmoServerEntityTarget(
+    const Interactive& interactive) const noexcept {
+  const auto objectId = static_cast<std::uint64_t>(interactive.getId());
+  const auto* interactiveState =
+      mmoTypedServerPresentation.findInteractiveById(objectId);
+  const auto* moverState = mmoTypedServerPresentation.findMoverById(objectId);
+  if(interactiveState == nullptr && moverState == nullptr)
+    return std::nullopt;
+
+  const auto entity = interactiveState != nullptr ? interactiveState->entity
+                                                   : moverState->entity;
+  const auto revision = interactiveState != nullptr
+                            ? interactiveState->stateRevision
+                            : moverState->stateRevision;
+  const auto session = Mmo::clientMmoSessionSnapshot();
+  if(!session.inWorld() || session.worldId == 0U ||
+     session.worldGeneration == 0U || !entity.valid()) {
+    return std::nullopt;
+  }
+
+  return MmoServerEntityTarget{
+      .handle = {
+          .worldId = session.worldId,
+          .worldGeneration = session.worldGeneration,
+          .id = entity.id,
+          .generation = entity.generation,
+      },
+      .revision = revision,
+  };
+}
+
 Npc* GameSession::resolveMmoServerEntity(
     const Mmo::ClientPresentation::ServerPresentationEntityHandle entity) noexcept {
   if(wrld == nullptr || !entity.valid())
@@ -1962,7 +2078,8 @@ void GameSession::materializeMmoServerEntity(
   bool materializedByMmo = false;
   bool newlyMaterialized = false;
   if(npc == nullptr) {
-    const auto materialized = materializeMmoServerEntityNpc(*wrld, entity);
+    const auto materialized = materializeMmoServerEntityNpc(
+        *wrld, *vm, mmoClientPresentationCatalog.get(), entity);
     npc = materialized.npc;
     materializedByMmo = materialized.materializedByMmo;
     const auto local = localMmoPresentationIdentity(

@@ -3,6 +3,7 @@
 #include <Tempest/Sound>
 #include <Tempest/SoundDevice>
 #include <memory>
+#include <optional>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -11,6 +12,7 @@
 #include "game/gamescript.h"
 #include "camera.h"
 #include "gametime.h"
+#include "mmoclientadapter.h"
 #include "mmoserverentitypresentationregistry.h"
 #include "mmoserverentityinterpolator.h"
 #include "mmomovementcorrectionboundary.h"
@@ -23,6 +25,7 @@
 class World;
 class WorldView;
 class Npc;
+class Interactive;
 class Serialize;
 class GSoundEffect;
 class SoundFx;
@@ -31,6 +34,9 @@ class VisualFx;
 class WorldStateStorage;
 class VersionInfo;
 class GthFont;
+namespace Mmo::ClientPresentation {
+class ClientPresentationCatalogRuntime;
+}
 #if OPENGOTHIC_MMO_SQLITE_TOOLING
 class MmoRuntimeSqlite;
 #endif
@@ -99,6 +105,15 @@ class GameSession final {
     AiOuputPipe* openDlgOuput(Npc &player, Npc &npc);
     bool         isNpcInDialog(const Npc& npc) const;
     bool         isInDialog() const;
+
+    struct MmoServerEntityTarget final {
+      Mmo::ClientEntityHandle handle;
+      std::uint64_t revision = 0;
+    };
+    [[nodiscard]] std::optional<MmoServerEntityTarget>
+        mmoServerEntityTarget(const Npc& npc) const noexcept;
+    [[nodiscard]] std::optional<MmoServerEntityTarget>
+        mmoServerEntityTarget(const Interactive& interactive) const noexcept;
 
   private:
     struct ChWorld {
@@ -208,6 +223,7 @@ class GameSession final {
     void        pollMmoServerSnapshotRestore() noexcept;
     struct MmoServerPresentationBatchSink;
 
+    void        loadMmoClientPresentationCatalog() noexcept;
     void        pollMmoServerPresentationMailbox() noexcept;
     void        resetMmoServerPresentationProjection() noexcept;
     void        resetMmoServerPresentationWorld() noexcept;
@@ -251,6 +267,8 @@ class GameSession final {
                                    mmoMovementCorrectionBoundary;
     Mmo::ClientPresentation::ServerPresentationState
                                    mmoTypedServerPresentation;
+    std::unique_ptr<Mmo::ClientPresentation::ClientPresentationCatalogRuntime>
+                                   mmoClientPresentationCatalog;
     std::vector<Mmo::ClientPresentation::ServerEntityPresentationTransform>
                                    mmoServerEntitySamples;
     uint64_t                       mmoPresentationWorldGeneration = 0;

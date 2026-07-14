@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -30,6 +31,24 @@ enum class ServerEntityKind : std::uint8_t {
     const ServerEntityKind kind) noexcept {
   return kind == ServerEntityKind::LocalPlayer ||
          kind == ServerEntityKind::RemotePlayer;
+}
+
+[[nodiscard]] constexpr std::optional<std::uint32_t>
+resolveServerReplicaInstanceSymbol(
+    const ServerEntityKind kind,
+    const std::uint64_t archetypeId,
+    const std::uint32_t localPlayerInstanceSymbol) noexcept {
+  static_cast<void>(archetypeId);
+  // Production Protocol V2 currently emits stable 64-bit catalog identifiers.
+  // Until the client resource catalog is available, remote players can safely
+  // reuse the local hero script instance as a visual proxy. NPCs remain
+  // fail-closed because substituting a player definition would corrupt their
+  // presentation semantics.
+  if(kind == ServerEntityKind::RemotePlayer &&
+     localPlayerInstanceSymbol != 0U) {
+    return localPlayerInstanceSymbol;
+  }
+  return std::nullopt;
 }
 
 struct ServerPresentationRouteView final {

@@ -5,6 +5,7 @@
 #include "constants.h"
 
 #include <array>
+#include <cstdint>
 
 class DialogMenu;
 class InventoryMenu;
@@ -45,6 +46,15 @@ class PlayerControl final {
     Focus focus() const;
     bool  hasActionFocus() const;
 
+    struct MovementInputSnapshot final {
+      float forward = 0.f;
+      float right = 0.f;
+      float turn = 0.f;
+      bool jump = false;
+      bool action = false;
+    };
+
+    [[nodiscard]] MovementInputSnapshot movementInputSnapshot() const noexcept;
     bool  tickMove(uint64_t dt);
     bool  tickCameraMove(uint64_t dt);
 

@@ -35,23 +35,13 @@ static const float scriptDiv=8192.0f;
 namespace {
 
 struct MmoMenuCharacter final {
+  std::uint64_t characterId = 0;
   std::string key;
   std::string name;
-  std::string world;
-  std::string updatedAt;
 };
 
 bool shouldMmoMenuActionLoadDbCharacter(std::string_view action) noexcept {
-  if(!CommandLine::inst().mmoClientUsesServer())
-    return false;
-  return action == "CONTINUE";
-}
-
-void loadMmoDbCharacterFromMenu() {
-  Log::i("MMO menu Continue: loading server DB character without native save slot",
-         " character_key=", CommandLine::inst().mmoCharacterKey(),
-         " display_name=", CommandLine::inst().mmoCharacterDisplayName());
-  Gothic::inst().load(CommandLine::inst().mmoDbContinueSyntheticSlot());
+  return CommandLine::inst().mmoClientUsesServer() && action == "CONTINUE";
 }
 
 bool isSaveMenuAction(const std::shared_ptr<zenkit::IMenuItem>& item) noexcept {
@@ -64,124 +54,13 @@ bool isSaveMenuAction(const std::shared_ptr<zenkit::IMenuItem>& item) noexcept {
          item->on_sel_action_s[1] == "SAVEGAME_SAVE";
 }
 
-std::optional<std::size_t> matchingJsonEnd(std::string_view text, std::size_t openPos, char openCh, char closeCh) noexcept {
-  if(openPos >= text.size() || text[openPos] != openCh)
-    return std::nullopt;
-  std::size_t depth = 0;
-  bool inString = false;
-  bool escape = false;
-  for(std::size_t i = openPos; i < text.size(); ++i) {
-    const char c = text[i];
-    if(inString) {
-      if(escape) {
-        escape = false;
-        continue;
-        }
-      if(c == '\\') {
-        escape = true;
-        continue;
-        }
-      if(c == '"')
-        inString = false;
-      continue;
-      }
-    if(c == '"') {
-      inString = true;
-      continue;
-      }
-    if(c == openCh)
-      ++depth;
-    else if(c == closeCh) {
-      if(depth == 0)
-        return std::nullopt;
-      --depth;
-      if(depth == 0)
-        return i;
-      }
-    }
-  return std::nullopt;
-}
-
-std::string_view jsonArrayForKey(std::string_view text, std::string_view key) noexcept {
-  const std::string needle = "\"" + std::string(key) + "\"";
-  const auto keyPos = text.find(needle);
-  if(keyPos == std::string_view::npos)
-    return {};
-  const auto colon = text.find(':', keyPos + needle.size());
-  if(colon == std::string_view::npos)
-    return {};
-  auto pos = colon + 1;
-  while(pos < text.size() && static_cast<unsigned char>(text[pos]) <= ' ')
-    ++pos;
-  if(pos >= text.size() || text[pos] != '[')
-    return {};
-  const auto end = matchingJsonEnd(text, pos, '[', ']');
-  if(!end)
-    return {};
-  return text.substr(pos, *end - pos + 1);
-}
-
-std::vector<std::string_view> jsonObjectsInArray(std::string_view array) {
-  std::vector<std::string_view> out;
-  for(std::size_t pos = 0; pos < array.size();) {
-    const auto open = array.find('{', pos);
-    if(open == std::string_view::npos)
-      break;
-    const auto end = matchingJsonEnd(array, open, '{', '}');
-    if(!end)
-      break;
-    out.push_back(array.substr(open, *end - open + 1));
-    pos = *end + 1;
-    }
-  return out;
-}
-
-std::string jsonStringForKey(std::string_view object, std::string_view key) {
-  const std::string needle = "\"" + std::string(key) + "\"";
-  const auto keyPos = object.find(needle);
-  if(keyPos == std::string_view::npos)
-    return {};
-  const auto colon = object.find(':', keyPos + needle.size());
-  if(colon == std::string_view::npos)
-    return {};
-  auto pos = colon + 1;
-  while(pos < object.size() && static_cast<unsigned char>(object[pos]) <= ' ')
-    ++pos;
-  if(pos >= object.size() || object[pos] != '"')
-    return {};
-  ++pos;
-  std::string out;
-  bool escape = false;
-  for(; pos < object.size(); ++pos) {
-    const char c = object[pos];
-    if(escape) {
-      switch(c) {
-        case '"': out.push_back('"'); break;
-        case '\\': out.push_back('\\'); break;
-        case '/': out.push_back('/'); break;
-        case 'n': out.push_back('\n'); break;
-        case 'r': out.push_back('\r'); break;
-        case 't': out.push_back('\t'); break;
-        default: out.push_back(c); break;
-        }
-      escape = false;
-      continue;
-      }
-    if(c == '\\') {
-      escape = true;
-      continue;
-      }
-    if(c == '"')
-      break;
-    out.push_back(c);
-    }
-  return out;
-}
-
 std::optional<Mmo::ServerBootstrapStatus> readMmoBootstrapReject() {
-  const auto status = Mmo::latestServerBootstrapStatus();
-  if(!status || !status->rejected())
+  const auto session = Mmo::clientMmoSessionSnapshot();
+  if(!session.failed())
     return std::nullopt;
+  Mmo::ServerBootstrapStatus status;
+  status.accepted = false;
+  status.message = session.error.empty() ? "MMO session failed" : session.error;
   return status;
 }
 
@@ -189,24 +68,19 @@ std::string makeMmoBootstrapRejectSummary(
     const std::optional<Mmo::ServerBootstrapStatus>& reject) {
   if(!reject)
     return {};
-  return reject->message.empty() ? "MMO bootstrap rejected" : reject->message;
+  return reject->message.empty() ? "MMO session rejected" : reject->message;
 }
 
 void logMmoBootstrapRejectOnce(
     const std::optional<Mmo::ServerBootstrapStatus>& reject) {
   if(!reject)
     return;
-  static std::uint64_t lastPacketSequence = 0;
-  static std::uint64_t lastLocalSequence = 0;
-  if(reject->packetSequence == lastPacketSequence &&
-     reject->localSequence == lastLocalSequence)
+  static std::string lastMessage;
+  if(lastMessage == reject->message)
     return;
-  lastPacketSequence = reject->packetSequence;
-  lastLocalSequence = reject->localSequence;
-  Log::e("MMO bootstrap rejected",
-         " packet_sequence=", reject->packetSequence,
-         " local_sequence=", reject->localSequence,
-         " reason=", reject->message.empty() ? "<empty>" : reject->message);
+  lastMessage = reject->message;
+  Log::e("MMO graphical session rejected: ",
+         reject->message.empty() ? "<empty>" : reject->message);
 }
 
 bool hasActiveMmoContentReject() {
@@ -214,54 +88,55 @@ bool hasActiveMmoContentReject() {
   logMmoBootstrapRejectOnce(reject);
   return reject.has_value();
 }
-std::vector<MmoMenuCharacter> parseMmoCharacterList(std::string_view snapshotJson) {
-  std::vector<MmoMenuCharacter> out;
-  const auto array = jsonArrayForKey(snapshotJson, "character_list");
-  for(auto object : jsonObjectsInArray(array)) {
-    MmoMenuCharacter ch;
-    ch.key = jsonStringForKey(object, "character_key");
-    ch.name = jsonStringForKey(object, "display_name");
-    ch.world = jsonStringForKey(object, "world_name");
-    ch.updatedAt = jsonStringForKey(object, "updated_at");
-    if(!ch.key.empty()) {
-      if(ch.name.empty())
-        ch.name = ch.key;
-      out.push_back(std::move(ch));
-      }
-    }
-  return out;
-}
 
-void requestMmoBootstrapSnapshot(std::string_view reason, std::string_view sourceLocation) {
-  if(!Mmo::isServerBoundClientModeEnabled())
-    return;
-
-  Mmo::resetServerBootstrapStatus();
+Mmo::ClientMmoSessionRequest mmoSessionRequestFromCommandLine(
+    const bool createIfMissing) {
   const auto& cmd = CommandLine::inst();
-  std::string characterEntity = "character:";
-  characterEntity.append(cmd.mmoCharacterKey());
-  std::string target = characterEntity + ":character-list";
-  const Mmo::ClientBootstrapRequest request{
-      .targetKey = target,
-      .source = sourceLocation.empty() ? std::string_view{"GameMenu"} : sourceLocation,
-      .actorKey = characterEntity,
-      .characterKey = cmd.mmoCharacterKey(),
-      .displayName = cmd.mmoCharacterDisplayName(),
-      .world = Gothic::inst().defaultWorld(),
-      .serverEndpoint = cmd.mmoServerEndpoint(),
-      .clientContentManifestHash = cmd.mmoClientContentManifestHash(),
-      .reason = reason,
-  };
-  (void)Mmo::submitClientBootstrap(request);
+  Mmo::ClientMmoSessionRequest request;
+  request.characterId = cmd.mmoCharacterId();
+  request.characterName = std::string(cmd.mmoCharacterDisplayName());
+  request.archetypeId = cmd.mmoCharacterArchetypeId();
+  request.appearanceProfileId = cmd.mmoCharacterAppearanceProfileId();
+  request.contentManifestId = cmd.mmoContentManifestId();
+  request.createIfMissing = createIfMissing;
+  request.enterWorld = true;
+  return request;
 }
 
-void requestMmoCharacterListSnapshot() {
-  requestMmoBootstrapSnapshot("character_list_request", "GameMenu::updateSavTitle");
+bool enterMmoWorldFromMenu(const bool createIfMissing,
+                           const std::string_view source) {
+  auto session = Mmo::waitForClientMmoSession(
+      mmoSessionRequestFromCommandLine(createIfMissing), 15'000U);
+  if(!session.inWorld()) {
+    Log::e("MMO menu failed to enter world source=", source,
+           " phase=", static_cast<unsigned>(session.phase),
+           " error=", session.error.empty() ? "timeout" : session.error);
+    return false;
+  }
+
+  const auto& cmd = CommandLine::inst();
+  cmd.setMmoCharacterSelection(session.characterId,
+                               cmd.mmoCharacterKey(),
+                               cmd.mmoCharacterDisplayName());
+  Log::i("MMO menu entered server world",
+         " character_id=", session.characterId,
+         " route_epoch=", session.routeEpoch,
+         " world=", session.worldId, ":", session.worldGeneration);
+  Gothic::inst().onStartGame(Gothic::inst().defaultWorld());
+  return true;
+}
+
+void loadMmoDbCharacterFromMenu() {
+  Log::i("MMO menu Continue: selecting server character",
+         " character_id=", CommandLine::inst().mmoCharacterId(),
+         " display_name=", CommandLine::inst().mmoCharacterDisplayName());
+  static_cast<void>(enterMmoWorldFromMenu(false, "CONTINUE"));
 }
 
 std::string makeMmoNewCharacterKey() {
   const auto now = std::chrono::system_clock::now().time_since_epoch();
-  const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+  const auto millis =
+      std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
   std::string out = "PC_HERO_";
   out.append(std::to_string(millis));
   return out;
@@ -269,67 +144,48 @@ std::string makeMmoNewCharacterKey() {
 
 void startMmoNewCharacterFromMenu() {
   const auto key = makeMmoNewCharacterKey();
-  std::string name = "Nowa postac ";
+  std::string name = "Hero_";
   name.append(key.substr(std::string("PC_HERO_").size()));
   CommandLine::inst().setMmoCharacterIdentity(key, name);
-  (void)Mmo::drainServerBootstrapSnapshots();
-  requestMmoBootstrapSnapshot("new_character_request", "GameMenu::execSingle(NEW_GAME)");
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
-  bool confirmed = false;
-  do {
-    for(auto& snapshot : Mmo::drainServerBootstrapSnapshots()) {
-      const auto characters = parseMmoCharacterList(snapshot.payload);
-      confirmed = std::any_of(characters.begin(), characters.end(),
-                              [&key](const MmoMenuCharacter& value) {
-                                return value.key == key;
-                              });
-      if(confirmed)
-        break;
-    }
-    if(confirmed)
-      break;
-    std::this_thread::sleep_for(std::chrono::milliseconds(25));
-  } while(std::chrono::steady_clock::now() < deadline);
-  if(!confirmed)
-    Log::e("MMO menu New Game: character creation confirmation timed out",
-           " character_key=", key);
-  Log::i("MMO menu New Game: requested DB character creation",
-         " character_key=", CommandLine::inst().mmoCharacterKey(),
-         " display_name=", CommandLine::inst().mmoCharacterDisplayName());
-  Gothic::inst().onStartGame(Gothic::inst().defaultWorld());
+  static_cast<void>(enterMmoWorldFromMenu(true, "NEW_GAME"));
 }
 
 const std::vector<MmoMenuCharacter>& mmoMenuCharacters() {
   static std::vector<MmoMenuCharacter> cache;
-  static bool loaded = false;
-  if(loaded)
-    return cache;
-  loaded = true;
+  static std::uint64_t cachedRosterRevision = 0U;
 
-  const auto& cmd = CommandLine::inst();
-  (void)Mmo::drainServerBootstrapSnapshots();
-  requestMmoCharacterListSnapshot();
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(900);
-  do {
-    for(auto& snapshot : Mmo::drainServerBootstrapSnapshots()) {
-      cache = parseMmoCharacterList(snapshot.payload);
-      if(!cache.empty())
-        break;
-    }
-    if(!cache.empty())
-      break;
-    logMmoBootstrapRejectOnce(readMmoBootstrapReject());
-    std::this_thread::sleep_for(std::chrono::milliseconds(25));
-  } while(std::chrono::steady_clock::now() < deadline);
+  auto session = Mmo::clientMmoSessionSnapshot();
+  if(!session.rosterReady())
+    session = Mmo::waitForClientMmoRoster(10'000U);
+  if(session.rosterReady() &&
+     cachedRosterRevision == session.rosterRevision &&
+     (!cache.empty() || session.characters.empty())) {
+    return cache;
+  }
+
+  cache.clear();
+  cache.reserve(session.characters.size());
+  for(const auto& value : session.characters) {
+    MmoMenuCharacter character;
+    character.characterId = value.characterId;
+    character.key = std::to_string(value.characterId);
+    character.name = value.name.empty() ? character.key : value.name;
+    cache.push_back(std::move(character));
+  }
+  cachedRosterRevision = session.rosterRevision;
 
   if(cache.empty()) {
+    const auto& cmd = CommandLine::inst();
+    if(cmd.mmoCharacterId() == 0U)
+      return cache;
     MmoMenuCharacter fallback;
+    fallback.characterId = cmd.mmoCharacterId();
     fallback.key = std::string(cmd.mmoCharacterKey());
     fallback.name = std::string(cmd.mmoCharacterDisplayName());
     if(fallback.name.empty())
       fallback.name = fallback.key;
     cache.push_back(std::move(fallback));
-    }
+  }
   return cache;
 }
 
@@ -1267,7 +1123,8 @@ bool GameMenu::execLoadGame(const GameMenu::Item &item) {
     const auto* character = mmoMenuCharacterForSlot(id);
     if(character == nullptr)
       return false;
-    CommandLine::inst().setMmoCharacterIdentity(character->key, character->name);
+    CommandLine::inst().setMmoCharacterSelection(
+        character->characterId, character->key, character->name);
     loadMmoDbCharacterFromMenu();
     return true;
     }

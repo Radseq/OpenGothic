@@ -254,6 +254,22 @@ CommandLine::CommandLine(int argc, const char** argv) {
         mmoClientContentManifestHashValue = argv[i];
       }
     }
+    else if(arg=="-mmo-client-presentation-catalog") {
+      ++i;
+      if(i<argc && argv[i][0] != '\0')
+        mmoClientPresentationCatalogPath = argv[i];
+    }
+    else if(arg=="-mmo-client-presentation-manifest-id") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoClientPresentationManifestIdValue = parseUint64Arg(argv[i], 1U);
+        }
+        catch(const std::exception&) {
+          Log::e("failed to read -mmo-client-presentation-manifest-id: ", argv[i]);
+        }
+      }
+    }
     else if(arg=="-mmo-db-continue-without-native-save" || arg=="-mmo-db-continue") {
       // Step95: explicit development bridge for DB-backed Continue. When a
       // requested native .sav is missing, server-bound mode can bootstrap the
@@ -293,6 +309,56 @@ CommandLine::CommandLine(int argc, const char** argv) {
       ++i;
       if(i<argc && argv[i][0] != '\0')
         mmoCharacterDisplayNameValue = argv[i];
+      }
+    else if(arg=="-mmo-character-id") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoCharacterIdValue = std::stoull(std::string(argv[i]));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-character-id: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-character-archetype") {
+      ++i;
+      if(i<argc) {
+        try {
+          const auto value = std::stoull(std::string(argv[i]));
+          if(value == 0U || value > std::numeric_limits<uint32_t>::max())
+            throw std::out_of_range("mmo character archetype");
+          mmoCharacterArchetypeIdValue = static_cast<uint32_t>(value);
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-character-archetype: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-character-appearance") {
+      ++i;
+      if(i<argc) {
+        try {
+          const auto value = std::stoull(std::string(argv[i]));
+          if(value > std::numeric_limits<uint32_t>::max())
+            throw std::out_of_range("mmo character appearance");
+          mmoCharacterAppearanceProfileIdValue = static_cast<uint32_t>(value);
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-character-appearance: \"", std::string(argv[i]), "\"");
+          }
+        }
+      }
+    else if(arg=="-mmo-content-manifest-id") {
+      ++i;
+      if(i<argc) {
+        try {
+          mmoContentManifestIdValue = std::max<uint64_t>(1U, std::stoull(std::string(argv[i])));
+          }
+        catch(const std::exception&) {
+          Log::i("failed to read -mmo-content-manifest-id: \"", std::string(argv[i]), "\"");
+          }
+        }
       }
     else if(arg=="-mmo-action-queue-capacity") {
       ++i;
@@ -512,6 +578,19 @@ CommandLine::CommandLine(int argc, const char** argv) {
       Log::i("MMO client dialog main-thread observation receipt enabled: no UI/audio apply");
     }
 
+  if(!mmoClientPresentationCatalogPath.empty() &&
+     mmoClientPresentationManifestIdValue == 0U) {
+    throw std::invalid_argument(
+        "-mmo-client-presentation-catalog requires "
+        "-mmo-client-presentation-manifest-id");
+  }
+  if(mmoClientPresentationCatalogPath.empty() &&
+     mmoClientPresentationManifestIdValue != 0U) {
+    throw std::invalid_argument(
+        "-mmo-client-presentation-manifest-id requires "
+        "-mmo-client-presentation-catalog");
+  }
+
 
   if(mmoSqliteOptionRequested && !OPENGOTHIC_MMO_SQLITE_TOOLING)
     throw std::invalid_argument("MMO SQLite options require OPENGOTHIC_MMO_ENABLE_SQLITE_TOOLING=ON");
@@ -565,6 +644,20 @@ const CommandLine& CommandLine::inst() {
   }
 
 void CommandLine::setMmoCharacterIdentity(std::string_view key, std::string_view displayName) const {
+  mmoCharacterIdValue = 0;
+  if(!key.empty())
+    mmoCharacterKeyValue = key;
+  if(!displayName.empty())
+    mmoCharacterDisplayNameValue = displayName;
+  else if(!key.empty())
+    mmoCharacterDisplayNameValue = key;
+}
+
+void CommandLine::setMmoCharacterSelection(
+    const uint64_t characterId,
+    std::string_view key,
+    std::string_view displayName) const {
+  mmoCharacterIdValue = characterId;
   if(!key.empty())
     mmoCharacterKeyValue = key;
   if(!displayName.empty())
