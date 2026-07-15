@@ -575,6 +575,14 @@ bool WorldObjects::execTriggerEvent(const TriggerEvent& e) {
   return emitted;
   }
 
+Interactive* WorldObjects::interactiveByVobId(const uint32_t vobObjectId) {
+  for(auto* interactive : interactiveObj) {
+    if(interactive != nullptr && interactive->getId() == vobObjectId)
+      return interactive;
+  }
+  return nullptr;
+}
+
 bool WorldObjects::restoreMoverState(std::string_view moverKey, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex) {
   for(auto* trigger : triggers) {
     auto* mover = dynamic_cast<MoveTrigger*>(trigger);
@@ -586,7 +594,6 @@ bool WorldObjects::restoreMoverState(std::string_view moverKey, int32_t stateAft
     }
   return false;
   }
-
 bool WorldObjects::restoreMoverState(uint32_t moverId, int32_t stateAfter, int32_t frameIndex, int32_t targetFrameIndex) {
   for(auto* trigger : triggers) {
     auto* mover = dynamic_cast<MoveTrigger*>(trigger);
@@ -1312,4 +1319,3 @@ bool WorldObjects::testObj(T &src, const Npc &pl, const WorldObjects::SearchOpt 
     }
   return false;
   }
-

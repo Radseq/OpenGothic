@@ -96,6 +96,7 @@ class Camera final {
     void               setAngles(const Tempest::PointF& pos);
     void               setPosition(const Tempest::Vec3& pos);
     void               setDialogDistance(float d);
+    void               addPresentationShake(float strength) noexcept;
 
     void               onRotateMouse(const Tempest::PointF& dpos);
 
@@ -143,6 +144,9 @@ class Camera final {
     Tempest::Vec3         veloTrans = {};
     float                 userRange  = 0;
     Tempest::Vec3         shake      = {};
+    Tempest::Vec3         globalShake = {};
+    float                 presentationShakeAmplitude = 0.f;
+    float                 presentationShakePhase = 0.f;
 
     float                 targetVelo = 0;
 

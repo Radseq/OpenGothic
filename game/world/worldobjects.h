@@ -82,6 +82,7 @@ class WorldObjects final {
     size_t         mobsiCount()    const { return interactiveObj.size();        }
     Interactive&   mobsi(size_t i)       { return **(interactiveObj.begin()+i); }
     uint32_t       mobsiId(const void* ptr) const;
+    Interactive*   interactiveByVobId(uint32_t vobObjectId);
 
     void           setCurrentCs(CsCamera* cs);
     CsCamera*      currentCs() const;

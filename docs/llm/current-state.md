@@ -18,7 +18,9 @@ Last verified: 2026-07-14 against client source, focused CMake tests and graphic
   full-client bridge;
 - `mmoclientadapter.*` exposes engine-facing domain requests for bootstrap,
   movement/checkpoints, interaction, inventory/equipment/loot/trade/consume,
-  weapon state, combat and dialog choice;
+  weapon state, combat and dialog choice; exact Protocol V2 item-stack handles,
+  generations and expected inventory/equipment revisions are used by the
+  full-client inventory UI;
 - semantic hooks, adapter and dialog UI do not construct client wire packets;
   movement/interaction/combat/dialog requests map to typed Protocol V2 facade
   requests;
@@ -40,6 +42,14 @@ Last verified: 2026-07-14 against client source, focused CMake tests and graphic
 - completed typed bootstrap sections and server ACKs arrive through in-memory
   facade mailboxes; obsolete filesystem and legacy string/JSON bootstrap
   control paths are removed;
+- completed bootstrap inventory/equipment sections retain their authoritative
+  collection revisions and are installed into `ServerInventoryReadModel` and
+  `ServerEquipmentReadModel`; the MMO inventory page never reads or mutates
+  `Npc::inventory`;
+- the server-backed inventory page exposes equip, unequip, use, drop, split and
+  merge intents, marks exact stack handles pending after successful submission,
+  performs no optimistic quantity/equipment mutation, and clears pending only
+  after rejection or a newer relevant authoritative revision;
 - `tools/run_mmo_graphical_client.py` starts the fixture-backed production UDP
   server and launches `Gothic2Notr` directly into the graphical MMO session.
 
@@ -54,10 +64,20 @@ Last verified: 2026-07-14 against client source, focused CMake tests and graphic
   after entity/NPC/interactive/mover validation, and clears corrections/dialogs
   on route replacement;
 - typed state application stores revisioned transforms, NPC logical state,
-  dialog/busy state, interactives and movers, distinguishes reconciliation from
-  teleport/resync hard-snap corrections, and requires exact entity generations;
+  equipment slots, weapon modes, combat timelines/results, authoritative
+  damage/HP, hit reactions, life state, dialog/busy state, interactives and
+  movers, distinguishes reconciliation from teleport/resync hard-snap
+  corrections, and requires exact entity generations;
 - `ServerEntityPresentationRegistry` is the single owner of
   server-handle-to-local-NPC bindings;
+- `ServerWorldObjectRegistry` separately owns the
+  `WorldObjectId -> LocalVobToken -> EntityHandle` mapping for ZEN objects;
+  local identities are rebuilt from the loaded VOB tree with the same stable
+  key/hash contract as the authoritative importer, while runtime bindings,
+  applied revisions and unresolved-log history are reset on route replacement;
+- interactive and mover presentation resolves the local 32-bit `vobObjectID`
+  through this registry, performs exact-generation replacement, skips stale,
+  duplicate and unchanged states, and caps unresolved diagnostics per route;
 - bindings are checked by entity generation, local world generation, world
   instance, entity kind and stable identity;
 - the registry is bounded and prevents two server handles from aliasing one
@@ -86,8 +106,18 @@ Last verified: 2026-07-14 against client source, focused CMake tests and graphic
   server entity handle and revision before sending Talk/Loot/Use;
 - weapon and melee input submits typed draw/holster/primary/secondary/parry
   commands with exact target handle/revision where available;
-- replicated NPCs reject local damage mutation, so predicted attack animation
-  cannot become client-side combat authority.
+- every server-bound actor, including the local player, rejects local combat
+  damage mutation, so predicted attack/hit animation cannot become client-side
+  HP authority.
+- the S6 presenter resolves equipped weapon visuals through the binary
+  presentation catalog, binds melee/ranged meshes to back or hand attachment
+  points, plays authoritative draw/holster, attack, parry, dodge, hit,
+  knockback, unconscious and death presentation, and scopes camera shake to the
+  local player;
+- local combat prediction is presentation-only: an echoed predicted action is
+  not replayed, rejected/cancelled actions interrupt and correct to the
+  authoritative weapon mode, and only `DamageApplied`/life-state records write
+  HP;
 - the deterministic two-client Protocol V2 gate builds two independent typed
   facade mailbox cuts and applies them through
   `mapClientRuntimePresentationMailbox` plus `consumeServerPresentationBatch`
@@ -113,9 +143,10 @@ Last verified: 2026-07-14 against client source, focused CMake tests and graphic
   engine presenters only after typed validation succeeds;
 - route replacement and world changes release exact entity bindings, clear
   interpolation/correction state and close active typed dialog UI;
-- bootstrap installation materializes the local player first, then dedicated
-  remote-player/NPC replicas, applies authoritative transforms and installs NPC,
-  interactive and mover baselines before live deltas;
+- bootstrap installation first binds stable world-object descriptors and logs
+  aggregate mover bound/unresolved counts, then materializes the local player,
+  dedicated remote-player/NPC replicas and installs NPC, interactive and mover
+  baselines before live deltas;
 - live transform deltas use the route-scoped interpolator, local movement
   correction distinguishes reconciliation from teleport/resync hard snaps, and
   exact generation replacement/despawn releases only the matching binding;
@@ -141,11 +172,15 @@ Last verified: 2026-07-14 against client source, focused CMake tests and graphic
 - character create/select/load is functional for the initial graphical flow;
   richer account UX, character deletion/renaming and world-transition loading
   presentation remain open;
-- typed inventory/equipment/container/trade/use-item and quest UI are still
-  blocked on exact item-stack/world-item handles and revisioned presentation;
-- combat input is wired for draw/holster/primary/secondary/parry, but health,
-  damage-result, projectile/spell and death presentation contracts remain
-  incomplete;
+- character inventory/equipment/use-item UI now uses exact item-stack handles
+  and revisioned server state; live `InventoryDelta`/`EquipmentSlotChanged`
+  mailbox wiring, item-name/icon catalog resolution, containers, trade, world
+  items and quest UI remain open;
+- combat input and the protocol-independent S6 presentation consumer are wired
+  for equipment, weapon mode, attack/parry/dodge, authoritative HP, hit
+  reaction, knockback and death/unconscious state; facade/wire production of
+  these typed records, projectile/spell presentation and richer effect-resource
+  metadata remain incomplete;
 - the two-client gate currently validates the production presentation domain
   boundary without launching ZenEngine/Vulkan; actual two-process rendering,
   animation, dialog UI and mover/door acceptance remains open;

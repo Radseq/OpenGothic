@@ -38,6 +38,13 @@ Coverage includes:
   reconciliation versus hard-snap correction classification;
 - fake-facade mailbox mapping, deterministic cross-mailbox `streamSequence`
   ordering, bootstrap conversion and fail-closed malformed-record rejection.
+- authoritative inventory/equipment bootstrap projection with retained
+  collection revisions;
+- generation-safe inventory snapshots/deltas and equipment slot changes;
+- non-optimistic pending command behavior for applied, rejected and reordered
+  receipt/delta delivery;
+- exact handle/revision mapping for equip, unequip, use, drop, split and merge
+  intents.
 
 ## Full client
 
@@ -52,6 +59,10 @@ Configure the normal client build with the workspace sandbox available. Verify:
 - presentation-catalog decode, manifest admission and exact NPC resource
   lookup, including fail-closed replacement of a previously installed catalog;
 - dialog choice submission and presentation;
+- server-backed inventory opens without consulting `Npc::inventory`, shows
+  quantity/equipment/pending state and submits all six item actions;
+- rejected inventory commands display feedback and never mutate local quantity
+  or equipment before an authoritative revision arrives;
 - clean handling of missing ASIO backend/facade.
 
 Record commands actually run. Do not preserve local credentials, absolute paths

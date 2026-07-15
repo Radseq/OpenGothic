@@ -19,6 +19,8 @@
 #include "game/globaleffects.h"
 #include "game/serialize.h"
 #include "game/mmosemantichooks.h"
+#include "game/gamesession.h"
+#include "game/mmoworldobjectidentity.h"
 #include "utils/string_frm.h"
 #include "gothic.h"
 #include "commandline.h"
@@ -37,6 +39,95 @@
 #include <memory>
 
 namespace {
+
+[[nodiscard]] std::string_view mmoWorldObjectSourceClass(
+    const zenkit::VirtualObject& vob) noexcept {
+  switch(vob.type) {
+    case zenkit::VirtualObjectType::zCVob: return "zCVob";
+    case zenkit::VirtualObjectType::zCVobLevelCompo: return "zCVobLevelCompo";
+    case zenkit::VirtualObjectType::oCItem: return "oCItem";
+    case zenkit::VirtualObjectType::oCNpc: return "oCNpc";
+    case zenkit::VirtualObjectType::zCMoverController: return "zCMoverController";
+    case zenkit::VirtualObjectType::zCVobScreenFX: return "zCVobScreenFX";
+    case zenkit::VirtualObjectType::zCPFXController: return "zCPFXController";
+    case zenkit::VirtualObjectType::zCMessageFilter: return "zCMessageFilter";
+    case zenkit::VirtualObjectType::zCCodeMaster: return "zCCodeMaster";
+    case zenkit::VirtualObjectType::zCTrigger: return "zCTrigger";
+    case zenkit::VirtualObjectType::zCTriggerList: return "zCTriggerList";
+    case zenkit::VirtualObjectType::zCTriggerWorldStart: return "zCTriggerWorldStart";
+    case zenkit::VirtualObjectType::oCTriggerScript: return "oCTriggerScript";
+    case zenkit::VirtualObjectType::oCTriggerChangeLevel: return "oCTriggerChangeLevel";
+    case zenkit::VirtualObjectType::oCCSTrigger: return "oCCSTrigger";
+    case zenkit::VirtualObjectType::zCCSCamera: return "zCCSCamera";
+    case zenkit::VirtualObjectType::zCCamTrj_KeyFrame: return "zCCamTrj_KeyFrame";
+    case zenkit::VirtualObjectType::zCEarthquake: return "zCEarthquake";
+    case zenkit::VirtualObjectType::zCMover: return "zCMover";
+    case zenkit::VirtualObjectType::oCMOB: return "oCMOB";
+    case zenkit::VirtualObjectType::oCMobInter: return "oCMobInter";
+    case zenkit::VirtualObjectType::oCMobContainer: return "oCMobContainer";
+    case zenkit::VirtualObjectType::oCMobDoor: return "oCMobDoor";
+    case zenkit::VirtualObjectType::oCMobSwitch: return "oCMobSwitch";
+    case zenkit::VirtualObjectType::oCMobWheel: return "oCMobWheel";
+    case zenkit::VirtualObjectType::oCMobBed: return "oCMobBed";
+    case zenkit::VirtualObjectType::oCMobFire: return "oCMobFire";
+    case zenkit::VirtualObjectType::zCVobLight: return "zCVobLight";
+    case zenkit::VirtualObjectType::zCVobSpot: return "zCVobSpot";
+    case zenkit::VirtualObjectType::zCVobSound: return "zCVobSound";
+    case zenkit::VirtualObjectType::zCVobSoundDaytime: return "zCVobSoundDaytime";
+    default: return "unknown";
+  }
+}
+
+[[nodiscard]] std::optional<
+    Mmo::ClientPresentation::ServerPresentationWorldObjectKind>
+mmoLocalWorldObjectKind(const zenkit::VirtualObject& vob) noexcept {
+  using Kind = Mmo::ClientPresentation::ServerPresentationWorldObjectKind;
+  switch(vob.type) {
+    case zenkit::VirtualObjectType::oCItem: return Kind::Item;
+    case zenkit::VirtualObjectType::zCMover: return Kind::Mover;
+    case zenkit::VirtualObjectType::oCMOB:
+    case zenkit::VirtualObjectType::oCMobInter:
+    case zenkit::VirtualObjectType::oCMobContainer:
+    case zenkit::VirtualObjectType::oCMobDoor:
+    case zenkit::VirtualObjectType::oCMobSwitch:
+    case zenkit::VirtualObjectType::oCMobWheel:
+    case zenkit::VirtualObjectType::oCMobBed:
+    case zenkit::VirtualObjectType::oCMobFire: return Kind::Interactive;
+    case zenkit::VirtualObjectType::zCTrigger:
+    case zenkit::VirtualObjectType::zCTriggerList:
+    case zenkit::VirtualObjectType::zCTriggerWorldStart:
+    case zenkit::VirtualObjectType::oCTriggerScript:
+    case zenkit::VirtualObjectType::oCTriggerChangeLevel:
+    case zenkit::VirtualObjectType::oCCSTrigger:
+    case zenkit::VirtualObjectType::zCMessageFilter:
+    case zenkit::VirtualObjectType::zCCodeMaster:
+    case zenkit::VirtualObjectType::zCMoverController: return Kind::Trigger;
+    default: return std::nullopt;
+  }
+}
+
+void registerMmoLocalWorldObjectTree(
+    GameSession& game,
+    const std::shared_ptr<zenkit::VirtualObject>& node,
+    const std::string_view worldName,
+    std::string& treePath) {
+  if(node == nullptr)
+    return;
+  if(const auto kind = mmoLocalWorldObjectKind(*node); kind.has_value()) {
+    const auto worldObjectId = Mmo::ClientPresentation::makeStableWorldObjectId(
+        worldName, mmoWorldObjectSourceClass(*node), treePath, node->id);
+    game.registerMmoLocalWorldObject(worldObjectId, node->id, *kind);
+  }
+  for(std::size_t childIndex = 0U; childIndex < node->children.size();
+      ++childIndex) {
+    const auto parentPathSize = treePath.size();
+    treePath += ".";
+    treePath += std::to_string(childIndex);
+    registerMmoLocalWorldObjectTree(
+        game, node->children[childIndex], worldName, treePath);
+    treePath.resize(parentPathSize);
+  }
+}
 
 constexpr int64_t MmoSleepMinuteMs = 60 * 1000;
 constexpr int64_t MmoSleepDayMs = 24 * 60 * MmoSleepMinuteMs;
@@ -185,6 +276,15 @@ World::World(GameSession& game, std::string_view file, bool startup, std::functi
 
     globFx.reset(new GlobalEffects(*this));
     wmatrix.reset(new WayMatrix(*this, *world.way_net));
+    if(CommandLine::inst().mmoClientUsesServer()) {
+      game.beginMmoLocalWorldObjectCatalog();
+      for(std::size_t rootIndex = 0U; rootIndex < world.world_vobs.size();
+          ++rootIndex) {
+        auto treePath = std::to_string(rootIndex);
+        registerMmoLocalWorldObjectTree(
+            game, world.world_vobs[rootIndex], wname, treePath);
+      }
+    }
     for(auto& vob:world.world_vobs)
       wobj.addRoot(vob,startup);
 
@@ -317,6 +417,10 @@ Interactive* World::mobsiById(uint32_t id) {
   if(id<wobj.mobsiCount())
     return &wobj.mobsi(id);
   return nullptr;
+  }
+
+Interactive* World::interactiveByVobId(const uint32_t vobObjectId) {
+  return wobj.interactiveByVobId(vobObjectId);
   }
 
 uint32_t World::itmId(const void *ptr) const {
@@ -851,7 +955,8 @@ void World::sendImmediatePerc(Npc& self, Npc& other, Npc& victim, Item& item, in
   wobj.sendImmediatePerc(self,other,victim,&item,perc);
   }
 
-Sound World::addWeaponHitEffect(Npc& src, const Bullet* srcArrow, Npc& reciver) {
+Sound World::addWeaponHitEffect(Npc& src, const Bullet* srcArrow, Npc& reciver,
+                                const bool spawnVfx) {
   auto p0 = src.centerPosition();
   auto p1 = reciver.centerPosition();
 
@@ -869,17 +974,17 @@ Sound World::addWeaponHitEffect(Npc& src, const Bullet* srcArrow, Npc& reciver) 
 
   if(srcArrow!=nullptr && !srcArrow->isSpell()) {
     auto m = ItemMaterial(srcArrow->itemMaterial());
-    return addHitEffect(materialTag(m),armor,"IAM",pos);
+    return addHitEffect(materialTag(m),armor,"IAM",pos,spawnVfx);
     }
 
   if(auto w = src.inventory().activeWeapon()) {
     auto m = ItemMaterial(w->handle().material);
-    return addHitEffect(materialTag(m),armor,"IAM",pos);
+    return addHitEffect(materialTag(m),armor,"IAM",pos,spawnVfx);
     }
 
   if(src.isMonster())
-    return addHitEffect("JA",armor,"MAM",pos); else
-    return addHitEffect("FI",armor,"MAM",pos);
+    return addHitEffect("JA",armor,"MAM",pos,spawnVfx); else
+    return addHitEffect("FI",armor,"MAM",pos,spawnVfx);
   }
 
 Sound World::addLandHitEffect(ItemMaterial src, zenkit::MaterialGroup reciver, const Tempest::Matrix4x4& pos) {
@@ -893,12 +998,17 @@ Sound World::addWeaponBlkEffect(ItemMaterial src, ItemMaterial reciver, const Te
   return addHitEffect(materialTag(src),materialTag(reciver),"IAI",pos);
   }
 
-Sound World::addHitEffect(std::string_view src, std::string_view dst, std::string_view scheme, const Tempest::Matrix4x4& pos) {
+Sound World::addHitEffect(std::string_view src, std::string_view dst,
+                          std::string_view scheme,
+                          const Tempest::Matrix4x4& pos,
+                          const bool spawnVfx) {
   Tempest::Vec3 pos3;
   pos.project(pos3);
 
   string_frm sound("CS_",scheme,'_',src,'_',dst);
   auto ret = Sound(*this,::Sound::T_Regular,sound,pos3,2500.f,false);
+  if(!spawnVfx)
+    return ret;
 
   string_frm buf("CPFX_",scheme,'_',src,'_',dst);
   if(Gothic::inst().loadParticleFx(buf,true)==nullptr) {
@@ -1206,5 +1316,3 @@ int32_t World::guildOfRoom(std::string_view portalName) {
     }
   return GIL_NONE;
   }
-
-

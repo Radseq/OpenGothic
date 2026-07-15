@@ -4,8 +4,14 @@
 #include <Tempest/Texture2d>
 #include <Tempest/Timer>
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+
 #include "graphics/inventoryrenderer.h"
 #include "game/inventory.h"
+#include "game/mmoserverinventoryreadmodel.h"
 
 class Npc;
 class Item;
@@ -94,6 +100,11 @@ class InventoryMenu : public Tempest::Widget {
     Tempest::Timer            takeTimer;
     size_t                    takeCount  =0;
     LootMode                  lootMode   =LootMode::Normal;
+    bool                      serverInventoryMode = false;
+    std::uint64_t             observedInventoryRevision = 0U;
+    std::uint64_t             observedEquipmentRevision = 0U;
+    std::size_t               observedPendingCount = 0U;
+    std::optional<Mmo::ClientItemStackHandle> mergeSource;
     InventoryRenderer         renderer;
 
     size_t                    columsCount = 5;
@@ -107,7 +118,12 @@ class InventoryMenu : public Tempest::Widget {
 
     const Page&               activePage();
     PageLocal&                activePageSel();
+    size_t                    activePageSize() const;
     const World*              world() const;
+    const Mmo::ClientPresentation::ServerInventoryPresentationState*
+                              serverInventoryState() const;
+    const Mmo::ClientPresentation::ServerInventoryStack*
+                              selectedServerStack() const;
 
     void          processMove(Tempest::KeyEvent& e);
     void          moveLeft(bool usePage);
@@ -117,11 +133,29 @@ class InventoryMenu : public Tempest::Widget {
 
     void          onItemAction(uint8_t slotHint);
     void          onTakeStuff();
+    void          onServerSplitStack();
+    void          onServerMergeStack();
+    void          submitServerUseOrUnequip();
+    void          submitServerEquip(Mmo::ClientEquipmentSlot slot);
+    void          submitServerDrop(size_t amount);
+    void          trackServerCommand(
+                      const Mmo::ClientMmoSubmitResult& result,
+                      Mmo::ClientItemStackHandle primary,
+                      Mmo::ClientItemStackHandle secondary = {},
+                      std::optional<Mmo::ClientEquipmentSlot> slot = std::nullopt);
+    void          syncServerInventoryView();
     void          adjustScroll();
     void          drawAll   (Tempest::Painter& p, Npc& player, DrawPass pass);
     void          drawItems (Tempest::Painter& p, DrawPass pass, const Page &inv, const PageLocal &sel, int x, int y, int wcount, int hcount);
     void          drawSlot  (Tempest::Painter& p, DrawPass pass, const Inventory::Iterator& it,
                              const Page& page, const PageLocal &sel, int x, int y, size_t id);
+    void          drawServerItems(Tempest::Painter& p, DrawPass pass,
+                                  const PageLocal& sel, int x, int y,
+                                  int wcount, int hcount);
+    void          drawServerSlot(Tempest::Painter& p, DrawPass pass,
+                                 const Mmo::ClientPresentation::ServerInventoryStack& stack,
+                                 const PageLocal& sel, int x, int y, size_t id);
+    void          drawServerInfo(Tempest::Painter& p);
     void          drawGold  (Tempest::Painter& p, Npc &player, int x, int y);
     void          drawHeader(Tempest::Painter& p, std::string_view title, int x, int y);
     void          drawInfo  (Tempest::Painter& p);

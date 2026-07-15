@@ -72,6 +72,86 @@ constexpr size_t   MmoNpcAuthoritySampleMaxPerSweep = 8;
 constexpr float    MmoNpcAuthoritySaveSampleRadius = 60000.f;
 constexpr size_t   MmoNpcAuthoritySaveSampleMaxPerSweep = 512;
 
+struct MmoPresentationWeaponShape final {
+  bool meleeEquipped = false;
+  bool meleeTwoHanded = false;
+  bool rangedEquipped = false;
+  bool rangedCrossbow = false;
+};
+
+[[nodiscard]] constexpr bool equipmentOccupied(
+    const Mmo::ClientPresentation::ServerPresentationEquipmentSlotRecord*
+        state) noexcept {
+  return state != nullptr &&
+         (state->flags &
+          Mmo::ClientPresentation::ServerPresentationEquipmentOccupied) != 0U;
+}
+
+[[nodiscard]] constexpr WeaponState presentationWeaponState(
+    const Mmo::ClientPresentation::ServerPresentationWeaponMode mode,
+    const MmoPresentationWeaponShape shape) noexcept {
+  using Mode = Mmo::ClientPresentation::ServerPresentationWeaponMode;
+  switch(mode) {
+    case Mode::None: return WeaponState::NoWeapon;
+    case Mode::Melee:
+      if(!shape.meleeEquipped)
+        return WeaponState::Fist;
+      return shape.meleeTwoHanded ? WeaponState::W2H : WeaponState::W1H;
+    case Mode::Ranged:
+      if(!shape.rangedEquipped)
+        return WeaponState::NoWeapon;
+      return shape.rangedCrossbow ? WeaponState::CBow : WeaponState::Bow;
+    case Mode::Magic: return WeaponState::Mage;
+  }
+  return WeaponState::NoWeapon;
+}
+
+[[nodiscard]] constexpr Npc::MmoPresentationLifeState presentationLifeState(
+    const Mmo::ClientPresentation::ServerPresentationNpcLifeState state) noexcept {
+  using State = Mmo::ClientPresentation::ServerPresentationNpcLifeState;
+  switch(state) {
+    case State::Alive: return Npc::MmoPresentationLifeState::Alive;
+    case State::Unconscious: return Npc::MmoPresentationLifeState::Unconscious;
+    case State::Dead: return Npc::MmoPresentationLifeState::Dead;
+  }
+  return Npc::MmoPresentationLifeState::Alive;
+}
+
+[[nodiscard]] constexpr Npc::MmoPresentationCombatAction
+presentationCombatAction(
+    const Mmo::ClientPresentation::ServerPresentationCombatActionKind action) noexcept {
+  using Source = Mmo::ClientPresentation::ServerPresentationCombatActionKind;
+  switch(action) {
+    case Source::LightAttack:
+      return Npc::MmoPresentationCombatAction::LightAttack;
+    case Source::HeavyAttack:
+      return Npc::MmoPresentationCombatAction::HeavyAttack;
+    case Source::ComboAttack:
+      return Npc::MmoPresentationCombatAction::ComboAttack;
+    case Source::Parry:
+      return Npc::MmoPresentationCombatAction::Parry;
+    case Source::Dodge:
+      return Npc::MmoPresentationCombatAction::Dodge;
+    case Source::CancelAction:
+      return Npc::MmoPresentationCombatAction::Cancel;
+  }
+  return Npc::MmoPresentationCombatAction::Cancel;
+}
+
+[[nodiscard]] constexpr Npc::MmoPresentationHitReaction
+presentationHitReaction(
+    const Mmo::ClientPresentation::ServerPresentationHitReactionKind reaction) noexcept {
+  using Source = Mmo::ClientPresentation::ServerPresentationHitReactionKind;
+  switch(reaction) {
+    case Source::Light: return Npc::MmoPresentationHitReaction::Light;
+    case Source::Heavy: return Npc::MmoPresentationHitReaction::Heavy;
+    case Source::Blocked: return Npc::MmoPresentationHitReaction::Blocked;
+    case Source::Knockback: return Npc::MmoPresentationHitReaction::Knockback;
+    case Source::Knockdown: return Npc::MmoPresentationHitReaction::Knockdown;
+  }
+  return Npc::MmoPresentationHitReaction::Light;
+}
+
 void hashCombine(std::uint64_t& seed, std::uint64_t value) noexcept {
   seed ^= value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2);
 }
@@ -82,6 +162,28 @@ std::uint64_t hashString(std::string_view value) noexcept {
 
 std::uint64_t quantizedFloatHash(float value, float scale) noexcept {
   return static_cast<std::uint64_t>(static_cast<std::int64_t>(std::lround(value / scale)));
+}
+
+std::uint64_t mmoInteractiveStateSignature(
+    const Mmo::ClientPresentation::ServerPresentationInteractiveStateRecord& state) noexcept {
+  std::uint64_t signature = 0x6B8B4567327B23C6ULL;
+  hashCombine(signature, state.stateId);
+  hashCombine(signature, state.flags);
+  hashCombine(signature, state.user.world.id);
+  hashCombine(signature, state.user.world.generation);
+  hashCombine(signature, state.user.id);
+  hashCombine(signature, state.user.generation);
+  return signature;
+}
+
+std::uint64_t mmoMoverStateSignature(
+    const Mmo::ClientPresentation::ServerPresentationMoverStateRecord& state) noexcept {
+  std::uint64_t signature = 0x643C986966334873ULL;
+  hashCombine(signature, static_cast<std::uint64_t>(state.phase));
+  hashCombine(signature, state.keyframe);
+  hashCombine(signature, state.normalizedProgress);
+  hashCombine(signature, state.flags);
+  return signature;
 }
 
 std::string_view waypointName(const WayPoint* waypoint) noexcept {
@@ -1453,6 +1555,8 @@ void GameSession::resetMmoServerPresentationProjection() noexcept {
 
   mmoServerEntityInterpolator.resetRoute(mmoPresentationWorldGeneration);
   mmoMovementCorrectionBoundary.resetRoute(mmoPresentationWorldGeneration);
+  mmoServerInventoryPresentation_.reset();
+  mmoServerWorldObjects.resetRoute({});
   mmoServerEntitySamples.clear();
 }
 
@@ -1891,17 +1995,83 @@ struct GameSession::MmoServerPresentationBatchSink final {
   bool projectionResetForRoute = false;
 };
 
+void GameSession::beginMmoLocalWorldObjectCatalog() noexcept {
+  mmoServerWorldObjects.resetLocalCatalog();
+}
+
+void GameSession::registerMmoLocalWorldObject(
+    const std::uint64_t worldObjectId,
+    const std::uint32_t vobObjectId,
+    const Mmo::ClientPresentation::ServerPresentationWorldObjectKind kind) {
+  using namespace Mmo::ClientPresentation;
+  const auto status = mmoServerWorldObjects.registerLocal(
+      ServerWorldObjectId{worldObjectId},
+      LocalVobToken{.vobObjectId = vobObjectId, .kind = kind});
+  if(status != ServerWorldObjectRegisterStatus::Registered &&
+     status != ServerWorldObjectRegisterStatus::Duplicate) {
+    Log::e("MMO local world-object catalog rejected VOB: world_object=",
+           worldObjectId,
+           " vob=", vobObjectId,
+           " kind=", static_cast<unsigned>(kind),
+           " status=", static_cast<unsigned>(status));
+  }
+}
+
 void GameSession::setMmoServerPresentationRoute(
     const Mmo::ClientPresentation::ServerPresentationRouteIdentity& route) {
   mmoPresentationRouteKey = makeMmoPresentationRouteKey(route);
+  mmoServerWorldObjects.resetRoute(route.world);
 }
 
 void GameSession::installMmoServerPresentationBootstrap(
     const Mmo::ClientPresentation::ServerPresentationBootstrap& bootstrap,
-    const bool projectionAlreadyReset) noexcept {
+    const bool projectionAlreadyReset) {
   if(!projectionAlreadyReset)
     resetMmoServerPresentationProjection();
   setMmoServerPresentationRoute(bootstrap.route);
+  const auto inventoryStatus = mmoServerInventoryPresentation_.install(
+      bootstrap.inventory, bootstrap.equipment);
+  if(inventoryStatus !=
+         Mmo::ClientPresentation::ServerInventoryApplyStatus::Applied &&
+     inventoryStatus !=
+         Mmo::ClientPresentation::ServerInventoryApplyStatus::Duplicate) {
+    Log::e("MMO inventory bootstrap rejected: status=",
+           static_cast<unsigned>(inventoryStatus));
+    return;
+  }
+
+  using WorldObjectKind =
+      Mmo::ClientPresentation::ServerPresentationWorldObjectKind;
+  std::size_t moverCount = 0U;
+  std::size_t moverBound = 0U;
+  std::size_t moverUnresolved = 0U;
+  std::size_t worldObjectBound = 0U;
+  for(const auto& object : bootstrap.worldObjects) {
+    const auto result = mmoServerWorldObjects.bindRuntime(
+        object.entity,
+        Mmo::ClientPresentation::ServerWorldObjectId{object.worldObjectId},
+        object.kind);
+    if(result.bound())
+      ++worldObjectBound;
+    if(object.kind == WorldObjectKind::Mover) {
+      ++moverCount;
+      if(result.bound())
+        ++moverBound;
+      else
+        ++moverUnresolved;
+    }
+    if(!result.bound() &&
+       mmoServerWorldObjects.shouldLogUnresolved(
+           object.entity, object.stateRevision)) {
+      Log::e("MMO typed world object unresolved during bootstrap: entity=",
+             object.entity.id,
+             " generation=", object.entity.generation,
+             " world_object=", object.worldObjectId,
+             " kind=", static_cast<unsigned>(object.kind),
+             " revision=", object.stateRevision,
+             " bind_status=", static_cast<unsigned>(result.status));
+    }
+  }
 
   const auto local = std::find_if(
       bootstrap.entities.begin(), bootstrap.entities.end(),
@@ -1921,6 +2091,14 @@ void GameSession::installMmoServerPresentationBootstrap(
   }
   for(const auto& state : bootstrap.npcStates)
     applyMmoServerNpcState(state);
+  for(const auto& state : bootstrap.combatEquipment)
+    applyMmoServerEquipmentSlot(state);
+  for(const auto& state : bootstrap.weaponModes)
+    applyMmoServerWeaponMode(state, false);
+  for(const auto& state : bootstrap.lifeStates)
+    applyMmoServerLifeState(state);
+  for(const auto& action : bootstrap.combatActions)
+    applyMmoServerCombatAction(action);
   for(const auto& state : bootstrap.interactives)
     applyMmoServerInteractiveState(state);
   for(const auto& state : bootstrap.movers)
@@ -1934,10 +2112,24 @@ void GameSession::installMmoServerPresentationBootstrap(
          " world_generation=", bootstrap.route.world.generation,
          " baseline_tick=", bootstrap.baseline.serverTick,
          " baseline_revision=", bootstrap.baseline.aggregateRevision,
+         " inventory_revision=", bootstrap.inventory.revision,
+         " inventory_stacks=", bootstrap.inventory.stacks.size(),
+         " equipment_revision=", bootstrap.equipment.revision,
+         " equipped_slots=", bootstrap.equipment.equipped.size(),
          " entities=", bootstrap.entities.size(),
+         " world_objects=", bootstrap.worldObjects.size(),
+         " world_objects_bound=", worldObjectBound,
+         " local_world_objects=", mmoServerWorldObjects.localCount(),
          " npc_states=", bootstrap.npcStates.size(),
+         " combat_equipment=", bootstrap.combatEquipment.size(),
+         " weapon_modes=", bootstrap.weaponModes.size(),
+         " combat_actions=", bootstrap.combatActions.size(),
+         " life_states=", bootstrap.lifeStates.size(),
          " interactives=", bootstrap.interactives.size(),
-         " movers=", bootstrap.movers.size());
+         " movers=", bootstrap.movers.size(),
+         " mover_descriptors=", moverCount,
+         " movers_bound=", moverBound,
+         " movers_unresolved=", moverUnresolved);
 }
 
 void GameSession::releaseMmoServerEntity(
@@ -1953,6 +2145,11 @@ void GameSession::releaseMmoServerEntity(
      Mmo::ClientPresentation::ServerPresentationEntityKind::LocalPlayer) {
     mmoMovementCorrectionBoundary.unbindLocalPlayer();
   }
+}
+
+bool GameSession::trackMmoServerInventoryCommand(
+    Mmo::ClientPresentation::ServerInventoryPendingCommand command) {
+  return mmoServerInventoryPresentation_.markPending(std::move(command));
 }
 
 std::optional<GameSession::MmoServerEntityTarget>
@@ -1988,21 +2185,34 @@ GameSession::mmoServerEntityTarget(const Npc& npc) const noexcept {
 std::optional<GameSession::MmoServerEntityTarget>
 GameSession::mmoServerEntityTarget(
     const Interactive& interactive) const noexcept {
-  const auto objectId = static_cast<std::uint64_t>(interactive.getId());
-  const auto* interactiveState =
-      mmoTypedServerPresentation.findInteractiveById(objectId);
-  const auto* moverState = mmoTypedServerPresentation.findMoverById(objectId);
-  if(interactiveState == nullptr && moverState == nullptr)
+  using Kind =
+      Mmo::ClientPresentation::ServerPresentationWorldObjectKind;
+  std::optional<Mmo::ClientPresentation::ServerPresentationEntityHandle> entity;
+  for(const auto kind : {Kind::Interactive, Kind::Container, Kind::Mover}) {
+    entity = mmoServerWorldObjects.find(
+        Mmo::ClientPresentation::LocalVobToken{
+            .vobObjectId = interactive.getId(),
+            .kind = kind,
+        });
+    if(entity.has_value())
+      break;
+  }
+  if(!entity.has_value())
     return std::nullopt;
 
-  const auto entity = interactiveState != nullptr ? interactiveState->entity
-                                                   : moverState->entity;
-  const auto revision = interactiveState != nullptr
-                            ? interactiveState->stateRevision
-                            : moverState->stateRevision;
+  std::uint64_t revision = 0U;
+  if(const auto* state = mmoTypedServerPresentation.findInteractive(*entity);
+     state != nullptr) {
+    revision = state->stateRevision;
+  } else if(const auto* state = mmoTypedServerPresentation.findMover(*entity);
+            state != nullptr) {
+    revision = state->stateRevision;
+  } else {
+    return std::nullopt;
+  }
   const auto session = Mmo::clientMmoSessionSnapshot();
   if(!session.inWorld() || session.worldId == 0U ||
-     session.worldGeneration == 0U || !entity.valid()) {
+     session.worldGeneration == 0U || !entity->valid()) {
     return std::nullopt;
   }
 
@@ -2010,8 +2220,8 @@ GameSession::mmoServerEntityTarget(
       .handle = {
           .worldId = session.worldId,
           .worldGeneration = session.worldGeneration,
-          .id = entity.id,
-          .generation = entity.generation,
+          .id = entity->id,
+          .generation = entity->generation,
       },
       .revision = revision,
   };
@@ -2255,55 +2465,314 @@ void GameSession::applyMmoServerNpcState(
       Mmo::ClientMmoProcessGatePresentationEvent::NpcStateApplied);
 }
 
-void GameSession::applyMmoServerInteractiveState(
-    const Mmo::ClientPresentation::ServerPresentationInteractiveStateRecord& state) noexcept {
-  if(wrld == nullptr || state.entity.id > std::numeric_limits<std::uint32_t>::max() ||
-     state.stateId > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())) {
+void GameSession::applyMmoServerEquipmentSlot(
+    const Mmo::ClientPresentation::ServerPresentationEquipmentSlotRecord& state) noexcept {
+  if(wrld == nullptr)
+    return;
+  using namespace Mmo::ClientPresentation;
+  if(state.slot != ServerPresentationEquipmentSlot::MeleeWeapon &&
+     state.slot != ServerPresentationEquipmentSlot::RangedWeapon) {
     return;
   }
-  auto* interactive = wrld->mobsiById(static_cast<std::uint32_t>(state.entity.id));
+
+  auto* npc = resolveMmoServerEntity(state.entity);
+  if(npc == nullptr)
+    return;
+  npc->setMmoServerReplica(true);
+
+  const bool occupied = equipmentOccupied(&state);
+  if(!occupied) {
+    if(state.slot == ServerPresentationEquipmentSlot::MeleeWeapon)
+      npc->setSword(MeshObjects::Mesh{});
+    else
+      npc->setRangedWeapon(MeshObjects::Mesh{});
+  } else {
+    const auto visual = mmoClientPresentationCatalog != nullptr
+                            ? mmoClientPresentationCatalog->equippedWeaponVisual(
+                                  state.presentation.archetypeId,
+                                  state.presentation.presentationId)
+                            : std::nullopt;
+    if(!visual.has_value()) {
+      if(state.slot == ServerPresentationEquipmentSlot::MeleeWeapon)
+        npc->setSword(MeshObjects::Mesh{});
+      else
+        npc->setRangedWeapon(MeshObjects::Mesh{});
+      Log::e("MMO typed equipment visual unresolved: entity=", state.entity.id,
+             " slot=", static_cast<unsigned>(state.slot),
+             " presentation=", state.presentation.presentationId,
+             " archetype=", state.presentation.archetypeId);
+    } else {
+      auto mesh = wrld->addView(*visual);
+      if(state.slot == ServerPresentationEquipmentSlot::MeleeWeapon)
+        npc->setSword(std::move(mesh));
+      else
+        npc->setRangedWeapon(std::move(mesh));
+    }
+  }
+
+  if(const auto* mode = mmoTypedServerPresentation.findWeaponMode(state.entity)) {
+    applyMmoServerWeaponMode(*mode, false);
+  } else {
+    applyMmoServerWeaponMode(
+        ServerPresentationWeaponModeRecord{
+            .entity = state.entity,
+            .mode = ServerPresentationWeaponMode::None,
+            .weaponRevision = 1U,
+        },
+        false);
+  }
+}
+
+void GameSession::applyMmoServerWeaponMode(
+    const Mmo::ClientPresentation::ServerPresentationWeaponModeRecord& state,
+    const bool animate) noexcept {
+  auto* npc = resolveMmoServerEntity(state.entity);
+  if(npc == nullptr)
+    return;
+  using namespace Mmo::ClientPresentation;
+  const auto* melee = mmoTypedServerPresentation.findEquipment(
+      state.entity, ServerPresentationEquipmentSlot::MeleeWeapon);
+  const auto* ranged = mmoTypedServerPresentation.findEquipment(
+      state.entity, ServerPresentationEquipmentSlot::RangedWeapon);
+  const MmoPresentationWeaponShape shape{
+      .meleeEquipped = equipmentOccupied(melee),
+      .meleeTwoHanded =
+          melee != nullptr &&
+          (melee->flags & ServerPresentationEquipmentTwoHanded) != 0U,
+      .rangedEquipped = equipmentOccupied(ranged),
+      .rangedCrossbow =
+          ranged != nullptr &&
+          (ranged->flags & ServerPresentationEquipmentCrossbow) != 0U,
+  };
+  npc->setMmoServerReplica(true);
+  npc->applyMmoServerPresentationWeaponMode(
+      presentationWeaponState(state.mode, shape), animate,
+      shape.meleeTwoHanded, shape.rangedCrossbow);
+}
+
+void GameSession::applyMmoServerCombatAction(
+    const Mmo::ClientPresentation::ServerPresentationCombatActionRecord& action) noexcept {
+  auto* actor = resolveMmoServerEntity(action.entity);
+  if(actor == nullptr)
+    return;
+  actor->setMmoServerReplica(true);
+  actor->setTarget(action.target.empty()
+                       ? nullptr
+                       : resolveMmoServerEntity(action.target));
+
+  const bool predictedLocally =
+      (action.flags &
+       Mmo::ClientPresentation::ServerPresentationCombatActionPredictedLocally) != 0U;
+  if(predictedLocally && wrld != nullptr && actor == wrld->player())
+    return;
+
+  actor->applyMmoServerPresentationCombatAction(
+      presentationCombatAction(action.kind), action.comboIndex,
+      (action.flags &
+       Mmo::ClientPresentation::ServerPresentationCombatActionLeftSide) != 0U,
+      (action.flags &
+       Mmo::ClientPresentation::ServerPresentationCombatActionRightSide) != 0U);
+}
+
+void GameSession::resolveMmoServerCombatAction(
+    const Mmo::ClientPresentation::ServerPresentationCombatActionResolution& resolution) noexcept {
+  using namespace Mmo::ClientPresentation;
+  if(resolution.result == ServerPresentationCombatActionResult::Completed)
+    return;
+  auto* actor = resolveMmoServerEntity(resolution.entity);
+  if(actor == nullptr)
+    return;
+
+  const auto* melee = mmoTypedServerPresentation.findEquipment(
+      resolution.entity, ServerPresentationEquipmentSlot::MeleeWeapon);
+  const auto* ranged = mmoTypedServerPresentation.findEquipment(
+      resolution.entity, ServerPresentationEquipmentSlot::RangedWeapon);
+  const MmoPresentationWeaponShape shape{
+      .meleeEquipped = equipmentOccupied(melee),
+      .meleeTwoHanded =
+          melee != nullptr &&
+          (melee->flags & ServerPresentationEquipmentTwoHanded) != 0U,
+      .rangedEquipped = equipmentOccupied(ranged),
+      .rangedCrossbow =
+          ranged != nullptr &&
+          (ranged->flags & ServerPresentationEquipmentCrossbow) != 0U,
+  };
+  actor->correctMmoServerPresentationCombat(
+      presentationWeaponState(resolution.authoritativeWeaponMode, shape),
+      shape.meleeTwoHanded, shape.rangedCrossbow);
+}
+
+void GameSession::applyMmoServerDamage(
+    const Mmo::ClientPresentation::ServerPresentationDamageRecord& damage) noexcept {
+  auto* target = resolveMmoServerEntity(damage.target);
+  if(target == nullptr)
+    return;
+  Npc::PersistentStats stats;
+  stats.healthCurrent = damage.health;
+  stats.healthMax = damage.maximumHealth;
+  target->restorePersistentStats(stats);
+  target->setMmoServerReplica(true);
+}
+
+void GameSession::applyMmoServerHitReaction(
+    const Mmo::ClientPresentation::ServerPresentationHitReactionRecord& reaction) noexcept {
+  if(wrld == nullptr)
+    return;
+  auto* target = resolveMmoServerEntity(reaction.target);
+  if(target == nullptr)
+    return;
+  target->setMmoServerReplica(true);
+  target->applyMmoServerPresentationHitReaction(
+      presentationHitReaction(reaction.kind));
+
+  const Tempest::Vec3 knockback{
+      reaction.knockbackX, reaction.knockbackY, reaction.knockbackZ};
+  if(knockback.x != 0.f || knockback.y != 0.f || knockback.z != 0.f)
+    static_cast<void>(target->setPosition(target->position()+knockback));
+
+  const auto effectFlags =
+      Mmo::ClientPresentation::ServerPresentationHitReactionVfx |
+      Mmo::ClientPresentation::ServerPresentationHitReactionSfx;
+  if(auto* source = reaction.source.empty()
+                        ? nullptr
+                        : resolveMmoServerEntity(reaction.source);
+     source != nullptr && (reaction.flags & effectFlags) != 0U) {
+    const bool spawnVfx =
+        (reaction.flags &
+         Mmo::ClientPresentation::ServerPresentationHitReactionVfx) != 0U;
+    auto effect =
+        wrld->addWeaponHitEffect(*source, nullptr, *target, spawnVfx);
+    if((reaction.flags &
+        Mmo::ClientPresentation::ServerPresentationHitReactionSfx) != 0U) {
+      effect.play();
+    }
+  }
+
+  if(target == wrld->player() &&
+     (reaction.flags &
+      Mmo::ClientPresentation::ServerPresentationHitReactionCameraShake) != 0U) {
+    camera().addPresentationShake(reaction.cameraShakeStrength);
+  }
+}
+
+void GameSession::applyMmoServerLifeState(
+    const Mmo::ClientPresentation::ServerPresentationLifeStateRecord& state) noexcept {
+  auto* npc = resolveMmoServerEntity(state.entity);
+  if(npc == nullptr)
+    return;
+  npc->setMmoServerReplica(true);
+  npc->applyMmoServerPresentationLifecycle(
+      state.health, state.maximumHealth,
+      presentationLifeState(state.lifeState));
+}
+
+void GameSession::applyMmoServerInteractiveState(
+    const Mmo::ClientPresentation::ServerPresentationInteractiveStateRecord& state) noexcept {
+  using namespace Mmo::ClientPresentation;
+  if(wrld == nullptr ||
+     state.stateId > static_cast<std::uint64_t>(
+                         std::numeric_limits<std::int32_t>::max())) {
+    return;
+  }
+
+  const auto signature = mmoInteractiveStateSignature(state);
+  const auto status = mmoServerWorldObjects.inspectState(
+      state.entity, state.stateRevision, signature);
+  if(status == ServerWorldObjectStateStatus::Duplicate ||
+     status == ServerWorldObjectStateStatus::Stale)
+    return;
+  if(status == ServerWorldObjectStateStatus::Unchanged) {
+    mmoServerWorldObjects.commitState(
+        state.entity, state.stateRevision, signature);
+    return;
+  }
+
+  const auto* local = mmoServerWorldObjects.find(state.entity);
+  if(local == nullptr ||
+     (local->kind != ServerPresentationWorldObjectKind::Interactive &&
+      local->kind != ServerPresentationWorldObjectKind::Container)) {
+    if(mmoServerWorldObjects.shouldLogUnresolved(
+           state.entity, state.stateRevision)) {
+      Log::e("MMO typed interactive unresolved: entity=", state.entity.id,
+             " generation=", state.entity.generation,
+             " revision=", state.stateRevision);
+    }
+    return;
+  }
+
+  auto* interactive = wrld->interactiveByVobId(local->vobObjectId);
   if(interactive == nullptr) {
-    Log::e("MMO typed interactive unresolved: entity=", state.entity.id,
-           " revision=", state.stateRevision);
+    if(mmoServerWorldObjects.shouldLogUnresolved(
+           state.entity, state.stateRevision)) {
+      Log::e("MMO typed interactive local VOB unresolved: entity=",
+             state.entity.id,
+             " vob=", local->vobObjectId,
+             " revision=", state.stateRevision);
+    }
     return;
   }
   const bool locked =
-      (state.flags & Mmo::ClientPresentation::ServerPresentationInteractiveLocked) != 0U;
+      (state.flags & ServerPresentationInteractiveLocked) != 0U;
   interactive->restorePersistentState(
       static_cast<std::int32_t>(state.stateId), locked, false);
+  mmoServerWorldObjects.commitState(
+      state.entity, state.stateRevision, signature);
   Mmo::recordClientMmoProcessGatePresentation(
       Mmo::ClientMmoProcessGatePresentationEvent::InteractiveApplied);
 }
 
 void GameSession::applyMmoServerMoverState(
     const Mmo::ClientPresentation::ServerPresentationMoverStateRecord& state) noexcept {
+  using namespace Mmo::ClientPresentation;
   if(wrld == nullptr)
     return;
-  using Phase = Mmo::ClientPresentation::ServerPresentationMoverPhase;
-  std::int32_t moverState = 0;
-  switch(state.phase) {
-    case Phase::AtStart: moverState = 0; break;
-    case Phase::Opening: moverState = 2; break;
-    case Phase::AtEnd: moverState = 0; break;
-    case Phase::Closing: moverState = 4; break;
-    case Phase::Paused: moverState = 0; break;
+
+  const auto signature = mmoMoverStateSignature(state);
+  const auto status = mmoServerWorldObjects.inspectState(
+      state.entity, state.stateRevision, signature);
+  if(status == ServerWorldObjectStateStatus::Duplicate ||
+     status == ServerWorldObjectStateStatus::Stale)
+    return;
+  if(status == ServerWorldObjectStateStatus::Unchanged) {
+    mmoServerWorldObjects.commitState(
+        state.entity, state.stateRevision, signature);
+    return;
   }
 
-  if(state.entity.id > std::numeric_limits<std::uint32_t>::max()) {
-    Log::e("MMO typed mover id exceeds OpenGothic vob range: entity=",
-           state.entity.id);
+  const auto* local = mmoServerWorldObjects.find(state.entity);
+  if(local == nullptr || local->kind != ServerPresentationWorldObjectKind::Mover) {
+    if(mmoServerWorldObjects.shouldLogUnresolved(
+           state.entity, state.stateRevision)) {
+      Log::e("MMO typed mover unresolved: entity=", state.entity.id,
+             " generation=", state.entity.generation,
+             " revision=", state.stateRevision);
+    }
     return;
+  }
+
+  std::int32_t moverState = 0;
+  switch(state.phase) {
+    case ServerPresentationMoverPhase::AtStart: moverState = 0; break;
+    case ServerPresentationMoverPhase::Opening: moverState = 2; break;
+    case ServerPresentationMoverPhase::AtEnd: moverState = 0; break;
+    case ServerPresentationMoverPhase::Closing: moverState = 4; break;
+    case ServerPresentationMoverPhase::Paused: moverState = 0; break;
   }
 
   const auto frame = static_cast<std::int32_t>(state.keyframe);
-  if(!wrld->restoreMoverState(static_cast<std::uint32_t>(state.entity.id),
-                              moverState, frame, -1)) {
-    Log::e("MMO typed mover unresolved: entity=", state.entity.id,
-           " phase=", static_cast<unsigned>(state.phase),
-           " keyframe=", state.keyframe,
-           " revision=", state.stateRevision);
+  if(!wrld->restoreMoverState(local->vobObjectId, moverState, frame, -1)) {
+    if(mmoServerWorldObjects.shouldLogUnresolved(
+           state.entity, state.stateRevision)) {
+      Log::e("MMO typed mover local VOB unresolved: entity=", state.entity.id,
+             " vob=", local->vobObjectId,
+             " phase=", static_cast<unsigned>(state.phase),
+             " keyframe=", state.keyframe,
+             " revision=", state.stateRevision);
+    }
     return;
   }
+  mmoServerWorldObjects.commitState(
+      state.entity, state.stateRevision, signature);
   Mmo::recordClientMmoProcessGatePresentation(
       Mmo::ClientMmoProcessGatePresentationEvent::MoverApplied);
 }
@@ -2383,6 +2852,7 @@ void GameSession::applyMmoServerPresentationEvent(
     const Mmo::ClientPresentation::ServerPresentationEvent& event,
     const Mmo::ClientPresentation::ServerPresentationApplyResult& result) noexcept {
   using namespace Mmo::ClientPresentation;
+  Mmo::Hooks::ScopedCaptureSuppression suppressCapture;
   std::visit(
       [this, &event, &result](const auto& value) {
         using Event = std::decay_t<decltype(value)>;
@@ -2408,6 +2878,20 @@ void GameSession::applyMmoServerPresentationEvent(
           applyMmoServerMovementCorrection();
         } else if constexpr(std::is_same_v<Event, ServerNpcStateEvent>) {
           applyMmoServerNpcState(value.state);
+        } else if constexpr(std::is_same_v<Event, ServerEquipmentSlotChangedEvent>) {
+          applyMmoServerEquipmentSlot(value.state);
+        } else if constexpr(std::is_same_v<Event, ServerWeaponModeChangedEvent>) {
+          applyMmoServerWeaponMode(value.state, true);
+        } else if constexpr(std::is_same_v<Event, ServerCombatActionStartedEvent>) {
+          applyMmoServerCombatAction(value.action);
+        } else if constexpr(std::is_same_v<Event, ServerCombatActionResolvedEvent>) {
+          resolveMmoServerCombatAction(value.resolution);
+        } else if constexpr(std::is_same_v<Event, ServerDamageAppliedEvent>) {
+          applyMmoServerDamage(value.damage);
+        } else if constexpr(std::is_same_v<Event, ServerHitReactionEvent>) {
+          applyMmoServerHitReaction(value.reaction);
+        } else if constexpr(std::is_same_v<Event, ServerCharacterDeathStateChangedEvent>) {
+          applyMmoServerLifeState(value.state);
         } else if constexpr(std::is_same_v<Event, ServerInteractiveStateEvent>) {
           applyMmoServerInteractiveState(value.state);
         } else if constexpr(std::is_same_v<Event, ServerMoverStateEvent>) {
@@ -2449,6 +2933,9 @@ void GameSession::pollMmoServerPresentationMailbox() noexcept {
   const auto& cmd = CommandLine::inst();
   if(!cmd.mmoClientUsesServer() || wrld == nullptr)
     return;
+
+  for(const auto& completion : Mmo::drainClientMmoCommandCompletions())
+    mmoServerInventoryPresentation_.complete(completion);
 
   auto batch = Mmo::drainTypedServerPresentationMailbox();
   if(!batch.empty() || batch.rejectedRecords != 0U) {

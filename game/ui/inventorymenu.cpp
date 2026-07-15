@@ -3,6 +3,13 @@
 #include <Tempest/Painter>
 #include <Tempest/SoundEffect>
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include "utils/string_frm.h"
 #include "world/objects/npc.h"
 #include "world/objects/interactive.h"
@@ -11,9 +18,47 @@
 #include "utils/gthfont.h"
 #include "utils/keycodec.h"
 #include "gothic.h"
+#include "game/gamesession.h"
+#include "game/mmoclientbridge.h"
 #include "resources.h"
 
 using namespace Tempest;
+
+namespace {
+
+[[nodiscard]] std::optional<Mmo::ClientEquipmentSlot> equipmentSlotFromHint(
+    const std::uint8_t hint) noexcept {
+  using Slot = Mmo::ClientEquipmentSlot;
+  switch(hint) {
+    case 3U: return Slot::MeleeWeapon;
+    case 4U: return Slot::RangedWeapon;
+    case 5U: return Slot::Armor;
+    case 6U: return Slot::Amulet;
+    case 7U: return Slot::RingLeft;
+    case 8U: return Slot::RingRight;
+    case 9U: return Slot::Belt;
+    case 10U: return Slot::Spell;
+    default: return std::nullopt;
+  }
+}
+
+[[nodiscard]] constexpr std::string_view equipmentSlotName(
+    const Mmo::ClientEquipmentSlot slot) noexcept {
+  using Slot = Mmo::ClientEquipmentSlot;
+  switch(slot) {
+    case Slot::MeleeWeapon: return "Melee";
+    case Slot::RangedWeapon: return "Ranged";
+    case Slot::Armor: return "Armor";
+    case Slot::Amulet: return "Amulet";
+    case Slot::RingLeft: return "Ring L";
+    case Slot::RingRight: return "Ring R";
+    case Slot::Belt: return "Belt";
+    case Slot::Spell: return "Spell";
+  }
+  return "Unknown";
+}
+
+} // namespace
 
 struct InventoryMenu::Page {
   Page()=default;
@@ -103,6 +148,11 @@ void InventoryMenu::close() {
     }
   renderer.reset(true);
   takeTimer.stop();
+  serverInventoryMode = false;
+  observedInventoryRevision = 0U;
+  observedEquipmentRevision = 0U;
+  observedPendingCount = 0U;
+  mergeSource.reset();
   state  = State::Closed;
   }
 
@@ -111,6 +161,28 @@ void InventoryMenu::open(Npc &pl) {
     return;
   if(pl.bodyStateMasked()==BS_UNCONSCIOUS || pl.bodyStateMasked()==BS_LIE)
     return;
+  if(Mmo::isServerBoundClientModeEnabled()) {
+    const auto* inventory = serverInventoryState();
+    if(inventory == nullptr || !inventory->ready())
+      return;
+    state = State::Equip;
+    player = &pl;
+    trader = nullptr;
+    chest = nullptr;
+    page = 0;
+    serverInventoryMode = true;
+    observedInventoryRevision = inventory->inventory().revision();
+    observedEquipmentRevision = inventory->equipment().revision();
+    observedPendingCount = inventory->pending().commands().size();
+    mergeSource.reset();
+    pagePl.reset();
+    pageOth.reset();
+    adjustScroll();
+    update();
+    Gothic::inst().emitGlobalSound("INV_OPEN");
+    return;
+  }
+  serverInventoryMode = false;
   if(pl.weaponState()!=WeaponState::NoWeapon) {
     pl.stopAnim("");
     pl.closeWeapon(false);
@@ -130,6 +202,8 @@ void InventoryMenu::open(Npc &pl) {
   }
 
 void InventoryMenu::trade(Npc &pl, Npc &tr) {
+  if(Mmo::isServerBoundClientModeEnabled())
+    return;
   if(pl.isDown())
     return;
   state  = State::Trade;
@@ -145,6 +219,8 @@ void InventoryMenu::trade(Npc &pl, Npc &tr) {
   }
 
 bool InventoryMenu::ransack(Npc &pl, Npc &tr) {
+  if(Mmo::isServerBoundClientModeEnabled())
+    return false;
   if(pl.isDown())
     return false;
   auto it = tr.inventory().iterator(Inventory::T_Ransack);
@@ -164,6 +240,8 @@ bool InventoryMenu::ransack(Npc &pl, Npc &tr) {
   }
 
 void InventoryMenu::open(Npc &pl, Interactive &ch) {
+  if(Mmo::isServerBoundClientModeEnabled())
+    return;
   if(pl.isDown())
     return;
   const bool needToPicklock = ch.needToLockpick(pl);
@@ -202,6 +280,11 @@ void InventoryMenu::onWorldChanged() {
   }
 
 void InventoryMenu::tick(uint64_t /*dt*/) {
+  if(serverInventoryMode) {
+    syncServerInventoryView();
+    if(state==State::Closed)
+      return;
+  }
   if(player!=nullptr && (player->isDown() || player->bodyStateMasked()==BS_UNCONSCIOUS)) {
     close();
     return;
@@ -239,6 +322,11 @@ void InventoryMenu::tick(uint64_t /*dt*/) {
       }
 
     page = 0;
+    serverInventoryMode = false;
+    observedInventoryRevision = 0U;
+    observedEquipmentRevision = 0U;
+    observedPendingCount = 0U;
+    mergeSource.reset();
     renderer.reset();
     pagePl .reset();
     pageOth.reset();
@@ -268,13 +356,13 @@ void InventoryMenu::moveLeft(bool usePage) {
   }
 
 void InventoryMenu::moveRight(bool usePage) {
-  auto&        pg     = activePage();
   auto&        sel    = activePageSel();
+  const size_t size   = activePageSize();
   const size_t pCount = pagesCount();
 
-  if(usePage && ((sel.sel+1u)%columsCount==0 || sel.sel+1u==pg.size() || pg.size()==0) && page+1u<pCount)
+  if(usePage && ((sel.sel+1u)%columsCount==0 || sel.sel+1u==size || size==0) && page+1u<pCount)
     page++;
-  else if(sel.sel+1<pg.size())
+  else if(sel.sel+1<size)
     sel.sel++;
   }
 
@@ -288,10 +376,9 @@ void InventoryMenu::moveUp() {
   }
 
 void InventoryMenu::moveDown() {
-  auto& pg  = activePage();
   auto& sel = activePageSel();
 
-  if(sel.sel+columsCount<pg.size())
+  if(sel.sel+columsCount<activePageSize())
     sel.sel += columsCount;
   else
     moveRight(false);
@@ -302,6 +389,19 @@ void InventoryMenu::keyDownEvent(KeyEvent &e) {
     e.ignore();
     return;
     }
+
+  if(serverInventoryMode && e.key==KeyEvent::K_S) {
+    onServerSplitStack();
+    adjustScroll();
+    update();
+    return;
+  }
+  if(serverInventoryMode && e.key==KeyEvent::K_M) {
+    onServerMergeStack();
+    adjustScroll();
+    update();
+    return;
+  }
 
   processMove(e);
 
@@ -437,6 +537,8 @@ int InventoryMenu::infoHeight() const {
   }
 
 size_t InventoryMenu::pagesCount() const {
+  if(serverInventoryMode)
+    return 1;
   if(state==State::Chest || state==State::Trade)
     return 2;
   return 1;
@@ -458,7 +560,41 @@ InventoryMenu::PageLocal &InventoryMenu::activePageSel() {
   return pageLocal[1];
   }
   
+size_t InventoryMenu::activePageSize() const {
+  if(serverInventoryMode) {
+    const auto* inventory = serverInventoryState();
+    return inventory != nullptr ? inventory->inventory().stacks().size() : 0U;
+  }
+  if(pageOth!=nullptr)
+    return (page==0 ? pageOth : pagePl)->size();
+  return pagePl != nullptr ? pagePl->size() : 0U;
+  }
+
+const Mmo::ClientPresentation::ServerInventoryPresentationState*
+InventoryMenu::serverInventoryState() const {
+  const auto* session = Gothic::inst().gameSession();
+  return session != nullptr ? &session->mmoServerInventoryPresentation() : nullptr;
+  }
+
+const Mmo::ClientPresentation::ServerInventoryStack*
+InventoryMenu::selectedServerStack() const {
+  const auto* state = serverInventoryState();
+  if(state == nullptr)
+    return nullptr;
+  const auto stacks = state->inventory().stacks();
+  const auto selected = pageLocal[1].sel;
+  return selected < stacks.size() ? &stacks[selected] : nullptr;
+  }
+
 void InventoryMenu::onItemAction(uint8_t slotHint) {
+  if(serverInventoryMode) {
+    if(slotHint==Item::NSLOT)
+      submitServerUseOrUnequip();
+    else if(const auto slot = equipmentSlotFromHint(slotHint))
+      submitServerEquip(*slot);
+    return;
+  }
+
   auto& page = activePage();
   auto& sel  = activePageSel();
 
@@ -485,6 +621,29 @@ void InventoryMenu::onItemAction(uint8_t slotHint) {
   }
 
 void InventoryMenu::onTakeStuff() { 
+  if(serverInventoryMode) {
+    const auto* stack = selectedServerStack();
+    if(stack==nullptr)
+      return;
+    size_t itemCount = 0U;
+    if(lootMode==LootMode::Normal) {
+      ++takeCount;
+      itemCount = size_t(std::pow(10,takeCount / 10));
+      if(stack->quantity <= itemCount) {
+        itemCount = stack->quantity;
+        takeCount = 0;
+      }
+    } else if(lootMode==LootMode::Stack) {
+      itemCount = stack->quantity;
+    } else if(lootMode==LootMode::Ten) {
+      itemCount = 10U;
+    } else if(lootMode==LootMode::Hundred) {
+      itemCount = 100U;
+    }
+    submitServerDrop(std::min<std::size_t>(itemCount, stack->quantity));
+    return;
+  }
+
   size_t itemCount = 0;
   auto& page = activePage();
   auto& sel  = activePageSel();
@@ -538,10 +697,166 @@ void InventoryMenu::onTakeStuff() {
   adjustScroll();
   }
 
+void InventoryMenu::trackServerCommand(
+    const Mmo::ClientMmoSubmitResult& result,
+    const Mmo::ClientItemStackHandle primary,
+    const Mmo::ClientItemStackHandle secondary,
+    const std::optional<Mmo::ClientEquipmentSlot> slot) {
+  if(!result.submitted())
+    return;
+  auto* session = Gothic::inst().gameSession();
+  const auto* state = serverInventoryState();
+  if(session==nullptr || state==nullptr)
+    return;
+  if(session->trackMmoServerInventoryCommand({
+         .command = result.command,
+         .primary = primary,
+         .secondary = secondary,
+         .slot = slot,
+         .expectedInventoryRevision = state->inventory().revision(),
+         .expectedEquipmentRevision =
+             slot.has_value() ? state->equipment().revision() : 0U,
+         .phase = Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted,
+     })) {
+    observedPendingCount = state->pending().commands().size();
+    update();
+  }
+}
+
+void InventoryMenu::submitServerUseOrUnequip() {
+  const auto* state = serverInventoryState();
+  const auto* stack = selectedServerStack();
+  if(state==nullptr || stack==nullptr || state->pending().pending(stack->handle))
+    return;
+  if(const auto equipped = state->equipment().slotOf(stack->handle)) {
+    const auto result = Mmo::submitClientUnequipItem({
+        .slot = *equipped,
+        .expectedEquipmentRevision = state->equipment().revision(),
+        .expectedInventoryRevision = state->inventory().revision(),
+    });
+    trackServerCommand(result, stack->handle, {}, equipped);
+    return;
+  }
+  const auto result = Mmo::submitClientUseItem({
+      .item = stack->handle,
+      .target = std::nullopt,
+      .expectedInventoryRevision = state->inventory().revision(),
+      .expectedTargetRevision = 0U,
+  });
+  trackServerCommand(result, stack->handle);
+}
+
+void InventoryMenu::submitServerEquip(const Mmo::ClientEquipmentSlot slot) {
+  const auto* state = serverInventoryState();
+  const auto* stack = selectedServerStack();
+  if(state==nullptr || stack==nullptr || state->pending().pending(stack->handle) ||
+     state->pending().pending(slot))
+    return;
+  const auto result = Mmo::submitClientEquipItem({
+      .item = stack->handle,
+      .slot = slot,
+      .expectedInventoryRevision = state->inventory().revision(),
+      .expectedEquipmentRevision = state->equipment().revision(),
+  });
+  Mmo::ClientItemStackHandle replaced{};
+  if(const auto* current = state->equipment().at(slot);
+     current != nullptr && current->item != stack->handle) {
+    replaced = current->item;
+  }
+  trackServerCommand(result, stack->handle, replaced, slot);
+}
+
+void InventoryMenu::submitServerDrop(const size_t amount) {
+  const auto* state = serverInventoryState();
+  const auto* stack = selectedServerStack();
+  if(state==nullptr || stack==nullptr || player==nullptr || amount==0U ||
+     amount>stack->quantity || state->pending().pending(stack->handle))
+    return;
+  const auto position = player->position();
+  const auto result = Mmo::submitClientDropItem({
+      .item = stack->handle,
+      .amount = static_cast<std::uint32_t>(amount),
+      .proposedPosition = {.x = position.x, .y = position.y, .z = position.z},
+      .expectedInventoryRevision = state->inventory().revision(),
+  });
+  trackServerCommand(result, stack->handle);
+}
+
+void InventoryMenu::onServerSplitStack() {
+  const auto* state = serverInventoryState();
+  const auto* stack = selectedServerStack();
+  if(state==nullptr || stack==nullptr || stack->quantity<2U ||
+     state->pending().pending(stack->handle))
+    return;
+  const auto result = Mmo::submitClientSplitStack({
+      .item = stack->handle,
+      .amount = stack->quantity / 2U,
+      .expectedInventoryRevision = state->inventory().revision(),
+  });
+  trackServerCommand(result, stack->handle);
+}
+
+void InventoryMenu::onServerMergeStack() {
+  const auto* state = serverInventoryState();
+  const auto* destination = selectedServerStack();
+  if(state==nullptr || destination==nullptr ||
+     state->pending().pending(destination->handle))
+    return;
+  if(!mergeSource.has_value()) {
+    mergeSource = destination->handle;
+    return;
+  }
+  if(*mergeSource==destination->handle) {
+    mergeSource.reset();
+    return;
+  }
+  const auto* source = state->inventory().find(*mergeSource);
+  if(source==nullptr || state->pending().pending(source->handle)) {
+    mergeSource.reset();
+    return;
+  }
+  const auto result = Mmo::submitClientMergeStack({
+      .source = source->handle,
+      .destination = destination->handle,
+      .amount = source->quantity,
+      .expectedInventoryRevision = state->inventory().revision(),
+  });
+  trackServerCommand(result, source->handle, destination->handle);
+  if(result.submitted())
+    mergeSource.reset();
+}
+
+void InventoryMenu::syncServerInventoryView() {
+  const auto* inventory = serverInventoryState();
+  if(inventory==nullptr || !inventory->ready()) {
+    close();
+    return;
+  }
+
+  const auto inventoryRevision = inventory->inventory().revision();
+  const auto equipmentRevision = inventory->equipment().revision();
+  const auto pendingCount = inventory->pending().commands().size();
+  if(inventoryRevision==observedInventoryRevision &&
+     equipmentRevision==observedEquipmentRevision &&
+     pendingCount==observedPendingCount) {
+    return;
+  }
+
+  observedInventoryRevision = inventoryRevision;
+  observedEquipmentRevision = equipmentRevision;
+  observedPendingCount = pendingCount;
+  if(mergeSource.has_value() &&
+     inventory->inventory().find(*mergeSource)==nullptr) {
+    mergeSource.reset();
+  }
+  adjustScroll();
+  update();
+}
+
 void InventoryMenu::adjustScroll() {
-  auto& page = activePage();
   auto& sel  = activePageSel();
-  sel.sel = std::min(sel.sel, std::max<size_t>(page.size(),1)-1);
+  const auto size = activePageSize();
+  sel.sel = std::min(sel.sel, std::max<size_t>(size,1)-1);
   while(sel.sel<sel.scroll*columsCount) {
     if(sel.scroll<=1){
       sel.scroll=0;
@@ -566,6 +881,16 @@ void InventoryMenu::drawAll(Painter &p, Npc &player, DrawPass pass) {
 
   const int wcount = int(columsCount);
   const int hcount = int(rowsCount());
+
+  if(serverInventoryMode) {
+    if(pass==DrawPass::Back)
+      drawHeader(p,"Server Inventory",padd,70);
+    drawServerItems(p,pass,pageLocal[1],
+                    w()-padd-wcount*slotSize().w,iy,wcount,hcount);
+    if(pass==DrawPass::Back)
+      drawServerInfo(p);
+    return;
+  }
 
   if(chest!=nullptr){
     if(pass==DrawPass::Back)
@@ -671,6 +996,130 @@ void InventoryMenu::drawSlot(Painter &p, DrawPass pass, const Inventory::Iterato
     }
   }
 
+void InventoryMenu::drawServerItems(Painter &p, DrawPass pass,
+                                    const PageLocal& sel, int x0, int y,
+                                    int wcount, int hcount) {
+  const auto* state = serverInventoryState();
+  if(state==nullptr)
+    return;
+  if(tex!=nullptr && pass==DrawPass::Back) {
+    p.setBrush(*tex);
+    p.drawRect(x0,y,slotSize().w*wcount,slotSize().h*hcount,
+               0,0,tex->w(),tex->h());
+  }
+
+  const auto stacks = state->inventory().stacks();
+  size_t id = sel.scroll*size_t(wcount);
+  for(int row=0; row<hcount; ++row) {
+    for(int column=0; column<wcount; ++column) {
+      const int x = x0 + column*slotSize().w;
+      if(pass==DrawPass::Back) {
+        p.setBrush(*slot);
+        p.drawRect(x,y,slotSize().w,slotSize().h,
+                   0,0,slot->w(),slot->h());
+      }
+      if(id<stacks.size())
+        drawServerSlot(p,pass,stacks[id],sel,x,y,id);
+      ++id;
+    }
+    y += slotSize().h;
+  }
+}
+
+void InventoryMenu::drawServerSlot(
+    Painter &p, DrawPass pass,
+    const Mmo::ClientPresentation::ServerInventoryStack& stack,
+    const PageLocal& sel, int x, int y, size_t id) {
+  const auto* state = serverInventoryState();
+  if(state==nullptr || slot==nullptr)
+    return;
+  const float scale = Gothic::interfaceScale(this);
+  const auto equipped = state->equipment().slotOf(stack.handle);
+
+  if(pass==DrawPass::Back) {
+    if(id==sel.sel && selT!=nullptr) {
+      p.setBrush(*selT);
+      p.drawRect(x,y,slotSize().w,slotSize().h,
+                 0,0,selT->w(),selT->h());
+    }
+    if(equipped.has_value() && selU!=nullptr) {
+      p.setBrush(*selU);
+      p.drawRect(x,y,slotSize().w,slotSize().h,
+                 0,0,selU->w(),selU->h());
+    }
+    auto& fnt = Resources::font(scale);
+    const auto label = std::string("#") + std::to_string(stack.presentationId);
+    const auto size = fnt.textSize(label);
+    fnt.drawText(p,x+(slotSize().w-size.w)/2,
+                 y+slotSize().h/2+size.h/2,label);
+    return;
+  }
+
+  auto& fnt = Resources::font(scale);
+  if(stack.quantity>1U) {
+    const auto quantity = std::to_string(stack.quantity);
+    const auto size = fnt.textSize(quantity);
+    fnt.drawText(p,x+slotSize().w-size.w-10,
+                 y+slotSize().h-10,quantity);
+  }
+  if(equipped.has_value()) {
+    auto& equippedFont = Resources::font(Resources::FontType::Red,scale);
+    const auto label = std::string(equipmentSlotName(*equipped));
+    equippedFont.drawText(p,x+6,y+int(equippedFont.pixelSize()),label);
+  }
+  if(state->pending().pending(stack.handle)) {
+    auto& pendingFont = Resources::font(Resources::FontType::Red,scale);
+    pendingFont.drawText(p,x+6,y+slotSize().h-8,"...");
+  } else if(mergeSource.has_value() && *mergeSource==stack.handle) {
+    auto& mergeFont = Resources::font(Resources::FontType::Red,scale);
+    mergeFont.drawText(p,x+6,y+slotSize().h-8,"M");
+  }
+}
+
+void InventoryMenu::drawServerInfo(Painter &p) {
+  const auto* state = serverInventoryState();
+  const auto* stack = selectedServerStack();
+  if(state==nullptr || stack==nullptr)
+    return;
+
+  const float scale = Gothic::interfaceScale(this);
+  const int dw = std::min(w(),int(720*scale));
+  const int dh = infoHeight();
+  const int x = (w()-dw)/2;
+  const int y = h()-dh-20;
+  if(tex) {
+    p.setBrush(*tex);
+    p.drawRect(x,y,dw,dh,0,0,tex->w(),tex->h());
+  }
+
+  auto& fnt = Resources::font(scale);
+  const auto title = std::string("Server item ")+
+                     std::to_string(stack->archetypeId);
+  const auto titleSize = fnt.textSize(title);
+  fnt.drawText(p,x+(dw-titleSize.w)/2,y+int(fnt.pixelSize()),title);
+
+  std::vector<std::string> lines;
+  lines.reserve(6U);
+  lines.push_back("presentation: "+std::to_string(stack->presentationId));
+  lines.push_back("stack: "+std::to_string(stack->handle.instanceId)+":"+
+                  std::to_string(stack->handle.generation));
+  lines.push_back("quantity: "+std::to_string(stack->quantity));
+  lines.push_back("item revision: "+std::to_string(stack->itemRevision));
+  lines.push_back("inventory/equipment revision: "+
+                  std::to_string(state->inventory().revision())+"/"+
+                  std::to_string(state->equipment().revision()));
+  if(const auto equipped = state->equipment().slotOf(stack->handle))
+    lines.push_back("equipped: "+std::string(equipmentSlotName(*equipped)));
+  if(state->pending().pending(stack->handle))
+    lines.push_back("pending server confirmation");
+  if(!state->pending().lastRejection().empty())
+    lines.push_back(state->pending().lastRejection());
+  lines.push_back("Enter use/unequip | 3-0 equip | Space drop | S split | M merge");
+
+  for(size_t index=0; index<lines.size(); ++index)
+    fnt.drawText(p,x+20,y+int(index+2U)*fnt.pixelSize(),lines[index]);
+}
+
 void InventoryMenu::drawGold(Painter &p, Npc &player, int x, int y) {
   if(!slot)
     return;
@@ -707,6 +1156,10 @@ void InventoryMenu::drawHeader(Painter &p, std::string_view title, int x, int y)
   }
 
 void InventoryMenu::drawInfo(Painter &p) {
+  if(serverInventoryMode) {
+    drawServerInfo(p);
+    return;
+  }
   const float scale = Gothic::interfaceScale(this);
   const int   dw    = std::min(w(), int(720*scale));
   const int   dh    = infoHeight();

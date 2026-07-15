@@ -137,6 +137,25 @@ template<class Destination, class Source>
       case S::RemotePlayer: return D::RemotePlayer;
       case S::Npc: return D::Npc;
     }
+  } else if constexpr(std::is_same_v<S, ClientRuntimeEquipmentSlot>) {
+    switch(value) {
+      case S::MeleeWeapon: return D::MeleeWeapon;
+      case S::RangedWeapon: return D::RangedWeapon;
+      case S::Armor: return D::Armor;
+      case S::Amulet: return D::Amulet;
+      case S::Belt: return D::Belt;
+      case S::RingLeft: return D::RingLeft;
+      case S::RingRight: return D::RingRight;
+      case S::Spell: return D::Spell;
+    }
+  } else if constexpr(std::is_same_v<S, ClientRuntimeBootstrapWorldObjectKind>) {
+    switch(value) {
+      case S::Item: return D::Item;
+      case S::Interactive: return D::Interactive;
+      case S::Mover: return D::Mover;
+      case S::Container: return D::Container;
+      case S::Trigger: return D::Trigger;
+    }
   } else if constexpr(std::is_same_v<S, ClientRuntimeMovementCorrectionReason>) {
     switch(value) {
       case S::Reconciliation: return D::Reconciliation;
@@ -204,6 +223,24 @@ template<class Destination, class Source>
       .presentation = mapPresentation(value.presentation),
       .transform = *transform,
       .entityRevision = value.entityRevision,
+  };
+  return out.valid() ? std::optional{out} : std::nullopt;
+}
+
+[[nodiscard]] inline std::optional<ServerPresentationWorldObjectRecord>
+mapWorldObject(const ClientRuntimeBootstrapWorldObject& value) noexcept {
+  const auto kind = mapEnum<ServerPresentationWorldObjectKind>(value.kind);
+  const auto transform = mapTransform(value.transform);
+  if(!kind || !transform)
+    return std::nullopt;
+  ServerPresentationWorldObjectRecord out{
+      .entity = mapHandle(value.entity),
+      .worldObjectId = value.worldObjectId,
+      .kind = *kind,
+      .presentation = mapPresentation(value.presentation),
+      .transform = *transform,
+      .stateRevision = value.stateRevision,
+      .flags = value.flags,
   };
   return out.valid() ? std::optional{out} : std::nullopt;
 }
@@ -346,8 +383,55 @@ mapInteractive(const ClientRuntimeInteractiveState& value) noexcept {
       .descriptorRevision = descriptor.descriptorRevision,
       .ticksPerDay = descriptor.ticksPerDay,
   };
-  if(!out.route.valid() || !out.baseline.valid() || !out.world.valid())
+  if(!out.route.valid() || !out.baseline.valid() || !out.world.valid() ||
+     value.inventoryRevision == 0U || value.equipmentRevision == 0U)
     return std::nullopt;
+
+  out.inventory.revision = value.inventoryRevision;
+  out.inventory.stacks.reserve(value.inventory.size());
+  for(const auto& source : value.inventory) {
+    ServerInventoryStack stack{
+        .handle = {
+            .instanceId = source.itemInstanceId,
+            .generation = source.itemGeneration,
+        },
+        .archetypeId = source.archetypeId,
+        .presentationId = source.presentationId,
+        .presentationRevision = source.presentationRevision,
+        .quantity = source.amount,
+        .flags = source.flags,
+        .itemRevision = source.itemRevision,
+    };
+    if(!stack.valid())
+      return std::nullopt;
+    out.inventory.stacks.push_back(stack);
+  }
+
+  out.equipment.revision = value.equipmentRevision;
+  out.equipment.equipped.reserve(value.equipment.size());
+  for(const auto& source : value.equipment) {
+    auto slot = mapEnum<ClientEquipmentSlot>(source.slot);
+    if(!slot.has_value())
+      return std::nullopt;
+    ServerEquipmentBinding binding{
+        .slot = *slot,
+        .item = {
+            .instanceId = source.itemInstanceId,
+            .generation = source.itemGeneration,
+        },
+        .itemRevision = source.itemRevision,
+        .flags = source.flags,
+    };
+    if(!binding.valid())
+      return std::nullopt;
+    out.equipment.equipped.push_back(binding);
+  }
+
+  ServerInventoryPresentationState inventoryValidation;
+  if(inventoryValidation.install(out.inventory, out.equipment) !=
+     ServerInventoryApplyStatus::Applied) {
+    return std::nullopt;
+  }
 
   out.entities.reserve(value.entities.size());
   for(const auto& source : value.entities) {
@@ -355,6 +439,13 @@ mapInteractive(const ClientRuntimeInteractiveState& value) noexcept {
     if(!mapped)
       return std::nullopt;
     out.entities.push_back(std::move(*mapped));
+  }
+  out.worldObjects.reserve(value.worldObjects.size());
+  for(const auto& source : value.worldObjects) {
+    auto mapped = mapWorldObject(source);
+    if(!mapped)
+      return std::nullopt;
+    out.worldObjects.push_back(std::move(*mapped));
   }
   out.npcStates.reserve(value.npcStates.size());
   for(const auto& source : value.npcStates) {

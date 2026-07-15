@@ -31,8 +31,10 @@ client:
 
 Next:
 
-- extend inventory/equipment/container/trade hooks with V2 item/entity handles,
-  generations and expected revisions;
+- connect live `InventoryDelta` and `EquipmentSlotChanged` S2C contracts to the
+  prepared full-client read models; equip/unequip/use/drop/split/merge C2S
+  intents already carry exact stack handles, generations and expected revisions;
+- extend container/trade/world-item hooks with exact V2 handles and revisions;
 - enrich numeric dialog identities and choice metadata from typed presentation state;
 - keep sequence/idempotency/receipt/retry/reconnect ownership inside the facade;
 - do not restore packet-shaped compatibility submission while these hooks are
@@ -54,6 +56,13 @@ Implemented independently of facade F:
   MMO-owned proxies and removes their interpolation/presentation bindings on
   release without aliasing pre-existing world NPCs;
 - server replicas do not execute local insertion scripts, AI or perception.
+- protocol-independent S6 fake-event contracts and read models now cover
+  equipment slots, weapon mode, combat action timelines/results, authoritative
+  damage/HP, hit reaction and life state;
+- the graphical materializer resolves weapon visuals, maintains hand/back
+  attachments, presents combat/life animations, VFX/SFX/knockback and local-only
+  camera shake, and corrects rejected presentation prediction without applying
+  local damage.
 
 Facade-domain mapping now implemented:
 
@@ -66,6 +75,9 @@ Facade-domain mapping now implemented:
 
 Next integration:
 
+- map the shared S0/S5 facade mailboxes for equipment, weapon mode, combat,
+  damage, hit reaction and death into the prepared S6 records; preserve server
+  ordering/revisions and do not infer hits or HP from local animation;
 - deploy the importer-generated shared binary presentation catalog next to the
   client build, then pass `-mmo-client-presentation-catalog` together with the
   admitted `-mmo-client-presentation-manifest-id`; the runtime consumer and exact
@@ -77,7 +89,29 @@ Next integration:
   materialization, mover/interactive application and dialog UI lifecycle in a
   complete OpenGothic checkout with third-party dependencies.
 
-## 3. Classify remaining semantic hooks
+## 3. Complete server-backed inventory presentation
+
+Implemented:
+
+- bootstrap inventory/equipment revisions and stack bindings reach the full
+  client through the sandbox facade;
+- `ServerInventoryReadModel`, `ServerEquipmentReadModel` and bounded pending
+  command state are generation-safe and reject stale/malformed snapshots and
+  deltas;
+- `InventoryMenu` uses only the server read model in MMO mode and performs no
+  optimistic quantity or equipment mutation;
+- equip, unequip, use, drop, split and merge actions submit typed Protocol V2
+  intents and wait for authoritative revisions after `Applied` receipts.
+
+Next:
+
+- route live inventory/equipment replication contracts into `GameSession`;
+- resolve item presentation IDs to names/icons without treating `ArchetypeId`
+  as a Daedalus symbol index;
+- add server-backed container, loot and trade pages;
+- add a graphical smoke test in a complete checkout.
+
+## 4. Classify remaining semantic hooks
 
 For every callback in `mmosemantichooks.*`, retain exactly one role:
 
@@ -89,7 +123,7 @@ For every callback in `mmosemantichooks.*`, retain exactly one role:
 Do not send before/after stats, damage, wallet, quest, NPC death or world-state
 results as MMO truth.
 
-## 4. MMO character UX
+## 5. MMO character UX
 
 Implemented:
 

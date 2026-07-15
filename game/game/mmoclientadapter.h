@@ -15,13 +15,62 @@ enum class ClientMmoSubmitStatus : std::uint8_t {
   TransportError,
 };
 
+enum class ClientMmoCommandKind : std::uint16_t {
+  EquipItem = 36U,
+  DropItem = 39U,
+  UnequipItem = 40U,
+  SplitStack = 41U,
+  MergeStack = 42U,
+  UseItem = 56U,
+};
+
+struct ClientMmoCommandToken final {
+  ClientMmoCommandKind kind = ClientMmoCommandKind::UseItem;
+  std::uint64_t routeEpoch = 0U;
+  std::uint64_t sequence = 0U;
+  std::uint64_t idempotencyKeyHigh = 0U;
+  std::uint64_t idempotencyKeyLow = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return routeEpoch != 0U && sequence != 0U &&
+           (idempotencyKeyHigh != 0U || idempotencyKeyLow != 0U);
+  }
+
+  [[nodiscard]] friend constexpr bool operator==(
+      const ClientMmoCommandToken&,
+      const ClientMmoCommandToken&) noexcept = default;
+};
+
+enum class ClientMmoCommandCompletionStatus : std::uint8_t {
+  Applied,
+  Rejected,
+  CancelledByRouteChange,
+  TimedOut,
+  ConnectionLost,
+  TransportClosed,
+};
+
+struct ClientMmoCommandCompletion final {
+  ClientMmoCommandToken command{};
+  ClientMmoCommandCompletionStatus status =
+      ClientMmoCommandCompletionStatus::Rejected;
+  std::uint16_t rejectionCode = 0U;
+  std::uint64_t serverTick = 0U;
+  std::uint64_t aggregateRevision = 0U;
+};
+
 struct ClientMmoSubmitResult final {
   ClientMmoSubmitStatus status = ClientMmoSubmitStatus::Disabled;
+  ClientMmoCommandToken command{};
   std::uint64_t droppedCount = 0;
 
   [[nodiscard]] constexpr bool accepted() const noexcept {
     return status == ClientMmoSubmitStatus::Accepted ||
            status == ClientMmoSubmitStatus::Disabled;
+  }
+
+  [[nodiscard]] constexpr bool submitted() const noexcept {
+    return status == ClientMmoSubmitStatus::Accepted && command.valid();
   }
 };
 
@@ -35,6 +84,30 @@ struct ClientEntityHandle final {
     return worldId != 0U && worldGeneration != 0U && id != 0U &&
            generation != 0U;
   }
+};
+
+struct ClientItemStackHandle final {
+  std::uint64_t instanceId = 0U;
+  std::uint32_t generation = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return instanceId != 0U && generation != 0U;
+  }
+
+  [[nodiscard]] friend constexpr bool operator==(
+      const ClientItemStackHandle&,
+      const ClientItemStackHandle&) noexcept = default;
+};
+
+enum class ClientEquipmentSlot : std::uint8_t {
+  MeleeWeapon,
+  RangedWeapon,
+  Armor,
+  Amulet,
+  RingLeft,
+  RingRight,
+  Belt,
+  Spell,
 };
 
 struct ClientPosition final {
@@ -191,6 +264,46 @@ enum class ClientInventoryAction : std::uint8_t {
   ConsumeItem,
 };
 
+struct ClientEquipItemRequest final {
+  ClientItemStackHandle item{};
+  ClientEquipmentSlot slot = ClientEquipmentSlot::MeleeWeapon;
+  std::uint64_t expectedInventoryRevision = 0U;
+  std::uint64_t expectedEquipmentRevision = 0U;
+};
+
+struct ClientUnequipItemRequest final {
+  ClientEquipmentSlot slot = ClientEquipmentSlot::MeleeWeapon;
+  std::uint64_t expectedEquipmentRevision = 0U;
+  std::uint64_t expectedInventoryRevision = 0U;
+};
+
+struct ClientUseItemRequest final {
+  ClientItemStackHandle item{};
+  std::optional<ClientEntityHandle> target;
+  std::uint64_t expectedInventoryRevision = 0U;
+  std::uint64_t expectedTargetRevision = 0U;
+};
+
+struct ClientDropItemRequest final {
+  ClientItemStackHandle item{};
+  std::uint32_t amount = 0U;
+  ClientPosition proposedPosition{};
+  std::uint64_t expectedInventoryRevision = 0U;
+};
+
+struct ClientSplitStackRequest final {
+  ClientItemStackHandle item{};
+  std::uint32_t amount = 0U;
+  std::uint64_t expectedInventoryRevision = 0U;
+};
+
+struct ClientMergeStackRequest final {
+  ClientItemStackHandle source{};
+  ClientItemStackHandle destination{};
+  std::uint32_t amount = 0U;
+  std::uint64_t expectedInventoryRevision = 0U;
+};
+
 struct ClientInventoryRequest final {
   std::uint64_t clientTick = 0;
   ClientInventoryAction action = ClientInventoryAction::PickupWorldItem;
@@ -290,6 +403,18 @@ struct ClientDialogChoiceRequest final {
     const ClientInteractionRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitClientInventory(
     const ClientInventoryRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitClientEquipItem(
+    const ClientEquipItemRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitClientUnequipItem(
+    const ClientUnequipItemRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitClientUseItem(
+    const ClientUseItemRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitClientDropItem(
+    const ClientDropItemRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitClientSplitStack(
+    const ClientSplitStackRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitClientMergeStack(
+    const ClientMergeStackRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitClientWeaponState(
     const ClientWeaponStateRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitClientCombat(

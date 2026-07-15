@@ -48,7 +48,6 @@ enum class ClientMmoProcessGatePresentationEvent : std::uint8_t {
   RenderedFrame,
 };
 
-
 enum class ClientMmoSessionPhase : std::uint8_t {
   Disabled,
   Connecting,
@@ -155,6 +154,18 @@ void pollClientMmoSession() noexcept;
     const ClientMovementIntent& intent) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitProtocolV2Interaction(
     const ClientInteractionRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2EquipItem(
+    const ClientEquipItemRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2UnequipItem(
+    const ClientUnequipItemRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2UseItem(
+    const ClientUseItemRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2DropItem(
+    const ClientDropItemRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2SplitStack(
+    const ClientSplitStackRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2MergeStack(
+    const ClientMergeStackRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitProtocolV2WeaponState(
     const ClientWeaponStateRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitProtocolV2Combat(
@@ -173,6 +184,8 @@ void flushClientMmoBridge() noexcept;
 
 [[nodiscard]] ClientPresentation::ServerPresentationMailboxBatch
 drainTypedServerPresentationMailbox() noexcept;
+[[nodiscard]] std::vector<ClientMmoCommandCompletion>
+drainClientMmoCommandCompletions() noexcept;
 [[nodiscard]] std::vector<ServerBootstrapSnapshot>
 drainServerBootstrapSnapshots() noexcept;
 [[nodiscard]] std::optional<ServerBootstrapSnapshot>

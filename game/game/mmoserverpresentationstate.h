@@ -1,8 +1,10 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <unordered_map>
 #include <utility>
@@ -37,6 +39,13 @@ enum class ServerPresentationMutation : std::uint8_t {
   EntityTransformed,
   MovementCorrectionQueued,
   NpcStateUpdated,
+  EquipmentSlotUpdated,
+  WeaponModeUpdated,
+  CombatActionStarted,
+  CombatActionResolved,
+  DamageApplied,
+  HitReactionApplied,
+  CharacterLifeStateUpdated,
   DialogStarted,
   DialogUpdated,
   DialogEnded,
@@ -128,6 +137,14 @@ class ServerPresentationState final {
         std::max<std::size_t>(1U, config_.maxWorldObjects);
     entities_.reserve(config_.maxEntities);
     npcStates_.reserve(config_.maxEntities);
+    equipment_.reserve(config_.maxEntities);
+    weaponModes_.reserve(config_.maxEntities);
+    activeCombatActions_.reserve(config_.maxEntities);
+    combatActionRevisions_.reserve(config_.maxEntities);
+    damage_.reserve(config_.maxEntities);
+    hitReactions_.reserve(config_.maxEntities);
+    lifeStates_.reserve(config_.maxEntities);
+    worldObjects_.reserve(config_.maxWorldObjects);
     interactives_.reserve(config_.maxWorldObjects);
     movers_.reserve(config_.maxWorldObjects);
   }
@@ -184,7 +201,18 @@ class ServerPresentationState final {
         return result;
       }
     }
+    const auto maxEquipmentRecords =
+        config_.maxEntities >
+                std::numeric_limits<std::size_t>::max() /
+                    ServerPresentationEquipmentSlotCount
+            ? std::numeric_limits<std::size_t>::max()
+            : config_.maxEntities * ServerPresentationEquipmentSlotCount;
     if(bootstrap.entities.size() > config_.maxEntities ||
+       bootstrap.combatEquipment.size() > maxEquipmentRecords ||
+       bootstrap.weaponModes.size() > config_.maxEntities ||
+       bootstrap.combatActions.size() > config_.maxEntities ||
+       bootstrap.lifeStates.size() > config_.maxEntities ||
+       bootstrap.worldObjects.size() > config_.maxWorldObjects ||
        bootstrap.interactives.size() > config_.maxWorldObjects ||
        bootstrap.movers.size() > config_.maxWorldObjects) {
       result.status = ServerPresentationApplyStatus::CapacityExceeded;
@@ -192,18 +220,36 @@ class ServerPresentationState final {
     }
 
     EntityMap nextEntities;
+    WorldObjectMap nextWorldObjects;
     NpcStateMap nextNpcStates;
+    EquipmentMap nextEquipment;
+    WeaponModeMap nextWeaponModes;
+    CombatActionMap nextCombatActions;
+    RevisionMap nextCombatActionRevisions;
+    LifeStateMap nextLifeStates;
     InteractiveMap nextInteractives;
     MoverMap nextMovers;
     nextEntities.reserve(bootstrap.entities.size());
+    nextWorldObjects.reserve(bootstrap.worldObjects.size());
     nextNpcStates.reserve(bootstrap.npcStates.size());
+    nextEquipment.reserve(bootstrap.entities.size());
+    nextWeaponModes.reserve(bootstrap.weaponModes.size());
+    nextCombatActions.reserve(bootstrap.combatActions.size());
+    nextCombatActionRevisions.reserve(bootstrap.combatActions.size());
+    nextLifeStates.reserve(bootstrap.lifeStates.size());
     nextInteractives.reserve(bootstrap.interactives.size());
     nextMovers.reserve(bootstrap.movers.size());
 
     std::optional<ServerPresentationEntityHandle> nextLocalPlayer;
     if(!buildBootstrapEntities(bootstrap, nextEntities, nextLocalPlayer) ||
+       !buildBootstrapWorldObjectCatalog(bootstrap, nextWorldObjects) ||
        !buildBootstrapNpcStates(bootstrap, nextEntities, nextNpcStates) ||
-       !buildBootstrapWorldObjects(bootstrap, nextInteractives, nextMovers)) {
+       !buildBootstrapCombatPresentation(
+           bootstrap, nextEntities, nextLocalPlayer, nextEquipment,
+           nextWeaponModes,
+           nextCombatActions, nextCombatActionRevisions, nextLifeStates) ||
+       !buildBootstrapWorldObjectStates(
+           bootstrap, nextWorldObjects, nextInteractives, nextMovers)) {
       result.status = ServerPresentationApplyStatus::Invalid;
       return result;
     }
@@ -215,10 +261,18 @@ class ServerPresentationState final {
     }
 
     // Install world-object baselines before exposing the entity roster as live.
+    worldObjects_ = std::move(nextWorldObjects);
     interactives_ = std::move(nextInteractives);
     movers_ = std::move(nextMovers);
     entities_ = std::move(nextEntities);
     npcStates_ = std::move(nextNpcStates);
+    equipment_ = std::move(nextEquipment);
+    weaponModes_ = std::move(nextWeaponModes);
+    activeCombatActions_ = std::move(nextCombatActions);
+    combatActionRevisions_ = std::move(nextCombatActionRevisions);
+    lifeStates_ = std::move(nextLifeStates);
+    damage_.clear();
+    hitReactions_.clear();
     localPlayer_ = nextLocalPlayer;
     world_ = bootstrap.world;
     activeBaseline_ = bootstrap.baseline;
@@ -270,6 +324,71 @@ class ServerPresentationState final {
                : nullptr;
   }
 
+  [[nodiscard]] const ServerPresentationEquipmentSlotRecord* findEquipment(
+      const ServerPresentationEntityHandle handle,
+      const ServerPresentationEquipmentSlot slot) const noexcept {
+    if(!isKnownServerPresentationEquipmentSlot(slot))
+      return nullptr;
+    const auto found = equipment_.find(handle.id);
+    if(found == equipment_.end())
+      return nullptr;
+    const auto& state =
+        found->second[serverPresentationEquipmentSlotIndex(slot)];
+    return state.has_value() && state->entity == handle
+               ? &*state
+               : nullptr;
+  }
+
+  [[nodiscard]] const ServerPresentationWeaponModeRecord* findWeaponMode(
+      const ServerPresentationEntityHandle handle) const noexcept {
+    const auto found = weaponModes_.find(handle.id);
+    return found != weaponModes_.end() && found->second.entity == handle
+               ? &found->second
+               : nullptr;
+  }
+
+  [[nodiscard]] const ServerPresentationCombatActionRecord*
+  findActiveCombatAction(
+      const ServerPresentationEntityHandle handle) const noexcept {
+    const auto found = activeCombatActions_.find(handle.id);
+    return found != activeCombatActions_.end() &&
+                   found->second.entity == handle
+               ? &found->second
+               : nullptr;
+  }
+
+  [[nodiscard]] const ServerPresentationDamageRecord* findDamage(
+      const ServerPresentationEntityHandle handle) const noexcept {
+    const auto found = damage_.find(handle.id);
+    return found != damage_.end() && found->second.target == handle
+               ? &found->second
+               : nullptr;
+  }
+
+  [[nodiscard]] const ServerPresentationHitReactionRecord* findHitReaction(
+      const ServerPresentationEntityHandle handle) const noexcept {
+    const auto found = hitReactions_.find(handle.id);
+    return found != hitReactions_.end() && found->second.target == handle
+               ? &found->second
+               : nullptr;
+  }
+
+  [[nodiscard]] const ServerPresentationLifeStateRecord* findLifeState(
+      const ServerPresentationEntityHandle handle) const noexcept {
+    const auto found = lifeStates_.find(handle.id);
+    return found != lifeStates_.end() && found->second.entity == handle
+               ? &found->second
+               : nullptr;
+  }
+
+  [[nodiscard]] const ServerPresentationWorldObjectRecord* findWorldObject(
+      const ServerPresentationEntityHandle handle) const noexcept {
+    const auto found = worldObjects_.find(handle.id);
+    return found != worldObjects_.end() && found->second.entity == handle
+               ? &found->second
+               : nullptr;
+  }
+
   [[nodiscard]] const ServerPresentationInteractiveStateRecord* findInteractive(
       const ServerPresentationEntityHandle handle) const noexcept {
     const auto found = interactives_.find(handle.id);
@@ -278,24 +397,12 @@ class ServerPresentationState final {
                : nullptr;
   }
 
-  [[nodiscard]] const ServerPresentationInteractiveStateRecord*
-  findInteractiveById(const std::uint64_t entityId) const noexcept {
-    const auto found = interactives_.find(entityId);
-    return found != interactives_.end() ? &found->second : nullptr;
-  }
-
   [[nodiscard]] const ServerPresentationMoverStateRecord* findMover(
       const ServerPresentationEntityHandle handle) const noexcept {
     const auto found = movers_.find(handle.id);
     return found != movers_.end() && found->second.entity == handle
                ? &found->second
                : nullptr;
-  }
-
-  [[nodiscard]] const ServerPresentationMoverStateRecord* findMoverById(
-      const std::uint64_t entityId) const noexcept {
-    const auto found = movers_.find(entityId);
-    return found != movers_.end() ? &found->second : nullptr;
   }
 
   [[nodiscard]] const ServerPresentationDialogState& dialog() const noexcept {
@@ -323,6 +430,23 @@ class ServerPresentationState final {
       std::unordered_map<std::uint64_t, ServerPresentationEntityRecord>;
   using NpcStateMap =
       std::unordered_map<std::uint64_t, ServerPresentationNpcStateRecord>;
+  using EquipmentSlots = std::array<
+      std::optional<ServerPresentationEquipmentSlotRecord>,
+      ServerPresentationEquipmentSlotCount>;
+  using EquipmentMap = std::unordered_map<std::uint64_t, EquipmentSlots>;
+  using WeaponModeMap = std::unordered_map<
+      std::uint64_t, ServerPresentationWeaponModeRecord>;
+  using CombatActionMap = std::unordered_map<
+      std::uint64_t, ServerPresentationCombatActionRecord>;
+  using RevisionMap = std::unordered_map<std::uint64_t, std::uint64_t>;
+  using DamageMap =
+      std::unordered_map<std::uint64_t, ServerPresentationDamageRecord>;
+  using HitReactionMap = std::unordered_map<
+      std::uint64_t, ServerPresentationHitReactionRecord>;
+  using LifeStateMap = std::unordered_map<
+      std::uint64_t, ServerPresentationLifeStateRecord>;
+  using WorldObjectMap = std::unordered_map<
+      std::uint64_t, ServerPresentationWorldObjectRecord>;
   using InteractiveMap = std::unordered_map<
       std::uint64_t, ServerPresentationInteractiveStateRecord>;
   using MoverMap =
@@ -338,6 +462,46 @@ class ServerPresentationState final {
   [[nodiscard]] bool belongsToRoute(
       const ServerPresentationEntityHandle handle) const noexcept {
     return route_.has_value() && handle.valid() && handle.world == route_->world;
+  }
+
+  [[nodiscard]] ServerPresentationApplyStatus validateEntity(
+      const ServerPresentationEntityHandle handle) const noexcept {
+    if(!belongsToRoute(handle))
+      return ServerPresentationApplyStatus::Invalid;
+    const auto found = entities_.find(handle.id);
+    if(found == entities_.end())
+      return ServerPresentationApplyStatus::MissingEntity;
+    return found->second.handle == handle
+               ? ServerPresentationApplyStatus::Applied
+               : ServerPresentationApplyStatus::IdentityMismatch;
+  }
+
+  [[nodiscard]] ServerPresentationApplyStatus validateOptionalEntity(
+      const ServerPresentationEntityHandle handle) const noexcept {
+    return handle.empty() ? ServerPresentationApplyStatus::Applied
+                          : validateEntity(handle);
+  }
+
+  void eraseEntityPresentation(const std::uint64_t entityId) noexcept {
+    npcStates_.erase(entityId);
+    equipment_.erase(entityId);
+    weaponModes_.erase(entityId);
+    activeCombatActions_.erase(entityId);
+    combatActionRevisions_.erase(entityId);
+    damage_.erase(entityId);
+    hitReactions_.erase(entityId);
+    lifeStates_.erase(entityId);
+    std::erase_if(activeCombatActions_, [entityId](const auto& entry) {
+      return entry.second.target.id == entityId;
+    });
+    std::erase_if(damage_, [entityId](const auto& entry) {
+      return entry.second.source.id == entityId ||
+             entry.second.target.id == entityId;
+    });
+    std::erase_if(hitReactions_, [entityId](const auto& entry) {
+      return entry.second.source.id == entityId ||
+             entry.second.target.id == entityId;
+    });
   }
 
   [[nodiscard]] ServerPresentationApplyStatus classifyRoute(
@@ -392,21 +556,109 @@ class ServerPresentationState final {
     return true;
   }
 
-  [[nodiscard]] static bool buildBootstrapWorldObjects(
+  [[nodiscard]] static bool bootstrapEntityMatches(
+      const EntityMap& entities,
+      const ServerPresentationEntityHandle handle) noexcept {
+    const auto found = entities.find(handle.id);
+    return found != entities.end() && found->second.handle == handle;
+  }
+
+  [[nodiscard]] static bool bootstrapOptionalEntityMatches(
+      const EntityMap& entities,
+      const ServerPresentationEntityHandle handle) noexcept {
+    return handle.empty() || bootstrapEntityMatches(entities, handle);
+  }
+
+  [[nodiscard]] static bool buildBootstrapCombatPresentation(
       const ServerPresentationBootstrap& bootstrap,
+      const EntityMap& entities,
+      const std::optional<ServerPresentationEntityHandle>& localPlayer,
+      EquipmentMap& equipment,
+      WeaponModeMap& weaponModes,
+      CombatActionMap& combatActions,
+      RevisionMap& combatActionRevisions,
+      LifeStateMap& lifeStates) {
+    for(const auto& state : bootstrap.combatEquipment) {
+      if(!state.valid() || !bootstrapEntityMatches(entities, state.entity))
+        return false;
+      auto& slots = equipment[state.entity.id];
+      auto& slot = slots[serverPresentationEquipmentSlotIndex(state.slot)];
+      if(slot.has_value())
+        return false;
+      slot = state;
+    }
+    for(const auto& state : bootstrap.weaponModes) {
+      if(!state.valid() || !bootstrapEntityMatches(entities, state.entity) ||
+         !weaponModes.emplace(state.entity.id, state).second) {
+        return false;
+      }
+    }
+    for(const auto& state : bootstrap.lifeStates) {
+      if(!state.valid() || !bootstrapEntityMatches(entities, state.entity) ||
+         !lifeStates.emplace(state.entity.id, state).second) {
+        return false;
+      }
+    }
+    for(const auto& action : bootstrap.combatActions) {
+      const auto life = lifeStates.find(action.entity.id);
+      if(!action.valid() ||
+         !bootstrapEntityMatches(entities, action.entity) ||
+         !bootstrapOptionalEntityMatches(entities, action.target) ||
+         (life != lifeStates.end() &&
+          life->second.lifeState != ServerPresentationNpcLifeState::Alive) ||
+         (((action.flags &
+            ServerPresentationCombatActionPredictedLocally) != 0U) &&
+          (!localPlayer.has_value() || action.entity != *localPlayer)) ||
+         !combatActions.emplace(action.entity.id, action).second ||
+         !combatActionRevisions
+              .emplace(action.entity.id, action.actionRevision)
+              .second) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  [[nodiscard]] static bool buildBootstrapWorldObjectCatalog(
+      const ServerPresentationBootstrap& bootstrap,
+      WorldObjectMap& worldObjects) {
+    std::unordered_map<std::uint64_t, std::uint64_t> entityByWorldObject;
+    entityByWorldObject.reserve(bootstrap.worldObjects.size());
+    for(const auto& object : bootstrap.worldObjects) {
+      if(!object.valid() || object.entity.world != bootstrap.route.world ||
+         !worldObjects.emplace(object.entity.id, object).second ||
+         !entityByWorldObject.emplace(
+             object.worldObjectId, object.entity.id).second) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  [[nodiscard]] static bool buildBootstrapWorldObjectStates(
+      const ServerPresentationBootstrap& bootstrap,
+      const WorldObjectMap& worldObjects,
       InteractiveMap& interactives,
       MoverMap& movers) {
     for(const auto& state : bootstrap.interactives) {
       const bool userMatchesRoute =
           state.user.id == 0U || state.user.world == bootstrap.route.world;
+      const auto object = worldObjects.find(state.entity.id);
       if(!state.valid() || !userMatchesRoute ||
          state.entity.world != bootstrap.route.world ||
+         object == worldObjects.end() || object->second.entity != state.entity ||
+         (object->second.kind !=
+              ServerPresentationWorldObjectKind::Interactive &&
+          object->second.kind != ServerPresentationWorldObjectKind::Container) ||
          !interactives.emplace(state.entity.id, state).second) {
         return false;
       }
     }
     for(const auto& state : bootstrap.movers) {
+      const auto object = worldObjects.find(state.entity.id);
       if(!state.valid() || state.entity.world != bootstrap.route.world ||
+         object == worldObjects.end() || object->second.entity != state.entity ||
+         object->second.kind != ServerPresentationWorldObjectKind::Mover ||
          !movers.emplace(state.entity.id, state).second) {
         return false;
       }
@@ -499,7 +751,7 @@ class ServerPresentationState final {
         current};
     const auto oldHandle = current.handle;
     const auto oldKind = current.kind;
-    npcStates_.erase(oldHandle.id);
+    eraseEntityPresentation(oldHandle.id);
     found->second = event.entity;
     if(oldKind == ServerPresentationEntityKind::LocalPlayer)
       localPlayer_.reset();
@@ -541,7 +793,7 @@ class ServerPresentationState final {
       localPlayer_.reset();
       pendingCorrection_.reset();
     }
-    npcStates_.erase(event.entity.id);
+    eraseEntityPresentation(event.entity.id);
     entities_.erase(found);
     return result;
   }
@@ -747,6 +999,208 @@ class ServerPresentationState final {
   }
 
   [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerEquipmentSlotChangedEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!event.state.valid())
+      return {ServerPresentationApplyStatus::Invalid};
+    const auto entityStatus = validateEntity(event.state.entity);
+    if(entityStatus != ServerPresentationApplyStatus::Applied)
+      return {entityStatus};
+
+    auto& slots = equipment_[event.state.entity.id];
+    auto& current =
+        slots[serverPresentationEquipmentSlotIndex(event.state.slot)];
+    if(current.has_value() &&
+       event.state.equipmentRevision <= current->equipmentRevision) {
+      return {event.state.equipmentRevision == current->equipmentRevision
+                  ? ServerPresentationApplyStatus::Duplicate
+                  : ServerPresentationApplyStatus::Stale};
+    }
+    current = event.state;
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::EquipmentSlotUpdated};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerWeaponModeChangedEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!event.state.valid())
+      return {ServerPresentationApplyStatus::Invalid};
+    const auto entityStatus = validateEntity(event.state.entity);
+    if(entityStatus != ServerPresentationApplyStatus::Applied)
+      return {entityStatus};
+
+    const auto found = weaponModes_.find(event.state.entity.id);
+    if(found != weaponModes_.end() &&
+       event.state.weaponRevision <= found->second.weaponRevision) {
+      return {event.state.weaponRevision == found->second.weaponRevision
+                  ? ServerPresentationApplyStatus::Duplicate
+                  : ServerPresentationApplyStatus::Stale};
+    }
+    weaponModes_.insert_or_assign(event.state.entity.id, event.state);
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::WeaponModeUpdated};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerCombatActionStartedEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!event.action.valid())
+      return {ServerPresentationApplyStatus::Invalid};
+    const auto entityStatus = validateEntity(event.action.entity);
+    if(entityStatus != ServerPresentationApplyStatus::Applied)
+      return {entityStatus};
+    const auto targetStatus = validateOptionalEntity(event.action.target);
+    if(targetStatus != ServerPresentationApplyStatus::Applied)
+      return {targetStatus};
+    if((event.action.flags &
+        ServerPresentationCombatActionPredictedLocally) != 0U &&
+       (!localPlayer_.has_value() || event.action.entity != *localPlayer_)) {
+      return {ServerPresentationApplyStatus::Invalid};
+    }
+    const auto life = lifeStates_.find(event.action.entity.id);
+    if(life != lifeStates_.end() &&
+       life->second.lifeState != ServerPresentationNpcLifeState::Alive) {
+      return {ServerPresentationApplyStatus::Invalid};
+    }
+
+    const auto revision = combatActionRevisions_.find(event.action.entity.id);
+    if(revision != combatActionRevisions_.end() &&
+       event.action.actionRevision <= revision->second) {
+      return {event.action.actionRevision == revision->second
+                  ? ServerPresentationApplyStatus::Duplicate
+                  : ServerPresentationApplyStatus::Stale};
+    }
+    activeCombatActions_.insert_or_assign(event.action.entity.id,
+                                          event.action);
+    combatActionRevisions_.insert_or_assign(event.action.entity.id,
+                                            event.action.actionRevision);
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::CombatActionStarted};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerCombatActionResolvedEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!event.resolution.valid())
+      return {ServerPresentationApplyStatus::Invalid};
+    const auto entityStatus = validateEntity(event.resolution.entity);
+    if(entityStatus != ServerPresentationApplyStatus::Applied)
+      return {entityStatus};
+
+    const auto revision =
+        combatActionRevisions_.find(event.resolution.entity.id);
+    if(revision != combatActionRevisions_.end() &&
+       event.resolution.actionRevision <= revision->second) {
+      return {event.resolution.actionRevision == revision->second
+                  ? ServerPresentationApplyStatus::Duplicate
+                  : ServerPresentationApplyStatus::Stale};
+    }
+    const auto active =
+        activeCombatActions_.find(event.resolution.entity.id);
+    if(active != activeCombatActions_.end() &&
+       active->second.actionId != event.resolution.actionId) {
+      return {ServerPresentationApplyStatus::IdentityMismatch};
+    }
+    if(active != activeCombatActions_.end() &&
+       active->second.clientActionSequence != 0U &&
+       event.resolution.clientActionSequence !=
+           active->second.clientActionSequence) {
+      return {ServerPresentationApplyStatus::IdentityMismatch};
+    }
+    activeCombatActions_.erase(event.resolution.entity.id);
+    combatActionRevisions_.insert_or_assign(
+        event.resolution.entity.id, event.resolution.actionRevision);
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::CombatActionResolved};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerDamageAppliedEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!event.damage.valid())
+      return {ServerPresentationApplyStatus::Invalid};
+    const auto sourceStatus = validateOptionalEntity(event.damage.source);
+    if(sourceStatus != ServerPresentationApplyStatus::Applied)
+      return {sourceStatus};
+    const auto targetStatus = validateEntity(event.damage.target);
+    if(targetStatus != ServerPresentationApplyStatus::Applied)
+      return {targetStatus};
+
+    const auto found = damage_.find(event.damage.target.id);
+    if(found != damage_.end() &&
+       event.damage.damageRevision <= found->second.damageRevision) {
+      return {event.damage.damageRevision == found->second.damageRevision
+                  ? ServerPresentationApplyStatus::Duplicate
+                  : ServerPresentationApplyStatus::Stale};
+    }
+    damage_.insert_or_assign(event.damage.target.id, event.damage);
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::DamageApplied};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerHitReactionEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!event.reaction.valid())
+      return {ServerPresentationApplyStatus::Invalid};
+    const auto sourceStatus = validateOptionalEntity(event.reaction.source);
+    if(sourceStatus != ServerPresentationApplyStatus::Applied)
+      return {sourceStatus};
+    const auto targetStatus = validateEntity(event.reaction.target);
+    if(targetStatus != ServerPresentationApplyStatus::Applied)
+      return {targetStatus};
+
+    const auto found = hitReactions_.find(event.reaction.target.id);
+    if(found != hitReactions_.end() &&
+       event.reaction.reactionRevision <= found->second.reactionRevision) {
+      return {event.reaction.reactionRevision == found->second.reactionRevision
+                  ? ServerPresentationApplyStatus::Duplicate
+                  : ServerPresentationApplyStatus::Stale};
+    }
+    hitReactions_.insert_or_assign(event.reaction.target.id, event.reaction);
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::HitReactionApplied};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerCharacterDeathStateChangedEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!event.state.valid())
+      return {ServerPresentationApplyStatus::Invalid};
+    const auto entityStatus = validateEntity(event.state.entity);
+    if(entityStatus != ServerPresentationApplyStatus::Applied)
+      return {entityStatus};
+
+    const auto found = lifeStates_.find(event.state.entity.id);
+    if(found != lifeStates_.end() &&
+       event.state.lifeRevision <= found->second.lifeRevision) {
+      return {event.state.lifeRevision == found->second.lifeRevision
+                  ? ServerPresentationApplyStatus::Duplicate
+                  : ServerPresentationApplyStatus::Stale};
+    }
+    lifeStates_.insert_or_assign(event.state.entity.id, event.state);
+    if(event.state.lifeState != ServerPresentationNpcLifeState::Alive)
+      activeCombatActions_.erase(event.state.entity.id);
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::CharacterLifeStateUpdated};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
       const ServerInteractiveStateEvent& event) {
     const auto status = validateHeader(event.header);
     if(status != ServerPresentationApplyStatus::Applied)
@@ -754,6 +1208,15 @@ class ServerPresentationState final {
     if(!event.state.valid() || !belongsToRoute(event.state.entity) ||
        (event.state.user.id != 0U && !belongsToRoute(event.state.user))) {
       return {ServerPresentationApplyStatus::Invalid};
+    }
+    const auto object = worldObjects_.find(event.state.entity.id);
+    if(object == worldObjects_.end())
+      return {ServerPresentationApplyStatus::MissingEntity};
+    if(object->second.entity != event.state.entity ||
+       (object->second.kind !=
+            ServerPresentationWorldObjectKind::Interactive &&
+        object->second.kind != ServerPresentationWorldObjectKind::Container)) {
+      return {ServerPresentationApplyStatus::IdentityMismatch};
     }
     auto found = interactives_.find(event.state.entity.id);
     if(found != interactives_.end() &&
@@ -778,6 +1241,13 @@ class ServerPresentationState final {
       return {status};
     if(!event.state.valid() || !belongsToRoute(event.state.entity))
       return {ServerPresentationApplyStatus::Invalid};
+    const auto object = worldObjects_.find(event.state.entity.id);
+    if(object == worldObjects_.end())
+      return {ServerPresentationApplyStatus::MissingEntity};
+    if(object->second.entity != event.state.entity ||
+       object->second.kind != ServerPresentationWorldObjectKind::Mover) {
+      return {ServerPresentationApplyStatus::IdentityMismatch};
+    }
     auto found = movers_.find(event.state.entity.id);
     if(found != movers_.end() &&
        event.state.stateRevision <= found->second.stateRevision) {
@@ -797,6 +1267,14 @@ class ServerPresentationState final {
     world_.reset();
     entities_.clear();
     npcStates_.clear();
+    equipment_.clear();
+    weaponModes_.clear();
+    activeCombatActions_.clear();
+    combatActionRevisions_.clear();
+    damage_.clear();
+    hitReactions_.clear();
+    lifeStates_.clear();
+    worldObjects_.clear();
     interactives_.clear();
     movers_.clear();
     localPlayer_.reset();
@@ -811,6 +1289,14 @@ class ServerPresentationState final {
   std::optional<ServerPresentationWorldDescriptor> world_;
   EntityMap entities_;
   NpcStateMap npcStates_;
+  EquipmentMap equipment_;
+  WeaponModeMap weaponModes_;
+  CombatActionMap activeCombatActions_;
+  RevisionMap combatActionRevisions_;
+  DamageMap damage_;
+  HitReactionMap hitReactions_;
+  LifeStateMap lifeStates_;
+  WorldObjectMap worldObjects_;
   InteractiveMap interactives_;
   MoverMap movers_;
   std::optional<ServerPresentationEntityHandle> localPlayer_;

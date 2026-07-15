@@ -17,6 +17,7 @@
 #include "mmoserverentityinterpolator.h"
 #include "mmomovementcorrectionboundary.h"
 #include "mmoserverpresentationstate.h"
+#include "mmoserverworldobjectregistry.h"
 
 #ifndef OPENGOTHIC_MMO_SQLITE_TOOLING
 #define OPENGOTHIC_MMO_SQLITE_TOOLING 0
@@ -114,6 +115,18 @@ class GameSession final {
         mmoServerEntityTarget(const Npc& npc) const noexcept;
     [[nodiscard]] std::optional<MmoServerEntityTarget>
         mmoServerEntityTarget(const Interactive& interactive) const noexcept;
+
+    [[nodiscard]] const Mmo::ClientPresentation::ServerInventoryPresentationState&
+        mmoServerInventoryPresentation() const noexcept {
+      return mmoServerInventoryPresentation_;
+    }
+    [[nodiscard]] bool trackMmoServerInventoryCommand(
+        Mmo::ClientPresentation::ServerInventoryPendingCommand command);
+    void beginMmoLocalWorldObjectCatalog() noexcept;
+    void registerMmoLocalWorldObject(
+        std::uint64_t worldObjectId,
+        std::uint32_t vobObjectId,
+        Mmo::ClientPresentation::ServerPresentationWorldObjectKind kind);
 
   private:
     struct ChWorld {
@@ -231,7 +244,7 @@ class GameSession final {
                     const Mmo::ClientPresentation::ServerPresentationRouteIdentity& route);
     void        installMmoServerPresentationBootstrap(
                     const Mmo::ClientPresentation::ServerPresentationBootstrap& bootstrap,
-                    bool projectionAlreadyReset) noexcept;
+                    bool projectionAlreadyReset);
     void        applyMmoServerPresentationEvent(
                     const Mmo::ClientPresentation::ServerPresentationEvent& event,
                     const Mmo::ClientPresentation::ServerPresentationApplyResult& result) noexcept;
@@ -247,6 +260,21 @@ class GameSession final {
                     bool snap) noexcept;
     void        applyMmoServerNpcState(
                     const Mmo::ClientPresentation::ServerPresentationNpcStateRecord& state) noexcept;
+    void        applyMmoServerEquipmentSlot(
+                    const Mmo::ClientPresentation::ServerPresentationEquipmentSlotRecord& state) noexcept;
+    void        applyMmoServerWeaponMode(
+                    const Mmo::ClientPresentation::ServerPresentationWeaponModeRecord& state,
+                    bool animate) noexcept;
+    void        applyMmoServerCombatAction(
+                    const Mmo::ClientPresentation::ServerPresentationCombatActionRecord& action) noexcept;
+    void        resolveMmoServerCombatAction(
+                    const Mmo::ClientPresentation::ServerPresentationCombatActionResolution& resolution) noexcept;
+    void        applyMmoServerDamage(
+                    const Mmo::ClientPresentation::ServerPresentationDamageRecord& damage) noexcept;
+    void        applyMmoServerHitReaction(
+                    const Mmo::ClientPresentation::ServerPresentationHitReactionRecord& reaction) noexcept;
+    void        applyMmoServerLifeState(
+                    const Mmo::ClientPresentation::ServerPresentationLifeStateRecord& state) noexcept;
     void        applyMmoServerInteractiveState(
                     const Mmo::ClientPresentation::ServerPresentationInteractiveStateRecord& state) noexcept;
     void        applyMmoServerMoverState(
@@ -267,6 +295,10 @@ class GameSession final {
                                    mmoMovementCorrectionBoundary;
     Mmo::ClientPresentation::ServerPresentationState
                                    mmoTypedServerPresentation;
+    Mmo::ClientPresentation::ServerInventoryPresentationState
+                                   mmoServerInventoryPresentation_;
+    Mmo::ClientPresentation::ServerWorldObjectRegistry
+                                   mmoServerWorldObjects;
     std::unique_ptr<Mmo::ClientPresentation::ClientPresentationCatalogRuntime>
                                    mmoClientPresentationCatalog;
     std::vector<Mmo::ClientPresentation::ServerEntityPresentationTransform>

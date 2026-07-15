@@ -199,6 +199,78 @@ class ClientMmoBridgeState final {
       return {};
     }
 
+    [[nodiscard]] ClientMmoSubmitResult submitEquipItem(
+        const ClientEquipItemRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2EquipItemRequest(request))
+          return mapResult(facade_->requestEquipItem(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitUnequipItem(
+        const ClientUnequipItemRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2UnequipItemRequest(request))
+          return mapResult(facade_->requestUnequipItem(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitUseItem(
+        const ClientUseItemRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2UseItemRequest(request))
+          return mapResult(facade_->requestUseItem(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitDropItem(
+        const ClientDropItemRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2DropItemRequest(request))
+          return mapResult(facade_->requestDropItem(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitSplitStack(
+        const ClientSplitStackRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2SplitStackRequest(request))
+          return mapResult(facade_->requestSplitStack(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitMergeStack(
+        const ClientMergeStackRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2MergeStackRequest(request))
+          return mapResult(facade_->requestMergeStack(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
     [[nodiscard]] ClientMmoSubmitResult submitWeaponState(
         const ClientWeaponStateRequest& request) noexcept {
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
@@ -282,6 +354,14 @@ class ClientMmoBridgeState final {
       }
 #endif
       return {};
+    }
+
+    [[nodiscard]] std::vector<ClientMmoCommandCompletion>
+    commandCompletions() {
+      pollSession();
+      auto out = std::move(commandCompletions_);
+      commandCompletions_.clear();
+      return out;
     }
 
     void recordProcessGatePresentation(
@@ -488,6 +568,69 @@ class ClientMmoBridgeState final {
       }
     }
 
+    [[nodiscard]] static bool isInventoryCommand(
+        const ClientSandbox::ClientRuntimeV2CommandKind kind) noexcept {
+      using Kind = ClientSandbox::ClientRuntimeV2CommandKind;
+      return kind == Kind::EquipItem || kind == Kind::DropItem ||
+             kind == Kind::UnequipItem || kind == Kind::SplitStack ||
+             kind == Kind::MergeStack || kind == Kind::UseItem;
+    }
+
+    [[nodiscard]] static ClientMmoCommandKind mapCommandKind(
+        const ClientSandbox::ClientRuntimeV2CommandKind kind) noexcept {
+      using Source = ClientSandbox::ClientRuntimeV2CommandKind;
+      switch(kind) {
+        case Source::EquipItem: return ClientMmoCommandKind::EquipItem;
+        case Source::DropItem: return ClientMmoCommandKind::DropItem;
+        case Source::UnequipItem: return ClientMmoCommandKind::UnequipItem;
+        case Source::SplitStack: return ClientMmoCommandKind::SplitStack;
+        case Source::MergeStack: return ClientMmoCommandKind::MergeStack;
+        case Source::UseItem: return ClientMmoCommandKind::UseItem;
+        default: return ClientMmoCommandKind::UseItem;
+      }
+    }
+
+    [[nodiscard]] static ClientMmoCommandToken mapCommandToken(
+        const ClientSandbox::ClientRuntimeV2CommandToken& command) noexcept {
+      if(!command.valid() || !isInventoryCommand(command.kind))
+        return {};
+      return {
+          .kind = mapCommandKind(command.kind),
+          .routeEpoch = command.routeEpoch,
+          .sequence = command.sequence,
+          .idempotencyKeyHigh = command.idempotencyKeyHigh,
+          .idempotencyKeyLow = command.idempotencyKeyLow,
+      };
+    }
+
+    [[nodiscard]] static ClientMmoCommandCompletionStatus mapCompletionStatus(
+        const ClientSandbox::ClientRuntimeV2CompletionStatus status) noexcept {
+      using Source = ClientSandbox::ClientRuntimeV2CompletionStatus;
+      switch(status) {
+        case Source::Applied: return ClientMmoCommandCompletionStatus::Applied;
+        case Source::Rejected: return ClientMmoCommandCompletionStatus::Rejected;
+        case Source::CancelledByRouteChange:
+          return ClientMmoCommandCompletionStatus::CancelledByRouteChange;
+        case Source::TimedOut: return ClientMmoCommandCompletionStatus::TimedOut;
+        case Source::ConnectionLost:
+          return ClientMmoCommandCompletionStatus::ConnectionLost;
+        case Source::TransportClosed:
+          return ClientMmoCommandCompletionStatus::TransportClosed;
+      }
+      return ClientMmoCommandCompletionStatus::Rejected;
+    }
+
+    [[nodiscard]] static ClientMmoCommandCompletion mapCompletion(
+        const ClientSandbox::ClientRuntimeV2CommandCompletion& value) noexcept {
+      return {
+          .command = mapCommandToken(value.command),
+          .status = mapCompletionStatus(value.status),
+          .rejectionCode = value.rejectionCode,
+          .serverTick = value.serverTick,
+          .aggregateRevision = value.aggregateRevision,
+      };
+    }
+
     void processSessionCompletions() {
       using Kind = ClientSandbox::ClientRuntimeV2CommandKind;
       for(const auto& completion : facade_->drainProtocolV2CommandCompletions()) {
@@ -496,6 +639,11 @@ class ClientMmoBridgeState final {
           continue;
         }
         if(!isSessionCommand(completion.command.kind)) {
+          if(isInventoryCommand(completion.command.kind)) {
+            auto mapped = mapCompletion(completion);
+            if(mapped.command.valid())
+              commandCompletions_.push_back(mapped);
+          }
           if(completion.status ==
              ClientSandbox::ClientRuntimeV2CompletionStatus::Rejected) {
             ++gameplayRejectedCount_;
@@ -745,9 +893,12 @@ class ClientMmoBridgeState final {
     [[nodiscard]] static ClientMmoSubmitResult mapResult(
         const ClientSandbox::ClientRuntimeV2SubmitResult& result) noexcept {
       ClientMmoSubmitResult out;
+      out.command = mapCommandToken(result.command);
       out.droppedCount = result.droppedTotal;
       switch(result.status) {
         case ClientSandbox::ClientRuntimeV2SubmitStatus::Accepted:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::DeferredUntilBaseline:
+        case ClientSandbox::ClientRuntimeV2SubmitStatus::Coalesced:
           out.status = ClientMmoSubmitStatus::Accepted;
           break;
         case ClientSandbox::ClientRuntimeV2SubmitStatus::LocalValidationFailed:
@@ -778,6 +929,7 @@ class ClientMmoBridgeState final {
     std::mutex diagnosticMutex_;
     std::optional<ServerBootstrapSnapshot> latestBootstrap_;
     std::optional<ServerBootstrapStatus> latestBootstrapStatus_;
+    std::vector<ClientMmoCommandCompletion> commandCompletions_;
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
     std::unique_ptr<ClientSandbox::ClientRuntimeFacade> facade_;
     std::unique_ptr<ClientSandbox::ClientRuntimeProcessGate> processGate_;
@@ -904,6 +1056,42 @@ ClientMmoSubmitResult submitProtocolV2Interaction(
   return state ? state->submitInteraction(request) : ClientMmoSubmitResult{};
 }
 
+ClientMmoSubmitResult submitProtocolV2EquipItem(
+    const ClientEquipItemRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitEquipItem(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2UnequipItem(
+    const ClientUnequipItemRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitUnequipItem(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2UseItem(
+    const ClientUseItemRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitUseItem(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2DropItem(
+    const ClientDropItemRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitDropItem(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2SplitStack(
+    const ClientSplitStackRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitSplitStack(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2MergeStack(
+    const ClientMergeStackRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitMergeStack(request) : ClientMmoSubmitResult{};
+}
+
 ClientMmoSubmitResult submitProtocolV2WeaponState(
     const ClientWeaponStateRequest& request) noexcept {
   std::lock_guard lock(stateMutex);
@@ -990,6 +1178,18 @@ drainTypedServerPresentationMailbox() noexcept {
     return {};
   try {
     return state->typedPresentationMailbox();
+  } catch(...) {
+    return {};
+  }
+}
+
+std::vector<ClientMmoCommandCompletion>
+drainClientMmoCommandCompletions() noexcept {
+  std::lock_guard lock(stateMutex);
+  if(!state)
+    return {};
+  try {
+    return state->commandCompletions();
   } catch(...) {
     return {};
   }

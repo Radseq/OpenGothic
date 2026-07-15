@@ -446,12 +446,18 @@ Vec2 MdlVisual::headRotation() const {
   }
 
 void MdlVisual::updateWeaponSkeleton(const Item* weapon, const Item* range) {
+  updateWeaponSkeletonPresentation(
+      weapon!=nullptr && weapon->is2H(),
+      range!=nullptr && range->isCrossbow());
+  }
+
+void MdlVisual::updateWeaponSkeletonPresentation(const bool meleeTwoHanded,
+                                                 const bool rangedCrossbow) {
   auto st = fgtMode;
   if(st==WeaponState::W1H || st==WeaponState::W2H){
     bind(sword, "ZS_RIGHTHAND");
     } else {
-    bool twoHands = weapon!=nullptr && weapon->is2H();
-    bind(sword,twoHands ? "ZS_LONGSWORD" : "ZS_SWORD");
+    bind(sword,meleeTwoHanded ? "ZS_LONGSWORD" : "ZS_SWORD");
     }
 
   if(st==WeaponState::Bow || st==WeaponState::CBow){
@@ -459,8 +465,7 @@ void MdlVisual::updateWeaponSkeleton(const Item* weapon, const Item* range) {
       bind(bow,"ZS_LEFTHAND"); else
       bind(bow,"ZS_RIGHTHAND");
     } else {
-    bool cbow  = range!=nullptr && range->isCrossbow();
-    bind(bow,cbow ? "ZS_CROSSBOW" : "ZS_BOW");
+    bind(bow,rangedCrossbow ? "ZS_CROSSBOW" : "ZS_BOW");
     }
 
   bind(shield, st==WeaponState::W1H ? "ZS_LEFTARM" : "ZS_SHIELD");

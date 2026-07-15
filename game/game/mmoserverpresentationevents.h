@@ -1,9 +1,12 @@
 #pragma once
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <variant>
 #include <vector>
+
+#include "mmoserverinventoryreadmodel.h"
 
 namespace Mmo::ClientPresentation {
 
@@ -96,6 +99,10 @@ struct ServerPresentationMapping final {
     return archetypeId != 0U && presentationId != 0U && revision != 0U;
   }
 
+  [[nodiscard]] constexpr bool empty() const noexcept {
+    return archetypeId == 0U && presentationId == 0U && revision == 0U;
+  }
+
   [[nodiscard]] friend constexpr bool operator==(
       const ServerPresentationMapping&,
       const ServerPresentationMapping&) noexcept = default;
@@ -146,6 +153,36 @@ struct ServerPresentationEntityRecord final {
   [[nodiscard]] bool valid() const noexcept {
     return handle.valid() && presentation.valid() && transform.valid() &&
            entityRevision != 0U;
+  }
+};
+
+enum class ServerPresentationWorldObjectKind : std::uint8_t {
+  Item = 1U,
+  Interactive = 2U,
+  Mover = 3U,
+  Container = 4U,
+  Trigger = 5U,
+};
+
+struct ServerPresentationWorldObjectRecord final {
+  ServerPresentationEntityHandle entity{};
+  std::uint64_t worldObjectId = 0U;
+  ServerPresentationWorldObjectKind kind =
+      ServerPresentationWorldObjectKind::Item;
+  ServerPresentationMapping presentation{};
+  ServerPresentationTransform transform{};
+  std::uint64_t stateRevision = 0U;
+  std::uint32_t flags = 0U;
+
+  [[nodiscard]] bool valid() const noexcept {
+    const bool knownKind = kind == ServerPresentationWorldObjectKind::Item ||
+                           kind == ServerPresentationWorldObjectKind::Interactive ||
+                           kind == ServerPresentationWorldObjectKind::Mover ||
+                           kind == ServerPresentationWorldObjectKind::Container ||
+                           kind == ServerPresentationWorldObjectKind::Trigger;
+    return entity.valid() && worldObjectId != 0U && knownKind &&
+           presentation.valid() && transform.valid() && stateRevision != 0U &&
+           flags == 0U;
   }
 };
 
@@ -208,6 +245,289 @@ struct ServerPresentationNpcStateRecord final {
            (flags & ~KnownServerPresentationNpcStateFlags) == 0U &&
            validTarget && health >= 0 && maximumHealth >= health &&
            mana >= 0 && maximumMana >= mana && stateRevision != 0U;
+  }
+};
+
+struct ServerPresentationItemHandle final {
+  std::uint64_t id = 0U;
+  std::uint32_t generation = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return id != 0U && generation != 0U;
+  }
+
+  [[nodiscard]] constexpr bool empty() const noexcept {
+    return id == 0U && generation == 0U;
+  }
+
+  [[nodiscard]] friend constexpr bool operator==(
+      const ServerPresentationItemHandle&,
+      const ServerPresentationItemHandle&) noexcept = default;
+};
+
+enum class ServerPresentationEquipmentSlot : std::uint8_t {
+  MeleeWeapon = 1U,
+  RangedWeapon = 2U,
+  Armor = 3U,
+  Amulet = 4U,
+  RingLeft = 5U,
+  RingRight = 6U,
+  Belt = 7U,
+  Spell = 8U,
+};
+
+inline constexpr std::size_t ServerPresentationEquipmentSlotCount = 8U;
+
+enum ServerPresentationEquipmentStateFlag : std::uint32_t {
+  ServerPresentationEquipmentOccupied = 1U << 0U,
+  ServerPresentationEquipmentTwoHanded = 1U << 1U,
+  ServerPresentationEquipmentCrossbow = 1U << 2U,
+};
+inline constexpr std::uint32_t KnownServerPresentationEquipmentStateFlags =
+    ServerPresentationEquipmentOccupied |
+    ServerPresentationEquipmentTwoHanded |
+    ServerPresentationEquipmentCrossbow;
+
+[[nodiscard]] constexpr bool isKnownServerPresentationEquipmentSlot(
+    const ServerPresentationEquipmentSlot slot) noexcept {
+  return slot >= ServerPresentationEquipmentSlot::MeleeWeapon &&
+         slot <= ServerPresentationEquipmentSlot::Spell;
+}
+
+[[nodiscard]] constexpr std::size_t serverPresentationEquipmentSlotIndex(
+    const ServerPresentationEquipmentSlot slot) noexcept {
+  return static_cast<std::size_t>(slot) - 1U;
+}
+
+struct ServerPresentationEquipmentSlotRecord final {
+  ServerPresentationEntityHandle entity{};
+  ServerPresentationEquipmentSlot slot =
+      ServerPresentationEquipmentSlot::MeleeWeapon;
+  ServerPresentationItemHandle item{};
+  ServerPresentationMapping presentation{};
+  std::uint32_t flags = 0U;
+  std::uint64_t equipmentRevision = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    const bool occupied =
+        (flags & ServerPresentationEquipmentOccupied) != 0U;
+    const bool twoHanded =
+        (flags & ServerPresentationEquipmentTwoHanded) != 0U;
+    const bool crossbow =
+        (flags & ServerPresentationEquipmentCrossbow) != 0U;
+    const bool payloadValid = occupied
+                                  ? item.valid() && presentation.valid()
+                                  : item.empty() && presentation.empty() &&
+                                        !twoHanded && !crossbow;
+    const bool compatibleFlags =
+        (!twoHanded || slot == ServerPresentationEquipmentSlot::MeleeWeapon) &&
+        (!crossbow || slot == ServerPresentationEquipmentSlot::RangedWeapon);
+    return entity.valid() && isKnownServerPresentationEquipmentSlot(slot) &&
+           (flags & ~KnownServerPresentationEquipmentStateFlags) == 0U &&
+           payloadValid && compatibleFlags && equipmentRevision != 0U;
+  }
+};
+
+enum class ServerPresentationWeaponMode : std::uint8_t {
+  None = 1U,
+  Melee = 2U,
+  Ranged = 3U,
+  Magic = 4U,
+};
+
+struct ServerPresentationWeaponModeRecord final {
+  ServerPresentationEntityHandle entity{};
+  ServerPresentationWeaponMode mode = ServerPresentationWeaponMode::None;
+  std::uint64_t weaponRevision = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    const bool knownMode = mode == ServerPresentationWeaponMode::None ||
+                           mode == ServerPresentationWeaponMode::Melee ||
+                           mode == ServerPresentationWeaponMode::Ranged ||
+                           mode == ServerPresentationWeaponMode::Magic;
+    return entity.valid() && knownMode && weaponRevision != 0U;
+  }
+};
+
+enum class ServerPresentationCombatActionKind : std::uint8_t {
+  LightAttack = 1U,
+  HeavyAttack = 2U,
+  ComboAttack = 3U,
+  Parry = 4U,
+  Dodge = 5U,
+  CancelAction = 6U,
+};
+
+enum ServerPresentationCombatActionFlag : std::uint32_t {
+  ServerPresentationCombatActionPredictedLocally = 1U << 0U,
+  ServerPresentationCombatActionLeftSide = 1U << 1U,
+  ServerPresentationCombatActionRightSide = 1U << 2U,
+};
+inline constexpr std::uint32_t KnownServerPresentationCombatActionFlags =
+    ServerPresentationCombatActionPredictedLocally |
+    ServerPresentationCombatActionLeftSide |
+    ServerPresentationCombatActionRightSide;
+
+struct ServerPresentationCombatActionRecord final {
+  ServerPresentationEntityHandle entity{};
+  ServerPresentationEntityHandle target{};
+  std::uint64_t actionId = 0U;
+  std::uint64_t clientActionSequence = 0U;
+  ServerPresentationCombatActionKind kind =
+      ServerPresentationCombatActionKind::LightAttack;
+  std::uint16_t comboIndex = 0U;
+  std::uint32_t flags = 0U;
+  std::uint64_t startTick = 0U;
+  std::uint64_t activeStartTick = 0U;
+  std::uint64_t activeEndTick = 0U;
+  std::uint64_t recoveryEndTick = 0U;
+  std::uint64_t actionRevision = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    const bool knownKind =
+        kind == ServerPresentationCombatActionKind::LightAttack ||
+        kind == ServerPresentationCombatActionKind::HeavyAttack ||
+        kind == ServerPresentationCombatActionKind::ComboAttack ||
+        kind == ServerPresentationCombatActionKind::Parry ||
+        kind == ServerPresentationCombatActionKind::Dodge ||
+        kind == ServerPresentationCombatActionKind::CancelAction;
+    const bool sideFlagsCompatible =
+        (flags & (ServerPresentationCombatActionLeftSide |
+                  ServerPresentationCombatActionRightSide)) !=
+        (ServerPresentationCombatActionLeftSide |
+         ServerPresentationCombatActionRightSide);
+    const bool predictionMetadataValid =
+        (flags & ServerPresentationCombatActionPredictedLocally) == 0U ||
+        clientActionSequence != 0U;
+    return entity.valid() && (target.empty() || target.valid()) &&
+           actionId != 0U && knownKind &&
+           (flags & ~KnownServerPresentationCombatActionFlags) == 0U &&
+           sideFlagsCompatible && predictionMetadataValid && startTick != 0U &&
+           startTick <= activeStartTick && activeStartTick <= activeEndTick &&
+           activeEndTick <= recoveryEndTick && actionRevision != 0U;
+  }
+};
+
+enum class ServerPresentationCombatActionResult : std::uint8_t {
+  Completed = 1U,
+  Cancelled = 2U,
+  Rejected = 3U,
+};
+
+struct ServerPresentationCombatActionResolution final {
+  ServerPresentationEntityHandle entity{};
+  std::uint64_t actionId = 0U;
+  std::uint64_t clientActionSequence = 0U;
+  ServerPresentationCombatActionResult result =
+      ServerPresentationCombatActionResult::Completed;
+  ServerPresentationWeaponMode authoritativeWeaponMode =
+      ServerPresentationWeaponMode::None;
+  std::uint64_t actionRevision = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    const bool knownResult =
+        result == ServerPresentationCombatActionResult::Completed ||
+        result == ServerPresentationCombatActionResult::Cancelled ||
+        result == ServerPresentationCombatActionResult::Rejected;
+    const bool knownMode =
+        authoritativeWeaponMode == ServerPresentationWeaponMode::None ||
+        authoritativeWeaponMode == ServerPresentationWeaponMode::Melee ||
+        authoritativeWeaponMode == ServerPresentationWeaponMode::Ranged ||
+        authoritativeWeaponMode == ServerPresentationWeaponMode::Magic;
+    return entity.valid() && actionId != 0U && knownResult && knownMode &&
+           actionRevision != 0U;
+  }
+};
+
+enum ServerPresentationDamageFlag : std::uint32_t {
+  ServerPresentationDamageCritical = 1U << 0U,
+  ServerPresentationDamageBlocked = 1U << 1U,
+  ServerPresentationDamageLethal = 1U << 2U,
+};
+inline constexpr std::uint32_t KnownServerPresentationDamageFlags =
+    ServerPresentationDamageCritical |
+    ServerPresentationDamageBlocked |
+    ServerPresentationDamageLethal;
+
+struct ServerPresentationDamageRecord final {
+  ServerPresentationEntityHandle source{};
+  ServerPresentationEntityHandle target{};
+  std::uint64_t actionId = 0U;
+  std::int32_t amount = 0;
+  std::int32_t health = 0;
+  std::int32_t maximumHealth = 0;
+  std::uint32_t flags = 0U;
+  std::uint64_t damageRevision = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return (source.empty() || source.valid()) && target.valid() &&
+           actionId != 0U && amount >= 0 && health >= 0 &&
+           maximumHealth >= health &&
+           (flags & ~KnownServerPresentationDamageFlags) == 0U &&
+           damageRevision != 0U;
+  }
+};
+
+enum class ServerPresentationHitReactionKind : std::uint8_t {
+  Light = 1U,
+  Heavy = 2U,
+  Blocked = 3U,
+  Knockback = 4U,
+  Knockdown = 5U,
+};
+
+enum ServerPresentationHitReactionFlag : std::uint32_t {
+  ServerPresentationHitReactionVfx = 1U << 0U,
+  ServerPresentationHitReactionSfx = 1U << 1U,
+  ServerPresentationHitReactionCameraShake = 1U << 2U,
+};
+inline constexpr std::uint32_t KnownServerPresentationHitReactionFlags =
+    ServerPresentationHitReactionVfx |
+    ServerPresentationHitReactionSfx |
+    ServerPresentationHitReactionCameraShake;
+
+struct ServerPresentationHitReactionRecord final {
+  ServerPresentationEntityHandle source{};
+  ServerPresentationEntityHandle target{};
+  std::uint64_t actionId = 0U;
+  ServerPresentationHitReactionKind kind =
+      ServerPresentationHitReactionKind::Light;
+  float knockbackX = 0.0F;
+  float knockbackY = 0.0F;
+  float knockbackZ = 0.0F;
+  float cameraShakeStrength = 0.0F;
+  std::uint32_t flags = 0U;
+  std::uint64_t reactionRevision = 0U;
+
+  [[nodiscard]] bool valid() const noexcept {
+    const bool knownKind = kind == ServerPresentationHitReactionKind::Light ||
+                           kind == ServerPresentationHitReactionKind::Heavy ||
+                           kind == ServerPresentationHitReactionKind::Blocked ||
+                           kind == ServerPresentationHitReactionKind::Knockback ||
+                           kind == ServerPresentationHitReactionKind::Knockdown;
+    return (source.empty() || source.valid()) && target.valid() &&
+           actionId != 0U && knownKind && std::isfinite(knockbackX) &&
+           std::isfinite(knockbackY) && std::isfinite(knockbackZ) &&
+           std::isfinite(cameraShakeStrength) && cameraShakeStrength >= 0.0F &&
+           (flags & ~KnownServerPresentationHitReactionFlags) == 0U &&
+           reactionRevision != 0U;
+  }
+};
+
+struct ServerPresentationLifeStateRecord final {
+  ServerPresentationEntityHandle entity{};
+  ServerPresentationNpcLifeState lifeState =
+      ServerPresentationNpcLifeState::Alive;
+  std::int32_t health = 0;
+  std::int32_t maximumHealth = 0;
+  std::uint64_t lifeRevision = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    const bool knownState = lifeState == ServerPresentationNpcLifeState::Alive ||
+                            lifeState == ServerPresentationNpcLifeState::Unconscious ||
+                            lifeState == ServerPresentationNpcLifeState::Dead;
+    return entity.valid() && knownState && health >= 0 &&
+           maximumHealth >= health && lifeRevision != 0U;
   }
 };
 
@@ -280,8 +600,15 @@ struct ServerPresentationBootstrap final {
   ServerPresentationRouteIdentity route{};
   ServerPresentationBaseline baseline{};
   ServerPresentationWorldDescriptor world{};
+  ServerInventorySnapshot inventory;
+  ServerEquipmentSnapshot equipment;
   std::vector<ServerPresentationEntityRecord> entities;
+  std::vector<ServerPresentationWorldObjectRecord> worldObjects;
   std::vector<ServerPresentationNpcStateRecord> npcStates;
+  std::vector<ServerPresentationEquipmentSlotRecord> combatEquipment;
+  std::vector<ServerPresentationWeaponModeRecord> weaponModes;
+  std::vector<ServerPresentationCombatActionRecord> combatActions;
+  std::vector<ServerPresentationLifeStateRecord> lifeStates;
   std::vector<ServerPresentationInteractiveStateRecord> interactives;
   std::vector<ServerPresentationMoverStateRecord> movers;
 };
@@ -396,6 +723,41 @@ struct ServerDialogBusyEvent final {
   std::uint64_t dialogRevision = 0U;
 };
 
+struct ServerEquipmentSlotChangedEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationEquipmentSlotRecord state{};
+};
+
+struct ServerWeaponModeChangedEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationWeaponModeRecord state{};
+};
+
+struct ServerCombatActionStartedEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationCombatActionRecord action{};
+};
+
+struct ServerCombatActionResolvedEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationCombatActionResolution resolution{};
+};
+
+struct ServerDamageAppliedEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationDamageRecord damage{};
+};
+
+struct ServerHitReactionEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationHitReactionRecord reaction{};
+};
+
+struct ServerCharacterDeathStateChangedEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationLifeStateRecord state{};
+};
+
 struct ServerInteractiveStateEvent final {
   ServerPresentationEventHeader header{};
   ServerPresentationInteractiveStateRecord state{};
@@ -417,6 +779,13 @@ using ServerPresentationEvent = std::variant<
     ServerDialogUpdateEvent,
     ServerDialogEndEvent,
     ServerDialogBusyEvent,
+    ServerEquipmentSlotChangedEvent,
+    ServerWeaponModeChangedEvent,
+    ServerCombatActionStartedEvent,
+    ServerCombatActionResolvedEvent,
+    ServerDamageAppliedEvent,
+    ServerHitReactionEvent,
+    ServerCharacterDeathStateChangedEvent,
     ServerInteractiveStateEvent,
     ServerMoverStateEvent>;
 

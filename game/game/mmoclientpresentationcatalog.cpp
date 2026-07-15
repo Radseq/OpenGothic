@@ -130,6 +130,30 @@ ClientPresentationCatalogRuntime::playerInstanceName(
       archetypeId);
 }
 
+std::optional<std::string_view>
+ClientPresentationCatalogRuntime::equippedWeaponVisual(
+    const std::uint64_t archetypeId,
+    const std::uint64_t presentationId) const noexcept {
+  if(!catalog_.has_value() || archetypeId == 0U || presentationId == 0U)
+    return std::nullopt;
+  const auto* descriptor = Mmo::Presentation::findWorldObjectPresentation(
+      *catalog_, Mmo::Presentation::PresentationId{presentationId});
+  if(descriptor == nullptr ||
+     descriptor->kind != Mmo::Presentation::WorldObjectPresentationKind::Weapon ||
+     descriptor->archetype.value != archetypeId ||
+     !descriptor->equippedVisual.valid()) {
+    return std::nullopt;
+  }
+  const auto* resource = Mmo::Presentation::findPresentationResource(
+      *catalog_, descriptor->equippedVisual);
+  if(resource == nullptr ||
+     resource->kind != Mmo::Presentation::PresentationResourceKind::WeaponVisual ||
+     resource->keyUtf8.empty()) {
+    return std::nullopt;
+  }
+  return resource->keyUtf8;
+}
+
 const char* toString(const ClientPresentationCatalogStatus value) noexcept {
   switch(value) {
     case ClientPresentationCatalogStatus::Applied: return "applied";

@@ -53,6 +53,9 @@ public:
   [[nodiscard]] std::optional<std::string_view> playerInstanceName(
       std::uint64_t archetypeId,
       std::uint64_t presentationId) const noexcept;
+  [[nodiscard]] std::optional<std::string_view> equippedWeaponVisual(
+      std::uint64_t archetypeId,
+      std::uint64_t presentationId) const noexcept;
 
   // Returned views point into the installed immutable catalog and remain valid
   // only until the next install/load call or destruction of this runtime.

@@ -8,7 +8,7 @@ namespace {
 
 [[nodiscard]] constexpr ClientMmoSubmitResult submitResult(
     const ClientMmoSubmitStatus status) noexcept {
-  return {.status = status, .droppedCount = 0};
+  return {.status = status, .command = {}, .droppedCount = 0};
 }
 
 } // namespace
@@ -65,6 +65,60 @@ ClientMmoSubmitResult submitClientInventory(
   // Legacy inventory hooks do not carry Protocol V2 item/entity generations
   // and expected revisions, so forwarding them would be non-authoritative.
   return submitResult(ClientMmoSubmitStatus::UnsupportedIntent);
+}
+
+ClientMmoSubmitResult submitClientEquipItem(
+    const ClientEquipItemRequest& request) noexcept {
+  if(!isServerBoundClientModeEnabled())
+    return {};
+  if(!ClientAdapterDetail::validEquipItemRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2EquipItem(request);
+}
+
+ClientMmoSubmitResult submitClientUnequipItem(
+    const ClientUnequipItemRequest& request) noexcept {
+  if(!isServerBoundClientModeEnabled())
+    return {};
+  if(!ClientAdapterDetail::validUnequipItemRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2UnequipItem(request);
+}
+
+ClientMmoSubmitResult submitClientUseItem(
+    const ClientUseItemRequest& request) noexcept {
+  if(!isServerBoundClientModeEnabled())
+    return {};
+  if(!ClientAdapterDetail::validUseItemRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2UseItem(request);
+}
+
+ClientMmoSubmitResult submitClientDropItem(
+    const ClientDropItemRequest& request) noexcept {
+  if(!isServerBoundClientModeEnabled())
+    return {};
+  if(!ClientAdapterDetail::validDropItemRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2DropItem(request);
+}
+
+ClientMmoSubmitResult submitClientSplitStack(
+    const ClientSplitStackRequest& request) noexcept {
+  if(!isServerBoundClientModeEnabled())
+    return {};
+  if(!ClientAdapterDetail::validSplitStackRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2SplitStack(request);
+}
+
+ClientMmoSubmitResult submitClientMergeStack(
+    const ClientMergeStackRequest& request) noexcept {
+  if(!isServerBoundClientModeEnabled())
+    return {};
+  if(!ClientAdapterDetail::validMergeStackRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2MergeStack(request);
 }
 
 ClientMmoSubmitResult submitClientWeaponState(

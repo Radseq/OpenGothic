@@ -69,6 +69,9 @@ class MdlVisual final {
 
     bool                           setToFightMode(const WeaponState ws);
     void                           updateWeaponSkeleton(const Item *sword, const Item *bow);
+    void                           updateWeaponSkeletonPresentation(
+                                       bool meleeTwoHanded,
+                                       bool rangedCrossbow);
 
     void                           setTorch(bool t, World& owner);
     bool                           isUsingTorch() const;
@@ -174,4 +177,3 @@ class MdlVisual final {
     AnimationSolver                solver;
     std::unique_ptr<Pose>          skInst;
   };
-

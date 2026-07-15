@@ -27,6 +27,21 @@ using namespace Tempest;
 
 static std::string_view humansTorchOverlay = "_TORCH.MDS";
 
+[[nodiscard]] static constexpr WeaponState weaponStateFromAnimationEvent(
+    const zenkit::MdsFightMode mode) noexcept {
+  switch(mode) {
+    case zenkit::MdsFightMode::NONE: return WeaponState::NoWeapon;
+    case zenkit::MdsFightMode::FIST: return WeaponState::Fist;
+    case zenkit::MdsFightMode::SINGLE_HANDED: return WeaponState::W1H;
+    case zenkit::MdsFightMode::DUAL_HANDED: return WeaponState::W2H;
+    case zenkit::MdsFightMode::BOW: return WeaponState::Bow;
+    case zenkit::MdsFightMode::CROSSBOW: return WeaponState::CBow;
+    case zenkit::MdsFightMode::MAGIC: return WeaponState::Mage;
+    case zenkit::MdsFightMode::INVALID: return WeaponState::NoWeapon;
+  }
+  return WeaponState::NoWeapon;
+}
+
 std::string_view Npc::Routine::wayPointName() const {
   return point!=nullptr ? point->name : fallbackName;
   }
@@ -306,6 +321,11 @@ void Npc::setMmoServerReplica(const bool value) noexcept {
   if(value)
     return;
   mmoPresentationLifeState = MmoPresentationLifeState::Alive;
+  mmoPresentationWeaponMode = WeaponState::NoWeapon;
+  mmoPresentationWeaponTransitionFrom = WeaponState::NoWeapon;
+  mmoPresentationWeaponTransitionPending = false;
+  mmoPresentationMeleeTwoHanded = false;
+  mmoPresentationRangedCrossbow = false;
   physic.setEnable(hnpc->attribute[ATR_HITPOINTS] > 0);
 }
 
@@ -340,6 +360,109 @@ void Npc::applyMmoServerPresentationLifecycle(
       static_cast<void>(setAnim(Anim::DeadA));
       break;
   }
+}
+
+void Npc::applyMmoServerPresentationWeaponMode(
+    const WeaponState mode,
+    const bool animate,
+    const bool meleeTwoHanded,
+    const bool rangedCrossbow) {
+  mmoPresentationMeleeTwoHanded = meleeTwoHanded;
+  mmoPresentationRangedCrossbow = rangedCrossbow;
+  const auto previousMode = visual.fightMode();
+  const bool animationStarted =
+      animate && previousMode!=mode && visual.startAnim(*this,mode);
+  mmoPresentationWeaponMode = mode;
+  mmoPresentationWeaponTransitionFrom = previousMode;
+  mmoPresentationWeaponTransitionPending = animationStarted;
+  static_cast<void>(visual.setToFightMode(mode));
+  if(!animationStarted) {
+    visual.updateWeaponSkeletonPresentation(
+        mmoPresentationMeleeTwoHanded,mmoPresentationRangedCrossbow);
+  }
+
+  switch(mode) {
+    case WeaponState::NoWeapon: hnpc->weapon = 0; break;
+    case WeaponState::Fist:     hnpc->weapon = 1; break;
+    case WeaponState::W1H:      hnpc->weapon = 3; break;
+    case WeaponState::W2H:      hnpc->weapon = 4; break;
+    case WeaponState::Bow:      hnpc->weapon = 5; break;
+    case WeaponState::CBow:     hnpc->weapon = 6; break;
+    case WeaponState::Mage:     hnpc->weapon = 7; break;
+    }
+}
+
+void Npc::applyMmoServerPresentationCombatAction(
+    const MmoPresentationCombatAction action,
+    const uint16_t comboIndex,
+    const bool leftSide,
+    const bool rightSide) {
+  Anim animation = Anim::Idle;
+  switch(action) {
+    case MmoPresentationCombatAction::LightAttack:
+    case MmoPresentationCombatAction::HeavyAttack:
+      animation = Anim::Attack;
+      break;
+    case MmoPresentationCombatAction::ComboAttack:
+      if(leftSide)
+        animation = Anim::AttackL;
+      else if(rightSide)
+        animation = Anim::AttackR;
+      else
+        animation = (comboIndex%2U)==0U ? Anim::AttackL : Anim::AttackR;
+      break;
+    case MmoPresentationCombatAction::Parry:
+      animation = Anim::AttackBlock;
+      break;
+    case MmoPresentationCombatAction::Dodge:
+      if(leftSide)
+        animation = Anim::MoveL;
+      else if(rightSide)
+        animation = Anim::MoveR;
+      else
+        animation = Anim::MoveBack;
+      break;
+    case MmoPresentationCombatAction::Cancel:
+      animation = Anim::Idle;
+      break;
+    }
+
+  if(setAnim(animation))
+    return;
+  visual.interrupt();
+  static_cast<void>(setAnim(animation));
+}
+
+void Npc::correctMmoServerPresentationCombat(
+    const WeaponState authoritativeMode,
+    const bool meleeTwoHanded,
+    const bool rangedCrossbow) {
+  visual.interrupt();
+  applyMmoServerPresentationWeaponMode(
+      authoritativeMode,false,meleeTwoHanded,rangedCrossbow);
+  static_cast<void>(setAnim(Anim::Idle));
+}
+
+void Npc::applyMmoServerPresentationHitReaction(
+    const MmoPresentationHitReaction reaction) {
+  Anim animation = Anim::StumbleA;
+  switch(reaction) {
+    case MmoPresentationHitReaction::Light:
+      animation = Anim::StumbleA;
+      break;
+    case MmoPresentationHitReaction::Heavy:
+    case MmoPresentationHitReaction::Knockback:
+      animation = Anim::StumbleB;
+      break;
+    case MmoPresentationHitReaction::Blocked:
+      animation = Anim::AttackBlock;
+      break;
+    case MmoPresentationHitReaction::Knockdown:
+      animation = Anim::FallenA;
+      break;
+    }
+  visual.interrupt();
+  static_cast<void>(setAnim(animation));
 }
 
 void Npc::restorePersistentInventory(const std::vector<PersistentInventoryItem>& next) {
@@ -2076,9 +2199,20 @@ void Npc::implFaiWait(uint64_t dt) {
   }
 
 void Npc::implSetFightMode(const Animation::EvCount& ev) {
-  const auto ws = visual.fightMode();
-  if(!visual.setFightMode(ev.weaponCh))
+  if(ev.weaponCh==zenkit::MdsFightMode::INVALID)
     return;
+  const auto eventMode = weaponStateFromAnimationEvent(ev.weaponCh);
+  WeaponState ws = visual.fightMode();
+  if(mmoServerReplica) {
+    if(eventMode != mmoPresentationWeaponMode)
+      return;
+    if(mmoPresentationWeaponTransitionPending)
+      ws = mmoPresentationWeaponTransitionFrom;
+    static_cast<void>(visual.setToFightMode(mmoPresentationWeaponMode));
+    mmoPresentationWeaponTransitionPending = false;
+  } else if(!visual.setFightMode(ev.weaponCh)) {
+    return;
+  }
 
   if(ev.weaponCh==zenkit::MdsFightMode::NONE && (ws==WeaponState::W1H || ws==WeaponState::W2H)) {
     if(auto melee = invent.currentMeleeWeapon()) {
@@ -2086,6 +2220,10 @@ void Npc::implSetFightMode(const Animation::EvCount& ev) {
       if(melee->handle().material==ItemMaterial::MAT_METAL)
         sfxWeapon = ::Sound(owner,::Sound::T_Regular,"UNDRAWSOUND_ME.WAV",at,2500,false); else
         sfxWeapon = ::Sound(owner,::Sound::T_Regular,"UNDRAWSOUND_WO.WAV",at,2500,false);
+      sfxWeapon.play();
+      } else if(mmoServerReplica) {
+      auto at = centerPosition();
+      sfxWeapon = ::Sound(owner,::Sound::T_Regular,"UNDRAWSOUND_ME.WAV",at,2500,false);
       sfxWeapon.play();
       }
     }
@@ -2096,6 +2234,10 @@ void Npc::implSetFightMode(const Animation::EvCount& ev) {
         sfxWeapon = ::Sound(owner,::Sound::T_Regular,"DRAWSOUND_ME.WAV",at,2500,false); else
         sfxWeapon = ::Sound(owner,::Sound::T_Regular,"DRAWSOUND_WO.WAV",at,2500,false);
       sfxWeapon.play();
+      } else if(mmoServerReplica) {
+      auto at = centerPosition();
+      sfxWeapon = ::Sound(owner,::Sound::T_Regular,"DRAWSOUND_ME.WAV",at,2500,false);
+      sfxWeapon.play();
       }
     }
   else if(ev.weaponCh==zenkit::MdsFightMode::BOW || ev.weaponCh==zenkit::MdsFightMode::CROSSBOW) {
@@ -2105,7 +2247,12 @@ void Npc::implSetFightMode(const Animation::EvCount& ev) {
     }
   dropTorch();
   visual.stopDlgAnim(*this);
-  updateWeaponSkeleton();
+  if(mmoServerReplica) {
+    visual.updateWeaponSkeletonPresentation(
+        mmoPresentationMeleeTwoHanded,mmoPresentationRangedCrossbow);
+  } else {
+    updateWeaponSkeleton();
+  }
   }
 
 bool Npc::implAiFlee(uint64_t dt) {
@@ -2182,7 +2329,7 @@ void Npc::commitDamage() {
   }
 
 void Npc::takeDamage(Npc &other, const Bullet* b) {
-  if(mmoServerReplica && !isPlayer())
+  if(mmoServerReplica)
     return;
   if(isDown())
     return;
@@ -2208,7 +2355,7 @@ void Npc::takeDamage(Npc &other, const Bullet* b) {
   }
 
 void Npc::takeDamage(Npc& other, const Bullet* b, const VisualFx* vfx, int32_t splId) {
-  if(mmoServerReplica && !isPlayer())
+  if(mmoServerReplica)
     return;
   if(isDown())
     return;
@@ -2227,8 +2374,8 @@ void Npc::takeDamage(Npc& other, const Bullet* b, const VisualFx* vfx, int32_t s
 void Npc::takeDamage(Npc& other, const Bullet* b, const CollideMask bMask, int32_t splId, bool isSpell) {
   // The full client may still play predicted attack animations, but a
   // server-owned replica must never accept local hit resolution or mutate its
-  // gameplay attributes. NpcState replication remains the only owner here.
-  if(mmoServerReplica && !isPlayer())
+  // gameplay attributes. Typed damage/life replication remains the only owner.
+  if(mmoServerReplica)
     return;
   float a  = angleDir(other.x-x,other.z-z);
   float da = a-angle;
@@ -5125,8 +5272,6 @@ void Npc::updateAnimation(uint64_t dt, bool force) {
   if(syncAtt)
     visual.syncAttaches();
   }
-
-
 
 
 

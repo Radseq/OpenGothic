@@ -97,8 +97,20 @@ void Camera::reset(const Npc* pl) {
                        def.best_azimuth,
                        def.best_rot_z);
 
+  shake = {};
+  globalShake = {};
+  presentationShakeAmplitude = 0.f;
+  presentationShakePhase = 0.f;
+
   tickThirdPerson(-1.f);
   }
+
+void Camera::addPresentationShake(const float strength) noexcept {
+  if(!std::isfinite(strength) || strength<=0.f)
+    return;
+  presentationShakeAmplitude =
+      std::min(2.5f,presentationShakeAmplitude+strength);
+}
 
 void Camera::save(Serialize &s) {
   s.write(state.range, state.spin, state.target);
@@ -741,10 +753,21 @@ void Camera::tick(uint64_t dt) {
       }
     }
 
-  if(auto w = Gothic::inst().world()) {
+  {
     Vec3 sh;
-    w->globalFx()->shake(sh);
-    shake = shake + (sh-shake)*std::min(1.f, dtF*1000.f);
+    if(auto w = Gothic::inst().world())
+      w->globalFx()->shake(sh);
+    globalShake = globalShake +
+                  (sh-globalShake)*std::min(1.f,dtF*1000.f);
+
+    presentationShakeAmplitude =
+        std::max(0.f,presentationShakeAmplitude-dtF*4.f);
+    presentationShakePhase += dtF*55.f;
+    const Vec3 presentation{
+        std::sin(presentationShakePhase*1.7f),
+        std::cos(presentationShakePhase*2.3f),
+        std::sin(presentationShakePhase*2.9f)};
+    shake = globalShake + presentation*presentationShakeAmplitude;
     }
 
   {

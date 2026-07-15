@@ -53,6 +53,7 @@ class World final {
 
     uint32_t             mobsiId(const Interactive* ptr) const;
     Interactive*         mobsiById(uint32_t id);
+    Interactive*         interactiveByVobId(uint32_t vobObjectId);
 
     uint32_t             itmId(const void* ptr) const;
     Item*                itmById(uint32_t id);
@@ -188,7 +189,8 @@ class World final {
 
     void                 addDlgSound(std::string_view s, const Tempest::Vec3& pos, float range, uint64_t &timeLen);
 
-    Sound                addWeaponHitEffect(Npc&         src, const Bullet* srcArrow, Npc&  reciver);
+    Sound                addWeaponHitEffect(Npc&         src, const Bullet* srcArrow, Npc&  reciver,
+                                            bool spawnVfx = true);
     Sound                addWeaponBlkEffect(ItemMaterial src, ItemMaterial          reciver, const Tempest::Matrix4x4& pos);
     Sound                addLandHitEffect  (ItemMaterial src, zenkit::MaterialGroup reciver, const Tempest::Matrix4x4& pos);
 
@@ -232,5 +234,6 @@ class World final {
 
     void         initScripts(bool firstTime);
 
-    Sound        addHitEffect(std::string_view src, std::string_view reciver, std::string_view scheme, const Tempest::Matrix4x4& pos);
+    Sound        addHitEffect(std::string_view src, std::string_view reciver, std::string_view scheme,
+                              const Tempest::Matrix4x4& pos, bool spawnVfx = true);
   };

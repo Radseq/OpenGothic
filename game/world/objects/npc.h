@@ -170,12 +170,43 @@ class Npc final {
       Dead,
       };
 
+    enum class MmoPresentationCombatAction : uint8_t {
+      LightAttack,
+      HeavyAttack,
+      ComboAttack,
+      Parry,
+      Dodge,
+      Cancel,
+      };
+
+    enum class MmoPresentationHitReaction : uint8_t {
+      Light,
+      Heavy,
+      Blocked,
+      Knockback,
+      Knockdown,
+      };
+
     bool       isPlayer() const;
     void       setMmoServerReplica(bool value) noexcept;
     [[nodiscard]] bool isMmoServerReplica() const noexcept { return mmoServerReplica; }
     void       applyMmoServerPresentationLifecycle(
                    int32_t healthCurrent, int32_t healthMax,
                    MmoPresentationLifeState lifeState);
+    void       applyMmoServerPresentationWeaponMode(
+                   WeaponState mode, bool animate,
+                   bool meleeTwoHanded, bool rangedCrossbow);
+    void       applyMmoServerPresentationCombatAction(
+                   MmoPresentationCombatAction action,
+                   uint16_t comboIndex,
+                   bool leftSide,
+                   bool rightSide);
+    void       correctMmoServerPresentationCombat(
+                   WeaponState authoritativeMode,
+                   bool meleeTwoHanded,
+                   bool rangedCrossbow);
+    void       applyMmoServerPresentationHitReaction(
+                   MmoPresentationHitReaction reaction);
     void       setWalkMode(WalkBit m);
     auto       walkMode() const { return wlkMode; }
     void       tick(uint64_t dt);
@@ -662,6 +693,13 @@ class Npc final {
     bool                           mmoServerReplica = false;
     MmoPresentationLifeState       mmoPresentationLifeState =
                                        MmoPresentationLifeState::Alive;
+    WeaponState                    mmoPresentationWeaponMode =
+                                       WeaponState::NoWeapon;
+    WeaponState                    mmoPresentationWeaponTransitionFrom =
+                                       WeaponState::NoWeapon;
+    bool                           mmoPresentationWeaponTransitionPending = false;
+    bool                           mmoPresentationMeleeTwoHanded = false;
+    bool                           mmoPresentationRangedCrossbow = false;
 
     // last hit
     Npc*                           lastHit          = nullptr;
@@ -723,6 +761,4 @@ class Npc final {
 
   friend class MoveAlgo;
   };
-
-
 

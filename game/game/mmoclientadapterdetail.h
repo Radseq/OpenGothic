@@ -223,6 +223,166 @@ makeProtocolV2InteractionRequest(
   };
 }
 
+[[nodiscard]] constexpr bool knownEquipmentSlot(
+    const ClientEquipmentSlot slot) noexcept {
+  switch(slot) {
+    case ClientEquipmentSlot::MeleeWeapon:
+    case ClientEquipmentSlot::RangedWeapon:
+    case ClientEquipmentSlot::Armor:
+    case ClientEquipmentSlot::Amulet:
+    case ClientEquipmentSlot::RingLeft:
+    case ClientEquipmentSlot::RingRight:
+    case ClientEquipmentSlot::Belt:
+    case ClientEquipmentSlot::Spell:
+      return true;
+  }
+  return false;
+}
+
+[[nodiscard]] constexpr ClientSandbox::ClientRuntimeItemStackHandle
+    toRuntime(const ClientItemStackHandle handle) noexcept {
+  return {.instanceId = handle.instanceId, .generation = handle.generation};
+}
+
+[[nodiscard]] constexpr ClientSandbox::ClientRuntimeEquipmentSlot
+    toRuntime(const ClientEquipmentSlot slot) noexcept {
+  using Runtime = ClientSandbox::ClientRuntimeEquipmentSlot;
+  switch(slot) {
+    case ClientEquipmentSlot::MeleeWeapon: return Runtime::MeleeWeapon;
+    case ClientEquipmentSlot::RangedWeapon: return Runtime::RangedWeapon;
+    case ClientEquipmentSlot::Armor: return Runtime::Armor;
+    case ClientEquipmentSlot::Amulet: return Runtime::Amulet;
+    case ClientEquipmentSlot::RingLeft: return Runtime::RingLeft;
+    case ClientEquipmentSlot::RingRight: return Runtime::RingRight;
+    case ClientEquipmentSlot::Belt: return Runtime::Belt;
+    case ClientEquipmentSlot::Spell: return Runtime::Spell;
+  }
+  return Runtime::MeleeWeapon;
+}
+
+[[nodiscard]] inline bool validEquipItemRequest(
+    const ClientEquipItemRequest& request) noexcept {
+  return request.item.valid() && knownEquipmentSlot(request.slot) &&
+         request.expectedInventoryRevision != 0U &&
+         request.expectedEquipmentRevision != 0U;
+}
+
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeEquipItemRequest>
+makeProtocolV2EquipItemRequest(const ClientEquipItemRequest& request) noexcept {
+  if(!validEquipItemRequest(request))
+    return std::nullopt;
+  return ClientSandbox::ClientRuntimeEquipItemRequest{
+      .item = toRuntime(request.item),
+      .slot = toRuntime(request.slot),
+      .expectedInventoryRevision = request.expectedInventoryRevision,
+      .expectedEquipmentRevision = request.expectedEquipmentRevision,
+  };
+}
+
+[[nodiscard]] inline bool validUnequipItemRequest(
+    const ClientUnequipItemRequest& request) noexcept {
+  return knownEquipmentSlot(request.slot) &&
+         request.expectedInventoryRevision != 0U &&
+         request.expectedEquipmentRevision != 0U;
+}
+
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeUnequipItemRequest>
+makeProtocolV2UnequipItemRequest(
+    const ClientUnequipItemRequest& request) noexcept {
+  if(!validUnequipItemRequest(request))
+    return std::nullopt;
+  return ClientSandbox::ClientRuntimeUnequipItemRequest{
+      .slot = toRuntime(request.slot),
+      .expectedEquipmentRevision = request.expectedEquipmentRevision,
+      .expectedInventoryRevision = request.expectedInventoryRevision,
+  };
+}
+
+[[nodiscard]] inline bool validUseItemRequest(
+    const ClientUseItemRequest& request) noexcept {
+  return request.item.valid() && request.expectedInventoryRevision != 0U &&
+         (!request.target.has_value() || request.target->valid());
+}
+
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeUseItemRequest>
+makeProtocolV2UseItemRequest(const ClientUseItemRequest& request) noexcept {
+  if(!validUseItemRequest(request))
+    return std::nullopt;
+  ClientSandbox::ClientRuntimeUseItemRequest out{
+      .item = toRuntime(request.item),
+      .target = std::nullopt,
+      .expectedInventoryRevision = request.expectedInventoryRevision,
+      .expectedTargetRevision = request.expectedTargetRevision,
+  };
+  if(request.target.has_value())
+    out.target = toRuntime(*request.target);
+  return out;
+}
+
+[[nodiscard]] inline bool validDropItemRequest(
+    const ClientDropItemRequest& request) noexcept {
+  return request.item.valid() && request.amount != 0U &&
+         request.expectedInventoryRevision != 0U &&
+         finitePosition(request.proposedPosition) &&
+         fitsQuantizedPosition(request.proposedPosition.x) &&
+         fitsQuantizedPosition(request.proposedPosition.y) &&
+         fitsQuantizedPosition(request.proposedPosition.z);
+}
+
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeDropItemRequest>
+makeProtocolV2DropItemRequest(const ClientDropItemRequest& request) noexcept {
+  if(!validDropItemRequest(request))
+    return std::nullopt;
+  return ClientSandbox::ClientRuntimeDropItemRequest{
+      .item = toRuntime(request.item),
+      .amount = request.amount,
+      .proposedPosition = {
+          .x = static_cast<std::int32_t>(std::llround(request.proposedPosition.x)),
+          .y = static_cast<std::int32_t>(std::llround(request.proposedPosition.y)),
+          .z = static_cast<std::int32_t>(std::llround(request.proposedPosition.z)),
+      },
+      .expectedInventoryRevision = request.expectedInventoryRevision,
+  };
+}
+
+[[nodiscard]] inline bool validSplitStackRequest(
+    const ClientSplitStackRequest& request) noexcept {
+  return request.item.valid() && request.amount != 0U &&
+         request.expectedInventoryRevision != 0U;
+}
+
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeSplitStackRequest>
+makeProtocolV2SplitStackRequest(
+    const ClientSplitStackRequest& request) noexcept {
+  if(!validSplitStackRequest(request))
+    return std::nullopt;
+  return ClientSandbox::ClientRuntimeSplitStackRequest{
+      .item = toRuntime(request.item),
+      .amount = request.amount,
+      .expectedInventoryRevision = request.expectedInventoryRevision,
+  };
+}
+
+[[nodiscard]] inline bool validMergeStackRequest(
+    const ClientMergeStackRequest& request) noexcept {
+  return request.source.valid() && request.destination.valid() &&
+         request.source != request.destination && request.amount != 0U &&
+         request.expectedInventoryRevision != 0U;
+}
+
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeMergeStackRequest>
+makeProtocolV2MergeStackRequest(
+    const ClientMergeStackRequest& request) noexcept {
+  if(!validMergeStackRequest(request))
+    return std::nullopt;
+  return ClientSandbox::ClientRuntimeMergeStackRequest{
+      .source = toRuntime(request.source),
+      .destination = toRuntime(request.destination),
+      .amount = request.amount,
+      .expectedInventoryRevision = request.expectedInventoryRevision,
+  };
+}
+
 [[nodiscard]] constexpr bool knownInventoryAction(
     const ClientInventoryAction action) noexcept {
   switch(action) {
