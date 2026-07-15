@@ -333,6 +333,7 @@ enum class ServerPresentationWeaponMode : std::uint8_t {
   Melee = 2U,
   Ranged = 3U,
   Magic = 4U,
+  Fist = 5U,
 };
 
 struct ServerPresentationWeaponModeRecord final {
@@ -344,7 +345,8 @@ struct ServerPresentationWeaponModeRecord final {
     const bool knownMode = mode == ServerPresentationWeaponMode::None ||
                            mode == ServerPresentationWeaponMode::Melee ||
                            mode == ServerPresentationWeaponMode::Ranged ||
-                           mode == ServerPresentationWeaponMode::Magic;
+                           mode == ServerPresentationWeaponMode::Magic ||
+                           mode == ServerPresentationWeaponMode::Fist;
     return entity.valid() && knownMode && weaponRevision != 0U;
   }
 };
@@ -433,7 +435,8 @@ struct ServerPresentationCombatActionResolution final {
         authoritativeWeaponMode == ServerPresentationWeaponMode::None ||
         authoritativeWeaponMode == ServerPresentationWeaponMode::Melee ||
         authoritativeWeaponMode == ServerPresentationWeaponMode::Ranged ||
-        authoritativeWeaponMode == ServerPresentationWeaponMode::Magic;
+        authoritativeWeaponMode == ServerPresentationWeaponMode::Magic ||
+        authoritativeWeaponMode == ServerPresentationWeaponMode::Fist;
     return entity.valid() && actionId != 0U && knownResult && knownMode &&
            actionRevision != 0U;
   }
@@ -455,14 +458,14 @@ struct ServerPresentationDamageRecord final {
   std::uint64_t actionId = 0U;
   std::int32_t amount = 0;
   std::int32_t health = 0;
-  std::int32_t maximumHealth = 0;
+  std::int32_t maximumHealth = -1;
   std::uint32_t flags = 0U;
   std::uint64_t damageRevision = 0U;
 
   [[nodiscard]] constexpr bool valid() const noexcept {
     return (source.empty() || source.valid()) && target.valid() &&
-           actionId != 0U && amount >= 0 && health >= 0 &&
-           maximumHealth >= health &&
+           amount >= 0 && health >= 0 &&
+           (maximumHealth < 0 || maximumHealth >= health) &&
            (flags & ~KnownServerPresentationDamageFlags) == 0U &&
            damageRevision != 0U;
   }
@@ -506,7 +509,7 @@ struct ServerPresentationHitReactionRecord final {
                            kind == ServerPresentationHitReactionKind::Knockback ||
                            kind == ServerPresentationHitReactionKind::Knockdown;
     return (source.empty() || source.valid()) && target.valid() &&
-           actionId != 0U && knownKind && std::isfinite(knockbackX) &&
+           knownKind && std::isfinite(knockbackX) &&
            std::isfinite(knockbackY) && std::isfinite(knockbackZ) &&
            std::isfinite(cameraShakeStrength) && cameraShakeStrength >= 0.0F &&
            (flags & ~KnownServerPresentationHitReactionFlags) == 0U &&
@@ -518,16 +521,19 @@ struct ServerPresentationLifeStateRecord final {
   ServerPresentationEntityHandle entity{};
   ServerPresentationNpcLifeState lifeState =
       ServerPresentationNpcLifeState::Alive;
-  std::int32_t health = 0;
-  std::int32_t maximumHealth = 0;
+  std::int32_t health = -1;
+  std::int32_t maximumHealth = -1;
   std::uint64_t lifeRevision = 0U;
 
   [[nodiscard]] constexpr bool valid() const noexcept {
     const bool knownState = lifeState == ServerPresentationNpcLifeState::Alive ||
                             lifeState == ServerPresentationNpcLifeState::Unconscious ||
                             lifeState == ServerPresentationNpcLifeState::Dead;
-    return entity.valid() && knownState && health >= 0 &&
-           maximumHealth >= health && lifeRevision != 0U;
+    const bool healthKnown = health >= 0;
+    const bool maximumKnown = maximumHealth >= 0;
+    const bool healthValid = healthKnown == maximumKnown &&
+                             (!healthKnown || maximumHealth >= health);
+    return entity.valid() && knownState && healthValid && lifeRevision != 0U;
   }
 };
 
@@ -723,6 +729,63 @@ struct ServerDialogBusyEvent final {
   std::uint64_t dialogRevision = 0U;
 };
 
+struct ServerInventorySnapshotEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationEntityHandle owner{};
+  ServerInventorySnapshot snapshot{};
+};
+
+enum class ServerInventoryLiveMutationKind : std::uint8_t {
+  StackAdded = 1U,
+  StackRemoved = 2U,
+  StackQuantityChanged = 3U,
+};
+
+struct ServerInventoryLiveMutation final {
+  ServerInventoryLiveMutationKind kind =
+      ServerInventoryLiveMutationKind::StackAdded;
+  ServerInventoryStack item{};
+  ClientItemStackHandle stack{};
+  std::uint32_t quantity = 0U;
+  std::uint64_t itemRevision = 0U;
+  std::uint64_t inventoryRevision = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    if(inventoryRevision == 0U)
+      return false;
+    switch(kind) {
+      case ServerInventoryLiveMutationKind::StackAdded:
+        return item.valid() && stack == item.handle &&
+               quantity == item.quantity && itemRevision == item.itemRevision;
+      case ServerInventoryLiveMutationKind::StackRemoved:
+        return stack.valid() && !item.valid() && quantity == 0U &&
+               itemRevision != 0U;
+      case ServerInventoryLiveMutationKind::StackQuantityChanged:
+        return stack.valid() && !item.valid() && quantity != 0U &&
+               itemRevision != 0U;
+    }
+    return false;
+  }
+};
+
+struct ServerInventoryDeltaEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationEntityHandle owner{};
+  ServerInventoryLiveMutation mutation{};
+};
+
+struct ServerEquipmentSnapshotEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationEntityHandle owner{};
+  ServerEquipmentSnapshot snapshot{};
+};
+
+struct ServerEquipmentBindingChangedEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationEntityHandle owner{};
+  ServerEquipmentSlotChanged change{};
+};
+
 struct ServerEquipmentSlotChangedEvent final {
   ServerPresentationEventHeader header{};
   ServerPresentationEquipmentSlotRecord state{};
@@ -779,6 +842,10 @@ using ServerPresentationEvent = std::variant<
     ServerDialogUpdateEvent,
     ServerDialogEndEvent,
     ServerDialogBusyEvent,
+    ServerInventorySnapshotEvent,
+    ServerInventoryDeltaEvent,
+    ServerEquipmentSnapshotEvent,
+    ServerEquipmentBindingChangedEvent,
     ServerEquipmentSlotChangedEvent,
     ServerWeaponModeChangedEvent,
     ServerCombatActionStartedEvent,

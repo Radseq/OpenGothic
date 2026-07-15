@@ -260,6 +260,17 @@ class GameSession final {
                     bool snap) noexcept;
     void        applyMmoServerNpcState(
                     const Mmo::ClientPresentation::ServerPresentationNpcStateRecord& state) noexcept;
+    void        applyMmoServerInventorySnapshot(
+                    const Mmo::ClientPresentation::ServerInventorySnapshotEvent& event) noexcept;
+    void        applyMmoServerInventoryDelta(
+                    const Mmo::ClientPresentation::ServerInventoryDeltaEvent& event) noexcept;
+    void        applyMmoServerEquipmentSnapshot(
+                    const Mmo::ClientPresentation::ServerEquipmentSnapshotEvent& event) noexcept;
+    void        refreshMmoServerEquipmentPresentation(
+                    const Mmo::ClientPresentation::ServerPresentationEventHeader& header,
+                    Mmo::ClientPresentation::ServerPresentationEntityHandle owner) noexcept;
+    void        applyMmoServerEquipmentBinding(
+                    const Mmo::ClientPresentation::ServerEquipmentBindingChangedEvent& event) noexcept;
     void        applyMmoServerEquipmentSlot(
                     const Mmo::ClientPresentation::ServerPresentationEquipmentSlotRecord& state) noexcept;
     void        applyMmoServerWeaponMode(

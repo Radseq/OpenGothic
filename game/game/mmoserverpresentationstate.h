@@ -39,6 +39,10 @@ enum class ServerPresentationMutation : std::uint8_t {
   EntityTransformed,
   MovementCorrectionQueued,
   NpcStateUpdated,
+  InventorySnapshotInstalled,
+  InventoryDeltaApplied,
+  EquipmentSnapshotInstalled,
+  EquipmentBindingUpdated,
   EquipmentSlotUpdated,
   WeaponModeUpdated,
   CombatActionStarted,
@@ -996,6 +1000,59 @@ class ServerPresentationState final {
     };
     return {ServerPresentationApplyStatus::Applied,
             ServerPresentationMutation::DialogBusy};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerInventorySnapshotEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(validateEntity(event.owner) != ServerPresentationApplyStatus::Applied ||
+       event.snapshot.revision == 0U) {
+      return {ServerPresentationApplyStatus::Invalid};
+    }
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::InventorySnapshotInstalled};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerInventoryDeltaEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(validateEntity(event.owner) != ServerPresentationApplyStatus::Applied ||
+       !event.mutation.valid()) {
+      return {ServerPresentationApplyStatus::Invalid};
+    }
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::InventoryDeltaApplied};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerEquipmentSnapshotEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(validateEntity(event.owner) != ServerPresentationApplyStatus::Applied ||
+       event.snapshot.revision == 0U) {
+      return {ServerPresentationApplyStatus::Invalid};
+    }
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::EquipmentSnapshotInstalled};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerEquipmentBindingChangedEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(validateEntity(event.owner) != ServerPresentationApplyStatus::Applied ||
+       event.change.revision == 0U ||
+       !ServerEquipmentReadModel::knownSlot(event.change.slot)) {
+      return {ServerPresentationApplyStatus::Invalid};
+    }
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::EquipmentBindingUpdated};
   }
 
   [[nodiscard]] ServerPresentationApplyResult applyOne(

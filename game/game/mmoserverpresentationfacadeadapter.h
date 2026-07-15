@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <limits>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -31,6 +32,8 @@ struct ClientRuntimePresentationMailboxSnapshot final {
   std::vector<ClientSandbox::ClientRuntimeDialogEvent> dialogEvents;
   std::vector<ClientSandbox::ClientRuntimeInteractiveState> interactiveStates;
   std::vector<ClientSandbox::ClientRuntimeMoverState> moverStates;
+  std::vector<ClientSandbox::ClientRuntimeLivePresentationEvent>
+      livePresentationEvents;
   std::vector<ClientSandbox::ClientRuntimeCompletedBootstrap> bootstraps;
 };
 
@@ -77,6 +80,168 @@ using namespace ClientSandbox;
       .aggregateRevision = value.aggregateRevision,
       .baseline = mapBaseline(value.baseline),
   };
+}
+
+[[nodiscard]] constexpr ServerWorldInstanceHandle mapWorld(
+    const Mmo::ProtocolV2::WorldInstanceHandle value) noexcept {
+  return {.id = value.id.value, .generation = value.generation};
+}
+
+[[nodiscard]] constexpr ServerPresentationEntityHandle mapHandle(
+    const Mmo::ProtocolV2::EntityHandle value) noexcept {
+  return {
+      .world = mapWorld(value.world),
+      .id = value.id.value,
+      .generation = value.generation,
+  };
+}
+
+[[nodiscard]] constexpr ServerPresentationEventHeader mapHeader(
+    const Mmo::ProtocolV2::ServerReplicationHeader& value) noexcept {
+  return {
+      .route = {
+          .connectionId = value.connection.value,
+          .routeEpoch = value.routeEpoch,
+          .world = mapWorld(value.world),
+      },
+      .streamSequence = value.streamSequence,
+      .serverTick = value.serverTick,
+      .aggregateRevision = value.aggregateRevision,
+      .baseline = {
+          .serverTick = value.baseline.serverTick,
+          .aggregateRevision = value.baseline.aggregateRevision,
+      },
+  };
+}
+
+[[nodiscard]] constexpr ClientItemStackHandle mapItemHandle(
+    const Mmo::ProtocolV2::ItemStackHandle value) noexcept {
+  return {.instanceId = value.instanceId, .generation = value.generation};
+}
+
+[[nodiscard]] constexpr std::optional<ClientEquipmentSlot> mapEquipmentSlot(
+    const Mmo::ProtocolV2::EquipmentSlot value) noexcept {
+  using Source = Mmo::ProtocolV2::EquipmentSlot;
+  switch(value) {
+    case Source::MeleeWeapon: return ClientEquipmentSlot::MeleeWeapon;
+    case Source::RangedWeapon: return ClientEquipmentSlot::RangedWeapon;
+    case Source::Armor: return ClientEquipmentSlot::Armor;
+    case Source::Amulet: return ClientEquipmentSlot::Amulet;
+    case Source::Belt: return ClientEquipmentSlot::Belt;
+    case Source::RingLeft: return ClientEquipmentSlot::RingLeft;
+    case Source::RingRight: return ClientEquipmentSlot::RingRight;
+    case Source::Spell: return ClientEquipmentSlot::Spell;
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] constexpr ServerInventoryStack mapInventoryStack(
+    const Mmo::ProtocolV2::ItemStackDescriptor& value) noexcept {
+  return {
+      .handle = mapItemHandle(value.stack),
+      .archetypeId = value.archetype.value,
+      .presentationId = value.presentation.value,
+      .presentationRevision = value.revision,
+      .quantity = value.quantity,
+      .flags = value.flags,
+      .itemRevision = value.revision,
+  };
+}
+
+[[nodiscard]] constexpr std::optional<ServerEquipmentBinding>
+mapEquipmentBinding(
+    const Mmo::ProtocolV2::EquipmentSlotDescriptor& value) noexcept {
+  const auto slot = mapEquipmentSlot(value.slot);
+  if(!slot.has_value())
+    return std::nullopt;
+  if(!value.occupied)
+    return std::nullopt;
+  ServerEquipmentBinding binding{
+      .slot = *slot,
+      .item = mapItemHandle(value.stack),
+      .itemRevision = value.itemRevision,
+      .flags = value.flags,
+  };
+  return binding.valid() ? std::optional{binding} : std::nullopt;
+}
+
+[[nodiscard]] constexpr ServerPresentationWeaponMode mapWeaponMode(
+    const Mmo::ProtocolV2::WeaponMode value) noexcept {
+  using Source = Mmo::ProtocolV2::WeaponMode;
+  switch(value) {
+    case Source::None: return ServerPresentationWeaponMode::None;
+    case Source::Fist: return ServerPresentationWeaponMode::Fist;
+    case Source::Melee: return ServerPresentationWeaponMode::Melee;
+    case Source::Ranged: return ServerPresentationWeaponMode::Ranged;
+    case Source::Magic: return ServerPresentationWeaponMode::Magic;
+  }
+  return ServerPresentationWeaponMode::None;
+}
+
+[[nodiscard]] constexpr std::optional<ServerPresentationCombatActionKind>
+mapCombatActionKind(const Mmo::ProtocolV2::CombatAction value,
+                    const std::uint16_t comboIndex) noexcept {
+  using Source = Mmo::ProtocolV2::CombatAction;
+  switch(value) {
+    case Source::DrawWeapon:
+    case Source::HolsterWeapon:
+      return std::nullopt;
+    case Source::PrimaryAttack:
+      return comboIndex == 0U
+                 ? ServerPresentationCombatActionKind::LightAttack
+                 : ServerPresentationCombatActionKind::ComboAttack;
+    case Source::SecondaryAttack:
+      return ServerPresentationCombatActionKind::HeavyAttack;
+    case Source::Parry:
+      return ServerPresentationCombatActionKind::Parry;
+    case Source::Dodge:
+      return ServerPresentationCombatActionKind::Dodge;
+    case Source::Cancel:
+      return ServerPresentationCombatActionKind::CancelAction;
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] constexpr ServerPresentationCombatActionResult mapCombatResult(
+    const Mmo::ProtocolV2::CombatActionResult value) noexcept {
+  using Source = Mmo::ProtocolV2::CombatActionResult;
+  switch(value) {
+    case Source::Completed:
+    case Source::Missed:
+    case Source::Blocked:
+    case Source::Parried:
+      return ServerPresentationCombatActionResult::Completed;
+    case Source::Interrupted:
+    case Source::Cancelled:
+      return ServerPresentationCombatActionResult::Cancelled;
+  }
+  return ServerPresentationCombatActionResult::Cancelled;
+}
+
+[[nodiscard]] constexpr ServerPresentationHitReactionKind mapHitReactionKind(
+    const Mmo::ProtocolV2::HitReactionKind value) noexcept {
+  using Source = Mmo::ProtocolV2::HitReactionKind;
+  switch(value) {
+    case Source::Flinch: return ServerPresentationHitReactionKind::Light;
+    case Source::Stagger: return ServerPresentationHitReactionKind::Heavy;
+    case Source::Knockback: return ServerPresentationHitReactionKind::Knockback;
+    case Source::Block:
+    case Source::Parry:
+      return ServerPresentationHitReactionKind::Blocked;
+  }
+  return ServerPresentationHitReactionKind::Light;
+}
+
+[[nodiscard]] constexpr ServerPresentationNpcLifeState mapLifeState(
+    const Mmo::ProtocolV2::CharacterDeathState value) noexcept {
+  using Source = Mmo::ProtocolV2::CharacterDeathState;
+  switch(value) {
+    case Source::Alive: return ServerPresentationNpcLifeState::Alive;
+    case Source::Unconscious:
+      return ServerPresentationNpcLifeState::Unconscious;
+    case Source::Dead: return ServerPresentationNpcLifeState::Dead;
+  }
+  return ServerPresentationNpcLifeState::Alive;
 }
 
 [[nodiscard]] constexpr ServerPresentationEntityHandle mapHandle(
@@ -512,7 +677,8 @@ mapClientRuntimePresentationMailbox(
                           source.entityTransforms.size() +
                           source.npcStates.size() + source.dialogEvents.size() +
                           source.interactiveStates.size() +
-                          source.moverStates.size();
+                          source.moverStates.size() +
+                          source.livePresentationEvents.size();
   out.events.reserve(eventCount);
   out.bootstraps.reserve(source.bootstraps.size());
 
@@ -710,6 +876,280 @@ mapClientRuntimePresentationMailbox(
                                                    : std::nullopt);
   }
 
+  for(auto& live : source.livePresentationEvents) {
+    std::visit(
+        [&](auto&& value) {
+          using Value = std::remove_cvref_t<decltype(value)>;
+          if constexpr(std::is_same_v<
+                           Value, ClientRuntimeInventorySnapshot>) {
+            ServerInventorySnapshotEvent event{
+                .header = mapHeader(value.header),
+                .owner = mapHandle(value.owner),
+                .snapshot = {
+                    .revision = value.revision.value,
+                    .stacks = {},
+                },
+            };
+            event.snapshot.stacks.reserve(value.items.size());
+            for(const auto& item : value.items)
+              event.snapshot.stacks.push_back(mapInventoryStack(item));
+            appendEvent(
+                out, event.header.valid() && event.owner.valid()
+                         ? std::optional{std::move(event)}
+                         : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::ItemStackAdded>) {
+            const auto item = mapInventoryStack(value.item);
+            ServerInventoryDeltaEvent event{
+                .header = mapHeader(value.delta.header),
+                .owner = mapHandle(value.delta.owner),
+                .mutation = {
+                    .kind = ServerInventoryLiveMutationKind::StackAdded,
+                    .item = item,
+                    .stack = item.handle,
+                    .quantity = item.quantity,
+                    .itemRevision = item.itemRevision,
+                    .inventoryRevision = value.delta.revision.value,
+                },
+            };
+            appendEvent(out, event.header.valid() && event.owner.valid() &&
+                                     event.mutation.valid()
+                                 ? std::optional{event}
+                                 : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::ItemStackRemoved>) {
+            ServerInventoryDeltaEvent event{
+                .header = mapHeader(value.delta.header),
+                .owner = mapHandle(value.delta.owner),
+                .mutation = {
+                    .kind = ServerInventoryLiveMutationKind::StackRemoved,
+                    .stack = mapItemHandle(value.stack),
+                    .itemRevision = value.stackRevision,
+                    .inventoryRevision = value.delta.revision.value,
+                },
+            };
+            appendEvent(out, event.header.valid() && event.owner.valid() &&
+                                     event.mutation.valid()
+                                 ? std::optional{event}
+                                 : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::
+                                      ItemStackQuantityChanged>) {
+            ServerInventoryDeltaEvent event{
+                .header = mapHeader(value.delta.header),
+                .owner = mapHandle(value.delta.owner),
+                .mutation = {
+                    .kind = ServerInventoryLiveMutationKind::
+                        StackQuantityChanged,
+                    .stack = mapItemHandle(value.stack),
+                    .quantity = value.quantity,
+                    .itemRevision = value.stackRevision,
+                    .inventoryRevision = value.delta.revision.value,
+                },
+            };
+            appendEvent(out, event.header.valid() && event.owner.valid() &&
+                                     event.mutation.valid()
+                                 ? std::optional{event}
+                                 : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::EquipmentSnapshot>) {
+            ServerEquipmentSnapshotEvent event{
+                .header = mapHeader(value.header),
+                .owner = mapHandle(value.owner),
+                .snapshot = {
+                    .revision = value.revision.value,
+                    .equipped = {},
+                },
+            };
+            event.snapshot.equipped.reserve(value.slots.size());
+            bool valid = event.header.valid() && event.owner.valid();
+            for(const auto& sourceSlot : value.slots) {
+              if(!mapEquipmentSlot(sourceSlot.slot).has_value()) {
+                valid = false;
+                break;
+              }
+              if(!sourceSlot.occupied)
+                continue;
+              const auto binding = mapEquipmentBinding(sourceSlot);
+              if(!binding.has_value()) {
+                valid = false;
+                break;
+              }
+              event.snapshot.equipped.push_back(*binding);
+            }
+            appendEvent(out, valid ? std::optional{std::move(event)}
+                                   : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::
+                                      EquipmentSlotChanged>) {
+            const auto slot = mapEquipmentSlot(value.slot.slot);
+            const auto binding = mapEquipmentBinding(value.slot);
+            ServerEquipmentBindingChangedEvent event{
+                .header = mapHeader(value.header),
+                .owner = mapHandle(value.owner),
+                .change = {
+                    .revision = value.revision.value,
+                    .slot = slot.value_or(ClientEquipmentSlot::MeleeWeapon),
+                    .equipped = std::nullopt,
+                },
+            };
+            if(value.slot.occupied && binding.has_value())
+              event.change.equipped = *binding;
+            const bool validBinding =
+                !value.slot.occupied || binding.has_value();
+            appendEvent(out, slot.has_value() && validBinding &&
+                                     event.header.valid() && event.owner.valid()
+                                 ? std::optional{event}
+                                 : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::WeaponModeChanged>) {
+            ServerWeaponModeChangedEvent event{
+                .header = mapHeader(value.header),
+                .state = {
+                    .entity = mapHandle(value.character),
+                    .mode = mapWeaponMode(value.mode),
+                    .weaponRevision = value.stateRevision,
+                },
+            };
+            appendEvent(out, event.header.valid() && event.state.valid()
+                                 ? std::optional{event}
+                                 : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::CombatActionStarted>) {
+            const auto kind = mapCombatActionKind(value.action, value.comboIndex);
+            if(!kind.has_value())
+              return;
+            const bool targetPresent =
+                (value.flags & Mmo::ProtocolV2::CombatPresentationTargetPresent) !=
+                0U;
+            const auto tick = std::max<std::uint64_t>(1U, value.header.serverTick);
+            ServerCombatActionStartedEvent event{
+                .header = mapHeader(value.header),
+                .action = {
+                    .entity = mapHandle(value.actor),
+                    .target = targetPresent ? mapHandle(value.target)
+                                            : ServerPresentationEntityHandle{},
+                    .actionId = value.actionId,
+                    .clientActionSequence = 0U,
+                    .kind = *kind,
+                    .comboIndex = value.comboIndex,
+                    .flags = 0U,
+                    .startTick = tick,
+                    .activeStartTick = tick,
+                    .activeEndTick = tick,
+                    .recoveryEndTick = tick,
+                    .actionRevision = value.actionRevision,
+                },
+            };
+            appendEvent(out, event.header.valid() && event.action.valid()
+                                 ? std::optional{event}
+                                 : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::CombatActionResolved>) {
+            ServerCombatActionResolvedEvent event{
+                .header = mapHeader(value.header),
+                .resolution = {
+                    .entity = mapHandle(value.actor),
+                    .actionId = value.actionId,
+                    .clientActionSequence = 0U,
+                    .result = mapCombatResult(value.result),
+                    .authoritativeWeaponMode =
+                        ServerPresentationWeaponMode::None,
+                    .actionRevision = value.actionRevision,
+                },
+            };
+            appendEvent(out, event.header.valid() && event.resolution.valid()
+                                 ? std::optional{event}
+                                 : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::DamageApplied>) {
+            if(value.amount > static_cast<std::uint32_t>(
+                                  std::numeric_limits<std::int32_t>::max())) {
+              ++out.rejectedRecords;
+              return;
+            }
+            const bool sourcePresent =
+                (value.flags & Mmo::ProtocolV2::DamageAppliedSourcePresent) != 0U;
+            std::uint32_t flags = value.resultingHealth == 0
+                                      ? ServerPresentationDamageLethal
+                                      : 0U;
+            if((value.flags & Mmo::ProtocolV2::DamageAppliedCritical) != 0U)
+              flags |= ServerPresentationDamageCritical;
+            ServerDamageAppliedEvent event{
+                .header = mapHeader(value.header),
+                .damage = {
+                    .source = sourcePresent ? mapHandle(value.source)
+                                            : ServerPresentationEntityHandle{},
+                    .target = mapHandle(value.target),
+                    .actionId = value.actionId,
+                    .amount = static_cast<std::int32_t>(value.amount),
+                    .health = value.resultingHealth,
+                    .maximumHealth = -1,
+                    .flags = flags,
+                    .damageRevision = value.damageRevision,
+                },
+            };
+            appendEvent(out, event.header.valid() && event.damage.valid()
+                                 ? std::optional{event}
+                                 : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::HitReaction>) {
+            const bool sourcePresent =
+                (value.flags & Mmo::ProtocolV2::HitReactionSourcePresent) != 0U;
+            ServerHitReactionEvent event{
+                .header = mapHeader(value.header),
+                .reaction = {
+                    .source = sourcePresent ? mapHandle(value.source)
+                                            : ServerPresentationEntityHandle{},
+                    .target = mapHandle(value.target),
+                    .actionId = 0U,
+                    .kind = mapHitReactionKind(value.reaction),
+                    .knockbackX = 0.0F,
+                    .knockbackY = 0.0F,
+                    .knockbackZ = 0.0F,
+                    .cameraShakeStrength = 0.0F,
+                    .flags = 0U,
+                    .reactionRevision = value.reactionRevision,
+                },
+            };
+            appendEvent(out, event.header.valid() && event.reaction.valid()
+                                 ? std::optional{event}
+                                 : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::
+                                      CharacterDeathStateChanged>) {
+            ServerCharacterDeathStateChangedEvent event{
+                .header = mapHeader(value.header),
+                .state = {
+                    .entity = mapHandle(value.character),
+                    .lifeState = mapLifeState(value.state),
+                    .health = -1,
+                    .maximumHealth = -1,
+                    .lifeRevision = value.deathRevision,
+                },
+            };
+            appendEvent(out, event.header.valid() && event.state.valid()
+                                 ? std::optional{event}
+                                 : std::nullopt);
+          } else if constexpr(
+              std::is_same_v<Value, Mmo::ProtocolV2::WorldItemSpawn> ||
+              std::is_same_v<Value, Mmo::ProtocolV2::WorldItemDespawn> ||
+              std::is_same_v<Value, Mmo::ProtocolV2::WorldItemStateChanged> ||
+              std::is_same_v<Value, Mmo::ProtocolV2::CharacterAttributesSnapshot> ||
+              std::is_same_v<Value, Mmo::ProtocolV2::CharacterAttributesChanged> ||
+              std::is_same_v<Value, Mmo::ProtocolV2::LootAvailabilityChanged>) {
+            // Decoded and ordered by the sandbox. Their full-client
+            // materializers/read models are intentionally separate follow-up
+            // components, so a valid unsupported family is not malformed.
+            return;
+          } else {
+            static_assert(std::is_same_v<Value, void>,
+                          "unhandled live presentation event");
+          }
+        },
+        std::move(live));
+  }
+
   std::stable_sort(out.events.begin(), out.events.end(),
                    [](const ServerPresentationEvent& lhs,
                       const ServerPresentationEvent& rhs) noexcept {
@@ -733,6 +1173,7 @@ drainClientRuntimePresentationMailbox(
   source.dialogEvents = facade.drainDialogEvents();
   source.interactiveStates = facade.drainInteractiveStates();
   source.moverStates = facade.drainMoverStates();
+  source.livePresentationEvents = facade.drainLivePresentationEvents();
   source.bootstraps = facade.drainCompletedBootstraps();
   return source;
 }

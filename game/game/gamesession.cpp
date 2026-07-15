@@ -13,6 +13,7 @@
 #include <Tempest/MemReader>
 #include <Tempest/MemWriter>
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -87,6 +88,26 @@ struct MmoPresentationWeaponShape final {
           Mmo::ClientPresentation::ServerPresentationEquipmentOccupied) != 0U;
 }
 
+[[nodiscard]] constexpr std::optional<
+    Mmo::ClientPresentation::ServerPresentationEquipmentSlot>
+presentationEquipmentSlot(
+    const Mmo::ClientPresentation::ClientEquipmentSlot slot) noexcept {
+  using Source = Mmo::ClientPresentation::ClientEquipmentSlot;
+  using Destination =
+      Mmo::ClientPresentation::ServerPresentationEquipmentSlot;
+  switch(slot) {
+    case Source::MeleeWeapon: return Destination::MeleeWeapon;
+    case Source::RangedWeapon: return Destination::RangedWeapon;
+    case Source::Armor: return Destination::Armor;
+    case Source::Amulet: return Destination::Amulet;
+    case Source::RingLeft: return Destination::RingLeft;
+    case Source::RingRight: return Destination::RingRight;
+    case Source::Belt: return Destination::Belt;
+    case Source::Spell: return Destination::Spell;
+  }
+  return std::nullopt;
+}
+
 [[nodiscard]] constexpr WeaponState presentationWeaponState(
     const Mmo::ClientPresentation::ServerPresentationWeaponMode mode,
     const MmoPresentationWeaponShape shape) noexcept {
@@ -102,6 +123,7 @@ struct MmoPresentationWeaponShape final {
         return WeaponState::NoWeapon;
       return shape.rangedCrossbow ? WeaponState::CBow : WeaponState::Bow;
     case Mode::Magic: return WeaponState::Mage;
+    case Mode::Fist: return WeaponState::Fist;
   }
   return WeaponState::NoWeapon;
 }
@@ -2465,6 +2487,174 @@ void GameSession::applyMmoServerNpcState(
       Mmo::ClientMmoProcessGatePresentationEvent::NpcStateApplied);
 }
 
+void GameSession::applyMmoServerInventorySnapshot(
+    const Mmo::ClientPresentation::ServerInventorySnapshotEvent& event) noexcept {
+  using namespace Mmo::ClientPresentation;
+  const auto* owner = mmoTypedServerPresentation.findEntity(event.owner);
+  if(owner == nullptr ||
+     owner->kind != ServerPresentationEntityKind::LocalPlayer) {
+    return;
+  }
+  const auto status =
+      mmoServerInventoryPresentation_.installInventory(event.snapshot);
+  if(status != ServerInventoryApplyStatus::Applied &&
+     status != ServerInventoryApplyStatus::Duplicate) {
+    Log::e("MMO live inventory snapshot rejected: status=",
+           static_cast<unsigned>(status),
+           " revision=", event.snapshot.revision,
+           " stacks=", event.snapshot.stacks.size());
+    return;
+  }
+  refreshMmoServerEquipmentPresentation(event.header, event.owner);
+}
+
+void GameSession::applyMmoServerInventoryDelta(
+    const Mmo::ClientPresentation::ServerInventoryDeltaEvent& event) noexcept {
+  using namespace Mmo::ClientPresentation;
+  const auto* owner = mmoTypedServerPresentation.findEntity(event.owner);
+  if(owner == nullptr ||
+     owner->kind != ServerPresentationEntityKind::LocalPlayer) {
+    return;
+  }
+
+  ServerInventoryDelta delta{
+      .revision = event.mutation.inventoryRevision,
+  };
+  switch(event.mutation.kind) {
+    case ServerInventoryLiveMutationKind::StackAdded:
+      delta.upserted.push_back(event.mutation.item);
+      break;
+    case ServerInventoryLiveMutationKind::StackRemoved:
+      delta.removed.push_back(event.mutation.stack);
+      break;
+    case ServerInventoryLiveMutationKind::StackQuantityChanged: {
+      const auto* current =
+          mmoServerInventoryPresentation_.inventory().find(event.mutation.stack);
+      if(current == nullptr) {
+        Log::e("MMO live inventory quantity delta references missing stack: id=",
+               event.mutation.stack.instanceId,
+               " generation=", event.mutation.stack.generation);
+        return;
+      }
+      auto updated = *current;
+      updated.quantity = event.mutation.quantity;
+      updated.itemRevision = event.mutation.itemRevision;
+      delta.upserted.push_back(std::move(updated));
+      break;
+    }
+  }
+
+  const auto status =
+      mmoServerInventoryPresentation_.applyAuthoritative(std::move(delta));
+  if(status != ServerInventoryApplyStatus::Applied &&
+     status != ServerInventoryApplyStatus::Duplicate) {
+    Log::e("MMO live inventory delta rejected: status=",
+           static_cast<unsigned>(status),
+           " revision=", event.mutation.inventoryRevision);
+  }
+}
+
+void GameSession::applyMmoServerEquipmentSnapshot(
+    const Mmo::ClientPresentation::ServerEquipmentSnapshotEvent& event) noexcept {
+  using namespace Mmo::ClientPresentation;
+  const auto* owner = mmoTypedServerPresentation.findEntity(event.owner);
+  if(owner == nullptr ||
+     owner->kind != ServerPresentationEntityKind::LocalPlayer) {
+    return;
+  }
+  const auto status =
+      mmoServerInventoryPresentation_.installEquipment(event.snapshot);
+  if(status != ServerInventoryApplyStatus::Applied &&
+     status != ServerInventoryApplyStatus::Duplicate) {
+    Log::e("MMO live equipment snapshot rejected: status=",
+           static_cast<unsigned>(status),
+           " revision=", event.snapshot.revision);
+    return;
+  }
+  refreshMmoServerEquipmentPresentation(event.header, event.owner);
+}
+
+void GameSession::refreshMmoServerEquipmentPresentation(
+    const Mmo::ClientPresentation::ServerPresentationEventHeader& header,
+    const Mmo::ClientPresentation::ServerPresentationEntityHandle owner) noexcept {
+  using namespace Mmo::ClientPresentation;
+  const auto& equipment = mmoServerInventoryPresentation_.equipment();
+  if(!equipment.ready())
+    return;
+
+  constexpr std::array slots{
+      ClientEquipmentSlot::MeleeWeapon,
+      ClientEquipmentSlot::RangedWeapon,
+      ClientEquipmentSlot::Armor,
+      ClientEquipmentSlot::Amulet,
+      ClientEquipmentSlot::RingLeft,
+      ClientEquipmentSlot::RingRight,
+      ClientEquipmentSlot::Belt,
+      ClientEquipmentSlot::Spell,
+  };
+  for(const auto slot : slots) {
+    ServerEquipmentBindingChangedEvent changed{
+        .header = header,
+        .owner = owner,
+        .change = {
+            .revision = equipment.revision(),
+            .slot = slot,
+        },
+    };
+    if(const auto* binding = equipment.at(slot); binding != nullptr)
+      changed.change.equipped = *binding;
+    applyMmoServerEquipmentBinding(changed);
+  }
+}
+
+void GameSession::applyMmoServerEquipmentBinding(
+    const Mmo::ClientPresentation::ServerEquipmentBindingChangedEvent& event) noexcept {
+  using namespace Mmo::ClientPresentation;
+  const auto* owner = mmoTypedServerPresentation.findEntity(event.owner);
+  if(owner == nullptr ||
+     owner->kind != ServerPresentationEntityKind::LocalPlayer) {
+    return;
+  }
+
+  const auto status =
+      mmoServerInventoryPresentation_.applyAuthoritative(event.change);
+  if(status != ServerInventoryApplyStatus::Applied &&
+     status != ServerInventoryApplyStatus::Duplicate) {
+    Log::e("MMO live equipment delta rejected: status=",
+           static_cast<unsigned>(status),
+           " revision=", event.change.revision);
+    return;
+  }
+
+  const auto slot = presentationEquipmentSlot(event.change.slot);
+  if(!slot.has_value())
+    return;
+  ServerPresentationEquipmentSlotRecord presentation{
+      .entity = event.owner,
+      .slot = *slot,
+      .equipmentRevision = event.change.revision,
+  };
+  if(event.change.equipped.has_value()) {
+    const auto& binding = *event.change.equipped;
+    const auto* stack =
+        mmoServerInventoryPresentation_.inventory().find(binding.item);
+    if(stack == nullptr)
+      return;
+    presentation.item = {
+        .id = binding.item.instanceId,
+        .generation = binding.item.generation,
+    };
+    presentation.presentation = {
+        .archetypeId = stack->archetypeId,
+        .presentationId = stack->presentationId,
+        .revision = stack->presentationRevision,
+    };
+    presentation.flags = ServerPresentationEquipmentOccupied;
+  }
+  if(presentation.valid())
+    applyMmoServerEquipmentSlot(presentation);
+}
+
 void GameSession::applyMmoServerEquipmentSlot(
     const Mmo::ClientPresentation::ServerPresentationEquipmentSlotRecord& state) noexcept {
   if(wrld == nullptr)
@@ -2597,8 +2787,14 @@ void GameSession::resolveMmoServerCombatAction(
           ranged != nullptr &&
           (ranged->flags & ServerPresentationEquipmentCrossbow) != 0U,
   };
+  auto authoritativeMode = resolution.authoritativeWeaponMode;
+  if(const auto* mode =
+         mmoTypedServerPresentation.findWeaponMode(resolution.entity);
+     mode != nullptr) {
+    authoritativeMode = mode->mode;
+  }
   actor->correctMmoServerPresentationCombat(
-      presentationWeaponState(resolution.authoritativeWeaponMode, shape),
+      presentationWeaponState(authoritativeMode, shape),
       shape.meleeTwoHanded, shape.rangedCrossbow);
 }
 
@@ -2609,7 +2805,9 @@ void GameSession::applyMmoServerDamage(
     return;
   Npc::PersistentStats stats;
   stats.healthCurrent = damage.health;
-  stats.healthMax = damage.maximumHealth;
+  stats.healthMax = damage.maximumHealth >= 0
+                        ? damage.maximumHealth
+                        : Npc::PersistentStats::Missing;
   target->restorePersistentStats(stats);
   target->setMmoServerReplica(true);
 }
@@ -2878,6 +3076,14 @@ void GameSession::applyMmoServerPresentationEvent(
           applyMmoServerMovementCorrection();
         } else if constexpr(std::is_same_v<Event, ServerNpcStateEvent>) {
           applyMmoServerNpcState(value.state);
+        } else if constexpr(std::is_same_v<Event, ServerInventorySnapshotEvent>) {
+          applyMmoServerInventorySnapshot(value);
+        } else if constexpr(std::is_same_v<Event, ServerInventoryDeltaEvent>) {
+          applyMmoServerInventoryDelta(value);
+        } else if constexpr(std::is_same_v<Event, ServerEquipmentSnapshotEvent>) {
+          applyMmoServerEquipmentSnapshot(value);
+        } else if constexpr(std::is_same_v<Event, ServerEquipmentBindingChangedEvent>) {
+          applyMmoServerEquipmentBinding(value);
         } else if constexpr(std::is_same_v<Event, ServerEquipmentSlotChangedEvent>) {
           applyMmoServerEquipmentSlot(value.state);
         } else if constexpr(std::is_same_v<Event, ServerWeaponModeChangedEvent>) {

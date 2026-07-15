@@ -165,6 +165,16 @@ class ServerInventoryReadModel final {
     return ServerInventoryApplyStatus::Applied;
   }
 
+  [[nodiscard]] ServerInventoryApplyStatus applyAuthoritative(
+      ServerInventoryDelta delta) {
+    if(delta.revision == 0U || delta.revision <= revision_)
+      return delta.revision == revision_
+                 ? ServerInventoryApplyStatus::Duplicate
+                 : ServerInventoryApplyStatus::Stale;
+    delta.previousRevision = revision_;
+    return apply(delta);
+  }
+
   void reset() noexcept {
     stacks_.clear();
     revision_ = 0U;
@@ -277,6 +287,16 @@ class ServerEquipmentReadModel final {
     equipped_[indexOf(change.slot)] = change.equipped;
     revision_ = change.revision;
     return ServerInventoryApplyStatus::Applied;
+  }
+
+  [[nodiscard]] ServerInventoryApplyStatus applyAuthoritative(
+      ServerEquipmentSlotChanged change) noexcept {
+    if(change.revision == 0U || change.revision <= revision_)
+      return change.revision == revision_
+                 ? ServerInventoryApplyStatus::Duplicate
+                 : ServerInventoryApplyStatus::Stale;
+    change.previousRevision = revision_;
+    return apply(change);
   }
 
   void reset() noexcept {
@@ -547,6 +567,22 @@ class ServerInventoryPresentationState final {
                : ServerInventoryApplyStatus::Applied;
   }
 
+  [[nodiscard]] ServerInventoryApplyStatus installInventory(
+      const ServerInventorySnapshot& inventory) {
+    const auto status = inventory_.install(inventory);
+    if(status == ServerInventoryApplyStatus::Applied)
+      pending_.reconcile(inventory_.revision(), equipment_.revision());
+    return status;
+  }
+
+  [[nodiscard]] ServerInventoryApplyStatus installEquipment(
+      const ServerEquipmentSnapshot& equipment) {
+    const auto status = equipment_.install(equipment);
+    if(status == ServerInventoryApplyStatus::Applied)
+      pending_.reconcile(inventory_.revision(), equipment_.revision());
+    return status;
+  }
+
   [[nodiscard]] ServerInventoryApplyStatus apply(
       const ServerInventoryDelta& delta) {
     const auto status = inventory_.apply(delta);
@@ -557,6 +593,22 @@ class ServerInventoryPresentationState final {
   [[nodiscard]] ServerInventoryApplyStatus apply(
       const ServerEquipmentSlotChanged& change) noexcept {
     const auto status = equipment_.apply(change);
+    if(status == ServerInventoryApplyStatus::Applied)
+      pending_.reconcile(inventory_.revision(), equipment_.revision());
+    return status;
+  }
+
+  [[nodiscard]] ServerInventoryApplyStatus applyAuthoritative(
+      ServerInventoryDelta delta) {
+    const auto status = inventory_.applyAuthoritative(std::move(delta));
+    if(status == ServerInventoryApplyStatus::Applied)
+      pending_.reconcile(inventory_.revision(), equipment_.revision());
+    return status;
+  }
+
+  [[nodiscard]] ServerInventoryApplyStatus applyAuthoritative(
+      ServerEquipmentSlotChanged change) noexcept {
+    const auto status = equipment_.applyAuthoritative(std::move(change));
     if(status == ServerInventoryApplyStatus::Applied)
       pending_.reconcile(inventory_.revision(), equipment_.revision());
     return status;
