@@ -56,6 +56,9 @@ enum class ServerPresentationMutation : std::uint8_t {
   DialogBusy,
   InteractiveUpdated,
   MoverUpdated,
+  WorldItemSpawned,
+  WorldItemDespawned,
+  WorldItemUpdated,
 };
 
 struct ServerPresentationApplyResult final {
@@ -1000,6 +1003,104 @@ class ServerPresentationState final {
     };
     return {ServerPresentationApplyStatus::Applied,
             ServerPresentationMutation::DialogBusy};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerWorldItemSpawnEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!event.valid() || !belongsToRoute(event.entity) ||
+       (event.flags & ~0x7U) != 0U) {
+      return {ServerPresentationApplyStatus::Invalid};
+    }
+    auto found = worldObjects_.find(event.entity.id);
+    if(found == worldObjects_.end()) {
+      if(worldObjects_.size() >= config_.maxWorldObjects)
+        return {ServerPresentationApplyStatus::CapacityExceeded};
+      worldObjects_.emplace(
+          event.entity.id,
+          ServerPresentationWorldObjectRecord{
+              .entity = event.entity,
+              .worldObjectId = event.worldObjectId,
+              .kind = ServerPresentationWorldObjectKind::Item,
+              .presentation = event.presentation,
+              .transform = event.transform,
+              .stateRevision = event.stateRevision,
+              .flags = 0U,
+          });
+      return {ServerPresentationApplyStatus::Applied,
+              ServerPresentationMutation::WorldItemSpawned};
+    }
+    if(found->second.entity != event.entity) {
+      return {event.entity.generation < found->second.entity.generation
+                  ? ServerPresentationApplyStatus::Stale
+                  : ServerPresentationApplyStatus::IdentityMismatch};
+    }
+    if(found->second.kind != ServerPresentationWorldObjectKind::Item ||
+       found->second.worldObjectId != event.worldObjectId) {
+      return {ServerPresentationApplyStatus::IdentityMismatch};
+    }
+    if(event.stateRevision <= found->second.stateRevision) {
+      return {event.stateRevision == found->second.stateRevision
+                  ? ServerPresentationApplyStatus::Duplicate
+                  : ServerPresentationApplyStatus::Stale};
+    }
+    found->second.presentation = event.presentation;
+    found->second.transform = event.transform;
+    found->second.stateRevision = event.stateRevision;
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::WorldItemUpdated};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerWorldItemDespawnEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!event.valid() || !belongsToRoute(event.entity))
+      return {ServerPresentationApplyStatus::Invalid};
+    const auto found = worldObjects_.find(event.entity.id);
+    if(found == worldObjects_.end())
+      return {ServerPresentationApplyStatus::MissingEntity};
+    if(found->second.entity != event.entity) {
+      return {event.entity.generation < found->second.entity.generation
+                  ? ServerPresentationApplyStatus::Stale
+                  : ServerPresentationApplyStatus::IdentityMismatch};
+    }
+    if(found->second.kind != ServerPresentationWorldObjectKind::Item)
+      return {ServerPresentationApplyStatus::IdentityMismatch};
+    if(event.stateRevision < found->second.stateRevision)
+      return {ServerPresentationApplyStatus::Stale};
+    worldObjects_.erase(found);
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::WorldItemDespawned};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerWorldItemStateChangedEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!event.valid() || !belongsToRoute(event.entity) ||
+       (event.flags & ~0x7U) != 0U) {
+      return {ServerPresentationApplyStatus::Invalid};
+    }
+    const auto found = worldObjects_.find(event.entity.id);
+    if(found == worldObjects_.end())
+      return {ServerPresentationApplyStatus::MissingEntity};
+    if(found->second.entity != event.entity ||
+       found->second.kind != ServerPresentationWorldObjectKind::Item) {
+      return {ServerPresentationApplyStatus::IdentityMismatch};
+    }
+    if(event.stateRevision <= found->second.stateRevision) {
+      return {event.stateRevision == found->second.stateRevision
+                  ? ServerPresentationApplyStatus::Duplicate
+                  : ServerPresentationApplyStatus::Stale};
+    }
+    found->second.stateRevision = event.stateRevision;
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::WorldItemUpdated};
   }
 
   [[nodiscard]] ServerPresentationApplyResult applyOne(

@@ -1696,25 +1696,9 @@ void onWeaponStateChanged(Npc& actor,
   target.push_back(':');
   appendUInt(target, world.tickCount());
 
-  if(isServerBoundClientModeEnabled() && actor.isPlayer()) {
-    const auto actorIdentity = actorKey(actor);
-    const auto actorPos = actor.position();
-    const ClientWeaponStateRequest request{
-        .clientTick = world.tickCount(),
-        .intent = holstered ? ClientWeaponStateIntent::Holster
-                            : ClientWeaponStateIntent::Ready,
-        .actorPosition = {.x = actorPos.x, .y = actorPos.y, .z = actorPos.z},
-        .targetKey = target,
-        .source = sourceLocation != nullptr ? std::string_view(sourceLocation)
-                                            : std::string_view("unknown"),
-        .actorKey = actorIdentity,
-        .characterKey = characterKey(),
-        .world = world.name(),
-        .reason = reason != nullptr ? std::string_view(reason)
-                                    : std::string_view("weapon_state_intent"),
-    };
-    (void)submitClientWeaponState(request);
-  }
+  // PlayerControl is the only source of Protocol V2 combat intents.
+  // Semantic hooks observe already-applied presentation state and must not
+  // submit a second Ready/Holster command.
   if(!isClientMmoDiagnosticsEnabled())
     return;
 
@@ -1752,27 +1736,8 @@ void onCombatIntent(Npc& actor,
                    actor.target() != nullptr ? actor.target() : actor.stateOther();
   const auto targetEntity = npcTargetKey(targetNpc);
 
-  if(isServerBoundClientModeEnabled() && actor.isPlayer()) {
-    const auto actorIdentity = actorKey(actor);
-    const auto actorPos = actor.position();
-    const ClientCombatRequest request{
-        .clientTick = world.tickCount(),
-        .actorPosition = {.x = actorPos.x, .y = actorPos.y, .z = actorPos.z},
-        .targetKey = targetEntity.empty() ? std::string_view(actorEntity)
-                                          : std::string_view(targetEntity),
-        .source = sourceLocation != nullptr ? std::string_view(sourceLocation)
-                                            : std::string_view("unknown"),
-        .reason = reason != nullptr ? std::string_view(reason)
-                                    : std::string_view("combat_intent"),
-        .actorKey = actorIdentity,
-        .npcEntityKey = actorEntity,
-        .targetNpcEntityKey = targetEntity,
-        .world = world.name(),
-        .combatAction = combatAction,
-        .intentState = intentState,
-    };
-    (void)submitClientCombat(request);
-  }
+  // Combat intents are submitted at the input boundary in PlayerControl.
+  // This hook remains diagnostic-only to avoid duplicate network commands.
   if(!isClientMmoDiagnosticsEnabled())
     return;
 

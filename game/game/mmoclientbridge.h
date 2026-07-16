@@ -160,6 +160,8 @@ void pollClientMmoSession() noexcept;
     const ClientUnequipItemRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitProtocolV2UseItem(
     const ClientUseItemRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2PickupItem(
+    const ClientPickupItemRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitProtocolV2DropItem(
     const ClientDropItemRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitProtocolV2SplitStack(

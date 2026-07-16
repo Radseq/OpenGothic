@@ -235,6 +235,18 @@ class ClientMmoBridgeState final {
       return {};
     }
 
+    [[nodiscard]] ClientMmoSubmitResult submitPickupItem(
+        const ClientPickupItemRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2PickupItemRequest(request))
+          return mapResult(facade_->requestPickupItem(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
     [[nodiscard]] ClientMmoSubmitResult submitDropItem(
         const ClientDropItemRequest& request) noexcept {
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
@@ -571,7 +583,8 @@ class ClientMmoBridgeState final {
     [[nodiscard]] static bool isInventoryCommand(
         const ClientSandbox::ClientRuntimeV2CommandKind kind) noexcept {
       using Kind = ClientSandbox::ClientRuntimeV2CommandKind;
-      return kind == Kind::EquipItem || kind == Kind::DropItem ||
+      return kind == Kind::EquipItem || kind == Kind::PickupItem ||
+             kind == Kind::DropItem ||
              kind == Kind::UnequipItem || kind == Kind::SplitStack ||
              kind == Kind::MergeStack || kind == Kind::UseItem;
     }
@@ -581,6 +594,7 @@ class ClientMmoBridgeState final {
       using Source = ClientSandbox::ClientRuntimeV2CommandKind;
       switch(kind) {
         case Source::EquipItem: return ClientMmoCommandKind::EquipItem;
+        case Source::PickupItem: return ClientMmoCommandKind::PickupItem;
         case Source::DropItem: return ClientMmoCommandKind::DropItem;
         case Source::UnequipItem: return ClientMmoCommandKind::UnequipItem;
         case Source::SplitStack: return ClientMmoCommandKind::SplitStack;
@@ -1072,6 +1086,12 @@ ClientMmoSubmitResult submitProtocolV2UseItem(
     const ClientUseItemRequest& request) noexcept {
   std::lock_guard lock(stateMutex);
   return state ? state->submitUseItem(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2PickupItem(
+    const ClientPickupItemRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitPickupItem(request) : ClientMmoSubmitResult{};
 }
 
 ClientMmoSubmitResult submitProtocolV2DropItem(

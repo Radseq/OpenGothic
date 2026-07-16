@@ -291,6 +291,23 @@ mapCombatActionKind(const Mmo::ProtocolV2::CombatAction value,
   };
 }
 
+[[nodiscard]] constexpr std::optional<ServerPresentationTransform> mapTransform(
+    const Mmo::ProtocolV2::QuantizedTransform value) noexcept {
+  if(!validTransformFlags(value.flags))
+    return std::nullopt;
+  return ServerPresentationTransform{
+      .posX = static_cast<double>(value.positionX),
+      .posY = static_cast<double>(value.positionY),
+      .posZ = static_cast<double>(value.positionZ),
+      .yaw = static_cast<double>(value.yaw),
+      .pitch = static_cast<double>(value.pitch),
+      .roll = static_cast<double>(value.roll),
+      .grounded = (value.flags & Mmo::ProtocolV2::QuantizedTransformGrounded) != 0U,
+      .teleport = (value.flags & Mmo::ProtocolV2::QuantizedTransformTeleport) != 0U,
+      .dormant = (value.flags & Mmo::ProtocolV2::QuantizedTransformDormant) != 0U,
+  };
+}
+
 template<class Destination, class Source>
 [[nodiscard]] constexpr std::optional<Destination> mapEnum(
     const Source value) noexcept {
@@ -1131,10 +1148,48 @@ mapClientRuntimePresentationMailbox(
             appendEvent(out, event.header.valid() && event.state.valid()
                                  ? std::optional{event}
                                  : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::WorldItemSpawn>) {
+            const auto transform = mapTransform(value.transform);
+            if(!transform.has_value()) {
+              ++out.rejectedRecords;
+              return;
+            }
+            ServerWorldItemSpawnEvent event{
+                .header = mapHeader(value.header),
+                .entity = mapHandle(value.entity),
+                .worldObjectId = value.worldObject.value,
+                .presentation = {
+                    .archetypeId = value.item.archetype.value,
+                    .presentationId = value.item.presentation.value,
+                    .revision = value.item.revision,
+                },
+                .transform = *transform,
+                .quantity = value.item.quantity,
+                .flags = value.stateFlags,
+                .stateRevision = value.stateRevision,
+            };
+            appendEvent(out, event.valid() ? std::optional{event} : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::WorldItemDespawn>) {
+            ServerWorldItemDespawnEvent event{
+                .header = mapHeader(value.header),
+                .entity = mapHandle(value.entity),
+                .reason = static_cast<std::uint8_t>(value.reason),
+                .stateRevision = value.stateRevision,
+            };
+            appendEvent(out, event.valid() ? std::optional{event} : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::WorldItemStateChanged>) {
+            ServerWorldItemStateChangedEvent event{
+                .header = mapHeader(value.header),
+                .entity = mapHandle(value.entity),
+                .quantity = value.quantity,
+                .flags = value.flags,
+                .stateRevision = value.stateRevision,
+            };
+            appendEvent(out, event.valid() ? std::optional{event} : std::nullopt);
           } else if constexpr(
-              std::is_same_v<Value, Mmo::ProtocolV2::WorldItemSpawn> ||
-              std::is_same_v<Value, Mmo::ProtocolV2::WorldItemDespawn> ||
-              std::is_same_v<Value, Mmo::ProtocolV2::WorldItemStateChanged> ||
               std::is_same_v<Value, Mmo::ProtocolV2::CharacterAttributesSnapshot> ||
               std::is_same_v<Value, Mmo::ProtocolV2::CharacterAttributesChanged> ||
               std::is_same_v<Value, Mmo::ProtocolV2::LootAvailabilityChanged>) {

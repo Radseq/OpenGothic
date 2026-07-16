@@ -27,6 +27,7 @@ class World;
 class WorldView;
 class Npc;
 class Interactive;
+class Item;
 class Serialize;
 class GSoundEffect;
 class SoundFx;
@@ -110,11 +111,20 @@ class GameSession final {
     struct MmoServerEntityTarget final {
       Mmo::ClientEntityHandle handle;
       std::uint64_t revision = 0;
+      std::uint32_t quantity = 1U;
     };
     [[nodiscard]] std::optional<MmoServerEntityTarget>
         mmoServerEntityTarget(const Npc& npc) const noexcept;
     [[nodiscard]] std::optional<MmoServerEntityTarget>
         mmoServerEntityTarget(const Interactive& interactive) const noexcept;
+    [[nodiscard]] std::optional<MmoServerEntityTarget>
+        mmoServerEntityTarget(const Item& item) const noexcept;
+    [[nodiscard]] std::optional<std::string_view> mmoItemInstanceName(
+        std::uint64_t archetypeId,
+        std::uint64_t presentationId) const noexcept;
+    [[nodiscard]] std::optional<std::string_view> mmoItemDisplayName(
+        std::uint64_t archetypeId,
+        std::uint64_t presentationId) const noexcept;
 
     [[nodiscard]] const Mmo::ClientPresentation::ServerInventoryPresentationState&
         mmoServerInventoryPresentation() const noexcept {
@@ -297,6 +307,25 @@ class GameSession final {
     bool        tryApplyMmoServerWorldSnapshotRefresh() noexcept;
     void        markMmoServerSnapshotStoryDirty() noexcept;
 
+
+    void applyMmoServerWorldItemSpawn(
+        const Mmo::ClientPresentation::ServerWorldItemSpawnEvent& event) noexcept;
+    void applyMmoServerWorldItemDespawn(
+        const Mmo::ClientPresentation::ServerWorldItemDespawnEvent& event) noexcept;
+    void applyMmoServerWorldItemStateChanged(
+        const Mmo::ClientPresentation::ServerWorldItemStateChangedEvent& event) noexcept;
+    void resetMmoServerWorldItems() noexcept;
+
+    struct MmoServerWorldItemBinding final {
+      Mmo::ClientPresentation::ServerPresentationEntityHandle entity{};
+      Item* item = nullptr;
+      std::uint64_t worldObjectId = 0U;
+      std::uint64_t archetypeId = 0U;
+      std::uint64_t presentationId = 0U;
+      std::uint32_t quantity = 0U;
+      std::uint64_t revision = 0U;
+    };
+    std::vector<MmoServerWorldItemBinding> mmoServerWorldItemBindings;
 
     Mmo::ClientPresentation::ServerEntityPresentationRegistry
                                    mmoServerEntityPresentation;

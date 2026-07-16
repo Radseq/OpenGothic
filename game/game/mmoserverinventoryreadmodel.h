@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mmoclientadapter.h"
+#include "../../../shared/net/mmo/mmo_protocol_v2.h"
 
 #include <algorithm>
 #include <array>
@@ -469,6 +470,8 @@ class ServerInventoryPendingState final {
     if(!command.command.valid() || !command.primary.valid())
       return false;
     switch(command.command.kind) {
+      case ClientMmoCommandKind::PickupItem:
+        return false;
       case ClientMmoCommandKind::EquipItem:
         return command.slot.has_value() &&
                ServerEquipmentReadModel::knownSlot(*command.slot) &&
@@ -512,9 +515,38 @@ class ServerInventoryPendingState final {
   [[nodiscard]] static std::string rejectionMessage(
       const ClientMmoCommandCompletion& completion) {
     switch(completion.status) {
-      case ClientMmoCommandCompletionStatus::Rejected:
-        return "Server rejected inventory command (code " +
-               std::to_string(completion.rejectionCode) + ")";
+      case ClientMmoCommandCompletionStatus::Rejected: {
+        using Code = Mmo::ProtocolV2::CommandRejectionCode;
+        const auto code = static_cast<Code>(completion.rejectionCode);
+        const char* reason = "Unknown rejection";
+        switch(code) {
+          case Code::None: reason = "No rejection reason supplied"; break;
+          case Code::UnsupportedProtocol: reason = "Client/server protocol mismatch"; break;
+          case Code::InvalidHeader: reason = "Invalid command header"; break;
+          case Code::ConnectionNotFound: reason = "Connection is no longer active"; break;
+          case Code::StaleRoute: reason = "Command belongs to an obsolete world route"; break;
+          case Code::RouteStageRejected: reason = "Character is not ready for this action"; break;
+          case Code::InvalidTargetHandle: reason = "Target no longer exists"; break;
+          case Code::TargetOutsideBoundWorld: reason = "Target belongs to another world instance"; break;
+          case Code::InvalidPayloadFingerprint: reason = "Command payload fingerprint is invalid"; break;
+          case Code::SequenceAlreadySeen: reason = "Command sequence was already processed"; break;
+          case Code::SequenceTooOld: reason = "Command sequence is too old"; break;
+          case Code::IdempotencyConflict: reason = "Command key was reused for different data"; break;
+          case Code::AggregateRevisionMismatch: reason = "Character state changed; inventory was refreshed"; break;
+          case Code::AdmissionCapacityExceeded: reason = "Server command queue is full"; break;
+          case Code::CapabilityNotNegotiated: reason = "Server does not expose this gameplay capability"; break;
+          case Code::DomainRejected: reason = "Gameplay rules rejected this action"; break;
+          case Code::InvalidPayload: reason = "Inventory command contains invalid data"; break;
+          case Code::TargetRevisionMismatch: reason = "Target changed before the action was applied"; break;
+          case Code::ActionNotAllowed: reason = "This action is not allowed in the current state"; break;
+          case Code::OutOfRange: reason = "Target is out of range"; break;
+          case Code::ResourceNotFound: reason = "Item or inventory resource was not found"; break;
+          case Code::Busy: reason = "Character or target is busy"; break;
+          case Code::CooldownActive: reason = "Action is still on cooldown"; break;
+        }
+        return std::string("Server rejected inventory command: ") + reason +
+               " (code " + std::to_string(completion.rejectionCode) + ")";
+      }
       case ClientMmoCommandCompletionStatus::CancelledByRouteChange:
         return "Inventory command cancelled by route change";
       case ClientMmoCommandCompletionStatus::TimedOut:

@@ -17,6 +17,7 @@ enum class ClientMmoSubmitStatus : std::uint8_t {
 
 enum class ClientMmoCommandKind : std::uint16_t {
   EquipItem = 36U,
+  PickupItem = 38U,
   DropItem = 39U,
   UnequipItem = 40U,
   SplitStack = 41U,
@@ -284,6 +285,13 @@ struct ClientUseItemRequest final {
   std::uint64_t expectedTargetRevision = 0U;
 };
 
+struct ClientPickupItemRequest final {
+  ClientEntityHandle worldItem{};
+  std::uint32_t amount = 0U;
+  std::uint64_t expectedWorldItemRevision = 0U;
+  std::uint64_t expectedInventoryRevision = 0U;
+};
+
 struct ClientDropItemRequest final {
   ClientItemStackHandle item{};
   std::uint32_t amount = 0U;
@@ -409,6 +417,8 @@ struct ClientDialogChoiceRequest final {
     const ClientUnequipItemRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitClientUseItem(
     const ClientUseItemRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitClientPickupItem(
+    const ClientPickupItemRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitClientDropItem(
     const ClientDropItemRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitClientSplitStack(

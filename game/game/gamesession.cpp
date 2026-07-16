@@ -91,8 +91,8 @@ struct MmoPresentationWeaponShape final {
 [[nodiscard]] constexpr std::optional<
     Mmo::ClientPresentation::ServerPresentationEquipmentSlot>
 presentationEquipmentSlot(
-    const Mmo::ClientPresentation::ClientEquipmentSlot slot) noexcept {
-  using Source = Mmo::ClientPresentation::ClientEquipmentSlot;
+    const Mmo::ClientEquipmentSlot slot) noexcept {
+  using Source = Mmo::ClientEquipmentSlot;
   using Destination =
       Mmo::ClientPresentation::ServerPresentationEquipmentSlot;
   switch(slot) {
@@ -1578,6 +1578,7 @@ void GameSession::resetMmoServerPresentationProjection() noexcept {
   mmoServerEntityInterpolator.resetRoute(mmoPresentationWorldGeneration);
   mmoMovementCorrectionBoundary.resetRoute(mmoPresentationWorldGeneration);
   mmoServerInventoryPresentation_.reset();
+  resetMmoServerWorldItems();
   mmoServerWorldObjects.resetRoute({});
   mmoServerEntitySamples.clear();
 }
@@ -2174,6 +2175,24 @@ bool GameSession::trackMmoServerInventoryCommand(
   return mmoServerInventoryPresentation_.markPending(std::move(command));
 }
 
+std::optional<std::string_view> GameSession::mmoItemInstanceName(
+    const std::uint64_t archetypeId,
+    const std::uint64_t presentationId) const noexcept {
+  return mmoClientPresentationCatalog != nullptr
+             ? mmoClientPresentationCatalog->itemInstanceName(
+                   archetypeId, presentationId)
+             : std::nullopt;
+}
+
+std::optional<std::string_view> GameSession::mmoItemDisplayName(
+    const std::uint64_t archetypeId,
+    const std::uint64_t presentationId) const noexcept {
+  return mmoClientPresentationCatalog != nullptr
+             ? mmoClientPresentationCatalog->itemDisplayName(
+                   archetypeId, presentationId)
+             : std::nullopt;
+}
+
 std::optional<GameSession::MmoServerEntityTarget>
 GameSession::mmoServerEntityTarget(const Npc& npc) const noexcept {
   const auto* binding = mmoServerEntityPresentation.findLocal(
@@ -2583,14 +2602,14 @@ void GameSession::refreshMmoServerEquipmentPresentation(
     return;
 
   constexpr std::array slots{
-      ClientEquipmentSlot::MeleeWeapon,
-      ClientEquipmentSlot::RangedWeapon,
-      ClientEquipmentSlot::Armor,
-      ClientEquipmentSlot::Amulet,
-      ClientEquipmentSlot::RingLeft,
-      ClientEquipmentSlot::RingRight,
-      ClientEquipmentSlot::Belt,
-      ClientEquipmentSlot::Spell,
+      Mmo::ClientEquipmentSlot::MeleeWeapon,
+      Mmo::ClientEquipmentSlot::RangedWeapon,
+      Mmo::ClientEquipmentSlot::Armor,
+      Mmo::ClientEquipmentSlot::Amulet,
+      Mmo::ClientEquipmentSlot::RingLeft,
+      Mmo::ClientEquipmentSlot::RingRight,
+      Mmo::ClientEquipmentSlot::Belt,
+      Mmo::ClientEquipmentSlot::Spell,
   };
   for(const auto slot : slots) {
     ServerEquipmentBindingChangedEvent changed{
@@ -3019,6 +3038,30 @@ void GameSession::applyMmoServerMovementCorrection() noexcept {
   }
 }
 
+std::optional<GameSession::MmoServerEntityTarget>
+GameSession::mmoServerEntityTarget(const Item& item) const noexcept {
+  const auto binding = std::find_if(
+      mmoServerWorldItemBindings.begin(),
+      mmoServerWorldItemBindings.end(),
+      [&item](const auto& value) noexcept { return value.item == &item; });
+  if(binding == mmoServerWorldItemBindings.end() || binding->revision == 0U)
+    return std::nullopt;
+  const auto session = Mmo::clientMmoSessionSnapshot();
+  if(!session.inWorld() || session.worldId != binding->entity.world.id ||
+     session.worldGeneration != binding->entity.world.generation)
+    return std::nullopt;
+  return MmoServerEntityTarget{
+      .handle = {
+          .worldId = binding->entity.world.id,
+          .worldGeneration = binding->entity.world.generation,
+          .id = binding->entity.id,
+          .generation = binding->entity.generation,
+      },
+      .revision = binding->revision,
+      .quantity = binding->quantity,
+  };
+}
+
 void GameSession::sampleMmoServerEntityTransforms() noexcept {
   if(wrld == nullptr || mmoPresentationWorldGeneration == 0U)
     return;
@@ -3044,6 +3087,112 @@ void GameSession::sampleMmoServerEntityTransforms() noexcept {
       npc->setDirection(static_cast<float>(sampled.yaw));
     }
   }
+}
+
+void GameSession::resetMmoServerWorldItems() noexcept {
+  if(wrld != nullptr) {
+    for(auto& binding : mmoServerWorldItemBindings) {
+      if(binding.item != nullptr)
+        wrld->removeItem(*binding.item);
+    }
+  }
+  mmoServerWorldItemBindings.clear();
+}
+
+void GameSession::applyMmoServerWorldItemSpawn(
+    const Mmo::ClientPresentation::ServerWorldItemSpawnEvent& event) noexcept {
+  if(wrld == nullptr || vm == nullptr || !event.valid())
+    return;
+  auto existing = std::find_if(
+      mmoServerWorldItemBindings.begin(),
+      mmoServerWorldItemBindings.end(),
+      [&event](const auto& value) noexcept {
+        return value.entity.id == event.entity.id;
+      });
+  if(existing != mmoServerWorldItemBindings.end()) {
+    if(existing->entity.generation == event.entity.generation) {
+      if(event.stateRevision <= existing->revision)
+        return;
+      existing->revision = event.stateRevision;
+      existing->quantity = event.quantity;
+      if(existing->item != nullptr) {
+        existing->item->setPosition(
+            static_cast<float>(event.transform.posX),
+            static_cast<float>(event.transform.posY),
+            static_cast<float>(event.transform.posZ));
+        existing->item->setCount(event.quantity);
+      }
+      return;
+    }
+    if(existing->item != nullptr)
+      wrld->removeItem(*existing->item);
+    mmoServerWorldItemBindings.erase(existing);
+  }
+
+  const auto instance = mmoItemInstanceName(
+      event.presentation.archetypeId, event.presentation.presentationId);
+  if(!instance.has_value()) {
+    Log::e("MMO world-item presentation unresolved: entity=", event.entity.id,
+           " archetype=", event.presentation.archetypeId,
+           " presentation=", event.presentation.presentationId);
+    return;
+  }
+  const auto symbol = vm->findSymbolIndex(*instance);
+  if(symbol == size_t(-1)) {
+    Log::e("MMO world-item Daedalus symbol missing: ", *instance);
+    return;
+  }
+  auto* item = wrld->addItem(
+      symbol,
+      Tempest::Vec3{
+          static_cast<float>(event.transform.posX),
+          static_cast<float>(event.transform.posY),
+          static_cast<float>(event.transform.posZ)});
+  if(item == nullptr)
+    return;
+  item->setCount(event.quantity);
+  mmoServerWorldItemBindings.push_back({
+      .entity = event.entity,
+      .item = item,
+      .worldObjectId = event.worldObjectId,
+      .archetypeId = event.presentation.archetypeId,
+      .presentationId = event.presentation.presentationId,
+      .quantity = event.quantity,
+      .revision = event.stateRevision,
+  });
+}
+
+void GameSession::applyMmoServerWorldItemDespawn(
+    const Mmo::ClientPresentation::ServerWorldItemDespawnEvent& event) noexcept {
+  if(wrld == nullptr || !event.valid())
+    return;
+  const auto binding = std::find_if(
+      mmoServerWorldItemBindings.begin(),
+      mmoServerWorldItemBindings.end(),
+      [&event](const auto& value) noexcept { return value.entity == event.entity; });
+  if(binding == mmoServerWorldItemBindings.end() ||
+     event.stateRevision < binding->revision)
+    return;
+  if(binding->item != nullptr)
+    wrld->removeItem(*binding->item);
+  mmoServerWorldItemBindings.erase(binding);
+}
+
+void GameSession::applyMmoServerWorldItemStateChanged(
+    const Mmo::ClientPresentation::ServerWorldItemStateChangedEvent& event) noexcept {
+  if(!event.valid())
+    return;
+  const auto binding = std::find_if(
+      mmoServerWorldItemBindings.begin(),
+      mmoServerWorldItemBindings.end(),
+      [&event](const auto& value) noexcept { return value.entity == event.entity; });
+  if(binding == mmoServerWorldItemBindings.end() ||
+     event.stateRevision <= binding->revision)
+    return;
+  binding->revision = event.stateRevision;
+  binding->quantity = event.quantity;
+  if(binding->item != nullptr)
+    binding->item->setCount(event.quantity);
 }
 
 void GameSession::applyMmoServerPresentationEvent(
@@ -3076,6 +3225,12 @@ void GameSession::applyMmoServerPresentationEvent(
           applyMmoServerMovementCorrection();
         } else if constexpr(std::is_same_v<Event, ServerNpcStateEvent>) {
           applyMmoServerNpcState(value.state);
+        } else if constexpr(std::is_same_v<Event, ServerWorldItemSpawnEvent>) {
+          applyMmoServerWorldItemSpawn(value);
+        } else if constexpr(std::is_same_v<Event, ServerWorldItemDespawnEvent>) {
+          applyMmoServerWorldItemDespawn(value);
+        } else if constexpr(std::is_same_v<Event, ServerWorldItemStateChangedEvent>) {
+          applyMmoServerWorldItemStateChanged(value);
         } else if constexpr(std::is_same_v<Event, ServerInventorySnapshotEvent>) {
           applyMmoServerInventorySnapshot(value);
         } else if constexpr(std::is_same_v<Event, ServerInventoryDeltaEvent>) {

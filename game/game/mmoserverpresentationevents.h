@@ -729,6 +729,48 @@ struct ServerDialogBusyEvent final {
   std::uint64_t dialogRevision = 0U;
 };
 
+
+struct ServerWorldItemSpawnEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationEntityHandle entity{};
+  std::uint64_t worldObjectId = 0U;
+  ServerPresentationMapping presentation{};
+  ServerPresentationTransform transform{};
+  std::uint32_t quantity = 0U;
+  std::uint32_t flags = 0U;
+  std::uint64_t stateRevision = 0U;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return header.valid() && entity.valid() && worldObjectId != 0U &&
+           presentation.valid() && transform.valid() && quantity != 0U &&
+           stateRevision != 0U;
+  }
+};
+
+struct ServerWorldItemDespawnEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationEntityHandle entity{};
+  std::uint8_t reason = 0U;
+  std::uint64_t stateRevision = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return header.valid() && entity.valid() && reason != 0U &&
+           stateRevision != 0U;
+  }
+};
+
+struct ServerWorldItemStateChangedEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationEntityHandle entity{};
+  std::uint32_t quantity = 0U;
+  std::uint32_t flags = 0U;
+  std::uint64_t stateRevision = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return header.valid() && entity.valid() && stateRevision != 0U;
+  }
+};
+
 struct ServerInventorySnapshotEvent final {
   ServerPresentationEventHeader header{};
   ServerPresentationEntityHandle owner{};
@@ -842,6 +884,9 @@ using ServerPresentationEvent = std::variant<
     ServerDialogUpdateEvent,
     ServerDialogEndEvent,
     ServerDialogBusyEvent,
+    ServerWorldItemSpawnEvent,
+    ServerWorldItemDespawnEvent,
+    ServerWorldItemStateChangedEvent,
     ServerInventorySnapshotEvent,
     ServerInventoryDeltaEvent,
     ServerEquipmentSnapshotEvent,

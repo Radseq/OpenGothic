@@ -547,13 +547,21 @@ bool PlayerControl::interact(Item &item) {
   if(!canInteract())
     return false;
   if(CommandLine::inst().mmoClientUsesServer()) {
-    static bool warnedMissingWorldItemHandle = false;
-    if(!warnedMissingWorldItemHandle) {
-      warnedMissingWorldItemHandle = true;
-      Tempest::Log::e(
-          "MMO item pickup blocked: graphical presentation does not yet expose "
-          "the Protocol V2 world-item handle/revision");
-    }
+    auto* session = Gothic::inst().gameSession();
+    if(session == nullptr)
+      return true;
+    const auto target = session->mmoServerEntityTarget(item);
+    if(!target.has_value())
+      return true;
+    const auto& inventory = session->mmoServerInventoryPresentation().inventory();
+    if(inventory.revision() == 0U)
+      return true;
+    static_cast<void>(Mmo::submitClientPickupItem({
+        .worldItem = target->handle,
+        .amount = target->quantity,
+        .expectedWorldItemRevision = target->revision,
+        .expectedInventoryRevision = inventory.revision(),
+    }));
     return true;
   }
   return pl->takeItem(item)!=nullptr;

@@ -53,6 +53,15 @@ public:
   [[nodiscard]] std::optional<std::string_view> playerInstanceName(
       std::uint64_t archetypeId,
       std::uint64_t presentationId) const noexcept;
+  [[nodiscard]] std::optional<std::string_view> itemInstanceName(
+      std::uint64_t archetypeId,
+      std::uint64_t presentationId) const noexcept;
+  [[nodiscard]] std::optional<std::string_view> itemDisplayName(
+      std::uint64_t archetypeId,
+      std::uint64_t presentationId) const noexcept;
+  [[nodiscard]] std::optional<std::string_view> worldItemVisual(
+      std::uint64_t archetypeId,
+      std::uint64_t presentationId) const noexcept;
   [[nodiscard]] std::optional<std::string_view> equippedWeaponVisual(
       std::uint64_t archetypeId,
       std::uint64_t presentationId) const noexcept;
@@ -65,6 +74,12 @@ private:
   [[nodiscard]] std::optional<std::string_view> instanceName(
       const Descriptor* descriptor,
       std::uint64_t archetypeId) const noexcept;
+  [[nodiscard]] std::optional<std::string_view> worldObjectResource(
+      std::uint64_t archetypeId,
+      std::uint64_t presentationId,
+      Mmo::Presentation::PresentationResourceId
+          Mmo::Presentation::WorldObjectPresentationDescriptor::*member,
+      Mmo::Presentation::PresentationResourceKind expectedKind) const noexcept;
 
   std::optional<Mmo::Presentation::PresentationCatalog> catalog_;
 };

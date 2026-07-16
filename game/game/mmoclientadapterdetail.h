@@ -319,6 +319,25 @@ makeProtocolV2UseItemRequest(const ClientUseItemRequest& request) noexcept {
   return out;
 }
 
+[[nodiscard]] inline bool validPickupItemRequest(
+    const ClientPickupItemRequest& request) noexcept {
+  return request.worldItem.valid() && request.amount != 0U &&
+         request.expectedWorldItemRevision != 0U &&
+         request.expectedInventoryRevision != 0U;
+}
+
+[[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimePickupItemRequest>
+makeProtocolV2PickupItemRequest(const ClientPickupItemRequest& request) noexcept {
+  if(!validPickupItemRequest(request))
+    return std::nullopt;
+  return ClientSandbox::ClientRuntimePickupItemRequest{
+      .worldItem = toRuntime(request.worldItem),
+      .amount = request.amount,
+      .expectedWorldItemRevision = request.expectedWorldItemRevision,
+      .expectedInventoryRevision = request.expectedInventoryRevision,
+  };
+}
+
 [[nodiscard]] inline bool validDropItemRequest(
     const ClientDropItemRequest& request) noexcept {
   return request.item.valid() && request.amount != 0U &&

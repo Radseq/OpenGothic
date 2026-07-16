@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
+#include <vector>
 
 #include "graphics/inventoryrenderer.h"
 #include "game/inventory.h"
@@ -100,10 +102,18 @@ class InventoryMenu : public Tempest::Widget {
     Tempest::Timer            takeTimer;
     size_t                    takeCount  =0;
     LootMode                  lootMode   =LootMode::Normal;
+    struct ServerPreviewItem final {
+      Mmo::ClientItemStackHandle handle{};
+      std::uint64_t presentationId = 0U;
+      std::unique_ptr<Item> item;
+    };
+
     bool                      serverInventoryMode = false;
     std::uint64_t             observedInventoryRevision = 0U;
     std::uint64_t             observedEquipmentRevision = 0U;
     std::size_t               observedPendingCount = 0U;
+    std::string               observedRejection;
+    std::vector<ServerPreviewItem> serverPreviewItems;
     std::optional<Mmo::ClientItemStackHandle> mergeSource;
     InventoryRenderer         renderer;
 
@@ -124,6 +134,10 @@ class InventoryMenu : public Tempest::Widget {
                               serverInventoryState() const;
     const Mmo::ClientPresentation::ServerInventoryStack*
                               selectedServerStack() const;
+    Item*                     serverPreviewItem(
+                                  const Mmo::ClientPresentation::ServerInventoryStack& stack);
+    std::string               serverItemDisplayName(
+                                  const Mmo::ClientPresentation::ServerInventoryStack& stack) const;
 
     void          processMove(Tempest::KeyEvent& e);
     void          moveLeft(bool usePage);

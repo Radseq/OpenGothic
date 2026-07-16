@@ -152,6 +152,8 @@ void InventoryMenu::close() {
   observedInventoryRevision = 0U;
   observedEquipmentRevision = 0U;
   observedPendingCount = 0U;
+  observedRejection.clear();
+  serverPreviewItems.clear();
   mergeSource.reset();
   state  = State::Closed;
   }
@@ -174,6 +176,8 @@ void InventoryMenu::open(Npc &pl) {
     observedInventoryRevision = inventory->inventory().revision();
     observedEquipmentRevision = inventory->equipment().revision();
     observedPendingCount = inventory->pending().commands().size();
+    observedRejection = inventory->pending().lastRejection();
+    serverPreviewItems.clear();
     mergeSource.reset();
     pagePl.reset();
     pageOth.reset();
@@ -836,15 +840,19 @@ void InventoryMenu::syncServerInventoryView() {
   const auto inventoryRevision = inventory->inventory().revision();
   const auto equipmentRevision = inventory->equipment().revision();
   const auto pendingCount = inventory->pending().commands().size();
+  const auto& rejection = inventory->pending().lastRejection();
   if(inventoryRevision==observedInventoryRevision &&
      equipmentRevision==observedEquipmentRevision &&
-     pendingCount==observedPendingCount) {
+     pendingCount==observedPendingCount && rejection==observedRejection) {
     return;
   }
 
+  if(inventoryRevision!=observedInventoryRevision)
+    serverPreviewItems.clear();
   observedInventoryRevision = inventoryRevision;
   observedEquipmentRevision = equipmentRevision;
   observedPendingCount = pendingCount;
+  observedRejection = rejection;
   if(mergeSource.has_value() &&
      inventory->inventory().find(*mergeSource)==nullptr) {
     mergeSource.reset();
@@ -996,6 +1004,54 @@ void InventoryMenu::drawSlot(Painter &p, DrawPass pass, const Inventory::Iterato
     }
   }
 
+std::string InventoryMenu::serverItemDisplayName(
+    const Mmo::ClientPresentation::ServerInventoryStack& stack) const {
+  const auto* session = Gothic::inst().gameSession();
+  if(session != nullptr) {
+    const auto name = session->mmoItemDisplayName(
+        stack.archetypeId, stack.presentationId);
+    if(name.has_value())
+      return std::string(*name);
+  }
+  return std::string("Item ") + std::to_string(stack.archetypeId);
+}
+
+Item* InventoryMenu::serverPreviewItem(
+    const Mmo::ClientPresentation::ServerInventoryStack& stack) {
+  const auto cached = std::find_if(
+      serverPreviewItems.begin(), serverPreviewItems.end(),
+      [&stack](const auto& value) noexcept {
+        return value.handle == stack.handle &&
+               value.presentationId == stack.presentationId;
+      });
+  if(cached != serverPreviewItems.end())
+    return cached->item.get();
+
+  auto* w = Gothic::inst().world();
+  auto* session = Gothic::inst().gameSession();
+  if(w == nullptr || session == nullptr)
+    return nullptr;
+  const auto instance = session->mmoItemInstanceName(
+      stack.archetypeId, stack.presentationId);
+  if(!instance.has_value())
+    return nullptr;
+  const auto symbol = w->script().findSymbolIndex(*instance);
+  if(symbol == size_t(-1))
+    return nullptr;
+  try {
+    ServerPreviewItem preview{
+        .handle = stack.handle,
+        .presentationId = stack.presentationId,
+        .item = std::make_unique<Item>(*w, symbol, Item::T_Inventory),
+    };
+    preview.item->setCount(stack.quantity);
+    serverPreviewItems.push_back(std::move(preview));
+    return serverPreviewItems.back().item.get();
+  } catch(...) {
+    return nullptr;
+  }
+}
+
 void InventoryMenu::drawServerItems(Painter &p, DrawPass pass,
                                     const PageLocal& sel, int x0, int y,
                                     int wcount, int hcount) {
@@ -1047,11 +1103,17 @@ void InventoryMenu::drawServerSlot(
       p.drawRect(x,y,slotSize().w,slotSize().h,
                  0,0,selU->w(),selU->h());
     }
-    auto& fnt = Resources::font(scale);
-    const auto label = std::string("#") + std::to_string(stack.presentationId);
-    const auto size = fnt.textSize(label);
-    fnt.drawText(p,x+(slotSize().w-size.w)/2,
-                 y+slotSize().h/2+size.h/2,label);
+    if(auto* preview = serverPreviewItem(stack); preview != nullptr) {
+      const int dsz = id==sel.sel ? 5 : 0;
+      renderer.drawItem(
+          x-dsz, y-dsz, slotSize().w+2*dsz, slotSize().h+2*dsz, *preview);
+    } else {
+      auto& fnt = Resources::font(scale);
+      const auto label = serverItemDisplayName(stack);
+      const auto size = fnt.textSize(label);
+      fnt.drawText(p,x+(slotSize().w-size.w)/2,
+                   y+slotSize().h/2+size.h/2,label);
+    }
     return;
   }
 
@@ -1093,8 +1155,7 @@ void InventoryMenu::drawServerInfo(Painter &p) {
   }
 
   auto& fnt = Resources::font(scale);
-  const auto title = std::string("Server item ")+
-                     std::to_string(stack->archetypeId);
+  const auto title = serverItemDisplayName(*stack);
   const auto titleSize = fnt.textSize(title);
   fnt.drawText(p,x+(dw-titleSize.w)/2,y+int(fnt.pixelSize()),title);
 

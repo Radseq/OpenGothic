@@ -94,6 +94,15 @@ ClientMmoSubmitResult submitClientUseItem(
   return submitProtocolV2UseItem(request);
 }
 
+ClientMmoSubmitResult submitClientPickupItem(
+    const ClientPickupItemRequest& request) noexcept {
+  if(!isServerBoundClientModeEnabled())
+    return {};
+  if(!ClientAdapterDetail::validPickupItemRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2PickupItem(request);
+}
+
 ClientMmoSubmitResult submitClientDropItem(
     const ClientDropItemRequest& request) noexcept {
   if(!isServerBoundClientModeEnabled())
