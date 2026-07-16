@@ -91,8 +91,8 @@ struct MmoPresentationWeaponShape final {
 [[nodiscard]] constexpr std::optional<
     Mmo::ClientPresentation::ServerPresentationEquipmentSlot>
 presentationEquipmentSlot(
-    const Mmo::ClientPresentation::ClientEquipmentSlot slot) noexcept {
-  using Source = Mmo::ClientPresentation::ClientEquipmentSlot;
+    const Mmo::ClientEquipmentSlot slot) noexcept {
+  using Source = Mmo::ClientEquipmentSlot;
   using Destination =
       Mmo::ClientPresentation::ServerPresentationEquipmentSlot;
   switch(slot) {
@@ -2583,14 +2583,14 @@ void GameSession::refreshMmoServerEquipmentPresentation(
     return;
 
   constexpr std::array slots{
-      ClientEquipmentSlot::MeleeWeapon,
-      ClientEquipmentSlot::RangedWeapon,
-      ClientEquipmentSlot::Armor,
-      ClientEquipmentSlot::Amulet,
-      ClientEquipmentSlot::RingLeft,
-      ClientEquipmentSlot::RingRight,
-      ClientEquipmentSlot::Belt,
-      ClientEquipmentSlot::Spell,
+      Mmo::ClientEquipmentSlot::MeleeWeapon,
+      Mmo::ClientEquipmentSlot::RangedWeapon,
+      Mmo::ClientEquipmentSlot::Armor,
+      Mmo::ClientEquipmentSlot::Amulet,
+      Mmo::ClientEquipmentSlot::RingLeft,
+      Mmo::ClientEquipmentSlot::RingRight,
+      Mmo::ClientEquipmentSlot::Belt,
+      Mmo::ClientEquipmentSlot::Spell,
   };
   for(const auto slot : slots) {
     ServerEquipmentBindingChangedEvent changed{
