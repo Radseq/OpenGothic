@@ -31,10 +31,7 @@ client:
 
 Next:
 
-- connect live `InventoryDelta` and `EquipmentSlotChanged` S2C contracts to the
-  prepared full-client read models; equip/unequip/use/drop/split/merge C2S
-  intents already carry exact stack handles, generations and expected revisions;
-- extend container/trade/world-item hooks with exact V2 handles and revisions;
+- extend container and trade hooks with exact V2 handles and revisions;
 - enrich numeric dialog identities and choice metadata from typed presentation state;
 - keep sequence/idempotency/receipt/retry/reconnect ownership inside the facade;
 - do not restore packet-shaped compatibility submission while these hooks are
@@ -102,12 +99,14 @@ Implemented:
   optimistic quantity or equipment mutation;
 - equip, unequip, use, drop, split and merge actions submit typed Protocol V2
   intents and wait for authoritative revisions after `Applied` receipts.
+- live inventory/equipment events update the read models in `GameSession`, item
+  display names resolve through the presentation catalog, and revisioned world
+  items materialize with exact handles used by pickup intents.
 
 Next:
 
-- route live inventory/equipment replication contracts into `GameSession`;
-- resolve item presentation IDs to names/icons without treating `ArchetypeId`
-  as a Daedalus symbol index;
+- resolve item presentation IDs to icons without treating `ArchetypeId` as a
+  Daedalus symbol index;
 - add server-backed container, loot and trade pages;
 - add a graphical smoke test in a complete checkout.
 

@@ -173,9 +173,12 @@ Last verified: 2026-07-14 against client source, focused CMake tests and graphic
   richer account UX, character deletion/renaming and world-transition loading
   presentation remain open;
 - character inventory/equipment/use-item UI now uses exact item-stack handles
-  and revisioned server state; live `InventoryDelta`/`EquipmentSlotChanged`
-  mailbox wiring, item-name/icon catalog resolution, containers, trade, world
-  items and quest UI remain open;
+  and revisioned server state; live `InventoryDelta` and
+  `EquipmentSlotChanged` mailboxes update the read models, and item display
+  names resolve through the admitted presentation catalog;
+- typed world-item spawn/despawn/state events materialize revisioned local
+  items, preserve exact entity handles for pickup intents and clear bindings on
+  route reset; item icons, containers, trade and quest UI remain open;
 - combat input and the protocol-independent S6 presentation consumer are wired
   for equipment, weapon mode, attack/parry/dodge, authoritative HP, hit
   reaction, knockback and death/unconscious state; facade/wire production of
