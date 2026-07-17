@@ -1,6 +1,6 @@
 # Repository Map — Full Client MMO Boundary
 
-Last verified: 2026-07-12.
+Last verified: 2026-07-17.
 
 ## Build integration
 
@@ -20,7 +20,10 @@ Last verified: 2026-07-12.
 ## Input and observations
 
 - `src/client/game/game/mmosemantichooks.h`
-- `src/client/game/game/mmosemantichooks.cpp`
+- `src/client/game/game/mmosemantichooks.cpp` — public forwarding surface;
+- `mmosemantichooks_internal.h` and focused `mmosemantichooks_*.cpp` units for
+  identity, encoding, submission, character, inventory, combat, dialog/story,
+  NPC AI, world and interactive/mover behavior.
 - `src/shared/net/mmo/mmo_client_intent.h`
 - `src/shared/net/mmo/mmo_client_intent_validation.h`
 
@@ -39,6 +42,15 @@ Last verified: 2026-07-12.
 - `gamesession.*` — engine sink for materialization, correction and presenters;
 - `ui/dialogmenu.*` — typed dialog lifecycle UI;
 - `world/objects/npc.*` — server-replica AI and lifecycle presentation guards.
+
+## Large engine implementation splits
+
+- `gamescript.cpp` plus `gamescript_bindings.cpp` and
+  `gamescript_external_*.cpp` own VM binding and external families;
+- `gamesession.cpp` plus `gamesession_dialog.cpp`, `gamesession_startup.cpp`,
+  `gamesession_tick.cpp`, `gamesession_persistence.cpp`,
+  `gamesession_world_lifecycle.cpp` and `gamesession_mmo_*.cpp` own focused
+  session lifecycle and MMO presentation/restore responsibilities.
 
 ## Mode and UX
 

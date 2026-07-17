@@ -1,0 +1,612 @@
+#include "gamesession.h"
+#include "savegameheader.h"
+#if OPENGOTHIC_MMO_SQLITE_TOOLING
+#include "../../tools/mmo/mmoruntimesqlite.h"
+#endif
+#include "mmosemantichooks.h"
+#include "mmoclientbridge.h"
+#include "mmoclientpresentationcatalog.h"
+#include "mmoserverpresentationbatchconsumer.h"
+#include "mmorestoresnapshot.h"
+
+#include <Tempest/Log>
+#include <Tempest/MemReader>
+#include <Tempest/MemWriter>
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <cmath>
+#include <cstdlib>
+#include <cstdint>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <set>
+#include <chrono>
+#include <charconv>
+#include <thread>
+#include <limits>
+#include <iterator>
+#include <functional>
+#include <optional>
+#include <utility>
+#include <type_traits>
+
+#include "utils/string_frm.h"
+#include "worldstatestorage.h"
+#include "world/objects/npc.h"
+#include "world/objects/item.h"
+#include "world/objects/interactive.h"
+#include "world/world.h"
+#include "world/waypoint.h"
+#include "sound/soundfx.h"
+#include "serialize.h"
+#include "camera.h"
+#include "gothic.h"
+#include "commandline.h"
+
+using namespace Tempest;
+
+namespace {
+
+[[nodiscard]] bool isValidNpcSymbol(std::size_t symbol) noexcept {
+  return symbol != std::size_t(-1) &&
+         symbol <= std::numeric_limits<std::uint32_t>::max();
+}
+
+void appendMmoPresentationNumber(
+    std::string& value,
+    const std::uint64_t number) {
+  char buffer[24]{};
+  const auto [end, error] = std::to_chars(std::begin(buffer), std::end(buffer), number);
+  if(error == std::errc{})
+    value.append(buffer, end);
+}
+
+
+[[nodiscard]] std::string mmoPresentationEntityKey(
+    const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity) {
+  std::string value;
+  value.reserve(96U);
+  value.append("v2-entity:");
+  appendMmoPresentationNumber(value, entity.handle.id);
+  value.push_back(':');
+  appendMmoPresentationNumber(value, entity.handle.generation);
+  value.push_back(':');
+  appendMmoPresentationNumber(value, entity.presentation.presentationId);
+  value.push_back(':');
+  appendMmoPresentationNumber(value, entity.presentation.archetypeId);
+  value.push_back(':');
+  appendMmoPresentationNumber(value, entity.presentation.revision);
+  return value;
+}
+
+[[nodiscard]] constexpr Mmo::ClientPresentation::ServerEntityHandle
+presentationRegistryHandle(
+    const Mmo::ClientPresentation::ServerPresentationEntityHandle handle) noexcept {
+  return {.id = handle.id, .generation = handle.generation};
+}
+
+[[nodiscard]] constexpr Mmo::ClientPresentation::ServerEntityKind
+presentationRegistryKind(
+    const Mmo::ClientPresentation::ServerPresentationEntityKind kind) noexcept {
+  using Typed = Mmo::ClientPresentation::ServerPresentationEntityKind;
+  using Legacy = Mmo::ClientPresentation::ServerEntityKind;
+  switch(kind) {
+    case Typed::LocalPlayer:  return Legacy::LocalPlayer;
+    case Typed::RemotePlayer: return Legacy::RemotePlayer;
+    case Typed::Npc:          return Legacy::Npc;
+  }
+  return Legacy::Npc;
+}
+
+struct MmoServerEntityMaterialization final {
+  Npc* npc = nullptr;
+  bool materializedByMmo = false;
+};
+
+Npc* findNpcByObjectToken(World& world, const std::uintptr_t token) noexcept {
+  if(token == 0U)
+    return nullptr;
+  const auto count = world.npcCount();
+  for(std::uint32_t id = 0; id < count; ++id) {
+    auto* npc = world.npcById(id);
+    if(reinterpret_cast<std::uintptr_t>(npc) == token)
+      return npc;
+  }
+  return nullptr;
+}
+
+Npc* findNpcByPresentationIdentity(
+    World& world,
+    const Mmo::ClientPresentation::LocalNpcPresentationIdentity& local) noexcept {
+  auto* npc = world.npcById(local.localNpcId);
+  if(npc != nullptr &&
+     (local.localObjectToken == 0U ||
+      reinterpret_cast<std::uintptr_t>(npc) == local.localObjectToken)) {
+    return npc;
+  }
+  return findNpcByObjectToken(world, local.localObjectToken);
+}
+
+MmoServerEntityMaterialization materializeMmoServerEntityNpc(
+    World& world,
+    GameScript& scripts,
+    const Mmo::ClientPresentation::ClientPresentationCatalogRuntime* catalog,
+    const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity) noexcept {
+  using Kind = Mmo::ClientPresentation::ServerPresentationEntityKind;
+  if(entity.kind == Kind::LocalPlayer)
+    return {world.player(), false};
+
+  if(!entity.presentation.valid())
+    return {};
+
+  std::optional<std::uint32_t> catalogSymbol;
+  if(catalog != nullptr && catalog->installed()) {
+    auto instanceName = entity.kind == Kind::RemotePlayer
+                            ? catalog->playerInstanceName(
+                                  entity.presentation.archetypeId,
+                                  entity.presentation.presentationId)
+                            : catalog->npcInstanceName(
+                                  entity.presentation.archetypeId,
+                                  entity.presentation.presentationId);
+    if(!instanceName.has_value() && entity.kind == Kind::RemotePlayer) {
+      instanceName = catalog->npcInstanceName(
+          entity.presentation.archetypeId,
+          entity.presentation.presentationId);
+    }
+    if(instanceName.has_value()) {
+      const auto symbol = scripts.findSymbolIndex(*instanceName);
+      if(symbol != size_t(-1) &&
+         symbol <= std::numeric_limits<std::uint32_t>::max()) {
+        catalogSymbol = static_cast<std::uint32_t>(symbol);
+      }
+    }
+  }
+
+  const auto* localPlayer = world.player();
+  const auto localPlayerSymbol = localPlayer != nullptr
+                                     ? localPlayer->instanceSymbol()
+                                     : 0U;
+  const auto resolvedSymbol = catalogSymbol.has_value()
+                                  ? catalogSymbol
+                                  : resolveServerReplicaInstanceSymbol(
+                                        presentationRegistryKind(entity.kind),
+                                        entity.presentation.archetypeId,
+                                        localPlayerSymbol);
+  if(!resolvedSymbol.has_value() || !isValidNpcSymbol(*resolvedSymbol))
+    return {};
+  const auto instanceSymbol = *resolvedSymbol;
+
+  try {
+    const Tempest::Vec3 position{
+        static_cast<float>(entity.transform.posX),
+        static_cast<float>(entity.transform.posY),
+        static_cast<float>(entity.transform.posZ)};
+    auto* npc = world.addMmoServerReplica(instanceSymbol, position);
+    if(npc == nullptr)
+      return {};
+    return {npc, true};
+  } catch(const std::exception& error) {
+    Log::e("MMO typed entity materialization failed: ", error.what());
+  } catch(...) {
+    Log::e("MMO typed entity materialization failed with an unknown exception");
+  }
+  return {};
+}
+
+[[nodiscard]] std::optional<Mmo::ClientPresentation::LocalNpcPresentationIdentity>
+localMmoPresentationIdentity(
+    World& world,
+    Npc* npc,
+    const Mmo::ClientPresentation::ServerEntityKind kind,
+    const bool materializedByMmo) noexcept {
+  using namespace Mmo::ClientPresentation;
+  if(npc == nullptr ||
+     ((kind == ServerEntityKind::LocalPlayer) != npc->isPlayer())) {
+    return std::nullopt;
+  }
+  const auto localNpcId = world.npcId(npc);
+  if(localNpcId == InvalidLocalNpcId)
+    return std::nullopt;
+  return LocalNpcPresentationIdentity{
+      .localNpcId = localNpcId,
+      .persistentId = npc->persistentId(),
+      .instanceSymbol = npc->instanceSymbol(),
+      .localObjectToken = reinterpret_cast<std::uintptr_t>(npc),
+      .materializedByMmo = materializedByMmo,
+  };
+}
+
+Npc* resolveMmoPresentationBinding(
+    World& world,
+    const Mmo::ClientPresentation::ServerEntityPresentationBinding& binding) noexcept {
+  auto* npc = findNpcByPresentationIdentity(world, binding.local);
+  if(npc == nullptr ||
+     npc->persistentId() != binding.local.persistentId ||
+     npc->instanceSymbol() != binding.local.instanceSymbol ||
+     ((binding.kind == Mmo::ClientPresentation::ServerEntityKind::LocalPlayer) !=
+      npc->isPlayer())) {
+    return nullptr;
+  }
+  return npc;
+}
+
+} // namespace
+
+void GameSession::releaseMmoServerPresentationBinding(
+    const Mmo::ClientPresentation::ServerEntityPresentationBinding& binding) noexcept {
+  if(binding.kind == Mmo::ClientPresentation::ServerEntityKind::LocalPlayer) {
+    mmoMovementCorrectionBoundary.unbindLocalPlayer();
+    return;
+  }
+  if(wrld == nullptr)
+    return;
+  auto* npc = findNpcByPresentationIdentity(*wrld, binding.local);
+  if(npc == nullptr || npc->persistentId() != binding.local.persistentId ||
+     npc->instanceSymbol() != binding.local.instanceSymbol)
+    return;
+  if(binding.local.materializedByMmo) {
+    wrld->removeNpc(*npc);
+    return;
+  }
+  npc->setMmoServerReplica(false);
+}
+
+
+void GameSession::releaseMmoServerEntity(
+    const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity) noexcept {
+  const auto handle = presentationRegistryHandle(entity.handle);
+  if(auto released = mmoServerEntityPresentation.invalidate(
+         handle, mmoPresentationWorldGeneration)) {
+    releaseMmoServerPresentationBinding(*released);
+  }
+  static_cast<void>(mmoServerEntityInterpolator.erase(
+      handle, mmoPresentationWorldGeneration));
+  if(entity.kind ==
+     Mmo::ClientPresentation::ServerPresentationEntityKind::LocalPlayer) {
+    mmoMovementCorrectionBoundary.unbindLocalPlayer();
+  }
+}
+
+
+std::optional<GameSession::MmoServerEntityTarget>
+GameSession::mmoServerEntityTarget(const Npc& npc) const noexcept {
+  const auto* binding = mmoServerEntityPresentation.findLocal(
+      reinterpret_cast<std::uintptr_t>(&npc));
+  if(binding == nullptr)
+    return std::nullopt;
+
+  const Mmo::ClientPresentation::ServerPresentationEntityHandle entity{
+      .id = binding->handle.id,
+      .generation = binding->handle.generation,
+  };
+  const auto* record = mmoTypedServerPresentation.findEntity(entity);
+  const auto session = Mmo::clientMmoSessionSnapshot();
+  if(record == nullptr || !session.inWorld() || session.worldId == 0U ||
+     session.worldGeneration == 0U ||
+     binding->worldGeneration != session.worldGeneration) {
+    return std::nullopt;
+  }
+
+  return MmoServerEntityTarget{
+      .handle = {
+          .worldId = session.worldId,
+          .worldGeneration = session.worldGeneration,
+          .id = binding->handle.id,
+          .generation = binding->handle.generation,
+      },
+      .revision = record->entityRevision,
+  };
+}
+
+std::optional<GameSession::MmoServerEntityTarget>
+GameSession::mmoServerEntityTarget(
+    const Interactive& interactive) const noexcept {
+  using Kind =
+      Mmo::ClientPresentation::ServerPresentationWorldObjectKind;
+  std::optional<Mmo::ClientPresentation::ServerPresentationEntityHandle> entity;
+  for(const auto kind : {Kind::Interactive, Kind::Container, Kind::Mover}) {
+    entity = mmoServerWorldObjects.find(
+        Mmo::ClientPresentation::LocalVobToken{
+            .vobObjectId = interactive.getId(),
+            .kind = kind,
+        });
+    if(entity.has_value())
+      break;
+  }
+  if(!entity.has_value())
+    return std::nullopt;
+
+  std::uint64_t revision = 0U;
+  if(const auto* state = mmoTypedServerPresentation.findInteractive(*entity);
+     state != nullptr) {
+    revision = state->stateRevision;
+  } else if(const auto* state = mmoTypedServerPresentation.findMover(*entity);
+            state != nullptr) {
+    revision = state->stateRevision;
+  } else {
+    return std::nullopt;
+  }
+  const auto session = Mmo::clientMmoSessionSnapshot();
+  if(!session.inWorld() || session.worldId == 0U ||
+     session.worldGeneration == 0U || !entity->valid()) {
+    return std::nullopt;
+  }
+
+  return MmoServerEntityTarget{
+      .handle = {
+          .worldId = session.worldId,
+          .worldGeneration = session.worldGeneration,
+          .id = entity->id,
+          .generation = entity->generation,
+      },
+      .revision = revision,
+  };
+}
+
+Npc* GameSession::resolveMmoServerEntity(
+    const Mmo::ClientPresentation::ServerPresentationEntityHandle entity) noexcept {
+  if(wrld == nullptr || !entity.valid())
+    return nullptr;
+  const auto* binding = mmoServerEntityPresentation.find(
+      presentationRegistryHandle(entity), mmoPresentationWorldGeneration);
+  return binding != nullptr ? resolveMmoPresentationBinding(*wrld, *binding)
+                            : nullptr;
+}
+
+void GameSession::materializeMmoServerEntity(
+    const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity,
+    const bool snap) noexcept {
+  if(wrld == nullptr || mmoPresentationRouteKey.empty())
+    return;
+
+  using namespace Mmo::ClientPresentation;
+  const auto handle = presentationRegistryHandle(entity.handle);
+  const auto kind = presentationRegistryKind(entity.kind);
+  auto stableKey = mmoPresentationEntityKey(entity);
+  const ServerEntityTransformObservation observation{
+      .route = {
+          .worldGeneration = mmoPresentationWorldGeneration,
+          .worldInstanceId = mmoPresentationRouteKey,
+      },
+      .handle = handle,
+      .kind = kind,
+      // This registry field is an ordering key. Typed V2 entities provide the
+      // stricter per-entity revision, which also distinguishes updates emitted
+      // within the same authoritative server tick.
+      .serverTick = entity.entityRevision,
+      .stableEntityKey = stableKey,
+      .posX = entity.transform.posX,
+      .posY = entity.transform.posY,
+      .posZ = entity.transform.posZ,
+      .yaw = entity.transform.yaw,
+      .active = true,
+  };
+
+  auto observed = mmoServerEntityPresentation.observe(observation);
+  if(observed.releasedBinding.has_value()) {
+    releaseMmoServerPresentationBinding(*observed.releasedBinding);
+    static_cast<void>(mmoServerEntityInterpolator.erase(
+        observed.releasedBinding->handle,
+        observed.releasedBinding->worldGeneration));
+  }
+  if(observed.status == ServerEntityObservationStatus::Stale ||
+     observed.status == ServerEntityObservationStatus::RouteMismatch ||
+     observed.status == ServerEntityObservationStatus::IdentityMismatch ||
+     observed.status == ServerEntityObservationStatus::Invalid) {
+    return;
+  }
+
+  const auto* binding = mmoServerEntityPresentation.find(
+      handle, mmoPresentationWorldGeneration);
+  Npc* npc = binding != nullptr
+                 ? resolveMmoPresentationBinding(*wrld, *binding)
+                 : nullptr;
+  bool materializedByMmo = false;
+  bool newlyMaterialized = false;
+  if(npc == nullptr) {
+    const auto materialized = materializeMmoServerEntityNpc(
+        *wrld, *vm, mmoClientPresentationCatalog.get(), entity);
+    npc = materialized.npc;
+    materializedByMmo = materialized.materializedByMmo;
+    const auto local = localMmoPresentationIdentity(
+        *wrld, npc, kind, materializedByMmo);
+    if(!local || !mmoServerEntityPresentation.bind(observation, *local)) {
+      if(materializedByMmo && npc != nullptr)
+        wrld->removeNpc(*npc);
+      Log::e("MMO typed entity unresolved: entity=", entity.handle.id,
+             " generation=", entity.handle.generation,
+             " kind=", static_cast<unsigned>(entity.kind),
+             " presentation=", entity.presentation.presentationId,
+             " archetype=", entity.presentation.archetypeId);
+      return;
+    }
+    newlyMaterialized = true;
+  }
+
+  if(newlyMaterialized) {
+    auto event = Mmo::ClientMmoProcessGatePresentationEvent::NpcMaterialized;
+    if(entity.kind == ServerPresentationEntityKind::LocalPlayer)
+      event = Mmo::ClientMmoProcessGatePresentationEvent::LocalPlayerMaterialized;
+    else if(entity.kind == ServerPresentationEntityKind::RemotePlayer)
+      event = Mmo::ClientMmoProcessGatePresentationEvent::RemotePlayerMaterialized;
+    Mmo::recordClientMmoProcessGatePresentation(event);
+  }
+  applyMmoServerEntityTransform(entity, snap);
+}
+
+void GameSession::applyMmoServerEntityTransform(
+    const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity,
+    const bool snap) noexcept {
+  if(wrld == nullptr || mmoPresentationRouteKey.empty())
+    return;
+
+  using namespace Mmo::ClientPresentation;
+  const auto handle = presentationRegistryHandle(entity.handle);
+  const auto kind = presentationRegistryKind(entity.kind);
+  const auto* binding = mmoServerEntityPresentation.find(
+      handle, mmoPresentationWorldGeneration);
+  if(binding == nullptr) {
+    materializeMmoServerEntity(entity, snap);
+    return;
+  }
+  auto* npc = resolveMmoPresentationBinding(*wrld, *binding);
+  if(npc == nullptr) {
+    if(auto released = mmoServerEntityPresentation.invalidate(
+           handle, mmoPresentationWorldGeneration)) {
+      releaseMmoServerPresentationBinding(*released);
+    }
+    static_cast<void>(mmoServerEntityInterpolator.erase(
+        handle, mmoPresentationWorldGeneration));
+    materializeMmoServerEntity(entity, snap);
+    return;
+  }
+
+  const ServerEntityTransformObservation observation{
+      .route = {
+          .worldGeneration = mmoPresentationWorldGeneration,
+          .worldInstanceId = mmoPresentationRouteKey,
+      },
+      .handle = handle,
+      .kind = kind,
+      // See materialization above: per-entity revision is the monotonic order
+      // key; receive time remains the interpolator's temporal input.
+      .serverTick = entity.entityRevision,
+      .stableEntityKey = binding->stableEntityKey,
+      .posX = entity.transform.posX,
+      .posY = entity.transform.posY,
+      .posZ = entity.transform.posZ,
+      .yaw = entity.transform.yaw,
+      .active = true,
+  };
+
+  if(kind == ServerEntityKind::LocalPlayer) {
+    if(!mmoMovementCorrectionBoundary.bindLocalPlayer(handle, observation.route))
+      return;
+    if(snap || entity.transform.teleport) {
+      if(npc->setPosition(static_cast<float>(entity.transform.posX),
+                          static_cast<float>(entity.transform.posY),
+                          static_cast<float>(entity.transform.posZ))) {
+        npc->setDirection(static_cast<float>(entity.transform.yaw));
+        npc->clearSpeed();
+      }
+    }
+    mmoServerEntityPresentation.touch(observation);
+    return;
+  }
+
+  npc->setMmoServerReplica(true);
+  const bool hardSnap = snap || entity.transform.teleport;
+  if(hardSnap) {
+    static_cast<void>(mmoServerEntityInterpolator.erase(
+        handle, mmoPresentationWorldGeneration));
+    if(npc->setPosition(static_cast<float>(entity.transform.posX),
+                        static_cast<float>(entity.transform.posY),
+                        static_cast<float>(entity.transform.posZ))) {
+      npc->setDirection(static_cast<float>(entity.transform.yaw));
+      npc->clearSpeed();
+      mmoServerEntityPresentation.touch(observation);
+    }
+    return;
+  }
+
+  if(mmoServerEntityInterpolator.ingest(observation, ticks) ==
+     ServerEntityInterpolationIngestStatus::Accepted) {
+    mmoServerEntityPresentation.touch(observation);
+  }
+}
+
+void GameSession::applyMmoServerNpcState(
+    const Mmo::ClientPresentation::ServerPresentationNpcStateRecord& state) noexcept {
+  if(wrld == nullptr)
+    return;
+  using namespace Mmo::ClientPresentation;
+  const auto* binding = mmoServerEntityPresentation.find(
+      presentationRegistryHandle(state.entity), mmoPresentationWorldGeneration);
+  if(binding == nullptr || binding->kind != ServerEntityKind::Npc)
+    return;
+  auto* npc = resolveMmoPresentationBinding(*wrld, *binding);
+  if(npc == nullptr)
+    return;
+
+  Npc::PersistentStats stats;
+  stats.healthCurrent = state.health;
+  stats.healthMax = state.maximumHealth;
+  stats.manaCurrent = state.mana;
+  stats.manaMax = state.maximumMana;
+  npc->restorePersistentStats(stats);
+  npc->setMmoServerReplica(true);
+
+  Npc::MmoPresentationLifeState lifeState =
+      Npc::MmoPresentationLifeState::Alive;
+  switch(state.lifeState) {
+    case ServerPresentationNpcLifeState::Alive:
+      lifeState = Npc::MmoPresentationLifeState::Alive;
+      break;
+    case ServerPresentationNpcLifeState::Unconscious:
+      lifeState = Npc::MmoPresentationLifeState::Unconscious;
+      break;
+    case ServerPresentationNpcLifeState::Dead:
+      lifeState = Npc::MmoPresentationLifeState::Dead;
+      break;
+  }
+  npc->applyMmoServerPresentationLifecycle(
+      state.health, state.maximumHealth, lifeState);
+
+  if(lifeState == Npc::MmoPresentationLifeState::Alive) {
+    switch(state.activityState) {
+      case ServerPresentationNpcActivityState::Idle:
+      case ServerPresentationNpcActivityState::Routine:
+      case ServerPresentationNpcActivityState::Dialog:
+        static_cast<void>(npc->setAnim(Npc::Anim::Idle));
+        break;
+      case ServerPresentationNpcActivityState::Traversal:
+        static_cast<void>(npc->setAnim(Npc::Anim::Move));
+        break;
+      case ServerPresentationNpcActivityState::Interaction:
+      case ServerPresentationNpcActivityState::Combat:
+        break;
+    }
+  }
+
+  Npc* target = nullptr;
+  if((state.flags & ServerPresentationNpcTargetPresent) != 0U)
+    target = resolveMmoServerEntity(state.target);
+  npc->setTarget(target);
+
+  if(state.activityState == ServerPresentationNpcActivityState::Dialog ||
+     state.activityState == ServerPresentationNpcActivityState::Interaction) {
+    npc->setAiOutputBarrier(250U, true);
+  }
+  Mmo::recordClientMmoProcessGatePresentation(
+      Mmo::ClientMmoProcessGatePresentationEvent::NpcStateApplied);
+}
+
+
+void GameSession::sampleMmoServerEntityTransforms() noexcept {
+  if(wrld == nullptr || mmoPresentationWorldGeneration == 0U)
+    return;
+  mmoServerEntityInterpolator.sample(ticks, mmoServerEntitySamples);
+  for(const auto& sampled : mmoServerEntitySamples) {
+    const auto* binding = mmoServerEntityPresentation.find(
+        sampled.handle, sampled.worldGeneration);
+    if(binding == nullptr || binding->kind != sampled.kind)
+      continue;
+    auto* npc = resolveMmoPresentationBinding(*wrld, *binding);
+    if(npc == nullptr) {
+      if(auto released = mmoServerEntityPresentation.invalidate(
+             sampled.handle, sampled.worldGeneration)) {
+        releaseMmoServerPresentationBinding(*released);
+      }
+      static_cast<void>(mmoServerEntityInterpolator.erase(
+          sampled.handle, sampled.worldGeneration));
+      continue;
+    }
+    if(npc->setPosition(static_cast<float>(sampled.posX),
+                        static_cast<float>(sampled.posY),
+                        static_cast<float>(sampled.posZ))) {
+      npc->setDirection(static_cast<float>(sampled.yaw));
+    }
+  }
+}
