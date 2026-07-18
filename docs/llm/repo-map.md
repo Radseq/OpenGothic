@@ -1,66 +1,35 @@
-# Repository Map — Full Client MMO Boundary
+# Full Client Ownership Map
 
-Last verified: 2026-07-17.
+This is a map of stable seams, not a file inventory. Retrieve concrete symbols,
+callers and tests through the repository index.
 
-## Build integration
+| Concern | Owner / stable anchor |
+|---|---|
+| Full executable composition and optional tooling | `src/client/CMakeLists.txt` |
+| Public MMO transport/session boundary | `src/client_sandbox/include/gothic/mmo/client_runtime_facade.h` |
+| Engine-facing session and intent bridge | `src/client/game/game/mmoclientbridge.h` |
+| Protocol-independent presentation records | `src/client/game/game/mmoserverpresentationevents.h` |
+| Route/bootstrap/live-event state machine | `src/client/game/game/mmoserverpresentationstate.h` |
+| Facade-to-presentation conversion | `src/client/game/game/mmoserverpresentationfacadeadapter.h` |
+| Engine projection | `GameSession` MMO implementation units under `src/client/game/game` |
+| Menu and input activation | `MainWindow` and adjacent UI/game controllers |
+| Focused transport/presentation tests | target declared by `src/client_sandbox/CMakeLists.txt` |
+| Architectural boundary enforcement | `tools/check_client_mmo_sandbox_boundary.py` |
 
-- `src/client/CMakeLists.txt` — links the sandbox facade and keeps SQLite tooling
-  optional/off by default.
+## Dependency direction
 
-## Engine/sandbox bridge
+```text
+OpenGothic UI/input/engine
+        -> full-client bridge and presentation projection
+        -> public client_sandbox facade
+        -> shared protocol contracts
+        -> authoritative server
+```
 
-- `src/client/game/game/mmoclientadapter.h` — engine-facing domain request API;
-- `src/client/game/game/mmoclientadapter.cpp` — submission adapter;
-- `src/client/game/game/mmoclientadapterdetail.h` — private fail-closed mapping
-  used by implementation and focused tests;
-- `src/client/game/game/mmoclientbridge.h`
-- `src/client/game/game/mmoclientbridge.cpp`
-- public facade: `src/client_sandbox/include/gothic/mmo/client_runtime_facade.h`
+Reverse ownership is forbidden. In particular, the client may include the
+public facade but must not include server-private gameplay headers or private
+sandbox transport/modules.
 
-## Input and observations
-
-- `src/client/game/game/mmosemantichooks.h`
-- `src/client/game/game/mmosemantichooks.cpp` — public forwarding surface;
-- `mmosemantichooks_internal.h` and focused `mmosemantichooks_*.cpp` units for
-  identity, encoding, submission, character, inventory, combat, dialog/story,
-  NPC AI, world and interactive/mover behavior.
-- `src/shared/net/mmo/mmo_client_intent.h`
-- `src/shared/net/mmo/mmo_client_intent_validation.h`
-
-## Server presentation
-
-- `mmoserverpresentationevents.h` — protocol-independent typed route,
-  bootstrap and live presentation DTOs;
-- `mmoserverpresentationstate.h` — bounded route/baseline/revision state;
-- `mmoserverpresentationbatchconsumer.h` — authority-ordered fake-mailbox and
-  production mailbox cut application (`route -> bootstrap -> live`);
-- `mmoserverpresentationfacadeadapter.h` — facade DTO to full-client DTO map;
-- `mmoserverentitypresentationtypes.h` — exact local binding observations;
-- `mmoserverentitypresentationregistry.*` — bounded centralized local binding;
-- `mmoserverentityinterpolator.*` — route-scoped remote entity smoothing;
-- `mmomovementcorrectionboundary.*` — validated local-player correction queue;
-- `gamesession.*` — engine sink for materialization, correction and presenters;
-- `ui/dialogmenu.*` — typed dialog lifecycle UI;
-- `world/objects/npc.*` — server-replica AI and lifecycle presentation guards.
-
-## Large engine implementation splits
-
-- `gamescript.cpp` plus `gamescript_bindings.cpp` and
-  `gamescript_external_*.cpp` own VM binding and external families;
-- `gamesession.cpp` plus `gamesession_dialog.cpp`, `gamesession_startup.cpp`,
-  `gamesession_tick.cpp`, `gamesession_persistence.cpp`,
-  `gamesession_world_lifecycle.cpp` and `gamesession_mmo_*.cpp` own focused
-  session lifecycle and MMO presentation/restore responsibilities.
-
-## Mode and UX
-
-- `src/client/game/commandline.*`
-- `src/client/game/ui/gamemenu.cpp`
-- save/load/session integration in `gamesession.*`, `serialize.*` and menu code.
-
-## Optional local tooling
-
-- `src/client/tools/mmo` — SQLite capture/restore diagnostics, excluded from the
-  production client unless explicitly enabled.
-
-Do not recreate the removed client-side server tree.
+For a change, retrieve the edited symbol, all direct callers, its tests and the
+CMake owner. Do not enlarge this document with results that the index can
+reconstruct.

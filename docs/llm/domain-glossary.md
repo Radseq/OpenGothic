@@ -1,12 +1,13 @@
-# Domain Glossary — Full Client
+# Client Domain Vocabulary
 
-- **Server replica** — local presentation object whose gameplay state is
-  server-owned.
-- **Presentation binding** — mapping from server entity handle/stable key to a
-  local engine object.
-- **Interpolation** — visual smoothing between authoritative transforms.
-- **Prediction** — reversible local visual estimate; never a committed gameplay
-  result.
-- **Reconciliation** — applying server correction to predicted/presented state.
-- **Native mode** — original single-player execution without MMO authority.
-- **MMO-bound mode** — client adapter plus sandbox facade and server truth.
+- **native mode** — original local OpenGothic gameplay and saves;
+- **server-bound mode** — client submits intent and projects server truth;
+- **route** — session binding to an exact world/generation/epoch;
+- **exact handle** — server identity including every required generation;
+- **server replica** — engine object whose gameplay state is server-owned;
+- **presentation state** — validated local projection, not authority;
+- **bootstrap** — atomic baseline for one route;
+- **correction** — authoritative replacement of local visual prediction.
+
+Other vocabulary comes from source types and shared/server contracts; do not
+maintain a duplicate protocol glossary here.

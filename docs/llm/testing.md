@@ -1,17 +1,21 @@
-# Testing — Full Client MMO Boundary
+# Full Client Validation
 
-## Static boundary
+Use the narrowest sufficient layer, then run every higher layer affected by the
+change. A passing lower layer must not be described as proof of graphical
+integration.
+
+## Static boundaries
 
 ```bash
 python3 tools/check_client_mmo_sandbox_boundary.py --strict
 python3 tools/check_llm_context.py --strict
-rg -n "Net::Client|Packet[[:space:]]+packet|submitClientIntent" \
-  src/client/game/game/mmosemantichooks.cpp src/client/game/ui/dialogmenu.cpp
 ```
 
-The final `rg` command must return no matches.
+The first check rejects full-client ownership of sockets/codecs/private sandbox
+modules, filesystem gameplay side channels, production SQLite coupling and
+legacy packet/result surfaces. The second checks canonical context and links.
 
-## Focused adapter/presentation tests
+## Focused sandbox plus presentation target
 
 ```bash
 cmake -S src/client_sandbox -B build/mmo_client_sandbox -G Ninja \
@@ -22,76 +26,41 @@ cmake --build build/mmo_client_sandbox \
 ctest --test-dir build/mmo_client_sandbox --output-on-failure
 ```
 
-Coverage includes:
+This proves transport/facade behavior and selected protocol-independent client
+components: adapter validation, mailbox ordering, bootstrap/state invariants,
+identity-safe registries, interpolation/correction, catalog admission,
+inventory/equipment read models and combat presentation.
 
-- domain-to-Protocol-V2 mapping and fail-closed validation of incomplete legacy
-  engine DTOs;
-- route/entity-generation checks and exact despawn;
-- forced rebind and local-object alias prevention;
-- bounded interpolation, stale/route rejection and exact erase;
-- local-player movement-correction route/identity/tick checks;
-- atomic typed bootstrap activation and invalid-bootstrap rollback;
-- stale route epoch/world-generation rejection;
-- local/remote/NPC roster classification, exact generation replacement and
-  despawn;
-- revisioned transform/NPC/dialog/interactive/mover application and
-  reconciliation versus hard-snap correction classification;
-- fake-facade mailbox mapping, deterministic cross-mailbox `streamSequence`
-  ordering, bootstrap conversion and fail-closed malformed-record rejection.
-- authoritative inventory/equipment bootstrap projection with retained
-  collection revisions;
-- generation-safe inventory snapshots/deltas and equipment slot changes;
-- non-optimistic pending command behavior for applied, rejected and reordered
-  receipt/delta delivery;
-- exact handle/revision mapping for equip, unequip, use, drop, split and merge
-  intents.
+It does **not** compile or execute the complete graphical executable,
+`mmoclientbridge`, menu orchestration or all `GameSession` materializers.
 
-## Full client
+## Normal client build
 
-Configure the normal client build with the workspace sandbox available. Verify:
+Configure/build the regular client with `src/client_sandbox` present. This
+proves CMake composition and compilation of the complete integration, including
+strict warnings. It does not prove runtime assets, rendering or multi-client
+behavior. Also verify a standalone/native configuration when build logic or
+mode separation changes.
 
-- native single-player startup without MMO flags;
-- MMO facade startup/shutdown;
-- in-memory bootstrap status and snapshot delivery;
-- route replacement clears old presentation bindings;
-- local/remote-player/NPC classification;
-- server-replica identity/interpolation and safe despawn;
-- presentation-catalog decode, manifest admission and exact NPC resource
-  lookup, including fail-closed replacement of a previously installed catalog;
-- dialog choice submission and presentation;
-- server-backed inventory opens without consulting `Npc::inventory`, shows
-  quantity/equipment/pending state and submits all six item actions;
-- rejected inventory commands display feedback and never mutate local quantity
-  or equipment before an authoritative revision arrives;
-- clean handling of missing ASIO backend/facade.
+## Process gate
 
-Record commands actually run. Do not preserve local credentials, absolute paths
-or full logs in canonical context.
+Use the canonical Protocol V2 process-gate runner from the root documentation
+for session, reconnect, bootstrap/resync and multi-client network behavior. It
+proves real processes and transport but only the presentation surfaces observed
+by its clients.
 
-## Graphical client smoke run
+## Graphical smoke
 
-Build the server and the normal graphical client in a complete checkout, then:
+Use `tools/run_mmo_graphical_client.py` with complete game assets. Verify at
+minimum:
 
-```bash
-python3 tools/run_mmo_graphical_client.py \
-  --server-exe build/mmo_cpp_server/mmo_udp_server \
-  --client-exe build/client/opengothic/Gothic2Notr \
-  --gothic-dir "/path/to/Gothic II"
-```
+- native startup remains unchanged;
+- server-bound menu/session reaches in-world or reports a clear failure;
+- local/remote/NPC identities materialize and reroute/reset safely;
+- movement prediction yields to server correction;
+- interactions and combat submit exact typed intents without local damage;
+- the changed UI reads authoritative revisions and handles rejection/resync;
+- reconnect/resume does not retain objects or pending UI from the old route.
 
-The default run starts the production UDP server with the deterministic
-Protocol V2 gameplay fixture and launches the client with `-nomenu`. Verify in
-`runtime/graphical-mmo/server.log` and the client log:
-
-- session reaches `in_world`;
-- local player accepts keyboard movement while server corrections remain
-  authoritative;
-- replicated players/NPCs materialize;
-- Talk/Loot/Use resolves an exact server handle;
-- draw/holster/attack/parry submit typed combat actions;
-- local attacks do not mutate replicated NPC hit points;
-- stopping/restarting transport uses the resume ticket when the server durable
-  state remains available.
-
-Use `--menu` to verify typed roster-backed New Game and Continue/Load, or
-`--existing-server` when the server is started separately.
+For renderer/materializer work, run two graphical clients. Record concise
+results and limitations, not volatile counts or full logs.

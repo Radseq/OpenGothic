@@ -1,152 +1,67 @@
-# Next Work — Full OpenGothic Client
+# Full Client Next Work
 
-Last updated: 2026-07-14.
+Global execution order remains in the root roadmap. When client work is
+scheduled, perform the smallest ordered edge below; do not start broad UI or
+rendering work before its preceding invariant is closed.
 
-The global roadmap currently prioritizes Protocol V2, typed replication and
-binary bootstrap before broad MMO UX. Client changes should connect those
-contracts to the prepared domain/presentation boundaries without inventing a
-second transport.
+## C1 — Remove the dead bootstrap/restore side channel
 
-## 1. Complete the V2-only engine adapter
+Goal: typed facade mailbox bootstrap is the only server-bound restore source.
 
-Implemented:
+Acceptance:
 
-- engine hooks submit domain bootstrap, movement/checkpoint, interaction,
-  inventory, weapon, combat and dialog requests;
-- compatibility packet construction and bridge submission are removed;
-- validation is fail-closed and does not submit local gameplay results;
-- native single-player behavior remains behind existing mode checks.
+- remove production polling, storage and parsing of the unreachable legacy
+  string snapshot path;
+- keep native save/load behavior unchanged;
+- startup and reconnect wait only on typed session/bootstrap state;
+- no filesystem, JSON or SQLite fallback can activate gameplay state;
+- add a regression test proving route replacement plus typed bootstrap resets
+  old projection state without consulting legacy restore code.
 
-Movement input, interaction handles, weapon/combat actions and numeric dialog
-choices map directly to `ClientRuntimeFacade`. Implemented in the graphical
-client:
+## C2 — Activate revision-safe inventory UI
 
-- full hello/authenticate/list/create/select/enter-world lifecycle;
-- typed roster-backed New Game and Continue/Load;
-- normalized movement axes, movement mode, input flags, predicted pose and
-  acknowledged server tick;
-- exact NPC/interactive reverse lookup for Talk/Loot/Use;
-- typed draw/holster/primary/secondary/parry submission and local-damage
-  suppression for server replicas.
+Goal: the normal inventory action opens a server-backed view in server-bound
+mode.
 
-Next:
+Acceptance:
 
-- extend container and trade hooks with exact V2 handles and revisions;
-- enrich numeric dialog identities and choice metadata from typed presentation state;
-- keep sequence/idempotency/receipt/retry/reconnect ownership inside the facade;
-- do not restore packet-shaped compatibility submission while these hooks are
-  incomplete.
+- UI reads only typed inventory/equipment models, never `Npc::inventory`;
+- equip, unequip, use, drop, split and merge submit exact stack handles and
+  expected revisions;
+- pending state is visible; rejection is visible; local quantity/equipment does
+  not change before an authoritative update;
+- route replacement closes or resets stale UI state;
+- native inventory behavior remains unchanged;
+- focused tests cover input-to-view/action wiring, followed by graphical smoke.
 
-## 2. Connect facade F to the typed presentation state
+## C3 — Add a full-client composition seam
 
-Implemented independently of facade F:
+Goal: test bridge/session orchestration without Vulkan, audio or private assets.
 
-- protocol-independent DTOs cover route/world descriptor, bootstrap roster,
-  movement correction, entity lifecycle/transform, NPC, dialog/busy,
-  interactive and mover presentation;
-- `ServerPresentationState` rejects stale route epochs/world generations,
-  installs a bootstrap atomically and activates its baseline only after the
-  complete roster and world-object baseline are valid;
-- generation replacement and despawn are exact-handle; route replacement clears
-  entities, world objects, dialogs and pending corrections;
-- the current transform path materializes unknown remote players/NPCs as
-  MMO-owned proxies and removes their interpolation/presentation bindings on
-  release without aliasing pre-existing world NPCs;
-- server replicas do not execute local insertion scripts, AI or perception.
-- protocol-independent S6 fake-event contracts and read models now cover
-  equipment slots, weapon mode, combat action timelines/results, authoritative
-  damage/HP, hit reaction and life state;
-- the graphical materializer resolves weapon visuals, maintains hand/back
-  attachments, presents combat/life animations, VFX/SFX/knockback and local-only
-  camera shake, and corrects rejected presentation prediction without applying
-  local damage.
+Acceptance:
 
-Facade-domain mapping now implemented:
+- inject or wrap the public facade behind a deterministic fake;
+- cover authenticate/resume, roster, enter-world, reconnect and failure without
+  native fallback;
+- cover mailbox drain order, route reset and command-completion delivery;
+- keep transport tests in `client_sandbox`; do not reimplement sockets or wire
+  records in the client.
 
-- `mmoserverpresentationfacadeadapter.h` maps completed bootstraps and every
-  typed S2C mailbox into `ServerPresentationEvent`/`ServerPresentationBootstrap`;
-- the adapter validates route/baseline/enum/flag invariants, drops malformed
-  records, and restores global event order with `streamSequence`;
-- `mmoclientbridge` exposes a single protocol-independent typed batch; no wire
-  struct reaches `GameSession`.
+## C4 — Complete missing presentation families
 
-Next integration:
+In order: dialog text/audio/choices, character attributes, loot availability,
+then remaining server-owned UI state. Extend shared/server/sandbox contracts
+first when the authoritative payload is absent. Every UI projection must retain
+identity and revision and must tolerate rejection, reroute and resync.
 
-- map the shared S0/S5 facade mailboxes for equipment, weapon mode, combat,
-  damage, hit reaction and death into the prepared S6 records; preserve server
-  ordering/revisions and do not infer hits or HP from local animation;
-- deploy the importer-generated shared binary presentation catalog next to the
-  client build, then pass `-mmo-client-presentation-catalog` together with the
-  admitted `-mmo-client-presentation-manifest-id`; the runtime consumer and exact
-  `(ArchetypeId, PresentationId) -> Daedalus instance` lookup are implemented;
-- extend the typed dialog presentation contract or catalog lookup so numeric
-  line IDs resolve to subtitle/audio metadata and awaiting-choice updates carry
-  the actual revisioned choice list;
-- add engine-level integration fixtures for route replacement, bootstrap
-  materialization, mover/interactive application and dialog UI lifecycle in a
-  complete OpenGothic checkout with third-party dependencies.
+## C5 — Retire migration hooks
 
-## 3. Complete server-backed inventory presentation
+Classify each semantic hook and sampler as one of: native-only behavior,
+server-bound intent, bounded diagnostic or obsolete compatibility. Delete the
+last category and prevent the diagnostic category from mutating gameplay.
 
-Implemented:
+## Gate for each item
 
-- bootstrap inventory/equipment revisions and stack bindings reach the full
-  client through the sandbox facade;
-- `ServerInventoryReadModel`, `ServerEquipmentReadModel` and bounded pending
-  command state are generation-safe and reject stale/malformed snapshots and
-  deltas;
-- `InventoryMenu` uses only the server read model in MMO mode and performs no
-  optimistic quantity or equipment mutation;
-- equip, unequip, use, drop, split and merge actions submit typed Protocol V2
-  intents and wait for authoritative revisions after `Applied` receipts.
-- live inventory/equipment events update the read models in `GameSession`, item
-  display names resolve through the presentation catalog, and revisioned world
-  items materialize with exact handles used by pickup intents.
-
-Next:
-
-- resolve item presentation IDs to icons without treating `ArchetypeId` as a
-  Daedalus symbol index;
-- add server-backed container, loot and trade pages;
-- add a graphical smoke test in a complete checkout.
-
-## 4. Classify remaining semantic hooks
-
-For every callback in `mmosemantichooks.*`, retain exactly one role:
-
-- valid client intent routed through the adapter;
-- non-authoritative local diagnostic;
-- native single-player-only behavior;
-- obsolete migration hook to delete.
-
-Do not send before/after stats, damage, wallet, quest, NPC death or world-state
-results as MMO truth.
-
-## 5. MMO character UX
-
-Implemented:
-
-- New Game creates a server character;
-- Continue/Load lists server characters without selecting local save files;
-- Save is disabled in MMO mode;
-- command-line character/session identities are configurable;
-- `-nomenu` can auto-enter a server session, and the launcher starts a local
-  server plus graphical client.
-
-Next:
-
-- replace development guest identity with production account login/token UX;
-- add character deletion/rename/appearance selection;
-- make world transitions use server approval plus explicit loading
-  presentation;
-- present reconnect/recovery state in UI instead of logs only.
-
-## Acceptance
-
-- no full-client MMO socket, codec, retry or bootstrap assembler;
-- no semantic hook or UI constructs client wire packets;
-- no local gameplay result can be submitted as authority;
-- stale route/entity generations cannot mutate or despawn a replacement;
-- replicated NPCs never run local authoritative AI;
-- the same behavior is proven first in the headless sandbox;
-- native single-player remains unchanged when MMO mode is off.
+Run static boundary checks, focused tests, a normal client build, the relevant
+process gate and a graphical two-client smoke. Record only reproducible command
+names and failures; do not copy logs into canonical context.

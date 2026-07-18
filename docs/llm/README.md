@@ -1,25 +1,24 @@
-# Full OpenGothic Client Context
+# Full Client LLM Entry Point
 
-Last verified: 2026-07-11.
+Use the smallest reading set that can answer the task.
 
-The full client preserves native single-player behavior. In MMO mode it is an
-input and presentation adapter around the public client-sandbox facade.
+## Default path
 
-## Read order
+1. `AGENTS.md` — ownership and non-negotiable invariants.
+2. `current-state.md` — verified implementation state and known gaps.
+3. `next-work.md` — ordered unfinished client work.
+4. Actual source, CMake and tests retrieved through the repository index.
 
-1. `current-state.md`.
-2. `next-work.md`.
-3. `agent-rules.md`.
-4. `repo-map.md`.
-5. `architecture.md`, `api-contracts.md` and `testing.md` as needed.
-6. Actual engine source before editing.
+## Read only when needed
 
-Global ordering is in `docs/llm/gothic-mmo-roadmap.md`. The client-local
-`roadmap.md` is only a compact projection and may not reorder global phases.
+- `architecture.md` — runtime data flow and state ownership.
+- `api-contracts.md` — engine-facing contract summary.
+- `testing.md` — what each validation layer proves.
+- `repo-map.md` — stable composition anchors, not a source inventory.
+- [`../adr/README.md`](../adr/README.md) — durable decisions and their
+  consequences.
+- `roadmap.md` — compatibility pointer for client-local history; global ordering
+  is owned by the root roadmap.
 
-## Non-negotiable boundary
-
-The full client must not own MMO endpoint parsing, UDP sockets, packet codecs,
-retry/ACK state or bootstrap assembly. Those belong to `src/client_sandbox`.
-The client may predict/interpolate presentation but cannot commit gameplay
-facts.
+The remaining files in this directory are short compatibility or vocabulary
+entries. They must point to canonical context rather than duplicate it.
