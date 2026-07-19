@@ -873,6 +873,98 @@ struct ServerMoverStateEvent final {
   ServerPresentationMoverStateRecord state{};
 };
 
+
+enum class ServerProjectileImpactKind : std::uint8_t {
+  World = 1U,
+  Actor = 2U,
+};
+
+enum class ServerProjectileDespawnReason : std::uint8_t {
+  Impacted = 1U,
+  Expired = 2U,
+  LeftInterest = 3U,
+  ReplacedByResync = 4U,
+};
+
+struct ServerPresentationProjectileSnapshot final {
+  std::uint64_t projectileId = 0U;
+  ServerPresentationEntityHandle owner{};
+  ServerPresentationEntityHandle target{};
+  std::uint64_t launcherArchetypeId = 0U;
+  std::uint64_t projectileArchetypeId = 0U;
+  std::uint64_t actionId = 0U;
+  std::uint64_t actionSequence = 0U;
+  std::uint64_t contentRevision = 0U;
+  std::uint64_t rulesetId = 0U;
+  std::uint64_t actionProfileId = 0U;
+  std::int64_t positionXMicrometers = 0;
+  std::int64_t positionYMicrometers = 0;
+  std::int64_t positionZMicrometers = 0;
+  std::int64_t velocityXMicrometersPerSecond = 0;
+  std::int64_t velocityYMicrometersPerSecond = 0;
+  std::int64_t velocityZMicrometersPerSecond = 0;
+  std::uint64_t ageMicroseconds = 0U;
+  std::uint64_t spawnTick = 0U;
+  std::uint32_t radiusMillimeters = 0U;
+  std::uint32_t flags = 0U;
+  std::uint64_t stateRevision = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return projectileId != 0U && owner.valid() &&
+           launcherArchetypeId != 0U && projectileArchetypeId != 0U &&
+           actionId != 0U && actionSequence != 0U && contentRevision != 0U &&
+           rulesetId != 0U && actionProfileId != 0U && spawnTick != 0U &&
+           radiusMillimeters != 0U && stateRevision != 0U &&
+           (target.empty() || target.world == owner.world);
+  }
+};
+
+struct ServerPresentationProjectileImpact final {
+  std::uint64_t projectileId = 0U;
+  ServerProjectileImpactKind kind = ServerProjectileImpactKind::World;
+  ServerPresentationEntityHandle actor{};
+  std::uint64_t worldObjectId = 0U;
+  std::int64_t positionXMicrometers = 0;
+  std::int64_t positionYMicrometers = 0;
+  std::int64_t positionZMicrometers = 0;
+  std::uint64_t impactTick = 0U;
+  std::uint64_t actionId = 0U;
+  std::uint64_t stateRevision = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    if(projectileId == 0U || impactTick == 0U || actionId == 0U ||
+       stateRevision == 0U)
+      return false;
+    if(kind == ServerProjectileImpactKind::Actor)
+      return actor.valid() && worldObjectId == 0U;
+    return actor.empty();
+  }
+};
+
+struct ServerProjectileSpawnEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationProjectileSnapshot projectile{};
+};
+
+struct ServerProjectileStateEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationProjectileSnapshot projectile{};
+};
+
+struct ServerProjectileImpactEvent final {
+  ServerPresentationEventHeader header{};
+  ServerPresentationProjectileImpact impact{};
+};
+
+struct ServerProjectileDespawnEvent final {
+  ServerPresentationEventHeader header{};
+  std::uint64_t projectileId = 0U;
+  ServerProjectileDespawnReason reason =
+      ServerProjectileDespawnReason::Impacted;
+  std::uint64_t despawnTick = 0U;
+  std::uint64_t stateRevision = 0U;
+};
+
 using ServerPresentationEvent = std::variant<
     ServerWorldDescriptorEvent,
     ServerEntitySpawnEvent,
@@ -899,6 +991,10 @@ using ServerPresentationEvent = std::variant<
     ServerHitReactionEvent,
     ServerCharacterDeathStateChangedEvent,
     ServerInteractiveStateEvent,
-    ServerMoverStateEvent>;
+    ServerMoverStateEvent,
+    ServerProjectileSpawnEvent,
+    ServerProjectileStateEvent,
+    ServerProjectileImpactEvent,
+    ServerProjectileDespawnEvent>;
 
 } // namespace Mmo::ClientPresentation

@@ -59,6 +59,10 @@ enum class ServerPresentationMutation : std::uint8_t {
   WorldItemSpawned,
   WorldItemDespawned,
   WorldItemUpdated,
+  ProjectileSpawned,
+  ProjectileUpdated,
+  ProjectileImpacted,
+  ProjectileDespawned,
 };
 
 struct ServerPresentationApplyResult final {
@@ -132,6 +136,7 @@ struct ServerPresentationDialogState final {
 struct ServerPresentationStateConfig final {
   std::size_t maxEntities = 4096U;
   std::size_t maxWorldObjects = 16384U;
+  std::size_t maxProjectiles = 4096U;
 };
 
 class ServerPresentationState final {
@@ -142,6 +147,8 @@ class ServerPresentationState final {
     config_.maxEntities = std::max<std::size_t>(1U, config_.maxEntities);
     config_.maxWorldObjects =
         std::max<std::size_t>(1U, config_.maxWorldObjects);
+    config_.maxProjectiles =
+        std::max<std::size_t>(1U, config_.maxProjectiles);
     entities_.reserve(config_.maxEntities);
     npcStates_.reserve(config_.maxEntities);
     equipment_.reserve(config_.maxEntities);
@@ -154,6 +161,7 @@ class ServerPresentationState final {
     worldObjects_.reserve(config_.maxWorldObjects);
     interactives_.reserve(config_.maxWorldObjects);
     movers_.reserve(config_.maxWorldObjects);
+    projectiles_.reserve(config_.maxProjectiles);
   }
 
   [[nodiscard]] ServerPresentationRouteReplaceResult replaceRoute(
@@ -280,6 +288,7 @@ class ServerPresentationState final {
     lifeStates_ = std::move(nextLifeStates);
     damage_.clear();
     hitReactions_.clear();
+    projectiles_.clear();
     localPlayer_ = nextLocalPlayer;
     world_ = bootstrap.world;
     activeBaseline_ = bootstrap.baseline;
@@ -428,6 +437,16 @@ class ServerPresentationState final {
     return result;
   }
 
+  [[nodiscard]] const ServerPresentationProjectileSnapshot* findProjectile(
+      const std::uint64_t projectileId) const noexcept {
+    const auto found = projectiles_.find(projectileId);
+    return found != projectiles_.end() ? &found->second : nullptr;
+  }
+
+  [[nodiscard]] std::size_t projectileCount() const noexcept {
+    return projectiles_.size();
+  }
+
   [[nodiscard]] std::size_t entityCount() const noexcept {
     return entities_.size();
   }
@@ -458,6 +477,8 @@ class ServerPresentationState final {
       std::uint64_t, ServerPresentationInteractiveStateRecord>;
   using MoverMap =
       std::unordered_map<std::uint64_t, ServerPresentationMoverStateRecord>;
+  using ProjectileMap = std::unordered_map<
+      std::uint64_t, ServerPresentationProjectileSnapshot>;
 
   [[nodiscard]] static constexpr bool isKnownKind(
       const ServerPresentationEntityKind kind) noexcept {
@@ -1420,6 +1441,105 @@ class ServerPresentationState final {
             ServerPresentationMutation::MoverUpdated};
   }
 
+  [[nodiscard]] ServerPresentationApplyResult applyProjectileSnapshot(
+      const ServerPresentationEventHeader& header,
+      const ServerPresentationProjectileSnapshot& projectile,
+      const ServerPresentationMutation insertedMutation) {
+    const auto status = validateHeader(header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!projectile.valid() || !belongsToRoute(projectile.owner) ||
+       (!projectile.target.empty() && !belongsToRoute(projectile.target))) {
+      return {ServerPresentationApplyStatus::Invalid};
+    }
+    const auto found = projectiles_.find(projectile.projectileId);
+    if(found == projectiles_.end()) {
+      if(projectiles_.size() >= config_.maxProjectiles)
+        return {ServerPresentationApplyStatus::CapacityExceeded};
+      projectiles_.emplace(projectile.projectileId, projectile);
+      return {ServerPresentationApplyStatus::Applied, insertedMutation};
+    }
+    if(projectile.stateRevision <= found->second.stateRevision) {
+      return {projectile.stateRevision == found->second.stateRevision
+                  ? ServerPresentationApplyStatus::Duplicate
+                  : ServerPresentationApplyStatus::Stale};
+    }
+    if(found->second.owner != projectile.owner ||
+       found->second.target != projectile.target ||
+       found->second.launcherArchetypeId != projectile.launcherArchetypeId ||
+       found->second.projectileArchetypeId !=
+           projectile.projectileArchetypeId ||
+       found->second.actionId != projectile.actionId ||
+       found->second.actionSequence != projectile.actionSequence ||
+       found->second.contentRevision != projectile.contentRevision ||
+       found->second.rulesetId != projectile.rulesetId ||
+       found->second.actionProfileId != projectile.actionProfileId ||
+       found->second.spawnTick != projectile.spawnTick) {
+      return {ServerPresentationApplyStatus::IdentityMismatch};
+    }
+    found->second = projectile;
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::ProjectileUpdated};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerProjectileSpawnEvent& event) {
+    return applyProjectileSnapshot(
+        event.header, event.projectile,
+        ServerPresentationMutation::ProjectileSpawned);
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerProjectileStateEvent& event) {
+    return applyProjectileSnapshot(
+        event.header, event.projectile,
+        ServerPresentationMutation::ProjectileSpawned);
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerProjectileImpactEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!event.impact.valid())
+      return {ServerPresentationApplyStatus::Invalid};
+    const auto found = projectiles_.find(event.impact.projectileId);
+    if(found == projectiles_.end())
+      return {ServerPresentationApplyStatus::MissingEntity};
+    if(event.impact.stateRevision < found->second.stateRevision)
+      return {ServerPresentationApplyStatus::Stale};
+    if(event.impact.actionId != found->second.actionId)
+      return {ServerPresentationApplyStatus::IdentityMismatch};
+    if(event.impact.kind == ServerProjectileImpactKind::Actor &&
+       !belongsToRoute(event.impact.actor)) {
+      return {ServerPresentationApplyStatus::Invalid};
+    }
+    found->second.positionXMicrometers = event.impact.positionXMicrometers;
+    found->second.positionYMicrometers = event.impact.positionYMicrometers;
+    found->second.positionZMicrometers = event.impact.positionZMicrometers;
+    found->second.stateRevision = event.impact.stateRevision;
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::ProjectileImpacted};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerProjectileDespawnEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(event.projectileId == 0U || event.despawnTick == 0U ||
+       event.stateRevision == 0U)
+      return {ServerPresentationApplyStatus::Invalid};
+    const auto found = projectiles_.find(event.projectileId);
+    if(found == projectiles_.end())
+      return {ServerPresentationApplyStatus::MissingEntity};
+    if(event.stateRevision < found->second.stateRevision)
+      return {ServerPresentationApplyStatus::Stale};
+    projectiles_.erase(found);
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::ProjectileDespawned};
+  }
+
   void clearRouteState() noexcept {
     activeBaseline_.reset();
     world_.reset();
@@ -1435,6 +1555,7 @@ class ServerPresentationState final {
     worldObjects_.clear();
     interactives_.clear();
     movers_.clear();
+    projectiles_.clear();
     localPlayer_.reset();
     pendingCorrection_.reset();
     dialog_ = {};
@@ -1457,6 +1578,7 @@ class ServerPresentationState final {
   WorldObjectMap worldObjects_;
   InteractiveMap interactives_;
   MoverMap movers_;
+  ProjectileMap projectiles_;
   std::optional<ServerPresentationEntityHandle> localPlayer_;
   std::optional<ServerMovementCorrectionEvent> pendingCorrection_;
   ServerPresentationDialogState dialog_{};

@@ -129,6 +129,7 @@ void GameSession::setMmoServerPresentationRoute(
     const Mmo::ClientPresentation::ServerPresentationRouteIdentity& route) {
   mmoPresentationRouteKey = makeMmoPresentationRouteKey(route);
   mmoServerWorldObjects.resetRoute(route.world);
+  mmoServerProjectilePresentation.resetRoute(route.world);
 }
 
 void GameSession::installMmoServerPresentationBootstrap(

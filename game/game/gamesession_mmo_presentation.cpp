@@ -178,11 +178,13 @@ void GameSession::resetMmoServerPresentationProjection() noexcept {
     releaseMmoServerPresentationBinding(binding);
 
   mmoServerEntityInterpolator.resetRoute(mmoPresentationWorldGeneration);
+  mmoServerProjectilePresentation.resetRoute();
   mmoMovementCorrectionBoundary.resetRoute(mmoPresentationWorldGeneration);
   mmoServerInventoryPresentation_.reset();
   resetMmoServerWorldItems();
   mmoServerWorldObjects.resetRoute({});
   mmoServerEntitySamples.clear();
+  mmoServerProjectileSamples.clear();
 }
 
 void GameSession::resetMmoServerPresentationWorld() noexcept {
@@ -598,6 +600,43 @@ void GameSession::applyMmoServerPresentationEvent(
           Gothic::inst().presentTypedServerDialog(nullptr, npc, nullptr, event);
           Mmo::recordClientMmoProcessGatePresentation(
               Mmo::ClientMmoProcessGatePresentationEvent::DialogApplied);
+        } else if constexpr(std::is_same_v<Event, ServerProjectileSpawnEvent>) {
+          const auto status = mmoServerProjectilePresentation.observe(
+              value.projectile, ticks);
+          if(status != ServerProjectilePresentationStatus::Applied &&
+             status != ServerProjectilePresentationStatus::Duplicate) {
+            Log::e("MMO projectile spawn presentation rejected: status=",
+                   static_cast<unsigned>(status),
+                   " projectile=", value.projectile.projectileId);
+          }
+        } else if constexpr(std::is_same_v<Event, ServerProjectileStateEvent>) {
+          const auto status = mmoServerProjectilePresentation.observe(
+              value.projectile, ticks);
+          if(status != ServerProjectilePresentationStatus::Applied &&
+             status != ServerProjectilePresentationStatus::Duplicate &&
+             status != ServerProjectilePresentationStatus::Stale) {
+            Log::e("MMO projectile state presentation rejected: status=",
+                   static_cast<unsigned>(status),
+                   " projectile=", value.projectile.projectileId);
+          }
+        } else if constexpr(std::is_same_v<Event, ServerProjectileImpactEvent>) {
+          const auto status = mmoServerProjectilePresentation.impact(
+              value.impact, ticks);
+          if(status != ServerProjectilePresentationStatus::Applied &&
+             status != ServerProjectilePresentationStatus::Stale) {
+            Log::e("MMO projectile impact presentation rejected: status=",
+                   static_cast<unsigned>(status),
+                   " projectile=", value.impact.projectileId);
+          }
+        } else if constexpr(std::is_same_v<Event, ServerProjectileDespawnEvent>) {
+          const auto status = mmoServerProjectilePresentation.despawn(value);
+          if(status != ServerProjectilePresentationStatus::Applied &&
+             status != ServerProjectilePresentationStatus::Missing &&
+             status != ServerProjectilePresentationStatus::Stale) {
+            Log::e("MMO projectile despawn presentation rejected: status=",
+                   static_cast<unsigned>(status),
+                   " projectile=", value.projectileId);
+          }
         } else if constexpr(std::is_same_v<Event, ServerWorldDescriptorEvent>) {
           Log::i("MMO typed world descriptor updated: revision=",
                  value.descriptor.descriptorRevision,
@@ -635,4 +674,9 @@ void GameSession::pollMmoServerPresentationMailbox() noexcept {
     }
   }
   sampleMmoServerEntityTransforms();
+  sampleMmoServerProjectiles();
+}
+
+void GameSession::sampleMmoServerProjectiles() noexcept {
+  mmoServerProjectilePresentation.sample(ticks, mmoServerProjectileSamples);
 }

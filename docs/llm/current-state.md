@@ -35,7 +35,12 @@ This document separates four evidence levels. Source remains authoritative.
   command completion state without optimistic quantity mutation.
 - Focused tests cover adapter validation, mailbox conversion, atomic bootstrap,
   route replacement, entity binding, interpolation, correction, catalog
-  admission, inventory/equipment projection and combat presentation.
+  admission, inventory/equipment projection, combat presentation and typed
+  projectile spawn/state/impact/despawn handling.
+- Projectile state is a self-contained upsert. A bounded full-client registry
+  enforces frozen identity and route ownership, interpolates two authoritative
+  samples, bounds extrapolation, pins impact positions and removes exact
+  generations on despawn.
 
 These tests compile selected full-client presentation components in the
 sandbox test target. They do not instantiate the complete OpenGothic runtime.
@@ -44,7 +49,9 @@ sandbox test target. They do not instantiate the complete OpenGothic runtime.
 
 - `GameSession` consumes route, bootstrap and event records and materializes
   local player, remote player, NPC, world-object, interactive, mover, inventory,
-  equipment and combat presentation into engine objects.
+  equipment and combat presentation into engine objects. It also owns sampled
+  projectile presentation state, but actual mesh/particle/audio/decal objects are
+  not materialized yet.
 - Route replacement resets projection registries before installing the new
   bootstrap.
 - Server replicas suppress local authority and use correction/interpolation

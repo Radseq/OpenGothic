@@ -20,6 +20,8 @@ semantics that are easy to misuse.
   speculative quantity mutation.
 - Protocol evolution starts in shared/server/sandbox. The full client receives
   a protocol-independent projection and must tolerate unknown valid families
-  until a presentation component is added.
+  until a presentation component is added. Projectile lifecycle is mapped into
+  typed full-client DTOs and a bounded interpolation registry; it is presentation
+  only and never computes contacts or damage.
 
 See ADRs 0003–0005 for the binding decisions.

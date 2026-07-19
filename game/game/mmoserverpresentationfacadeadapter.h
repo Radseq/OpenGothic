@@ -32,6 +32,10 @@ struct ClientRuntimePresentationMailboxSnapshot final {
   std::vector<ClientSandbox::ClientRuntimeDialogEvent> dialogEvents;
   std::vector<ClientSandbox::ClientRuntimeInteractiveState> interactiveStates;
   std::vector<ClientSandbox::ClientRuntimeMoverState> moverStates;
+  std::vector<ClientSandbox::ClientRuntimeProjectileSpawn> projectileSpawns;
+  std::vector<ClientSandbox::ClientRuntimeProjectileState> projectileStates;
+  std::vector<ClientSandbox::ClientRuntimeProjectileImpact> projectileImpacts;
+  std::vector<ClientSandbox::ClientRuntimeProjectileDespawn> projectileDespawns;
   std::vector<ClientSandbox::ClientRuntimeLivePresentationEvent>
       livePresentationEvents;
   std::vector<ClientSandbox::ClientRuntimeCompletedBootstrap> bootstraps;
@@ -381,6 +385,18 @@ template<class Destination, class Source>
       case S::NpcUnavailable: return D::NpcUnavailable;
       case S::DialogCooldown: return D::DialogCooldown;
     }
+  } else if constexpr(std::is_same_v<S, ClientRuntimeProjectileImpactKind>) {
+    switch(value) {
+      case S::World: return D::World;
+      case S::Actor: return D::Actor;
+    }
+  } else if constexpr(std::is_same_v<S, ClientRuntimeProjectileDespawnReason>) {
+    switch(value) {
+      case S::Impacted: return D::Impacted;
+      case S::Expired: return D::Expired;
+      case S::LeftInterest: return D::LeftInterest;
+      case S::ReplacedByResync: return D::ReplacedByResync;
+    }
   } else if constexpr(std::is_same_v<S, ClientRuntimeMoverPhase>) {
     switch(value) {
       case S::AtStart: return D::AtStart;
@@ -533,6 +549,35 @@ mapInteractive(const ClientRuntimeInteractiveState& value) noexcept {
       .flags = value.flags,
       .stateRevision = value.stateRevision,
   });
+}
+
+[[nodiscard]] inline std::optional<ServerPresentationProjectileSnapshot>
+mapProjectile(const ClientRuntimeProjectileSnapshot& value) noexcept {
+  ServerPresentationProjectileSnapshot out{
+      .projectileId = value.projectileId,
+      .owner = mapHandle(value.owner),
+      .target = value.target.has_value() ? mapHandle(*value.target)
+                                         : ServerPresentationEntityHandle{},
+      .launcherArchetypeId = value.launcherArchetypeId,
+      .projectileArchetypeId = value.projectileArchetypeId,
+      .actionId = value.actionId,
+      .actionSequence = value.actionSequence,
+      .contentRevision = value.contentRevision,
+      .rulesetId = value.rulesetId,
+      .actionProfileId = value.actionProfileId,
+      .positionXMicrometers = value.positionXMicrometers,
+      .positionYMicrometers = value.positionYMicrometers,
+      .positionZMicrometers = value.positionZMicrometers,
+      .velocityXMicrometersPerSecond = value.velocityXMicrometersPerSecond,
+      .velocityYMicrometersPerSecond = value.velocityYMicrometersPerSecond,
+      .velocityZMicrometersPerSecond = value.velocityZMicrometersPerSecond,
+      .ageMicroseconds = value.ageMicroseconds,
+      .spawnTick = value.spawnTick,
+      .radiusMillimeters = value.radiusMillimeters,
+      .flags = value.flags,
+      .stateRevision = value.stateRevision,
+  };
+  return out.valid() ? std::optional{out} : std::nullopt;
 }
 
 [[nodiscard]] inline std::optional<ServerPresentationBootstrap> mapBootstrap(
@@ -695,6 +740,10 @@ mapClientRuntimePresentationMailbox(
                           source.npcStates.size() + source.dialogEvents.size() +
                           source.interactiveStates.size() +
                           source.moverStates.size() +
+                          source.projectileSpawns.size() +
+                          source.projectileStates.size() +
+                          source.projectileImpacts.size() +
+                          source.projectileDespawns.size() +
                           source.livePresentationEvents.size();
   out.events.reserve(eventCount);
   out.bootstraps.reserve(source.bootstraps.size());
@@ -891,6 +940,66 @@ mapClientRuntimePresentationMailbox(
       event.state = std::move(*state);
     appendEvent(out, state && event.header.valid() ? std::optional{event}
                                                    : std::nullopt);
+  }
+
+  for(const auto& value : source.projectileSpawns) {
+    auto projectile = mapProjectile(value.projectile);
+    ServerProjectileSpawnEvent event{.header = mapHeader(value.replication)};
+    if(projectile)
+      event.projectile = *projectile;
+    appendEvent(out, projectile && event.header.valid()
+                         ? std::optional{event}
+                         : std::nullopt);
+  }
+
+  for(const auto& value : source.projectileStates) {
+    auto projectile = mapProjectile(value.projectile);
+    ServerProjectileStateEvent event{.header = mapHeader(value.replication)};
+    if(projectile)
+      event.projectile = *projectile;
+    appendEvent(out, projectile && event.header.valid()
+                         ? std::optional{event}
+                         : std::nullopt);
+  }
+
+  for(const auto& value : source.projectileImpacts) {
+    const auto kind = mapEnum<ServerProjectileImpactKind>(value.kind);
+    ServerProjectileImpactEvent event{
+        .header = mapHeader(value.replication),
+        .impact = {
+            .projectileId = value.projectileId,
+            .kind = kind.value_or(ServerProjectileImpactKind::World),
+            .actor = value.actor.has_value() ? mapHandle(*value.actor)
+                                             : ServerPresentationEntityHandle{},
+            .worldObjectId = value.worldObjectId,
+            .positionXMicrometers = value.positionXMicrometers,
+            .positionYMicrometers = value.positionYMicrometers,
+            .positionZMicrometers = value.positionZMicrometers,
+            .impactTick = value.impactTick,
+            .actionId = value.actionId,
+            .stateRevision = value.stateRevision,
+        },
+    };
+    appendEvent(out, kind && event.header.valid() && event.impact.valid()
+                         ? std::optional{event}
+                         : std::nullopt);
+  }
+
+  for(const auto& value : source.projectileDespawns) {
+    const auto reason = mapEnum<ServerProjectileDespawnReason>(value.reason);
+    ServerProjectileDespawnEvent event{
+        .header = mapHeader(value.replication),
+        .projectileId = value.projectileId,
+        .reason = reason.value_or(ServerProjectileDespawnReason::Impacted),
+        .despawnTick = value.despawnTick,
+        .stateRevision = value.stateRevision,
+    };
+    appendEvent(out, reason && event.header.valid() &&
+                             event.projectileId != 0U &&
+                             event.despawnTick != 0U &&
+                             event.stateRevision != 0U
+                         ? std::optional{event}
+                         : std::nullopt);
   }
 
   for(auto& live : source.livePresentationEvents) {
@@ -1228,6 +1337,10 @@ drainClientRuntimePresentationMailbox(
   source.dialogEvents = facade.drainDialogEvents();
   source.interactiveStates = facade.drainInteractiveStates();
   source.moverStates = facade.drainMoverStates();
+  source.projectileSpawns = facade.drainProjectileSpawns();
+  source.projectileStates = facade.drainProjectileStates();
+  source.projectileImpacts = facade.drainProjectileImpacts();
+  source.projectileDespawns = facade.drainProjectileDespawns();
   source.livePresentationEvents = facade.drainLivePresentationEvents();
   source.bootstraps = facade.drainCompletedBootstraps();
   return source;

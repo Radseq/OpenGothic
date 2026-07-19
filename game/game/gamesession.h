@@ -17,6 +17,7 @@
 #include "mmoserverentityinterpolator.h"
 #include "mmomovementcorrectionboundary.h"
 #include "mmoserverpresentationstate.h"
+#include "mmoserverprojectilepresentation.h"
 #include "mmoserverworldobjectregistry.h"
 
 #ifndef OPENGOTHIC_MMO_SQLITE_TOOLING
@@ -302,6 +303,7 @@ class GameSession final {
                     const Mmo::ClientPresentation::ServerPresentationMoverStateRecord& state) noexcept;
     void        applyMmoServerMovementCorrection() noexcept;
     void        sampleMmoServerEntityTransforms() noexcept;
+    void        sampleMmoServerProjectiles() noexcept;
     void        releaseMmoServerPresentationBinding(
                     const Mmo::ClientPresentation::ServerEntityPresentationBinding& binding) noexcept;
     bool        tryApplyMmoServerWorldSnapshotRefresh() noexcept;
@@ -335,6 +337,8 @@ class GameSession final {
                                    mmoMovementCorrectionBoundary;
     Mmo::ClientPresentation::ServerPresentationState
                                    mmoTypedServerPresentation;
+    Mmo::ClientPresentation::ServerProjectilePresentationRegistry
+                                   mmoServerProjectilePresentation;
     Mmo::ClientPresentation::ServerInventoryPresentationState
                                    mmoServerInventoryPresentation_;
     Mmo::ClientPresentation::ServerWorldObjectRegistry
@@ -343,6 +347,8 @@ class GameSession final {
                                    mmoClientPresentationCatalog;
     std::vector<Mmo::ClientPresentation::ServerEntityPresentationTransform>
                                    mmoServerEntitySamples;
+    std::vector<Mmo::ClientPresentation::ServerProjectilePresentationSample>
+                                   mmoServerProjectileSamples;
     uint64_t                       mmoPresentationWorldGeneration = 0;
     std::string                    mmoPresentationRouteKey;
 
