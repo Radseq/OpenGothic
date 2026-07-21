@@ -583,6 +583,11 @@ void GameSession::applyMmoServerPresentationEvent(
           Gothic::inst().presentTypedServerDialog(player, npc, nullptr, event);
           Mmo::recordClientMmoProcessGatePresentation(
               Mmo::ClientMmoProcessGatePresentationEvent::DialogApplied);
+        } else if constexpr(std::is_same_v<Event, ServerDialogChoiceEvent>) {
+          const auto& dialog = mmoTypedServerPresentation.dialog();
+          auto* player = resolveMmoServerEntity(dialog.player);
+          auto* npc = resolveMmoServerEntity(dialog.npc);
+          Gothic::inst().presentTypedServerDialog(player, npc, nullptr, event);
         } else if constexpr(std::is_same_v<Event, ServerDialogUpdateEvent>) {
           const auto& dialog = mmoTypedServerPresentation.dialog();
           auto* player = resolveMmoServerEntity(dialog.player);

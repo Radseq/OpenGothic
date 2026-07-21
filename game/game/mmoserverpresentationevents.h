@@ -700,6 +700,17 @@ struct ServerDialogUpdateEvent final {
   std::uint32_t flags = 0U;
 };
 
+struct ServerDialogChoiceEvent final {
+  ServerPresentationEventHeader header{};
+  std::uint64_t sessionId = 0U;
+  std::uint64_t choiceId = 0U;
+  std::uint64_t choicesRevision = 0U;
+  std::uint64_t dialogRevision = 0U;
+  std::uint16_t choiceIndex = 0U;
+  std::uint16_t choiceCount = 0U;
+  std::string text;
+};
+
 enum class ServerDialogEndReason : std::uint8_t {
   Completed = 1U,
   Cancelled = 2U,
@@ -973,6 +984,7 @@ using ServerPresentationEvent = std::variant<
     ServerMovementCorrectionEvent,
     ServerNpcStateEvent,
     ServerDialogStartEvent,
+    ServerDialogChoiceEvent,
     ServerDialogUpdateEvent,
     ServerDialogEndEvent,
     ServerDialogBusyEvent,

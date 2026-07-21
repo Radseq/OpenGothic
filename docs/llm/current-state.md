@@ -33,6 +33,10 @@ This document separates four evidence levels. Source remains authoritative.
   wrong-identity samples.
 - Typed inventory/equipment read models retain server revisions and pending
   command completion state without optimistic quantity mutation.
+- Typed live dialog presentation stages bounded server choice labels, renders
+  them in the native menu and submits the selected stable ID with the exact
+  dialog revision; the UI waits for authoritative update/end instead of closing
+  optimistically.
 - Focused tests cover adapter validation, mailbox conversion, atomic bootstrap,
   route replacement, entity binding, interpolation, correction, catalog
   admission, inventory/equipment projection, combat presentation and typed
@@ -69,9 +73,9 @@ sandbox test target. They do not instantiate the complete OpenGothic runtime.
    the unreachable compatibility path is removal debt, not a supported mode.
 2. Normal inventory-key handling in server-bound mode currently refuses to open
    the inventory UI, despite typed read models and item commands existing.
-3. Dialog presentation carries numeric session/line/revision state but not the
-   complete user-facing subtitle, audio and choice payload needed for a native
-   dialog experience.
+3. Live dialog choices are selectable, but subtitle/audio still depend on a
+   client-side numeric line lookup and bootstrap cannot restore choices for a
+   dialog that was already awaiting input.
 4. Character-attribute and loot-availability facade records are valid but are
    intentionally not mapped because full-client presentation components do not
    yet exist for them.

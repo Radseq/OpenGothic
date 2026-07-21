@@ -51,6 +51,7 @@ enum class ServerPresentationMutation : std::uint8_t {
   HitReactionApplied,
   CharacterLifeStateUpdated,
   DialogStarted,
+  DialogChoiceStaged,
   DialogUpdated,
   DialogEnded,
   DialogBusy,
@@ -948,6 +949,22 @@ class ServerPresentationState final {
   }
 
   [[nodiscard]] ServerPresentationApplyResult applyOne(
+      const ServerDialogChoiceEvent& event) {
+    const auto status = validateHeader(event.header);
+    if(status != ServerPresentationApplyStatus::Applied)
+      return {status};
+    if(!dialog_.active() || event.sessionId != dialog_.sessionId ||
+       event.choiceId == 0U || event.choicesRevision == 0U ||
+       event.dialogRevision < dialog_.dialogRevision ||
+       event.choiceCount == 0U || event.choiceIndex >= event.choiceCount ||
+       event.text.empty()) {
+      return {ServerPresentationApplyStatus::IdentityMismatch};
+    }
+    return {ServerPresentationApplyStatus::Applied,
+            ServerPresentationMutation::DialogChoiceStaged};
+  }
+
+  [[nodiscard]] ServerPresentationApplyResult applyOne(
       const ServerDialogUpdateEvent& event) {
     const auto status = validateHeader(event.header);
     if(status != ServerPresentationApplyStatus::Applied)
@@ -959,7 +976,8 @@ class ServerPresentationState final {
        findEntity(event.speaker) == nullptr) {
       return {ServerPresentationApplyStatus::IdentityMismatch};
     }
-    if(event.dialogRevision <= dialog_.dialogRevision) {
+    if(event.dialogRevision < dialog_.dialogRevision ||
+       (event.dialogRevision == dialog_.dialogRevision && dialog_.lineId != 0U)) {
       return {event.dialogRevision == dialog_.dialogRevision
                   ? ServerPresentationApplyStatus::Duplicate
                   : ServerPresentationApplyStatus::Stale};

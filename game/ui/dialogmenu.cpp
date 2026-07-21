@@ -287,10 +287,48 @@ void DialogMenu::presentTypedServerDialog(
           choice.clear();
           serverDialog.reset();
           typedServerDialogSessionId = value.sessionId;
+          typedServerDialogRevision = value.dialogRevision;
+          typedChoicesRevision = 0U;
+          typedChoiceCount = 0U;
+          typedChoiceIds.clear();
           current = {};
           currentSnd = SoundEffect();
           curentIsPl = false;
           update();
+        } else if constexpr(std::is_same_v<Event, ServerDialogChoiceEvent>) {
+          if(typedServerDialogSessionId == 0U ||
+             typedServerDialogSessionId != value.sessionId) {
+            Log::e("MMO typed dialog choice without matching UI session: session=",
+                   value.sessionId,
+                   " active_session=", typedServerDialogSessionId);
+            return;
+          }
+          if(value.choiceIndex == 0U) {
+            choice.clear();
+            typedChoiceIds.clear();
+            typedChoicesRevision = value.choicesRevision;
+            typedChoiceCount = value.choiceCount;
+          }
+          if(value.choicesRevision != typedChoicesRevision ||
+             value.choiceCount != typedChoiceCount ||
+             value.choiceIndex != typedChoiceIds.size()) {
+            Log::e("MMO typed dialog choice sequence invalid: session=",
+                   value.sessionId,
+                   " index=", value.choiceIndex,
+                   " received=", typedChoiceIds.size(),
+                   " count=", value.choiceCount);
+            choice.clear();
+            typedChoiceIds.clear();
+            typedChoicesRevision = 0U;
+            typedChoiceCount = 0U;
+            return;
+          }
+          GameScript::DlgChoice local;
+          local.title = value.text;
+          local.sort = static_cast<std::int32_t>(value.choiceIndex);
+          local.scriptFn = value.choiceIndex;
+          choice.push_back(std::move(local));
+          typedChoiceIds.push_back(value.choiceId);
         } else if constexpr(std::is_same_v<Event, ServerDialogUpdateEvent>) {
           if(typedServerDialogSessionId == 0U ||
              typedServerDialogSessionId != value.sessionId) {
@@ -303,8 +341,22 @@ void DialogMenu::presentTypedServerDialog(
             pl = player;
           if(npc != nullptr)
             other = npc;
-          choice.clear();
           currentSnd = SoundEffect();
+          typedServerDialogRevision = value.dialogRevision;
+
+          const bool awaitingChoice =
+              (value.flags & ServerDialogAwaitingChoice) != 0U;
+          const bool completeChoices = awaitingChoice &&
+              typedChoicesRevision == value.choicesRevision &&
+              typedChoiceCount != 0U &&
+              typedChoiceIds.size() == typedChoiceCount &&
+              choice.size() == typedChoiceIds.size();
+          if(!completeChoices) {
+            choice.clear();
+            typedChoiceIds.clear();
+            typedChoiceCount = 0U;
+            typedChoicesRevision = 0U;
+          }
 
           const auto lineKey = std::to_string(value.lineId);
           current.txt = Gothic::inst().messageByName(lineKey);
@@ -325,8 +377,8 @@ void DialogMenu::presentTypedServerDialog(
                    " session=", value.sessionId,
                    " revision=", value.dialogRevision);
           }
-          if((value.flags & ServerDialogAwaitingChoice) != 0U) {
-            Log::e("MMO typed dialog choices unavailable in current schema: session=",
+          if(awaitingChoice && !completeChoices) {
+            Log::e("MMO typed dialog choices incomplete: session=",
                    value.sessionId,
                    " choices_revision=", value.choicesRevision);
           }
@@ -499,6 +551,10 @@ void DialogMenu::close() {
   choice.clear();
   serverDialog.reset();
   typedServerDialogSessionId = 0U;
+  typedServerDialogRevision = 0U;
+  typedChoicesRevision = 0U;
+  typedChoiceCount = 0U;
+  typedChoiceIds.clear();
   state=State::Idle;
   currentSnd = SoundEffect();
   update();
@@ -676,8 +732,31 @@ void DialogMenu::onSelect() {
   if(current.time>0 || haveToWaitOutput())
     return;
 
-  if(typedServerDialogSessionId != 0U)
+  if(typedServerDialogSessionId != 0U) {
+    if(dlgSel >= choice.size() || dlgSel >= typedChoiceIds.size() ||
+       typedServerDialogRevision == 0U)
+      return;
+    const Mmo::ClientDialogChoiceRequest request{
+        .expectedRevision = typedServerDialogRevision,
+        .clientChoiceSequence = ++serverChoiceSequence,
+        .protocolDialogSessionId = typedServerDialogSessionId,
+        .protocolChoiceId = typedChoiceIds[dlgSel],
+    };
+    if(!Mmo::submitClientDialogChoice(request).accepted()) {
+      Log::e("MMO typed dialog choice rejected by client_sandbox: session=",
+             typedServerDialogSessionId,
+             " choice=", typedChoiceIds[dlgSel],
+             " revision=", typedServerDialogRevision);
+      return;
+    }
+    choice.clear();
+    typedChoiceIds.clear();
+    typedChoiceCount = 0U;
+    typedChoicesRevision = 0U;
+    choiceAnimTime = dlgAnimation ? ANIM_TIME : 0;
+    update();
     return;
+  }
 
   if(serverDialog) {
     if(dlgSel >= serverDialog->choices.size())
