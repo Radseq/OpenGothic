@@ -2671,8 +2671,8 @@ void Npc::tick(uint64_t dt) {
     setAnim(AnimationSolver::Idle);
 
   // A replicated NPC is a presentation proxy for server-owned gameplay. Keep
-  // animation event processing local, but never run local AI, routines, regen,
-  // perception or combat state transitions for that entity.
+  // animation event processing client-side, but never run autonomous routines,
+  // regeneration, perception or combat transitions for that entity.
   if(mmoServerReplica && !isPlayer())
     return;
 
@@ -5272,7 +5272,6 @@ void Npc::updateAnimation(uint64_t dt, bool force) {
   if(syncAtt)
     visual.syncAttaches();
   }
-
 
 
 

@@ -49,10 +49,11 @@ Acceptance:
 
 ## C4 — Complete missing presentation families
 
-In order: dialog text/audio/choices, character attributes, loot availability,
-then remaining server-owned UI state. Extend shared/server/sandbox contracts
-first when the authoritative payload is absent. Every UI projection must retain
-identity and revision and must tolerate rejection, reroute and resync.
+In order: dialog text/audio and bootstrap choice restoration, character
+attributes, loot availability, then remaining server-owned UI state. Extend
+shared/server/sandbox contracts first when the authoritative payload is absent.
+Every UI projection must retain identity and revision and tolerate rejection,
+reroute and resync.
 
 ## C5 — Retire migration hooks
 

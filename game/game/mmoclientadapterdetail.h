@@ -565,12 +565,14 @@ makeProtocolV2CombatRequest(const ClientCombatRequest& request) noexcept {
 
 [[nodiscard]] inline bool validDialogChoiceRequest(
     const ClientDialogChoiceRequest& request) noexcept {
+  const bool typed = request.protocolDialogSessionId != 0U &&
+                     request.protocolChoiceId != 0U;
+  const bool legacy = validRequiredText(request.sessionUuid) &&
+                      validRequiredText(request.characterKey) &&
+                      validRequiredText(request.conversationId) &&
+                      validRequiredText(request.choiceId);
   return request.expectedRevision != 0U &&
-         request.clientChoiceSequence != 0U &&
-         validRequiredText(request.sessionUuid) &&
-         validRequiredText(request.characterKey) &&
-         validRequiredText(request.conversationId) &&
-         validRequiredText(request.choiceId);
+         request.clientChoiceSequence != 0U && (typed || legacy);
 }
 
 [[nodiscard]] inline std::optional<ClientSandbox::ClientRuntimeDialogChoiceRequest>

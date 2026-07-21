@@ -871,6 +871,24 @@ mapClientRuntimePresentationMailbox(
             mapped = event;
           break;
         }
+        case ClientRuntimeDialogEventKind::Choice: {
+          ServerDialogChoiceEvent event{
+              .header = header,
+              .sessionId = value.sessionId,
+              .choiceId = value.choiceId,
+              .choicesRevision = value.choicesRevision,
+              .dialogRevision = value.dialogRevision,
+              .choiceIndex = value.choiceIndex,
+              .choiceCount = value.choiceCount,
+              .text = value.choiceText,
+          };
+          if(event.sessionId != 0U && event.choiceId != 0U &&
+             event.choicesRevision != 0U && event.dialogRevision != 0U &&
+             event.choiceCount != 0U && event.choiceIndex < event.choiceCount &&
+             !event.text.empty())
+            mapped = std::move(event);
+          break;
+        }
         case ClientRuntimeDialogEventKind::Update: {
           ServerDialogUpdateEvent event{
               .header = header,

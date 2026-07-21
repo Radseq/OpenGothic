@@ -143,6 +143,10 @@ class DialogMenu : public Tempest::Widget {
     std::optional<Mmo::Net::ServerNpcDialogIntentPacket> serverDialog;
     uint64_t                              serverChoiceSequence = 0;
     uint64_t                              typedServerDialogSessionId = 0;
+    uint64_t                              typedServerDialogRevision = 0;
+    uint64_t                              typedChoicesRevision = 0;
+    uint16_t                              typedChoiceCount = 0;
+    std::vector<uint64_t>                 typedChoiceIds;
 
     State                               state=State::Idle;
     Entry                               current;
