@@ -1,21 +1,26 @@
 # Full Client Validation
 
-Use the narrowest sufficient layer, then run every higher layer affected by the
-change. A passing lower layer must not be described as proof of graphical
-integration.
+## Purpose
 
-## Static boundaries
+Define validation layers for full-client MMO changes and the evidence each
+layer provides. A passing lower layer must not be described as graphical or
+production runtime proof.
+
+## API and contracts
+
+### Static boundaries
 
 ```bash
 python3 tools/check_client_mmo_sandbox_boundary.py --strict
 python3 tools/check_llm_context.py --strict
 ```
 
-The first check rejects full-client ownership of sockets/codecs/private sandbox
-modules, filesystem gameplay side channels, production SQLite coupling and
-legacy packet/result surfaces. The second checks canonical context and links.
+The boundary check rejects full-client ownership of sockets, codecs, private
+sandbox modules, filesystem gameplay side channels, production SQLite coupling
+and retired compatibility contracts. The context check validates canonical
+documentation and links.
 
-## Focused sandbox plus presentation target
+### Focused sandbox and presentation target
 
 ```bash
 cmake -S src/client_sandbox -B build/mmo_client_sandbox -G Ninja \
@@ -26,41 +31,64 @@ cmake --build build/mmo_client_sandbox \
 ctest --test-dir build/mmo_client_sandbox --output-on-failure
 ```
 
-This proves transport/facade behavior and selected protocol-independent client
-components: adapter validation, mailbox ordering, bootstrap/state invariants,
-identity-safe registries, interpolation/correction, catalog admission,
-inventory/equipment read models and combat presentation.
+This proves transport/facade behavior and the selected protocol-independent
+client components compiled into that target. It does not instantiate the full
+OpenGothic executable, menu orchestration or every `GameSession` materializer.
 
-It does **not** compile or execute the complete graphical executable,
-`mmoclientbridge`, menu orchestration or all `GameSession` materializers.
+### Normal client build
 
-## Normal client build
+Configure and build the regular client with `src/client_sandbox` present. This
+proves production CMake composition, strict-warning compilation and linkage of
+the complete client source set. Also verify a standalone/native configuration
+when mode or build separation changes.
 
-Configure/build the regular client with `src/client_sandbox` present. This
-proves CMake composition and compilation of the complete integration, including
-strict warnings. It does not prove runtime assets, rendering or multi-client
-behavior. Also verify a standalone/native configuration when build logic or
-mode separation changes.
+### Process and graphical gates
 
-## Process gate
+Use the canonical Protocol V2 process-gate runner for real-process session,
+reconnect, bootstrap/resync and multi-client transport behavior. Use
+`tools/run_mmo_graphical_client.py` with complete game assets for engine,
+renderer, audio and UI proof.
 
-Use the canonical Protocol V2 process-gate runner from the root documentation
-for session, reconnect, bootstrap/resync and multi-client network behavior. It
-proves real processes and transport but only the presentation surfaces observed
-by its clients.
+## Data and state
 
-## Graphical smoke
+Validation evidence is classified as:
 
-Use `tools/run_mmo_graphical_client.py` with complete game assets. Verify at
-minimum:
+| Layer | Proves | Does not prove |
+|---|---|---|
+| Static checker | forbidden dependency and documentation rules | compilation or runtime behavior |
+| Focused test target | selected facade/presentation invariants | complete graphical composition |
+| Normal client build | complete source composition and linkage | assets, interaction or multi-client runtime |
+| Process gate | real process/session/transport behavior | unobserved graphical surfaces |
+| Graphical smoke | engine/UI/materializer behavior with assets | exhaustive authority or persistence correctness |
+
+Record reproducible command names, failures and relevant environment
+prerequisites. Do not copy volatile logs or test counts into canonical state.
+
+## Dependencies
+
+- Focused tests are declared by `src/client_sandbox/CMakeLists.txt` and include
+  selected sources from `src/client/game/game`.
+- Full executable composition is declared by `src/client/CMakeLists.txt`.
+- Server and protocol process gates are owned by root documentation and their
+  dedicated runners.
+- Private assets are required only for graphical execution, not for static or
+  focused headless validation.
+
+## Examples
+
+A route-state header change requires static checks and the focused presentation
+target. If it changes `GameSession` application, also build the normal client
+and run graphical reroute/reconnect smoke.
+
+A CMake mode-separation change requires both workspace/server-bound and
+standalone/native configurations.
+
+Graphical smoke should verify at minimum:
 
 - native startup remains unchanged;
-- server-bound menu/session reaches in-world or reports a clear failure;
-- local/remote/NPC identities materialize and reroute/reset safely;
-- movement prediction yields to server correction;
-- interactions and combat submit exact typed intents without local damage;
-- the changed UI reads authoritative revisions and handles rejection/resync;
-- reconnect/resume does not retain objects or pending UI from the old route.
-
-For renderer/materializer work, run two graphical clients. Record concise
-results and limitations, not volatile counts or full logs.
+- server-bound startup reaches in-world or reports a clear MMO failure;
+- local, remote and NPC identities materialize and reroute safely;
+- prediction yields to authoritative correction;
+- interactions/combat submit typed intent without local gameplay results;
+- changed UI handles authoritative revision, rejection and resync;
+- reconnect does not retain objects or pending UI from the old route.

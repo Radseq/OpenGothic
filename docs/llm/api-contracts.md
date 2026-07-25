@@ -1,27 +1,15 @@
-# Full Client Contract Summary
+# Full Client Contract Map
 
-Source declarations are canonical. This file records only cross-boundary
-semantics that are easy to misuse.
+Use this file only to select the contract owning the changed boundary. Source
+declarations and tests remain canonical.
 
-- The full client consumes the public `client_runtime_facade` API; private
-  sandbox modules and protocol packets must not escape into engine/UI code.
-- Engine submissions use domain DTOs. A disabled MMO bridge may report a
-  harmless native-mode no-op; code that needs proof of network submission must
-  check the explicit submitted/token state, not only generic acceptance.
-- Movement is normalized input, not a claimed transform. Interaction and item
-  commands require exact server identity; missing generation or revision is
-  invalid.
-- Presentation delivery is one optional route replacement, bootstraps, then
-  live events. The consumer must preserve that order.
-- Bootstrap installation is atomic. Invalid records leave the previous valid
-  projection intact or force an explicit reset; partial activation is invalid.
-- Inventory/equipment UI changes become visible from authoritative snapshots or
-  deltas. Completion receipts describe command outcome and do not authorize
-  speculative quantity mutation.
-- Protocol evolution starts in shared/server/sandbox. The full client receives
-  a protocol-independent projection and must tolerate unknown valid families
-  until a presentation component is added. Projectile lifecycle is mapped into
-  typed full-client DTOs and a bounded interpolation registry; it is presentation
-  only and never computes contacts or damage.
+| Contract | Owns |
+|---|---|
+| [`intent-submission-contract.md`](intent-submission-contract.md) | Engine input/UI conversion, exact typed requests, submission outcome and native/server-bound separation |
+| [`presentation-mailbox-contract.md`](presentation-mailbox-contract.md) | Facade snapshot conversion, rejection accounting, route/bootstrap/event ordering and engine-thread drain |
+| [`route-projection-contract.md`](route-projection-contract.md) | Route identity, atomic bootstrap, monotonic live state, exact generations and engine-object projection |
+| [`authoritative-ui-contract.md`](authoritative-ui-contract.md) | Revisioned read models, pending commands, rejection, dialog choices and non-optimistic UI |
 
-See ADRs 0003–0005 for the binding decisions.
+Durable rationale is indexed in [`../adr/README.md`](../adr/README.md). Current
+activation belongs in `current-state.md`; unfinished sequencing belongs in
+`next-work.md`.

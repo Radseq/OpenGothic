@@ -1,45 +1,104 @@
 # Full Client Architecture
 
-## Modes
+## Purpose
 
-Native mode runs the original OpenGothic simulation, scripts, saves and UI.
-Server-bound mode keeps the same renderer and interaction surfaces but replaces
-local gameplay decisions with intent submission and authoritative projection.
-Mode selection is explicit; failure in server-bound mode is surfaced rather
-than converted into native gameplay.
+Describe the full client's server-bound architecture and its separation from
+native OpenGothic. The full client owns presentation and engine integration;
+all gameplay truth remains server-authoritative.
 
-## Client-to-server path
+## API and contracts
 
-```text
-input/UI -> engine-domain intent -> client bridge -> public sandbox facade
-         -> sandbox validation/transport -> server
-```
+Two explicit modes share presentation code where safe:
 
-The bridge adapts engine data and tracks user-visible submission/completion. It
-does not encode packets, own retry state or invent a result.
+- **native mode** runs original scripts, simulation, saves and local UI;
+- **server-bound mode** submits typed intent through the public sandbox facade
+  and projects accepted server output.
 
-## Server-to-client path
+Client-to-server flow:
 
 ```text
-sandbox facade mailboxes -> validated presentation adapter
- -> route/bootstrap/live-event state -> GameSession projection
- -> engine objects/read models/UI
+input/UI
+  -> engine-domain intent
+  -> full-client bridge
+  -> public client_sandbox facade
+  -> sandbox session/transport
+  -> authoritative server
 ```
 
-A route replacement invalidates all route-scoped local bindings. Bootstrap is
-atomic. Live records are monotonic and identity/revision checked. Engine-object
-tokens are local implementation details and never replace server identity.
+Server-to-client flow:
 
-## State ownership
+```text
+public facade mailbox
+  -> protocol-independent adapter
+  -> route/bootstrap/live-event state
+  -> GameSession materialization
+  -> engine objects/read models/UI
+```
 
-- facade/sandbox: connection, session, retry, ACK, resync and wire decoding;
-- presentation state: last accepted authoritative projection and revisions;
-- `GameSession`: engine-object ownership and visual application;
-- UI: transient selection and pending indicators, never authoritative values;
-- server: all gameplay and persistent state.
+Focused semantics are owned by:
 
-The worker/facade may run independently; OpenGothic object mutation occurs on
-the engine thread after bounded mailbox drain. Avoid holding the bridge mutex
-while performing rendering or expensive materialization.
+- `intent-submission-contract.md`;
+- `presentation-mailbox-contract.md`;
+- `route-projection-contract.md`;
+- `authoritative-ui-contract.md`.
 
-Durable rationale is in [`../adr/README.md`](../adr/README.md).
+## Data and state
+
+| Owner | State |
+|---|---|
+| `src/client_sandbox` | connection, session, retry, ACK, reconnect, bootstrap assembly and wire decoding |
+| Presentation state | last accepted route-scoped projection and authoritative revisions |
+| `GameSession` | engine-object lifetime and visual application |
+| UI | transient selection and pending indicators |
+| Server | gameplay, persistence and recovery truth |
+
+OpenGothic object mutation occurs on the engine thread after a bounded mailbox
+drain. The bridge/facade may have independent worker activity, but rendering or
+expensive materialization must not run while holding its synchronization
+boundary.
+
+Prediction and interpolation are reversible presentation state. Route
+replacement clears route-scoped bindings and pending state before the new
+bootstrap is activated.
+
+## Dependencies
+
+Allowed direction:
+
+```text
+full-client UI/engine
+  -> public client_sandbox facade
+  -> shared contracts
+  -> server authority
+```
+
+The reverse direction is forbidden. Full-client production code must not own
+ASIO, packet codecs, private sandbox modules, server gameplay headers or a local
+durable gameplay database.
+
+Durable rationale is indexed in [`../adr/README.md`](../adr/README.md).
+Production composition is mapped in `repo-map.md`; evidence levels and gaps are
+kept in `current-state.md`.
+
+## Examples
+
+### Server-bound startup
+
+```text
+menu selects server-bound mode
+  -> connect/authenticate or resume
+  -> obtain roster and enter world
+  -> receive typed route/bootstrap
+  -> materialize presentation
+```
+
+Failure remains an explicit MMO failure/recovery state and does not switch to
+native gameplay.
+
+### Native startup
+
+```text
+standalone/native configuration
+  -> no sandbox facade requirement
+  -> original OpenGothic simulation and saves remain active
+```
