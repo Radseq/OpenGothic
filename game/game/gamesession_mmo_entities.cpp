@@ -381,7 +381,9 @@ Npc* GameSession::resolveMmoServerEntity(
 
 void GameSession::materializeMmoServerEntity(
     const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity,
-    const bool snap) noexcept {
+    const bool snap,
+    const Mmo::ClientPresentation::ServerPresentationNpcStateRecord*
+        initialNpcState) noexcept {
   if(wrld == nullptr || mmoPresentationRouteKey.empty())
     return;
 
@@ -449,6 +451,14 @@ void GameSession::materializeMmoServerEntity(
     newlyMaterialized = true;
   }
 
+  applyMmoServerEntityTransform(entity, snap);
+  if(initialNpcState != nullptr &&
+     entity.kind == ServerPresentationEntityKind::Npc &&
+     initialNpcState->entity == entity.handle) {
+    applyMmoServerNpcState(*initialNpcState);
+    replayMmoServerNpcPresentation(entity.handle);
+  }
+
   if(newlyMaterialized) {
     auto event = Mmo::ClientMmoProcessGatePresentationEvent::NpcMaterialized;
     if(entity.kind == ServerPresentationEntityKind::LocalPlayer)
@@ -457,7 +467,35 @@ void GameSession::materializeMmoServerEntity(
       event = Mmo::ClientMmoProcessGatePresentationEvent::RemotePlayerMaterialized;
     Mmo::recordClientMmoProcessGatePresentation(event);
   }
-  applyMmoServerEntityTransform(entity, snap);
+}
+
+void GameSession::replayMmoServerNpcPresentation(
+    const Mmo::ClientPresentation::ServerPresentationEntityHandle entity) noexcept {
+  using namespace Mmo::ClientPresentation;
+  constexpr ServerPresentationEquipmentSlot slots[] = {
+      ServerPresentationEquipmentSlot::MeleeWeapon,
+      ServerPresentationEquipmentSlot::RangedWeapon,
+      ServerPresentationEquipmentSlot::Armor,
+      ServerPresentationEquipmentSlot::Amulet,
+      ServerPresentationEquipmentSlot::RingLeft,
+      ServerPresentationEquipmentSlot::RingRight,
+      ServerPresentationEquipmentSlot::Belt,
+      ServerPresentationEquipmentSlot::Spell,
+  };
+  for(const auto slot : slots) {
+    if(const auto* equipment =
+           mmoTypedServerPresentation.findEquipment(entity, slot)) {
+      applyMmoServerEquipmentSlot(*equipment);
+    }
+  }
+  if(const auto* weapon = mmoTypedServerPresentation.findWeaponMode(entity))
+    applyMmoServerWeaponMode(*weapon, false);
+  if(const auto* life = mmoTypedServerPresentation.findLifeState(entity))
+    applyMmoServerLifeState(*life);
+  if(const auto* action =
+         mmoTypedServerPresentation.findActiveCombatAction(entity)) {
+    applyMmoServerCombatAction(*action);
+  }
 }
 
 void GameSession::applyMmoServerEntityTransform(
@@ -525,13 +563,12 @@ void GameSession::applyMmoServerEntityTransform(
   if(hardSnap) {
     static_cast<void>(mmoServerEntityInterpolator.erase(
         handle, mmoPresentationWorldGeneration));
-    if(npc->setPosition(static_cast<float>(entity.transform.posX),
-                        static_cast<float>(entity.transform.posY),
-                        static_cast<float>(entity.transform.posZ))) {
-      npc->setDirection(static_cast<float>(entity.transform.yaw));
-      npc->clearSpeed();
-      mmoServerEntityPresentation.touch(observation);
-    }
+    static_cast<void>(npc->applyMmoServerPresentationTransform(
+        {static_cast<float>(entity.transform.posX),
+         static_cast<float>(entity.transform.posY),
+         static_cast<float>(entity.transform.posZ)},
+        static_cast<float>(entity.transform.yaw), true));
+    mmoServerEntityPresentation.touch(observation);
     return;
   }
 
@@ -559,8 +596,8 @@ void GameSession::applyMmoServerNpcState(
   stats.healthMax = state.maximumHealth;
   stats.manaCurrent = state.mana;
   stats.manaMax = state.maximumMana;
-  npc->restorePersistentStats(stats);
   npc->setMmoServerReplica(true);
+  npc->applyMmoServerPresentationStats(stats);
 
   Npc::MmoPresentationLifeState lifeState =
       Npc::MmoPresentationLifeState::Alive;
@@ -583,10 +620,10 @@ void GameSession::applyMmoServerNpcState(
       case ServerPresentationNpcActivityState::Idle:
       case ServerPresentationNpcActivityState::Routine:
       case ServerPresentationNpcActivityState::Dialog:
-        static_cast<void>(npc->setAnim(Npc::Anim::Idle));
+        npc->applyMmoServerPresentationLocomotion(Npc::Anim::Idle);
         break;
       case ServerPresentationNpcActivityState::Traversal:
-        static_cast<void>(npc->setAnim(Npc::Anim::Move));
+        npc->applyMmoServerPresentationLocomotion(Npc::Anim::Move);
         break;
       case ServerPresentationNpcActivityState::Interaction:
       case ServerPresentationNpcActivityState::Combat:
@@ -597,7 +634,7 @@ void GameSession::applyMmoServerNpcState(
   Npc* target = nullptr;
   if((state.flags & ServerPresentationNpcTargetPresent) != 0U)
     target = resolveMmoServerEntity(state.target);
-  npc->setTarget(target);
+  npc->applyMmoServerPresentationTarget(target);
 
   if(state.activityState == ServerPresentationNpcActivityState::Dialog ||
      state.activityState == ServerPresentationNpcActivityState::Interaction) {
@@ -627,11 +664,11 @@ void GameSession::sampleMmoServerEntityTransforms() noexcept {
           sampled.handle, sampled.worldGeneration));
       continue;
     }
-    if(npc->setPosition(static_cast<float>(sampled.posX),
-                        static_cast<float>(sampled.posY),
-                        static_cast<float>(sampled.posZ))) {
-      npc->setDirection(static_cast<float>(sampled.yaw));
-    }
+    static_cast<void>(npc->applyMmoServerPresentationTransform(
+        {static_cast<float>(sampled.posX),
+         static_cast<float>(sampled.posY),
+         static_cast<float>(sampled.posZ)},
+        static_cast<float>(sampled.yaw), false));
   }
 }
 

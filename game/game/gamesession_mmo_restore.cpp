@@ -547,7 +547,10 @@ MmoWorldSnapshotApplyStats applyMmoWorldSnapshotState(World& world,
                       (src.hasHealthCurrent && src.healthCurrent <= 0);
     const std::int32_t hp = src.hasHealthCurrent ? src.healthCurrent : (dead ? 0 : -1);
     const std::int32_t hpMax = src.hasHealthMax ? src.healthMax : -1;
-    npc->restorePersistentLifecycle(hp, hpMax, dead);
+    npc->setMmoServerReplica(true);
+    npc->applyMmoServerPresentationLifecycle(
+        hp, hpMax, dead ? Npc::MmoPresentationLifeState::Dead
+                        : Npc::MmoPresentationLifeState::Alive);
     ++stats.appliedNpcLifecycle;
     }
 

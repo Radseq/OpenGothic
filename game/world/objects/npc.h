@@ -9,6 +9,7 @@
 #include "game/inventory.h"
 #include "game/fightalgo.h"
 #include "game/gamescript.h"
+#include "game/mmonpcauthoritygate.h"
 #include "physics/dynamicworld.h"
 #include "world/aiqueue.h"
 #include "world/fplock.h"
@@ -189,7 +190,30 @@ class Npc final {
 
     bool       isPlayer() const;
     void       setMmoServerReplica(bool value) noexcept;
-    [[nodiscard]] bool isMmoServerReplica() const noexcept { return mmoServerReplica; }
+    [[nodiscard]] bool isMmoServerReplica() const noexcept {
+      return mmoAuthorityGate.serverReplica();
+    }
+    [[nodiscard]] uint32_t mmoRejectedLocalGameplayCount() const noexcept {
+      return mmoAuthorityGate.rejectedLocalGameplayCount();
+    }
+    [[nodiscard]] uint32_t mmoRejectedLocalGameplayCount(
+        Mmo::ClientPresentation::NpcLocalGameplayEntryPoint entryPoint)
+        const noexcept {
+      return mmoAuthorityGate.rejectedLocalGameplayCount(entryPoint);
+    }
+    [[nodiscard]] constexpr Mmo::ClientPresentation::NpcAuthorityDiagnostics
+    mmoAuthorityDiagnostics() const noexcept {
+      return mmoAuthorityGate.diagnostics();
+    }
+    void       applyMmoServerPresentationStats(
+                   const PersistentStats& state);
+    void       applyMmoServerPresentationTarget(Npc* target);
+    bool       applyMmoServerPresentationTransform(
+                   const Tempest::Vec3& position, float yaw,
+                   bool clearVelocity);
+    bool       applyMmoServerPresentationTranslation(
+                   const Tempest::Vec3& delta);
+    void       applyMmoServerPresentationLocomotion(Anim animation);
     void       applyMmoServerPresentationLifecycle(
                    int32_t healthCurrent, int32_t healthMax,
                    MmoPresentationLifeState lifeState);
@@ -690,7 +714,8 @@ class Npc final {
     // inventory
     Inventory                      invent;
     bool                           invTorch = false;
-    bool                           mmoServerReplica = false;
+    Mmo::ClientPresentation::NpcAuthorityGate
+                                   mmoAuthorityGate;
     MmoPresentationLifeState       mmoPresentationLifeState =
                                        MmoPresentationLifeState::Alive;
     WeaponState                    mmoPresentationWeaponMode =
@@ -761,4 +786,3 @@ class Npc final {
 
   friend class MoveAlgo;
   };
-

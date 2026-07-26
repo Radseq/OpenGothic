@@ -473,10 +473,10 @@ Npc* WorldObjects::addMmoServerReplica(size_t npcInstance, const Vec3& pos) {
       point==nullptr ? std::string_view{} : std::string_view(point->name);
   auto npc = std::make_unique<Npc>(
       owner, npcInstance, waypoint, NpcProcessPolicy::AiFar2);
-  npc->setMmoServerReplica(true);
   npc->setPersistentId(allocNpcPersistentId());
   npc->setPosition(pos.x, pos.y, pos.z);
   npc->updateTransform();
+  npc->setMmoServerReplica(true);
 
   auto* result = npc.get();
   npcArr.emplace_back(std::move(npc));

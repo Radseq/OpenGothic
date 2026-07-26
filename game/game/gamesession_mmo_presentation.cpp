@@ -178,6 +178,7 @@ void GameSession::resetMmoServerPresentationProjection() noexcept {
     releaseMmoServerPresentationBinding(binding);
 
   mmoServerEntityInterpolator.resetRoute(mmoPresentationWorldGeneration);
+  mmoServerNpcSpawnGate.clear();
   mmoServerProjectilePresentation.resetRoute();
   mmoMovementCorrectionBoundary.resetRoute(mmoPresentationWorldGeneration);
   mmoServerInventoryPresentation_.reset();
@@ -205,6 +206,8 @@ struct GameSession::MmoServerPresentationBatchSink final {
     owner.setMmoServerPresentationRoute(route);
     Mmo::recordClientMmoProcessGatePresentation(
         Mmo::ClientMmoProcessGatePresentationEvent::RouteApplied);
+    Log::i(
+        Mmo::ClientPresentation::ServerReplicaNpcAuthorityDiagnosticLine.data());
     projectionResetForRoute = true;
   }
 
@@ -241,9 +244,9 @@ void GameSession::applyMmoServerCombatAction(
   if(actor == nullptr)
     return;
   actor->setMmoServerReplica(true);
-  actor->setTarget(action.target.empty()
-                       ? nullptr
-                       : resolveMmoServerEntity(action.target));
+  actor->applyMmoServerPresentationTarget(
+      action.target.empty() ? nullptr
+                            : resolveMmoServerEntity(action.target));
 
   const bool predictedLocally =
       (action.flags &
@@ -303,8 +306,8 @@ void GameSession::applyMmoServerDamage(
   stats.healthMax = damage.maximumHealth >= 0
                         ? damage.maximumHealth
                         : Npc::PersistentStats::Missing;
-  target->restorePersistentStats(stats);
   target->setMmoServerReplica(true);
+  target->applyMmoServerPresentationStats(stats);
 }
 
 void GameSession::applyMmoServerHitReaction(
@@ -320,8 +323,10 @@ void GameSession::applyMmoServerHitReaction(
 
   const Tempest::Vec3 knockback{
       reaction.knockbackX, reaction.knockbackY, reaction.knockbackZ};
-  if(knockback.x != 0.f || knockback.y != 0.f || knockback.z != 0.f)
-    static_cast<void>(target->setPosition(target->position()+knockback));
+  if(knockback.x != 0.f || knockback.y != 0.f || knockback.z != 0.f) {
+    static_cast<void>(
+        target->applyMmoServerPresentationTranslation(knockback));
+  }
 
   const auto effectFlags =
       Mmo::ClientPresentation::ServerPresentationHitReactionVfx |
@@ -526,8 +531,20 @@ void GameSession::applyMmoServerPresentationEvent(
         if constexpr(std::is_same_v<Event, ServerEntitySpawnEvent>) {
           if(result.releasedEntity.has_value())
             releaseMmoServerEntity(*result.releasedEntity);
-          materializeMmoServerEntity(value.entity, true);
+          if(value.entity.kind == ServerPresentationEntityKind::Npc) {
+            const auto staged = mmoServerNpcSpawnGate.stage(value.entity);
+            if(staged.status == ServerNpcSpawnGateStatus::CapacityExceeded ||
+               staged.status == ServerNpcSpawnGateStatus::Invalid) {
+              Log::e("MMO NPC complete-snapshot gate rejected spawn: status=",
+                     static_cast<unsigned>(staged.status),
+                     " entity=", value.entity.handle.id,
+                     " generation=", value.entity.handle.generation);
+            }
+          } else {
+            materializeMmoServerEntity(value.entity, true);
+          }
         } else if constexpr(std::is_same_v<Event, ServerEntityDespawnEvent>) {
+          static_cast<void>(mmoServerNpcSpawnGate.erase(value.entity));
           if(result.releasedEntity.has_value()) {
             releaseMmoServerEntity(*result.releasedEntity);
             Mmo::recordClientMmoProcessGatePresentation(
@@ -536,15 +553,22 @@ void GameSession::applyMmoServerPresentationEvent(
         } else if constexpr(std::is_same_v<Event, ServerEntityTransformEvent>) {
           const auto* entity = mmoTypedServerPresentation.findEntity(value.entity);
           if(entity != nullptr) {
-            applyMmoServerEntityTransform(*entity,
-                                          value.transform.teleport);
+            if(mmoServerNpcSpawnGate.contains(value.entity)) {
+              static_cast<void>(mmoServerNpcSpawnGate.stage(*entity));
+            } else {
+              applyMmoServerEntityTransform(*entity,
+                                            value.transform.teleport);
+            }
             Mmo::recordClientMmoProcessGatePresentation(
                 Mmo::ClientMmoProcessGatePresentationEvent::TransformApplied);
           }
         } else if constexpr(std::is_same_v<Event, ServerMovementCorrectionEvent>) {
           applyMmoServerMovementCorrection();
         } else if constexpr(std::is_same_v<Event, ServerNpcStateEvent>) {
-          applyMmoServerNpcState(value.state);
+          if(auto ready = mmoServerNpcSpawnGate.takeReady(value.state))
+            materializeMmoServerEntity(*ready, true, &value.state);
+          else
+            applyMmoServerNpcState(value.state);
         } else if constexpr(std::is_same_v<Event, ServerWorldItemSpawnEvent>) {
           applyMmoServerWorldItemSpawn(value);
         } else if constexpr(std::is_same_v<Event, ServerWorldItemDespawnEvent>) {

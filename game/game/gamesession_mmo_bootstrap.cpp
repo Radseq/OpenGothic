@@ -192,14 +192,30 @@ void GameSession::installMmoServerPresentationBootstrap(
     materializeMmoServerEntity(*local, true);
 
   for(const auto& entity : bootstrap.entities) {
-    if(entity.kind ==
-       Mmo::ClientPresentation::ServerPresentationEntityKind::LocalPlayer) {
+    using EntityKind =
+        Mmo::ClientPresentation::ServerPresentationEntityKind;
+    if(entity.kind == EntityKind::LocalPlayer)
+      continue;
+    if(entity.kind != EntityKind::Npc) {
+      materializeMmoServerEntity(entity, true);
       continue;
     }
-    materializeMmoServerEntity(entity, true);
+
+    const auto state = std::find_if(
+        bootstrap.npcStates.begin(), bootstrap.npcStates.end(),
+        [&entity](const auto& candidate) {
+          return candidate.entity == entity.handle;
+        });
+    if(state == bootstrap.npcStates.end()) {
+      const auto staged = mmoServerNpcSpawnGate.stage(entity);
+      Log::e("MMO bootstrap withheld NPC without complete state: entity=",
+             entity.handle.id,
+             " generation=", entity.handle.generation,
+             " gate_status=", static_cast<unsigned>(staged.status));
+      continue;
+    }
+    materializeMmoServerEntity(entity, true, &*state);
   }
-  for(const auto& state : bootstrap.npcStates)
-    applyMmoServerNpcState(state);
   for(const auto& state : bootstrap.combatEquipment)
     applyMmoServerEquipmentSlot(state);
   for(const auto& state : bootstrap.weaponModes)

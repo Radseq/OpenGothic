@@ -15,6 +15,7 @@
 #include "mmoclientadapter.h"
 #include "mmoserverentitypresentationregistry.h"
 #include "mmoserverentityinterpolator.h"
+#include "mmoservernpcpresentation.h"
 #include "mmomovementcorrectionboundary.h"
 #include "mmoserverpresentationstate.h"
 #include "mmoserverprojectilepresentation.h"
@@ -261,7 +262,11 @@ class GameSession final {
                     const Mmo::ClientPresentation::ServerPresentationApplyResult& result) noexcept;
     void        materializeMmoServerEntity(
                     const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity,
-                    bool snap) noexcept;
+                    bool snap,
+                    const Mmo::ClientPresentation::ServerPresentationNpcStateRecord*
+                        initialNpcState = nullptr) noexcept;
+    void        replayMmoServerNpcPresentation(
+                    Mmo::ClientPresentation::ServerPresentationEntityHandle entity) noexcept;
     void        releaseMmoServerEntity(
                     const Mmo::ClientPresentation::ServerPresentationEntityRecord& entity) noexcept;
     Npc*        resolveMmoServerEntity(
@@ -333,6 +338,8 @@ class GameSession final {
                                    mmoServerEntityPresentation;
     Mmo::ClientPresentation::ServerEntityInterpolator
                                    mmoServerEntityInterpolator;
+    Mmo::ClientPresentation::ServerNpcSpawnGate
+                                   mmoServerNpcSpawnGate;
     Mmo::ClientPresentation::ServerMovementCorrectionBoundary
                                    mmoMovementCorrectionBoundary;
     Mmo::ClientPresentation::ServerPresentationState

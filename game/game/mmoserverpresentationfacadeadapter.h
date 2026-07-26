@@ -1025,6 +1025,31 @@ mapClientRuntimePresentationMailbox(
         [&](auto&& value) {
           using Value = std::remove_cvref_t<decltype(value)>;
           if constexpr(std::is_same_v<
+                           Value, ClientRuntimeCompleteNpcSnapshot>) {
+            const auto transform = mapTransform(value.spawn.transform);
+            const auto state = mapNpc(value.state);
+            ServerEntityTransformEvent transformEvent{
+                .header = mapHeader(value.replication),
+                .entity = mapHandle(value.spawn.entity),
+                .entityRevision = value.spawn.entityRevision,
+            };
+            if(transform)
+              transformEvent.transform = *transform;
+            appendEvent(
+                out, transform && transformEvent.header.valid() &&
+                             transformEvent.entity.valid() &&
+                             transformEvent.entityRevision != 0U
+                         ? std::optional{transformEvent}
+                         : std::nullopt);
+
+            ServerNpcStateEvent stateEvent{
+                .header = mapHeader(value.replication)};
+            if(state)
+              stateEvent.state = *state;
+            appendEvent(out, state && stateEvent.header.valid()
+                                 ? std::optional{stateEvent}
+                                 : std::nullopt);
+          } else if constexpr(std::is_same_v<
                            Value, ClientRuntimeInventorySnapshot>) {
             ServerInventorySnapshotEvent event{
                 .header = mapHeader(value.header),

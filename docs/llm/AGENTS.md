@@ -41,7 +41,7 @@ callers and tests through the root repository-index workflow.
 
 - Distinguish implemented, focused-tested, composition-integrated and
   production-active behavior.
-- Read every edited file in full; retrieve dependencies and tests by symbol.
+- Retrieve edited responsibilities, dependencies and tests by symbol.
 - Keep engine-facing DTOs protocol-independent and lifetime ownership explicit.
 - Avoid per-frame allocation, unbounded queues, duplicate state stores and
   locks around rendering or materialization work.
