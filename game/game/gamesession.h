@@ -134,6 +134,8 @@ class GameSession final {
     }
     [[nodiscard]] bool trackMmoServerInventoryCommand(
         Mmo::ClientPresentation::ServerInventoryPendingCommand command);
+    void rejectMmoServerInventoryCommandSubmission(
+        Mmo::ClientMmoSubmitStatus status);
     void beginMmoLocalWorldObjectCatalog() noexcept;
     void registerMmoLocalWorldObject(
         std::uint64_t worldObjectId,
@@ -358,6 +360,7 @@ class GameSession final {
                                    mmoServerProjectileSamples;
     uint64_t                       mmoPresentationWorldGeneration = 0;
     std::string                    mmoPresentationRouteKey;
+    bool                           mmoServerInventorySessionInWorld = false;
 
     uint64_t                       ticks = 0, wrldTimePart = 0;
     MmoActionCheckpointState       lastMmoActionCheckpoint;

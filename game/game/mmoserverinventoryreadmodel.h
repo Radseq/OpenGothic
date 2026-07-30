@@ -384,6 +384,14 @@ enum class ServerInventoryPendingPhase : std::uint8_t {
   AwaitingAuthoritativeDelta,
 };
 
+enum class ServerInventoryFeedbackStatus : std::uint8_t {
+  Ready,
+  Pending,
+  Accepted,
+  Rejected,
+  ResyncRequired,
+};
+
 struct ServerInventoryPendingCommand final {
   ClientMmoCommandToken command{};
   ClientItemStackHandle primary{};
@@ -402,13 +410,21 @@ class ServerInventoryPendingState final {
   }
 
   [[nodiscard]] bool add(ServerInventoryPendingCommand command) {
-    if(!valid(command) || pending_.size() >= capacity_ ||
+    if(resyncRequired_ || !valid(command) || pending_.size() >= capacity_ ||
        find(command.command) != pending_.end()) {
       return false;
     }
     lastRejection_.clear();
     pending_.push_back(std::move(command));
+    bumpChangeRevision();
     return true;
+  }
+
+  void rejectSubmission(const ClientMmoSubmitStatus status) {
+    if(status == ClientMmoSubmitStatus::Accepted)
+      return;
+    lastRejection_ = submissionRejectionMessage(status);
+    bumpChangeRevision();
   }
 
   void complete(const ClientMmoCommandCompletion& completion) {
@@ -416,29 +432,75 @@ class ServerInventoryPendingState final {
     if(found == pending_.end())
       return;
     if(completion.status == ClientMmoCommandCompletionStatus::Applied) {
-      found->phase = ServerInventoryPendingPhase::AwaitingAuthoritativeDelta;
+      if(found->phase != ServerInventoryPendingPhase::AwaitingAuthoritativeDelta) {
+        found->phase = ServerInventoryPendingPhase::AwaitingAuthoritativeDelta;
+        bumpChangeRevision();
+      }
       return;
     }
+
     lastRejection_ = rejectionMessage(completion);
+    if(isResyncRequired(completion)) {
+      resyncRequired_ = true;
+      resyncExpectedInventoryRevision_ = found->expectedInventoryRevision;
+      resyncExpectedEquipmentRevision_ = found->expectedEquipmentRevision;
+      resyncInventoryReplacementObserved_ = false;
+      resyncEquipmentReplacementObserved_ = false;
+    }
     pending_.erase(found);
+    bumpChangeRevision();
   }
 
   void reconcile(const std::uint64_t inventoryRevision,
                  const std::uint64_t equipmentRevision) {
-    std::erase_if(pending_, [=](const ServerInventoryPendingCommand& value) {
-      if(value.phase != ServerInventoryPendingPhase::AwaitingAuthoritativeDelta)
-        return false;
-      if(requiresEquipmentRevision(value.command.kind))
-        return equipmentRevision > value.expectedEquipmentRevision;
-      return inventoryRevision > value.expectedInventoryRevision;
-    });
+    bool changed = std::erase_if(
+        pending_, [=](const ServerInventoryPendingCommand& value) {
+          if(value.phase != ServerInventoryPendingPhase::AwaitingAuthoritativeDelta)
+            return false;
+          if(requiresEquipmentRevision(value.command.kind))
+            return equipmentRevision > value.expectedEquipmentRevision;
+          return inventoryRevision > value.expectedInventoryRevision;
+        }) != 0U;
+
+    if(resyncRequired_ &&
+       (inventoryRevision > resyncExpectedInventoryRevision_ ||
+        (resyncExpectedEquipmentRevision_ != 0U &&
+         equipmentRevision > resyncExpectedEquipmentRevision_))) {
+      clearResyncRequirement();
+      changed = true;
+    }
+    if(changed)
+      bumpChangeRevision();
+  }
+
+  void observeAuthoritativeInventoryReplacement() noexcept {
+    if(!resyncRequired_)
+      return;
+    resyncInventoryReplacementObserved_ = true;
+    clearResyncAfterReplacementIfComplete();
+  }
+
+  void observeAuthoritativeEquipmentReplacement() noexcept {
+    if(!resyncRequired_)
+      return;
+    resyncEquipmentReplacementObserved_ = true;
+    clearResyncAfterReplacementIfComplete();
   }
 
   void reset() noexcept {
     pending_.clear();
     lastRejection_.clear();
+    resyncRequired_ = false;
+    resyncExpectedInventoryRevision_ = 0U;
+    resyncExpectedEquipmentRevision_ = 0U;
+    resyncInventoryReplacementObserved_ = false;
+    resyncEquipmentReplacementObserved_ = false;
+    bumpChangeRevision();
   }
 
+  [[nodiscard]] bool pending(const ClientMmoCommandToken& command) const noexcept {
+    return find(command) != pending_.end();
+  }
   [[nodiscard]] bool pending(const ClientItemStackHandle handle) const noexcept {
     return std::any_of(pending_.begin(), pending_.end(), [handle](const auto& value) {
       return value.primary == handle || value.secondary == handle;
@@ -449,14 +511,46 @@ class ServerInventoryPendingState final {
       return value.slot.has_value() && *value.slot == slot;
     });
   }
+  [[nodiscard]] std::optional<ServerInventoryPendingPhase> phase(
+      const ClientItemStackHandle handle) const noexcept {
+    const auto found = std::find_if(
+        pending_.begin(), pending_.end(), [handle](const auto& value) {
+          return value.primary == handle || value.secondary == handle;
+        });
+    return found != pending_.end() ? std::optional{found->phase} : std::nullopt;
+  }
   [[nodiscard]] std::span<const ServerInventoryPendingCommand> commands()
       const noexcept {
     return pending_;
   }
+  [[nodiscard]] ServerInventoryFeedbackStatus feedbackStatus() const noexcept {
+    if(resyncRequired_)
+      return ServerInventoryFeedbackStatus::ResyncRequired;
+    if(!lastRejection_.empty())
+      return ServerInventoryFeedbackStatus::Rejected;
+    if(std::any_of(pending_.begin(), pending_.end(), [](const auto& value) {
+         return value.phase == ServerInventoryPendingPhase::Submitted;
+       })) {
+      return ServerInventoryFeedbackStatus::Pending;
+    }
+    if(!pending_.empty())
+      return ServerInventoryFeedbackStatus::Accepted;
+    return ServerInventoryFeedbackStatus::Ready;
+  }
+  [[nodiscard]] bool canSubmit() const noexcept { return !resyncRequired_; }
+  [[nodiscard]] bool resyncRequired() const noexcept { return resyncRequired_; }
+  [[nodiscard]] std::uint64_t changeRevision() const noexcept {
+    return changeRevision_;
+  }
   [[nodiscard]] const std::string& lastRejection() const noexcept {
     return lastRejection_;
   }
-  void clearRejection() noexcept { lastRejection_.clear(); }
+  void clearRejection() noexcept {
+    if(lastRejection_.empty() || resyncRequired_)
+      return;
+    lastRejection_.clear();
+    bumpChangeRevision();
+  }
 
  private:
   [[nodiscard]] static constexpr bool requiresEquipmentRevision(
@@ -512,6 +606,58 @@ class ServerInventoryPendingState final {
                           return value.command == command;
                         });
   }
+  [[nodiscard]] static std::string submissionRejectionMessage(
+      const ClientMmoSubmitStatus status) {
+    switch(status) {
+      case ClientMmoSubmitStatus::Disabled:
+        return "Inventory command was not submitted because the MMO bridge is disabled";
+      case ClientMmoSubmitStatus::InvalidIntent:
+        return "Inventory command was rejected by client-side validation";
+      case ClientMmoSubmitStatus::UnsupportedIntent:
+        return "Inventory command is not supported by the active server capability set";
+      case ClientMmoSubmitStatus::QueueFull:
+        return "Inventory command was not submitted because the client queue is full";
+      case ClientMmoSubmitStatus::TransportError:
+        return "Inventory command was not submitted because the transport is unavailable";
+      case ClientMmoSubmitStatus::Accepted:
+        break;
+    }
+    return "Inventory command submission failed";
+  }
+
+  [[nodiscard]] static constexpr bool isResyncRequired(
+      const ClientMmoCommandCompletion& completion) noexcept {
+    using Code = Mmo::ProtocolV2::CommandRejectionCode;
+    return completion.status == ClientMmoCommandCompletionStatus::Rejected &&
+           static_cast<Code>(completion.rejectionCode) ==
+               Code::AggregateRevisionMismatch;
+  }
+
+  void clearResyncRequirement() noexcept {
+    resyncRequired_ = false;
+    resyncExpectedInventoryRevision_ = 0U;
+    resyncExpectedEquipmentRevision_ = 0U;
+    resyncInventoryReplacementObserved_ = false;
+    resyncEquipmentReplacementObserved_ = false;
+    lastRejection_.clear();
+  }
+
+  void clearResyncAfterReplacementIfComplete() noexcept {
+    if(!resyncInventoryReplacementObserved_ ||
+       (resyncExpectedEquipmentRevision_ != 0U &&
+        !resyncEquipmentReplacementObserved_)) {
+      return;
+    }
+    clearResyncRequirement();
+    bumpChangeRevision();
+  }
+
+  void bumpChangeRevision() noexcept {
+    ++changeRevision_;
+    if(changeRevision_ == 0U)
+      changeRevision_ = 1U;
+  }
+
   [[nodiscard]] static std::string rejectionMessage(
       const ClientMmoCommandCompletion& completion) {
     switch(completion.status) {
@@ -564,6 +710,12 @@ class ServerInventoryPendingState final {
   std::size_t capacity_ = 64U;
   std::vector<ServerInventoryPendingCommand> pending_;
   std::string lastRejection_;
+  std::uint64_t changeRevision_ = 1U;
+  std::uint64_t resyncExpectedInventoryRevision_ = 0U;
+  std::uint64_t resyncExpectedEquipmentRevision_ = 0U;
+  bool resyncInventoryReplacementObserved_ = false;
+  bool resyncEquipmentReplacementObserved_ = false;
+  bool resyncRequired_ = false;
 };
 
 class ServerInventoryPresentationState final {
@@ -592,6 +744,10 @@ class ServerInventoryPresentationState final {
     }
     inventory_ = std::move(nextInventory);
     equipment_ = std::move(nextEquipment);
+    if(inventoryStatus == ServerInventoryApplyStatus::Applied)
+      pending_.observeAuthoritativeInventoryReplacement();
+    if(equipmentStatus == ServerInventoryApplyStatus::Applied)
+      pending_.observeAuthoritativeEquipmentReplacement();
     pending_.reconcile(inventory_.revision(), equipment_.revision());
     return inventoryStatus == ServerInventoryApplyStatus::Duplicate &&
                    equipmentStatus == ServerInventoryApplyStatus::Duplicate
@@ -602,16 +758,20 @@ class ServerInventoryPresentationState final {
   [[nodiscard]] ServerInventoryApplyStatus installInventory(
       const ServerInventorySnapshot& inventory) {
     const auto status = inventory_.install(inventory);
-    if(status == ServerInventoryApplyStatus::Applied)
+    if(status == ServerInventoryApplyStatus::Applied) {
+      pending_.observeAuthoritativeInventoryReplacement();
       pending_.reconcile(inventory_.revision(), equipment_.revision());
+    }
     return status;
   }
 
   [[nodiscard]] ServerInventoryApplyStatus installEquipment(
       const ServerEquipmentSnapshot& equipment) {
     const auto status = equipment_.install(equipment);
-    if(status == ServerInventoryApplyStatus::Applied)
+    if(status == ServerInventoryApplyStatus::Applied) {
+      pending_.observeAuthoritativeEquipmentReplacement();
       pending_.reconcile(inventory_.revision(), equipment_.revision());
+    }
     return status;
   }
 
@@ -647,16 +807,29 @@ class ServerInventoryPresentationState final {
   }
 
   void complete(const ClientMmoCommandCompletion& completion) {
+    if((completion.status == ClientMmoCommandCompletionStatus::ConnectionLost ||
+        completion.status == ClientMmoCommandCompletionStatus::TransportClosed ||
+        completion.status == ClientMmoCommandCompletionStatus::CancelledByRouteChange) &&
+       pending_.pending(completion.command)) {
+      reset();
+      return;
+    }
     pending_.complete(completion);
     pending_.reconcile(inventory_.revision(), equipment_.revision());
   }
   [[nodiscard]] bool markPending(ServerInventoryPendingCommand command) {
     return pending_.add(std::move(command));
   }
+  void rejectSubmission(const ClientMmoSubmitStatus status) {
+    pending_.rejectSubmission(status);
+  }
   void reset() noexcept {
     inventory_.reset();
     equipment_.reset();
     pending_.reset();
+    ++replacementRevision_;
+    if(replacementRevision_ == 0U)
+      replacementRevision_ = 1U;
   }
 
   [[nodiscard]] const ServerInventoryReadModel& inventory() const noexcept {
@@ -674,11 +847,15 @@ class ServerInventoryPresentationState final {
   [[nodiscard]] bool ready() const noexcept {
     return inventory_.ready() && equipment_.ready();
   }
+  [[nodiscard]] std::uint64_t replacementRevision() const noexcept {
+    return replacementRevision_;
+  }
 
  private:
   ServerInventoryReadModel inventory_;
   ServerEquipmentReadModel equipment_;
   ServerInventoryPendingState pending_;
+  std::uint64_t replacementRevision_ = 0U;
 };
 
 } // namespace Mmo::ClientPresentation

@@ -192,6 +192,7 @@ void GameSession::resetMmoServerPresentationWorld() noexcept {
   resetMmoServerPresentationProjection();
   mmoTypedServerPresentation.reset();
   mmoPresentationRouteKey.clear();
+  mmoServerInventorySessionInWorld = false;
 }
 
 
@@ -680,6 +681,11 @@ void GameSession::pollMmoServerPresentationMailbox() noexcept {
   const auto& cmd = CommandLine::inst();
   if(!cmd.mmoClientUsesServer() || wrld == nullptr)
     return;
+
+  const bool sessionInWorld = Mmo::clientMmoSessionSnapshot().inWorld();
+  if(mmoServerInventorySessionInWorld && !sessionInWorld)
+    mmoServerInventoryPresentation_.reset();
+  mmoServerInventorySessionInWorld = sessionInWorld;
 
   for(const auto& completion : Mmo::drainClientMmoCommandCompletions())
     mmoServerInventoryPresentation_.complete(completion);

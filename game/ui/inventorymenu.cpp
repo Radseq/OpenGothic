@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "utils/string_frm.h"
@@ -149,10 +150,9 @@ void InventoryMenu::close() {
   renderer.reset(true);
   takeTimer.stop();
   serverInventoryMode = false;
-  observedInventoryRevision = 0U;
-  observedEquipmentRevision = 0U;
-  observedPendingCount = 0U;
-  observedRejection.clear();
+  serverInventoryResyncAttempted = false;
+  serverInventoryResyncRequested = false;
+  observedServerInventory = {};
   serverPreviewItems.clear();
   mergeSource.reset();
   state  = State::Closed;
@@ -173,10 +173,11 @@ void InventoryMenu::open(Npc &pl) {
     chest = nullptr;
     page = 0;
     serverInventoryMode = true;
-    observedInventoryRevision = inventory->inventory().revision();
-    observedEquipmentRevision = inventory->equipment().revision();
-    observedPendingCount = inventory->pending().commands().size();
-    observedRejection = inventory->pending().lastRejection();
+    serverInventoryResyncAttempted = false;
+    serverInventoryResyncRequested = false;
+    observedServerInventory =
+        Mmo::ClientPresentation::ServerInventoryPageModel(*inventory)
+            .fingerprint();
     serverPreviewItems.clear();
     mergeSource.reset();
     pagePl.reset();
@@ -327,9 +328,9 @@ void InventoryMenu::tick(uint64_t /*dt*/) {
 
     page = 0;
     serverInventoryMode = false;
-    observedInventoryRevision = 0U;
-    observedEquipmentRevision = 0U;
-    observedPendingCount = 0U;
+    serverInventoryResyncAttempted = false;
+    serverInventoryResyncRequested = false;
+    observedServerInventory = {};
     mergeSource.reset();
     renderer.reset();
     pagePl .reset();
@@ -537,7 +538,9 @@ Size InventoryMenu::slotSize() const {
 
 int InventoryMenu::infoHeight() const {
   const float scale = Gothic::interfaceScale(this);
-  return (Item::MAX_UI_ROWS+2)*int(float(Resources::font(scale).pixelSize()))+int(scale*10)/*padding bottom*/;
+  const int rows = serverInventoryMode ? 12 : Item::MAX_UI_ROWS+2;
+  return rows*int(float(Resources::font(scale).pixelSize()))+
+         int(scale*10)/*padding bottom*/;
   }
 
 size_t InventoryMenu::pagesCount() const {
@@ -567,7 +570,11 @@ InventoryMenu::PageLocal &InventoryMenu::activePageSel() {
 size_t InventoryMenu::activePageSize() const {
   if(serverInventoryMode) {
     const auto* inventory = serverInventoryState();
-    return inventory != nullptr ? inventory->inventory().stacks().size() : 0U;
+    return inventory != nullptr
+               ? Mmo::ClientPresentation::ServerInventoryPageModel(*inventory)
+                     .stacks()
+                     .size()
+               : 0U;
   }
   if(pageOth!=nullptr)
     return (page==0 ? pageOth : pagePl)->size();
@@ -585,13 +592,21 @@ InventoryMenu::selectedServerStack() const {
   const auto* state = serverInventoryState();
   if(state == nullptr)
     return nullptr;
-  const auto stacks = state->inventory().stacks();
-  const auto selected = pageLocal[1].sel;
-  return selected < stacks.size() ? &stacks[selected] : nullptr;
+  return Mmo::ClientPresentation::ServerInventoryPageModel(*state).stackAt(
+      pageLocal[1].sel);
+  }
+
+bool InventoryMenu::serverInventoryActionsEnabled() const {
+  const auto* state = serverInventoryState();
+  return state != nullptr &&
+         Mmo::ClientPresentation::ServerInventoryPageModel(*state)
+             .actionsEnabled();
   }
 
 void InventoryMenu::onItemAction(uint8_t slotHint) {
   if(serverInventoryMode) {
+    if(!serverInventoryActionsEnabled())
+      return;
     if(slotHint==Item::NSLOT)
       submitServerUseOrUnequip();
     else if(const auto slot = equipmentSlotFromHint(slotHint))
@@ -626,6 +641,8 @@ void InventoryMenu::onItemAction(uint8_t slotHint) {
 
 void InventoryMenu::onTakeStuff() { 
   if(serverInventoryMode) {
+    if(!serverInventoryActionsEnabled())
+      return;
     const auto* stack = selectedServerStack();
     if(stack==nullptr)
       return;
@@ -703,26 +720,25 @@ void InventoryMenu::onTakeStuff() {
 
 void InventoryMenu::trackServerCommand(
     const Mmo::ClientMmoSubmitResult& result,
-    const Mmo::ClientItemStackHandle primary,
-    const Mmo::ClientItemStackHandle secondary,
-    const std::optional<Mmo::ClientEquipmentSlot> slot) {
-  if(!result.submitted())
-    return;
+    Mmo::ClientPresentation::ServerInventoryPendingCommand command) {
   auto* session = Gothic::inst().gameSession();
   const auto* state = serverInventoryState();
   if(session==nullptr || state==nullptr)
     return;
-  if(session->trackMmoServerInventoryCommand({
-         .command = result.command,
-         .primary = primary,
-         .secondary = secondary,
-         .slot = slot,
-         .expectedInventoryRevision = state->inventory().revision(),
-         .expectedEquipmentRevision =
-             slot.has_value() ? state->equipment().revision() : 0U,
-         .phase = Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted,
-     })) {
-    observedPendingCount = state->pending().commands().size();
+  if(!result.submitted()) {
+    session->rejectMmoServerInventoryCommandSubmission(result.status);
+    observedServerInventory =
+        Mmo::ClientPresentation::ServerInventoryPageModel(*state)
+            .fingerprint();
+    update();
+    return;
+  }
+
+  command.command = result.command;
+  if(session->trackMmoServerInventoryCommand(std::move(command))) {
+    observedServerInventory =
+        Mmo::ClientPresentation::ServerInventoryPageModel(*state)
+            .fingerprint();
     update();
   }
 }
@@ -730,82 +746,125 @@ void InventoryMenu::trackServerCommand(
 void InventoryMenu::submitServerUseOrUnequip() {
   const auto* state = serverInventoryState();
   const auto* stack = selectedServerStack();
-  if(state==nullptr || stack==nullptr || state->pending().pending(stack->handle))
+  if(state==nullptr || stack==nullptr)
     return;
-  if(const auto equipped = state->equipment().slotOf(stack->handle)) {
-    const auto result = Mmo::submitClientUnequipItem({
-        .slot = *equipped,
-        .expectedEquipmentRevision = state->equipment().revision(),
-        .expectedInventoryRevision = state->inventory().revision(),
+  const Mmo::ClientPresentation::ServerInventoryPageModel pageModel(*state);
+  if(const auto equipped = pageModel.equipment().slotOf(stack->handle)) {
+    const auto request = pageModel.unequipRequest(stack->handle);
+    if(!request.has_value())
+      return;
+    const auto result = Mmo::submitClientUnequipItem(*request);
+    trackServerCommand(result, {
+        .command = {},
+        .primary = stack->handle,
+        .secondary = {},
+        .slot = equipped,
+        .expectedInventoryRevision = request->expectedInventoryRevision,
+        .expectedEquipmentRevision = request->expectedEquipmentRevision,
+        .phase = Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted,
     });
-    trackServerCommand(result, stack->handle, {}, equipped);
     return;
   }
-  const auto result = Mmo::submitClientUseItem({
-      .item = stack->handle,
-      .target = std::nullopt,
-      .expectedInventoryRevision = state->inventory().revision(),
-      .expectedTargetRevision = 0U,
+
+  const auto request = pageModel.useRequest(stack->handle);
+  if(!request.has_value())
+    return;
+  const auto result = Mmo::submitClientUseItem(*request);
+  trackServerCommand(result, {
+      .command = {},
+      .primary = stack->handle,
+      .secondary = {},
+      .slot = std::nullopt,
+      .expectedInventoryRevision = request->expectedInventoryRevision,
+      .expectedEquipmentRevision = 0U,
+      .phase = Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted,
   });
-  trackServerCommand(result, stack->handle);
 }
 
 void InventoryMenu::submitServerEquip(const Mmo::ClientEquipmentSlot slot) {
   const auto* state = serverInventoryState();
   const auto* stack = selectedServerStack();
-  if(state==nullptr || stack==nullptr || state->pending().pending(stack->handle) ||
-     state->pending().pending(slot))
+  if(state==nullptr || stack==nullptr)
     return;
-  const auto result = Mmo::submitClientEquipItem({
-      .item = stack->handle,
-      .slot = slot,
-      .expectedInventoryRevision = state->inventory().revision(),
-      .expectedEquipmentRevision = state->equipment().revision(),
-  });
+  const Mmo::ClientPresentation::ServerInventoryPageModel pageModel(*state);
+  const auto request = pageModel.equipRequest(stack->handle, slot);
+  if(!request.has_value())
+    return;
+
   Mmo::ClientItemStackHandle replaced{};
-  if(const auto* current = state->equipment().at(slot);
+  if(const auto* current = pageModel.equipment().at(slot);
      current != nullptr && current->item != stack->handle) {
     replaced = current->item;
   }
-  trackServerCommand(result, stack->handle, replaced, slot);
+  const auto result = Mmo::submitClientEquipItem(*request);
+  trackServerCommand(result, {
+      .command = {},
+      .primary = stack->handle,
+      .secondary = replaced,
+      .slot = slot,
+      .expectedInventoryRevision = request->expectedInventoryRevision,
+      .expectedEquipmentRevision = request->expectedEquipmentRevision,
+      .phase = Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted,
+  });
 }
 
 void InventoryMenu::submitServerDrop(const size_t amount) {
   const auto* state = serverInventoryState();
   const auto* stack = selectedServerStack();
   if(state==nullptr || stack==nullptr || player==nullptr || amount==0U ||
-     amount>stack->quantity || state->pending().pending(stack->handle))
+     amount>stack->quantity)
     return;
   const auto position = player->position();
-  const auto result = Mmo::submitClientDropItem({
-      .item = stack->handle,
-      .amount = static_cast<std::uint32_t>(amount),
-      .proposedPosition = {.x = position.x, .y = position.y, .z = position.z},
-      .expectedInventoryRevision = state->inventory().revision(),
+  const Mmo::ClientPresentation::ServerInventoryPageModel pageModel(*state);
+  const auto request = pageModel.dropRequest(
+      stack->handle, static_cast<std::uint32_t>(amount),
+      {.x = position.x, .y = position.y, .z = position.z});
+  if(!request.has_value())
+    return;
+  const auto result = Mmo::submitClientDropItem(*request);
+  trackServerCommand(result, {
+      .command = {},
+      .primary = stack->handle,
+      .secondary = {},
+      .slot = std::nullopt,
+      .expectedInventoryRevision = request->expectedInventoryRevision,
+      .expectedEquipmentRevision = 0U,
+      .phase = Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted,
   });
-  trackServerCommand(result, stack->handle);
 }
 
 void InventoryMenu::onServerSplitStack() {
   const auto* state = serverInventoryState();
   const auto* stack = selectedServerStack();
-  if(state==nullptr || stack==nullptr || stack->quantity<2U ||
-     state->pending().pending(stack->handle))
+  if(state==nullptr || stack==nullptr || stack->quantity<2U)
     return;
-  const auto result = Mmo::submitClientSplitStack({
-      .item = stack->handle,
-      .amount = stack->quantity / 2U,
-      .expectedInventoryRevision = state->inventory().revision(),
+  const Mmo::ClientPresentation::ServerInventoryPageModel pageModel(*state);
+  const auto request = pageModel.splitRequest(
+      stack->handle, stack->quantity / 2U);
+  if(!request.has_value())
+    return;
+  const auto result = Mmo::submitClientSplitStack(*request);
+  trackServerCommand(result, {
+      .command = {},
+      .primary = stack->handle,
+      .secondary = {},
+      .slot = std::nullopt,
+      .expectedInventoryRevision = request->expectedInventoryRevision,
+      .expectedEquipmentRevision = 0U,
+      .phase = Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted,
   });
-  trackServerCommand(result, stack->handle);
 }
 
 void InventoryMenu::onServerMergeStack() {
   const auto* state = serverInventoryState();
   const auto* destination = selectedServerStack();
-  if(state==nullptr || destination==nullptr ||
-     state->pending().pending(destination->handle))
+  if(state==nullptr || destination==nullptr)
     return;
+  const Mmo::ClientPresentation::ServerInventoryPageModel pageModel(*state);
+  if(!pageModel.actionsEnabled() ||
+     pageModel.pendingPhase(destination->handle).has_value()) {
+    return;
+  }
   if(!mergeSource.has_value()) {
     mergeSource = destination->handle;
     return;
@@ -815,17 +874,26 @@ void InventoryMenu::onServerMergeStack() {
     return;
   }
   const auto* source = state->inventory().find(*mergeSource);
-  if(source==nullptr || state->pending().pending(source->handle)) {
+  if(source==nullptr) {
     mergeSource.reset();
     return;
   }
-  const auto result = Mmo::submitClientMergeStack({
-      .source = source->handle,
-      .destination = destination->handle,
-      .amount = source->quantity,
-      .expectedInventoryRevision = state->inventory().revision(),
+  const auto request = pageModel.mergeRequest(
+      source->handle, destination->handle, source->quantity);
+  if(!request.has_value()) {
+    mergeSource.reset();
+    return;
+  }
+  const auto result = Mmo::submitClientMergeStack(*request);
+  trackServerCommand(result, {
+      .command = {},
+      .primary = source->handle,
+      .secondary = destination->handle,
+      .slot = std::nullopt,
+      .expectedInventoryRevision = request->expectedInventoryRevision,
+      .expectedEquipmentRevision = 0U,
+      .phase = Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted,
   });
-  trackServerCommand(result, source->handle, destination->handle);
   if(result.submitted())
     mergeSource.reset();
 }
@@ -837,22 +905,32 @@ void InventoryMenu::syncServerInventoryView() {
     return;
   }
 
-  const auto inventoryRevision = inventory->inventory().revision();
-  const auto equipmentRevision = inventory->equipment().revision();
-  const auto pendingCount = inventory->pending().commands().size();
-  const auto& rejection = inventory->pending().lastRejection();
-  if(inventoryRevision==observedInventoryRevision &&
-     equipmentRevision==observedEquipmentRevision &&
-     pendingCount==observedPendingCount && rejection==observedRejection) {
+  const Mmo::ClientPresentation::ServerInventoryPageModel pageModel(*inventory);
+  const auto fingerprint = pageModel.fingerprint();
+  if(fingerprint==observedServerInventory)
     return;
-  }
 
-  if(inventoryRevision!=observedInventoryRevision)
+  if(fingerprint.replacementRevision !=
+     observedServerInventory.replacementRevision) {
     serverPreviewItems.clear();
-  observedInventoryRevision = inventoryRevision;
-  observedEquipmentRevision = equipmentRevision;
-  observedPendingCount = pendingCount;
-  observedRejection = rejection;
+    mergeSource.reset();
+    pageLocal[1] = {};
+  } else if(fingerprint.inventoryRevision !=
+            observedServerInventory.inventoryRevision) {
+    serverPreviewItems.clear();
+  }
+  observedServerInventory = fingerprint;
+  if(pageModel.feedbackStatus() ==
+         Mmo::ClientPresentation::ServerInventoryFeedbackStatus::ResyncRequired) {
+    if(!serverInventoryResyncAttempted) {
+      serverInventoryResyncAttempted = true;
+      serverInventoryResyncRequested =
+          Mmo::requestClientMmoInventoryResync();
+    }
+  } else {
+    serverInventoryResyncAttempted = false;
+    serverInventoryResyncRequested = false;
+  }
   if(mergeSource.has_value() &&
      inventory->inventory().find(*mergeSource)==nullptr) {
     mergeSource.reset();
@@ -1129,9 +1207,13 @@ void InventoryMenu::drawServerSlot(
     const auto label = std::string(equipmentSlotName(*equipped));
     equippedFont.drawText(p,x+6,y+int(equippedFont.pixelSize()),label);
   }
-  if(state->pending().pending(stack.handle)) {
+  const Mmo::ClientPresentation::ServerInventoryPageModel pageModel(*state);
+  if(const auto phase = pageModel.pendingPhase(stack.handle)) {
     auto& pendingFont = Resources::font(Resources::FontType::Red,scale);
-    pendingFont.drawText(p,x+6,y+slotSize().h-8,"...");
+    pendingFont.drawText(
+        p,x+6,y+slotSize().h-8,
+        *phase==Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted
+            ? "..." : "OK");
   } else if(mergeSource.has_value() && *mergeSource==stack.handle) {
     auto& mergeFont = Resources::font(Resources::FontType::Red,scale);
     mergeFont.drawText(p,x+6,y+slotSize().h-8,"M");
@@ -1141,7 +1223,7 @@ void InventoryMenu::drawServerSlot(
 void InventoryMenu::drawServerInfo(Painter &p) {
   const auto* state = serverInventoryState();
   const auto* stack = selectedServerStack();
-  if(state==nullptr || stack==nullptr)
+  if(state==nullptr)
     return;
 
   const float scale = Gothic::interfaceScale(this);
@@ -1155,27 +1237,67 @@ void InventoryMenu::drawServerInfo(Painter &p) {
   }
 
   auto& fnt = Resources::font(scale);
-  const auto title = serverItemDisplayName(*stack);
+  const auto title = stack != nullptr ? serverItemDisplayName(*stack)
+                                      : std::string("Server inventory");
   const auto titleSize = fnt.textSize(title);
   fnt.drawText(p,x+(dw-titleSize.w)/2,y+int(fnt.pixelSize()),title);
 
   std::vector<std::string> lines;
-  lines.reserve(6U);
-  lines.push_back("presentation: "+std::to_string(stack->presentationId));
-  lines.push_back("stack: "+std::to_string(stack->handle.instanceId)+":"+
-                  std::to_string(stack->handle.generation));
-  lines.push_back("quantity: "+std::to_string(stack->quantity));
-  lines.push_back("item revision: "+std::to_string(stack->itemRevision));
+  lines.reserve(10U);
+  if(stack != nullptr) {
+    lines.push_back("presentation: "+std::to_string(stack->presentationId));
+    lines.push_back("stack: "+std::to_string(stack->handle.instanceId)+":"+
+                    std::to_string(stack->handle.generation));
+    lines.push_back("quantity: "+std::to_string(stack->quantity));
+    lines.push_back("item revision: "+std::to_string(stack->itemRevision));
+  }
   lines.push_back("inventory/equipment revision: "+
                   std::to_string(state->inventory().revision())+"/"+
                   std::to_string(state->equipment().revision()));
-  if(const auto equipped = state->equipment().slotOf(stack->handle))
-    lines.push_back("equipped: "+std::string(equipmentSlotName(*equipped)));
-  if(state->pending().pending(stack->handle))
-    lines.push_back("pending server confirmation");
-  if(!state->pending().lastRejection().empty())
-    lines.push_back(state->pending().lastRejection());
-  lines.push_back("Enter use/unequip | 3-0 equip | Space drop | S split | M merge");
+  if(stack != nullptr) {
+    if(const auto equipped = state->equipment().slotOf(stack->handle))
+      lines.push_back("equipped: "+std::string(equipmentSlotName(*equipped)));
+  }
+  const Mmo::ClientPresentation::ServerInventoryPageModel pageModel(*state);
+  const auto selectedPhase = stack != nullptr
+                                 ? pageModel.pendingPhase(stack->handle)
+                                 : std::nullopt;
+  if(selectedPhase.has_value()) {
+    lines.push_back(
+        *selectedPhase==
+                Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted
+            ? "pending: awaiting server receipt"
+            : "accepted: awaiting authoritative inventory update");
+  }
+  switch(pageModel.feedbackStatus()) {
+    case Mmo::ClientPresentation::ServerInventoryFeedbackStatus::Pending:
+      if(!selectedPhase.has_value())
+        lines.push_back("pending: awaiting server receipt");
+      break;
+    case Mmo::ClientPresentation::ServerInventoryFeedbackStatus::Accepted:
+      if(!selectedPhase.has_value())
+        lines.push_back("accepted: awaiting authoritative inventory update");
+      break;
+    case Mmo::ClientPresentation::ServerInventoryFeedbackStatus::Rejected:
+      if(!pageModel.rejectionMessage().empty())
+        lines.push_back(pageModel.rejectionMessage());
+      break;
+    case Mmo::ClientPresentation::ServerInventoryFeedbackStatus::ResyncRequired:
+      lines.push_back("resync required: inventory actions are temporarily disabled");
+      lines.push_back(serverInventoryResyncRequested
+                          ? "authoritative inventory resync requested"
+                          : serverInventoryResyncAttempted
+                                ? "authoritative inventory resync request is unavailable"
+                                : "authoritative inventory resync is pending");
+      if(!pageModel.rejectionMessage().empty())
+        lines.push_back(pageModel.rejectionMessage());
+      break;
+    case Mmo::ClientPresentation::ServerInventoryFeedbackStatus::Ready:
+      break;
+  }
+  lines.push_back(pageModel.actionsEnabled()
+                      ? "Enter use/unequip | 3-0 equip | Space drop | S split | M merge"
+                      : "Waiting for authoritative inventory resynchronization");
 
   for(size_t index=0; index<lines.size(); ++index)
     fnt.drawText(p,x+20,y+int(index+2U)*fnt.pixelSize(),lines[index]);

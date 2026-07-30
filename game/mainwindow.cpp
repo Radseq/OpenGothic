@@ -636,13 +636,6 @@ void MainWindow::keyUpEvent(KeyEvent &event) {
     clearInput();
     }
   else if(act==KeyCodec::Inventory && !dialogs.isActive()) {
-    if(CommandLine::inst().mmoClientUsesServer()) {
-      Log::i("MMO inventory UI is read-disabled until typed item-stack and "
-             "inventory revision presentation is connected");
-      clearInput();
-      player.onKeyReleased(act, mapping);
-      return;
-    }
     if(inventory.isActive()) {
       inventory.close();
       } else {
@@ -1537,6 +1530,5 @@ void MainWindow::BenchmarkData::clear() {
   numFrames = 0;
   fpsSum = 0;
   }
-
 
 

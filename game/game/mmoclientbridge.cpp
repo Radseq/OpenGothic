@@ -175,6 +175,19 @@ class ClientMmoBridgeState final {
       return sessionSnapshot_;
     }
 
+    [[nodiscard]] bool requestInventoryResync() noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(!facade_ || !sessionSnapshot_.inWorld() || resumeTicket_.empty()) {
+        return false;
+      }
+      if(recovering_)
+        return true;
+      return beginRecovery("unable to restart Protocol V2 for inventory resync");
+#else
+      return false;
+#endif
+    }
+
     [[nodiscard]] ClientMmoSubmitResult submitMovement(
         const ClientMovementIntent& intent) noexcept {
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
@@ -682,6 +695,18 @@ class ClientMmoBridgeState final {
       }
     }
 
+    [[nodiscard]] bool beginRecovery(const std::string_view failure) noexcept {
+      recovering_ = true;
+      authenticationIssued_ = false;
+      authenticated_ = false;
+      heartbeatPending_ = false;
+      setSessionPhase(ClientMmoSessionPhase::Recovering);
+      if(facade_->restartProtocolV2Session())
+        return true;
+      failSession(std::string(failure));
+      return false;
+    }
+
     void processReconnect() {
       const auto stats = facade_->stats();
       if(stats.reconnectSuccesses <= observedReconnectSuccesses_)
@@ -691,13 +716,8 @@ class ClientMmoBridgeState final {
         failSession("transport reconnected before a resume ticket was issued");
         return;
       }
-      recovering_ = true;
-      authenticationIssued_ = false;
-      authenticated_ = false;
-      heartbeatPending_ = false;
-      setSessionPhase(ClientMmoSessionPhase::Recovering);
-      if(!facade_->restartProtocolV2Session())
-        failSession("unable to restart Protocol V2 after transport replacement");
+      static_cast<void>(beginRecovery(
+          "unable to restart Protocol V2 after transport replacement"));
     }
 
     void resolveRequestedCharacter() noexcept {
@@ -1017,6 +1037,11 @@ void pollClientMmoSession() noexcept {
   std::lock_guard lock(stateMutex);
   if(state)
     state->pollSession();
+}
+
+bool requestClientMmoInventoryResync() noexcept {
+  std::lock_guard lock(stateMutex);
+  return state && state->requestInventoryResync();
 }
 
 ClientMmoSessionSnapshot clientMmoSessionSnapshot() {

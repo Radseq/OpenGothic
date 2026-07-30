@@ -18,21 +18,23 @@ Acceptance:
 - add a regression test proving route replacement plus typed bootstrap resets
   old projection state without consulting legacy restore code.
 
-## C2 — Activate revision-safe inventory UI
+## C2 — Finish revision-safe inventory UI acceptance
 
-Goal: the normal inventory action opens a server-backed view in server-bound
-mode.
+Depends on: [authoritative loot and world-item roadmap](../../../../docs/llm/authoritative-loot-and-world-item-roadmap.md), stage L01.
 
-Acceptance:
+Implemented: the normal inventory action now opens a typed server-backed page,
+submits exact-revision actions and renders pending, rejection and resync state.
 
-- UI reads only typed inventory/equipment models, never `Npc::inventory`;
-- equip, unequip, use, drop, split and merge submit exact stack handles and
-  expected revisions;
-- pending state is visible; rejection is visible; local quantity/equipment does
-  not change before an authoritative update;
-- route replacement closes or resets stale UI state;
-- native inventory behavior remains unchanged;
-- focused tests cover input-to-view/action wiring, followed by graphical smoke.
+Remaining acceptance:
+
+- run a graphical server-bound smoke for world pickup and whole-corpse
+  quick-loot visibility;
+- force a stale revision and prove visible rejection, one bounded resync request
+  and disabled actions until authoritative replacement;
+- prove route replacement closes or resets the open page;
+- prove native inventory behavior remains unchanged;
+- keep dead-NPC corpse browsing in L03-L05; C2 must not reactivate native
+  `ransack` in server-bound mode.
 
 ## C3 — Add a full-client composition seam
 

@@ -13,7 +13,7 @@
 
 #include "graphics/inventoryrenderer.h"
 #include "game/inventory.h"
-#include "game/mmoserverinventoryreadmodel.h"
+#include "ui/mmoserverinventorypagemodel.h"
 
 class Npc;
 class Item;
@@ -109,10 +109,10 @@ class InventoryMenu : public Tempest::Widget {
     };
 
     bool                      serverInventoryMode = false;
-    std::uint64_t             observedInventoryRevision = 0U;
-    std::uint64_t             observedEquipmentRevision = 0U;
-    std::size_t               observedPendingCount = 0U;
-    std::string               observedRejection;
+    bool                      serverInventoryResyncAttempted = false;
+    bool                      serverInventoryResyncRequested = false;
+    Mmo::ClientPresentation::ServerInventoryPageFingerprint
+                              observedServerInventory{};
     std::vector<ServerPreviewItem> serverPreviewItems;
     std::optional<Mmo::ClientItemStackHandle> mergeSource;
     InventoryRenderer         renderer;
@@ -134,6 +134,7 @@ class InventoryMenu : public Tempest::Widget {
                               serverInventoryState() const;
     const Mmo::ClientPresentation::ServerInventoryStack*
                               selectedServerStack() const;
+    bool                      serverInventoryActionsEnabled() const;
     Item*                     serverPreviewItem(
                                   const Mmo::ClientPresentation::ServerInventoryStack& stack);
     std::string               serverItemDisplayName(
@@ -154,9 +155,7 @@ class InventoryMenu : public Tempest::Widget {
     void          submitServerDrop(size_t amount);
     void          trackServerCommand(
                       const Mmo::ClientMmoSubmitResult& result,
-                      Mmo::ClientItemStackHandle primary,
-                      Mmo::ClientItemStackHandle secondary = {},
-                      std::optional<Mmo::ClientEquipmentSlot> slot = std::nullopt);
+                      Mmo::ClientPresentation::ServerInventoryPendingCommand command);
     void          syncServerInventoryView();
     void          adjustScroll();
     void          drawAll   (Tempest::Painter& p, Npc& player, DrawPass pass);

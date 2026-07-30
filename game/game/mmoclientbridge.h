@@ -143,6 +143,7 @@ void recordClientMmoProcessGatePresentation(
 [[nodiscard]] bool beginClientMmoSession(
     const ClientMmoSessionRequest& request);
 void pollClientMmoSession() noexcept;
+[[nodiscard]] bool requestClientMmoInventoryResync() noexcept;
 [[nodiscard]] ClientMmoSessionSnapshot clientMmoSessionSnapshot();
 [[nodiscard]] ClientMmoSessionSnapshot waitForClientMmoSession(
     const ClientMmoSessionRequest& request,

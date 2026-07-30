@@ -112,6 +112,11 @@ bool GameSession::trackMmoServerInventoryCommand(
   return mmoServerInventoryPresentation_.markPending(std::move(command));
 }
 
+void GameSession::rejectMmoServerInventoryCommandSubmission(
+    const Mmo::ClientMmoSubmitStatus status) {
+  mmoServerInventoryPresentation_.rejectSubmission(status);
+}
+
 std::optional<std::string_view> GameSession::mmoItemInstanceName(
     const std::uint64_t archetypeId,
     const std::uint64_t presentationId) const noexcept {
