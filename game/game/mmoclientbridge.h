@@ -169,6 +169,14 @@ void pollClientMmoSession() noexcept;
     const ClientSplitStackRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitProtocolV2MergeStack(
     const ClientMergeStackRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2OpenCorpseLoot(
+    const ClientOpenCorpseLootRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2TakeCorpseLootStack(
+    const ClientTakeCorpseLootStackRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2TakeAllCorpseLoot(
+    const ClientTakeAllCorpseLootRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitProtocolV2CloseCorpseLoot(
+    const ClientCloseCorpseLootRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitProtocolV2WeaponState(
     const ClientWeaponStateRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitProtocolV2Combat(

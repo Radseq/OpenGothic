@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "mmoserverpresentationevents.h"
+#include "mmoservercorpselootreadmodel.h"
 
 namespace Mmo::ClientPresentation {
 
@@ -13,10 +14,18 @@ struct ServerPresentationMailboxBatch final {
   std::optional<ServerPresentationRouteIdentity> route;
   std::vector<ServerPresentationBootstrap> bootstraps;
   std::vector<ServerPresentationEvent> events;
+  std::vector<ServerCorpseLootAvailabilityChanged> corpseLootAvailability;
+  std::vector<ServerCorpseLootSnapshot> corpseLootSnapshots;
+  std::vector<ServerCorpseLootStackDelta> corpseLootDeltas;
+  std::vector<ServerCorpseLootSessionClosed> corpseLootClosed;
+  std::vector<ServerCorpseLootResync> corpseLootResyncs;
   std::size_t rejectedRecords = 0U;
 
   [[nodiscard]] bool empty() const noexcept {
-    return !route.has_value() && bootstraps.empty() && events.empty();
+    return !route.has_value() && bootstraps.empty() && events.empty() &&
+           corpseLootAvailability.empty() && corpseLootSnapshots.empty() &&
+           corpseLootDeltas.empty() && corpseLootClosed.empty() &&
+           corpseLootResyncs.empty();
   }
 };
 

@@ -73,6 +73,16 @@ void appendMmoPresentationNumber(
   return value;
 }
 
+[[nodiscard]] constexpr Mmo::ClientEntityHandle clientEntityHandle(
+    const Mmo::ClientPresentation::ServerPresentationEntityHandle handle) noexcept {
+  return {
+      .worldId = handle.world.id,
+      .worldGeneration = handle.world.generation,
+      .id = handle.id,
+      .generation = handle.generation,
+  };
+}
+
 } // namespace
 
 void GameSession::loadMmoClientPresentationCatalog() noexcept {
@@ -214,14 +224,24 @@ void GameSession::installMmoServerPresentationBootstrap(
              " gate_status=", static_cast<unsigned>(staged.status));
       continue;
     }
+    mmoServerCorpseLootPresentation_.seedReplicatedDeath(
+        clientEntityHandle(state->entity),
+        state->lifeState ==
+            Mmo::ClientPresentation::ServerPresentationNpcLifeState::Dead);
     materializeMmoServerEntity(entity, true, &*state);
   }
   for(const auto& state : bootstrap.combatEquipment)
     applyMmoServerEquipmentSlot(state);
   for(const auto& state : bootstrap.weaponModes)
     applyMmoServerWeaponMode(state, false);
-  for(const auto& state : bootstrap.lifeStates)
+  for(const auto& state : bootstrap.lifeStates) {
+    mmoServerCorpseLootPresentation_.observeDeath(
+        clientEntityHandle(state.entity),
+        state.lifeState ==
+            Mmo::ClientPresentation::ServerPresentationNpcLifeState::Dead,
+        state.lifeRevision);
     applyMmoServerLifeState(state);
+  }
   for(const auto& action : bootstrap.combatActions)
     applyMmoServerCombatAction(action);
   for(const auto& state : bootstrap.interactives)

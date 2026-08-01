@@ -296,6 +296,54 @@ class ClientMmoBridgeState final {
       return {};
     }
 
+    [[nodiscard]] ClientMmoSubmitResult submitOpenCorpseLoot(
+        const ClientOpenCorpseLootRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2OpenCorpseLootRequest(request))
+          return mapResult(facade_->openCorpseLoot(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitTakeCorpseLootStack(
+        const ClientTakeCorpseLootStackRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2TakeCorpseLootStackRequest(request))
+          return mapResult(facade_->takeCorpseLootStack(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitTakeAllCorpseLoot(
+        const ClientTakeAllCorpseLootRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2TakeAllCorpseLootRequest(request))
+          return mapResult(facade_->takeAllCorpseLoot(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
+    [[nodiscard]] ClientMmoSubmitResult submitCloseCorpseLoot(
+        const ClientCloseCorpseLootRequest& request) noexcept {
+#if OPENGOTHIC_MMO_SANDBOX_FACADE
+      if(facade_)
+        if(auto runtime = ClientAdapterDetail::makeProtocolV2CloseCorpseLootRequest(request))
+          return mapResult(facade_->closeCorpseLoot(*runtime));
+#else
+      static_cast<void>(request);
+#endif
+      return {};
+    }
+
     [[nodiscard]] ClientMmoSubmitResult submitWeaponState(
         const ClientWeaponStateRequest& request) noexcept {
 #if OPENGOTHIC_MMO_SANDBOX_FACADE
@@ -593,13 +641,13 @@ class ClientMmoBridgeState final {
       }
     }
 
-    [[nodiscard]] static bool isInventoryCommand(
+    [[nodiscard]] static bool isPresentationCommand(
         const ClientSandbox::ClientRuntimeV2CommandKind kind) noexcept {
       using Kind = ClientSandbox::ClientRuntimeV2CommandKind;
       return kind == Kind::EquipItem || kind == Kind::PickupItem ||
-             kind == Kind::DropItem ||
-             kind == Kind::UnequipItem || kind == Kind::SplitStack ||
-             kind == Kind::MergeStack || kind == Kind::UseItem;
+             kind == Kind::DropItem || kind == Kind::UnequipItem ||
+             kind == Kind::SplitStack || kind == Kind::MergeStack ||
+             kind == Kind::UseItem || kind == Kind::SelectiveLoot;
     }
 
     [[nodiscard]] static ClientMmoCommandKind mapCommandKind(
@@ -613,13 +661,14 @@ class ClientMmoBridgeState final {
         case Source::SplitStack: return ClientMmoCommandKind::SplitStack;
         case Source::MergeStack: return ClientMmoCommandKind::MergeStack;
         case Source::UseItem: return ClientMmoCommandKind::UseItem;
+        case Source::SelectiveLoot: return ClientMmoCommandKind::SelectiveLoot;
         default: return ClientMmoCommandKind::UseItem;
       }
     }
 
     [[nodiscard]] static ClientMmoCommandToken mapCommandToken(
         const ClientSandbox::ClientRuntimeV2CommandToken& command) noexcept {
-      if(!command.valid() || !isInventoryCommand(command.kind))
+      if(!command.valid() || !isPresentationCommand(command.kind))
         return {};
       return {
           .kind = mapCommandKind(command.kind),
@@ -666,7 +715,7 @@ class ClientMmoBridgeState final {
           continue;
         }
         if(!isSessionCommand(completion.command.kind)) {
-          if(isInventoryCommand(completion.command.kind)) {
+          if(isPresentationCommand(completion.command.kind)) {
             auto mapped = mapCompletion(completion);
             if(mapped.command.valid())
               commandCompletions_.push_back(mapped);
@@ -1135,6 +1184,30 @@ ClientMmoSubmitResult submitProtocolV2MergeStack(
     const ClientMergeStackRequest& request) noexcept {
   std::lock_guard lock(stateMutex);
   return state ? state->submitMergeStack(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2OpenCorpseLoot(
+    const ClientOpenCorpseLootRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitOpenCorpseLoot(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2TakeCorpseLootStack(
+    const ClientTakeCorpseLootStackRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitTakeCorpseLootStack(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2TakeAllCorpseLoot(
+    const ClientTakeAllCorpseLootRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitTakeAllCorpseLoot(request) : ClientMmoSubmitResult{};
+}
+
+ClientMmoSubmitResult submitProtocolV2CloseCorpseLoot(
+    const ClientCloseCorpseLootRequest& request) noexcept {
+  std::lock_guard lock(stateMutex);
+  return state ? state->submitCloseCorpseLoot(request) : ClientMmoSubmitResult{};
 }
 
 ClientMmoSubmitResult submitProtocolV2WeaponState(

@@ -117,6 +117,16 @@ void GameSession::rejectMmoServerInventoryCommandSubmission(
   mmoServerInventoryPresentation_.rejectSubmission(status);
 }
 
+bool GameSession::trackMmoServerCorpseLootCommand(
+    Mmo::ClientPresentation::ServerCorpseLootPendingCommand command) {
+  return mmoServerCorpseLootPresentation_.markPending(std::move(command));
+}
+
+void GameSession::rejectMmoServerCorpseLootCommandSubmission(
+    const Mmo::ClientMmoSubmitStatus status) {
+  mmoServerCorpseLootPresentation_.rejectSubmission(status);
+}
+
 std::optional<std::string_view> GameSession::mmoItemInstanceName(
     const std::uint64_t archetypeId,
     const std::uint64_t presentationId) const noexcept {

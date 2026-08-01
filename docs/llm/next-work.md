@@ -18,12 +18,15 @@ Acceptance:
 - add a regression test proving route replacement plus typed bootstrap resets
   old projection state without consulting legacy restore code.
 
-## C2 — Finish revision-safe inventory UI acceptance
+## C2 — Finish revision-safe inventory and corpse UI acceptance
 
-Depends on: [authoritative loot and world-item roadmap](../../../../docs/llm/authoritative-loot-and-world-item-roadmap.md), stage L01.
+Depends on: [authoritative loot and world-item roadmap](../../../../docs/llm/authoritative-loot-and-world-item-roadmap.md), stages L01 and L05.
 
 Implemented: the normal inventory action now opens a typed server-backed page,
 submits exact-revision actions and renders pending, rejection and resync state.
+The corpse page now requires replicated death plus loot availability, submits
+exact-revision open/take/take-all/close requests and never falls back to native
+`ransack` in server-bound mode.
 
 Remaining acceptance:
 
@@ -33,8 +36,10 @@ Remaining acceptance:
   and disabled actions until authoritative replacement;
 - prove route replacement closes or resets the open page;
 - prove native inventory behavior remains unchanged;
-- keep dead-NPC corpse browsing in L03-L05; C2 must not reactivate native
-  `ransack` in server-bound mode.
+- run selective-loot graphical acceptance for pending, busy, rejection, empty,
+  decay, reroute and two-client contention against the production-composed
+  L03/L06 path;
+- keep native corpse `ransack` unchanged outside server-bound mode.
 
 ## C3 — Add a full-client composition seam
 
@@ -52,10 +57,12 @@ Acceptance:
 ## C4 — Complete missing presentation families
 
 In order: dialog text/audio and bootstrap choice restoration, character
-attributes, loot availability, then remaining server-owned UI state. Extend
-shared/server/sandbox contracts first when the authoritative payload is absent.
-Every UI projection must retain identity and revision and tolerate rejection,
-reroute and resync.
+attributes, then remaining server-owned UI state. Corpse-loot presentation and
+production server emission are implemented; its remaining graphical/process
+acceptance belongs to the loot roadmap, not a second client-local projection.
+Extend shared/server/sandbox contracts first when the authoritative payload is
+absent. Every UI projection
+must retain identity and revision and tolerate rejection, reroute and resync.
 
 ## C5 — Retire migration hooks
 

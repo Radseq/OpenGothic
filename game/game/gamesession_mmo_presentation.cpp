@@ -162,6 +162,16 @@ presentationRegistryHandle(
   return {.id = handle.id, .generation = handle.generation};
 }
 
+[[nodiscard]] constexpr Mmo::ClientEntityHandle clientEntityHandle(
+    const Mmo::ClientPresentation::ServerPresentationEntityHandle handle) noexcept {
+  return {
+      .worldId = handle.world.id,
+      .worldGeneration = handle.world.generation,
+      .id = handle.id,
+      .generation = handle.generation,
+  };
+}
+
 } // namespace
 
 void GameSession::resetMmoServerPresentationProjection() noexcept {
@@ -182,6 +192,8 @@ void GameSession::resetMmoServerPresentationProjection() noexcept {
   mmoServerProjectilePresentation.resetRoute();
   mmoMovementCorrectionBoundary.resetRoute(mmoPresentationWorldGeneration);
   mmoServerInventoryPresentation_.reset();
+  mmoServerCorpseLootPresentation_.reset(
+      Mmo::ClientPresentation::ServerCorpseLootFeedback::Disconnected);
   resetMmoServerWorldItems();
   mmoServerWorldObjects.resetRoute({});
   mmoServerEntitySamples.clear();
@@ -545,6 +557,8 @@ void GameSession::applyMmoServerPresentationEvent(
             materializeMmoServerEntity(value.entity, true);
           }
         } else if constexpr(std::is_same_v<Event, ServerEntityDespawnEvent>) {
+          mmoServerCorpseLootPresentation_.observeDespawn(
+              clientEntityHandle(value.entity));
           static_cast<void>(mmoServerNpcSpawnGate.erase(value.entity));
           if(result.releasedEntity.has_value()) {
             releaseMmoServerEntity(*result.releasedEntity);
@@ -597,6 +611,10 @@ void GameSession::applyMmoServerPresentationEvent(
         } else if constexpr(std::is_same_v<Event, ServerHitReactionEvent>) {
           applyMmoServerHitReaction(value.reaction);
         } else if constexpr(std::is_same_v<Event, ServerCharacterDeathStateChangedEvent>) {
+          mmoServerCorpseLootPresentation_.observeDeath(
+              clientEntityHandle(value.state.entity),
+              value.state.lifeState == ServerPresentationNpcLifeState::Dead,
+              value.state.lifeRevision);
           applyMmoServerLifeState(value.state);
         } else if constexpr(std::is_same_v<Event, ServerInteractiveStateEvent>) {
           applyMmoServerInteractiveState(value.state);
@@ -683,18 +701,55 @@ void GameSession::pollMmoServerPresentationMailbox() noexcept {
     return;
 
   const bool sessionInWorld = Mmo::clientMmoSessionSnapshot().inWorld();
-  if(mmoServerInventorySessionInWorld && !sessionInWorld)
+  if(mmoServerInventorySessionInWorld && !sessionInWorld) {
     mmoServerInventoryPresentation_.reset();
+    mmoServerCorpseLootPresentation_.reset(
+        Mmo::ClientPresentation::ServerCorpseLootFeedback::Disconnected);
+  }
   mmoServerInventorySessionInWorld = sessionInWorld;
 
-  for(const auto& completion : Mmo::drainClientMmoCommandCompletions())
-    mmoServerInventoryPresentation_.complete(completion);
+  for(const auto& completion : Mmo::drainClientMmoCommandCompletions()) {
+    if(completion.command.kind == Mmo::ClientMmoCommandKind::SelectiveLoot)
+      mmoServerCorpseLootPresentation_.complete(completion);
+    else
+      mmoServerInventoryPresentation_.complete(completion);
+  }
 
   auto batch = Mmo::drainTypedServerPresentationMailbox();
   if(!batch.empty() || batch.rejectedRecords != 0U) {
     MmoServerPresentationBatchSink sink{*this};
     const auto stats = Mmo::ClientPresentation::consumeServerPresentationBatch(
         mmoTypedServerPresentation, batch, sink);
+    const auto& route = mmoTypedServerPresentation.route();
+    const auto routeMatches = [&route](
+        const Mmo::ClientPresentation::ServerPresentationEventHeader& header) {
+      return route.has_value() && header.route == *route;
+    };
+    for(const auto& event : batch.corpseLootAvailability) {
+      if(routeMatches(event.header))
+        mmoServerCorpseLootPresentation_.observeAvailability(event);
+    }
+    for(auto& event : batch.corpseLootSnapshots) {
+      if(routeMatches(event.header))
+        mmoServerCorpseLootPresentation_.installSnapshot(std::move(event));
+    }
+    for(const auto& event : batch.corpseLootDeltas) {
+      if(routeMatches(event.header))
+        mmoServerCorpseLootPresentation_.applyDelta(event);
+    }
+    for(const auto& event : batch.corpseLootClosed) {
+      if(routeMatches(event.header))
+        mmoServerCorpseLootPresentation_.sessionClosed(event);
+    }
+    for(const auto& event : batch.corpseLootResyncs) {
+      if(route.has_value() &&
+         (event.routeEpoch == 0U || event.routeEpoch == route->routeEpoch) &&
+         event.corpse.worldId == route->world.id &&
+         event.corpse.worldGeneration == route->world.generation) {
+        mmoServerCorpseLootPresentation_.resyncRequired(event);
+      }
+    }
+
     if(stats.routesApplied != 0U || stats.bootstrapsApplied != 0U ||
        stats.eventsApplied != 0U || stats.stateRejected != 0U ||
        stats.sourceRejected != 0U) {

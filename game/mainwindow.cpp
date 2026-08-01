@@ -1167,7 +1167,8 @@ Camera::Mode MainWindow::solveCameraMode() const {
     return Camera::FirstPerson;
 
   if(inventory.isOpen()==InventoryMenu::State::Equip ||
-     inventory.isOpen()==InventoryMenu::State::Ransack)
+     inventory.isOpen()==InventoryMenu::State::Ransack ||
+     inventory.isOpen()==InventoryMenu::State::ServerCorpse)
     return Camera::Inventory;
 
   if(auto pl=Gothic::inst().player()) {

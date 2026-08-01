@@ -38,6 +38,14 @@ struct ClientRuntimePresentationMailboxSnapshot final {
   std::vector<ClientSandbox::ClientRuntimeProjectileDespawn> projectileDespawns;
   std::vector<ClientSandbox::ClientRuntimeLivePresentationEvent>
       livePresentationEvents;
+  std::vector<ClientSandbox::ClientRuntimeCorpseLootSnapshot>
+      corpseLootSnapshots;
+  std::vector<ClientSandbox::ClientRuntimeCorpseLootStackDelta>
+      corpseLootDeltas;
+  std::vector<ClientSandbox::ClientRuntimeCorpseLootSessionClosed>
+      corpseLootClosed;
+  std::vector<ClientSandbox::ClientRuntimeCorpseLootResync>
+      corpseLootResyncs;
   std::vector<ClientSandbox::ClientRuntimeCompletedBootstrap> bootstraps;
 };
 
@@ -121,6 +129,44 @@ using namespace ClientSandbox;
 [[nodiscard]] constexpr ClientItemStackHandle mapItemHandle(
     const Mmo::ProtocolV2::ItemStackHandle value) noexcept {
   return {.instanceId = value.instanceId, .generation = value.generation};
+}
+
+[[nodiscard]] constexpr ClientEntityHandle mapClientHandle(
+    const ClientRuntimeEntityHandle value) noexcept {
+  return {
+      .worldId = value.world.id,
+      .worldGeneration = value.world.generation,
+      .id = value.id,
+      .generation = value.generation,
+  };
+}
+
+[[nodiscard]] constexpr ClientEntityHandle mapClientHandle(
+    const Mmo::ProtocolV2::EntityHandle value) noexcept {
+  return {
+      .worldId = value.world.id.value,
+      .worldGeneration = value.world.generation,
+      .id = value.id.value,
+      .generation = value.generation,
+  };
+}
+
+[[nodiscard]] constexpr ClientItemStackHandle mapRuntimeItemHandle(
+    const ClientRuntimeItemStackHandle value) noexcept {
+  return {.instanceId = value.instanceId, .generation = value.generation};
+}
+
+[[nodiscard]] constexpr ServerInventoryStack mapRuntimeInventoryStack(
+    const ClientRuntimeReplicatedItemStackDescriptor& value) noexcept {
+  return {
+      .handle = mapRuntimeItemHandle(value.stack),
+      .archetypeId = value.archetypeId,
+      .presentationId = value.presentationId,
+      .presentationRevision = value.presentationRevision,
+      .quantity = value.quantity,
+      .flags = 0U,
+      .itemRevision = value.stackRevision,
+  };
 }
 
 [[nodiscard]] constexpr std::optional<ClientEquipmentSlot> mapEquipmentSlot(
@@ -1341,13 +1387,24 @@ mapClientRuntimePresentationMailbox(
                 .stateRevision = value.stateRevision,
             };
             appendEvent(out, event.valid() ? std::optional{event} : std::nullopt);
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::LootAvailabilityChanged>) {
+            ServerCorpseLootAvailabilityChanged event{
+                .header = mapHeader(value.header),
+                .corpse = mapClientHandle(value.corpse),
+                .looter = mapClientHandle(value.looter),
+                .lootRevision = value.lootRevision,
+                .flags = value.flags,
+            };
+            if(!event.valid()) {
+              ++out.rejectedRecords;
+              return;
+            }
+            observeRoute(out, event.header.route);
+            out.corpseLootAvailability.push_back(std::move(event));
           } else if constexpr(
               std::is_same_v<Value, Mmo::ProtocolV2::CharacterAttributesSnapshot> ||
-              std::is_same_v<Value, Mmo::ProtocolV2::CharacterAttributesChanged> ||
-              std::is_same_v<Value, Mmo::ProtocolV2::LootAvailabilityChanged>) {
-            // Decoded and ordered by the sandbox. Their full-client
-            // materializers/read models are intentionally separate follow-up
-            // components, so a valid unsupported family is not malformed.
+              std::is_same_v<Value, Mmo::ProtocolV2::CharacterAttributesChanged>) {
             return;
           } else {
             static_assert(std::is_same_v<Value, void>,
@@ -1355,6 +1412,138 @@ mapClientRuntimePresentationMailbox(
           }
         },
         std::move(live));
+  }
+
+  out.corpseLootSnapshots.reserve(source.corpseLootSnapshots.size());
+  for(auto& value : source.corpseLootSnapshots) {
+    ServerCorpseLootSnapshot event{
+        .header = mapHeader(value.replication),
+        .corpse = mapClientHandle(value.corpse),
+        .corpseRevision = value.corpseRevision,
+        .inventoryRevision = value.inventoryRevision,
+        .snapshotId = value.snapshotId,
+        .stacks = {},
+    };
+    event.stacks.reserve(value.stacks.size());
+    for(const auto& stack : value.stacks)
+      event.stacks.push_back(mapRuntimeInventoryStack(stack));
+    if(!event.valid()) {
+      ++out.rejectedRecords;
+      continue;
+    }
+    observeRoute(out, event.header.route);
+    out.corpseLootSnapshots.push_back(std::move(event));
+  }
+
+  out.corpseLootDeltas.reserve(source.corpseLootDeltas.size());
+  for(const auto& value : source.corpseLootDeltas) {
+    ServerCorpseLootStackDelta event{
+        .header = mapHeader(value.replication),
+        .corpse = mapClientHandle(value.corpse),
+        .stack = mapRuntimeInventoryStack(value.stack),
+        .corpseRevision = value.corpseRevision,
+        .inventoryRevision = value.inventoryRevision,
+    };
+    using SourceKind = ClientRuntimeCorpseLootStackDeltaKind;
+    switch(value.kind) {
+      case SourceKind::StackAdded:
+        event.kind = ServerCorpseLootStackDeltaKind::StackAdded;
+        break;
+      case SourceKind::StackRemoved:
+        event.kind = ServerCorpseLootStackDeltaKind::StackRemoved;
+        break;
+      case SourceKind::StackQuantityChanged:
+        event.kind = ServerCorpseLootStackDeltaKind::StackQuantityChanged;
+        break;
+    }
+    if(!event.valid()) {
+      ++out.rejectedRecords;
+      continue;
+    }
+    observeRoute(out, event.header.route);
+    out.corpseLootDeltas.push_back(std::move(event));
+  }
+
+  out.corpseLootClosed.reserve(source.corpseLootClosed.size());
+  for(const auto& value : source.corpseLootClosed) {
+    ServerCorpseLootSessionClosed event{
+        .header = mapHeader(value.replication),
+        .corpse = mapClientHandle(value.corpse),
+        .corpseRevision = value.corpseRevision,
+        .inventoryRevision = value.inventoryRevision,
+    };
+    using SourceReason = ClientRuntimeCorpseLootSessionCloseReason;
+    switch(value.reason) {
+      case SourceReason::ClientRequested:
+        event.reason = ServerCorpseLootSessionCloseReason::ClientRequested; break;
+      case SourceReason::CorpseEmpty:
+        event.reason = ServerCorpseLootSessionCloseReason::Empty; break;
+      case SourceReason::OutOfRange:
+        event.reason = ServerCorpseLootSessionCloseReason::OutOfRange; break;
+      case SourceReason::RouteChanged:
+        event.reason = ServerCorpseLootSessionCloseReason::RouteChanged; break;
+      case SourceReason::Disconnected:
+        event.reason = ServerCorpseLootSessionCloseReason::Disconnected; break;
+      case SourceReason::ActorDied:
+        event.reason = ServerCorpseLootSessionCloseReason::ActorDied; break;
+      case SourceReason::CorpseDecayed:
+        event.reason = ServerCorpseLootSessionCloseReason::Decayed; break;
+      case SourceReason::AccessRevoked:
+        event.reason = ServerCorpseLootSessionCloseReason::AccessDenied; break;
+      case SourceReason::ReplacedByResync:
+        event.reason = ServerCorpseLootSessionCloseReason::ReplacedByResync; break;
+    }
+    if(!event.valid()) {
+      ++out.rejectedRecords;
+      continue;
+    }
+    observeRoute(out, event.header.route);
+    out.corpseLootClosed.push_back(std::move(event));
+  }
+
+  out.corpseLootResyncs.reserve(source.corpseLootResyncs.size());
+  for(const auto& value : source.corpseLootResyncs) {
+    ServerCorpseLootResync event{
+        .corpse = mapClientHandle(value.corpse),
+        .routeEpoch = value.submission.command.routeEpoch,
+        .expectedCorpseRevision = value.expectedCorpseRevision,
+        .expectedInventoryRevision = value.expectedInventoryRevision,
+    };
+    using SourceReason = ClientRuntimeCorpseLootResyncReason;
+    switch(value.reason) {
+      case SourceReason::MissingSnapshot:
+        event.reason = ServerCorpseLootResyncReason::MissingSnapshot; break;
+      case SourceReason::SnapshotOrderViolation:
+        event.reason = ServerCorpseLootResyncReason::SnapshotOrderViolation; break;
+      case SourceReason::RevisionGap:
+        event.reason = ServerCorpseLootResyncReason::RevisionGap; break;
+      case SourceReason::ProjectionConflict:
+        event.reason = ServerCorpseLootResyncReason::ProjectionConflict; break;
+      case SourceReason::CapacityExceeded:
+        event.reason = ServerCorpseLootResyncReason::CapacityExceeded; break;
+    }
+    switch(value.submission.status) {
+      case ClientRuntimeV2SubmitStatus::Accepted:
+      case ClientRuntimeV2SubmitStatus::DeferredUntilBaseline:
+      case ClientRuntimeV2SubmitStatus::Coalesced:
+        event.submissionStatus = ClientMmoSubmitStatus::Accepted; break;
+      case ClientRuntimeV2SubmitStatus::LocalValidationFailed:
+        event.submissionStatus = ClientMmoSubmitStatus::InvalidIntent; break;
+      case ClientRuntimeV2SubmitStatus::ProtocolNotNegotiated:
+      case ClientRuntimeV2SubmitStatus::RouteUnavailable:
+      case ClientRuntimeV2SubmitStatus::RouteStageRejected:
+      case ClientRuntimeV2SubmitStatus::CapabilityNotNegotiated:
+        event.submissionStatus = ClientMmoSubmitStatus::UnsupportedIntent; break;
+      case ClientRuntimeV2SubmitStatus::QueueFull:
+        event.submissionStatus = ClientMmoSubmitStatus::QueueFull; break;
+      default:
+        event.submissionStatus = ClientMmoSubmitStatus::TransportError; break;
+    }
+    if(!event.valid()) {
+      ++out.rejectedRecords;
+      continue;
+    }
+    out.corpseLootResyncs.push_back(std::move(event));
   }
 
   std::stable_sort(out.events.begin(), out.events.end(),
@@ -1385,6 +1574,10 @@ drainClientRuntimePresentationMailbox(
   source.projectileImpacts = facade.drainProjectileImpacts();
   source.projectileDespawns = facade.drainProjectileDespawns();
   source.livePresentationEvents = facade.drainLivePresentationEvents();
+  source.corpseLootSnapshots = facade.drainCorpseLootSnapshots();
+  source.corpseLootDeltas = facade.drainCorpseLootStackDeltas();
+  source.corpseLootClosed = facade.drainCorpseLootSessionClosed();
+  source.corpseLootResyncs = facade.drainCorpseLootResyncs();
   source.bootstraps = facade.drainCompletedBootstraps();
   return source;
 }

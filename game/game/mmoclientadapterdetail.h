@@ -402,6 +402,85 @@ makeProtocolV2MergeStackRequest(
   };
 }
 
+[[nodiscard]] constexpr bool validOpenCorpseLootRequest(
+    const ClientOpenCorpseLootRequest& request) noexcept {
+  return request.corpse.valid() && request.expectedCorpseRevision != 0U &&
+         request.expectedInventoryRevision != 0U;
+}
+
+[[nodiscard]] inline std::optional<
+    ClientSandbox::ClientRuntimeOpenCorpseLootRequest>
+makeProtocolV2OpenCorpseLootRequest(
+    const ClientOpenCorpseLootRequest& request) noexcept {
+  if(!validOpenCorpseLootRequest(request))
+    return std::nullopt;
+  return ClientSandbox::ClientRuntimeOpenCorpseLootRequest{
+      .corpse = toRuntime(request.corpse),
+      .expectedCorpseRevision = request.expectedCorpseRevision,
+      .expectedInventoryRevision = request.expectedInventoryRevision,
+  };
+}
+
+[[nodiscard]] constexpr bool validTakeCorpseLootStackRequest(
+    const ClientTakeCorpseLootStackRequest& request) noexcept {
+  return request.corpse.valid() && request.stack.valid() &&
+         request.amount != 0U && request.expectedCorpseRevision != 0U &&
+         request.expectedInventoryRevision != 0U;
+}
+
+[[nodiscard]] inline std::optional<
+    ClientSandbox::ClientRuntimeTakeCorpseLootStackRequest>
+makeProtocolV2TakeCorpseLootStackRequest(
+    const ClientTakeCorpseLootStackRequest& request) noexcept {
+  if(!validTakeCorpseLootStackRequest(request))
+    return std::nullopt;
+  return ClientSandbox::ClientRuntimeTakeCorpseLootStackRequest{
+      .corpse = toRuntime(request.corpse),
+      .stack = toRuntime(request.stack),
+      .amount = request.amount,
+      .expectedCorpseRevision = request.expectedCorpseRevision,
+      .expectedInventoryRevision = request.expectedInventoryRevision,
+  };
+}
+
+[[nodiscard]] constexpr bool validTakeAllCorpseLootRequest(
+    const ClientTakeAllCorpseLootRequest& request) noexcept {
+  return request.corpse.valid() && request.expectedCorpseRevision != 0U &&
+         request.expectedInventoryRevision != 0U;
+}
+
+[[nodiscard]] inline std::optional<
+    ClientSandbox::ClientRuntimeTakeAllCorpseLootRequest>
+makeProtocolV2TakeAllCorpseLootRequest(
+    const ClientTakeAllCorpseLootRequest& request) noexcept {
+  if(!validTakeAllCorpseLootRequest(request))
+    return std::nullopt;
+  return ClientSandbox::ClientRuntimeTakeAllCorpseLootRequest{
+      .corpse = toRuntime(request.corpse),
+      .expectedCorpseRevision = request.expectedCorpseRevision,
+      .expectedInventoryRevision = request.expectedInventoryRevision,
+  };
+}
+
+[[nodiscard]] constexpr bool validCloseCorpseLootRequest(
+    const ClientCloseCorpseLootRequest& request) noexcept {
+  return request.corpse.valid() && request.expectedCorpseRevision != 0U &&
+         request.expectedInventoryRevision != 0U;
+}
+
+[[nodiscard]] inline std::optional<
+    ClientSandbox::ClientRuntimeCloseCorpseLootRequest>
+makeProtocolV2CloseCorpseLootRequest(
+    const ClientCloseCorpseLootRequest& request) noexcept {
+  if(!validCloseCorpseLootRequest(request))
+    return std::nullopt;
+  return ClientSandbox::ClientRuntimeCloseCorpseLootRequest{
+      .corpse = toRuntime(request.corpse),
+      .expectedCorpseRevision = request.expectedCorpseRevision,
+      .expectedInventoryRevision = request.expectedInventoryRevision,
+  };
+}
+
 [[nodiscard]] constexpr bool knownInventoryAction(
     const ClientInventoryAction action) noexcept {
   switch(action) {

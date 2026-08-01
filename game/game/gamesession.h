@@ -19,6 +19,7 @@
 #include "mmomovementcorrectionboundary.h"
 #include "mmoserverpresentationstate.h"
 #include "mmoserverprojectilepresentation.h"
+#include "mmoservercorpselootreadmodel.h"
 #include "mmoserverworldobjectregistry.h"
 
 #ifndef OPENGOTHIC_MMO_SQLITE_TOOLING
@@ -135,6 +136,14 @@ class GameSession final {
     [[nodiscard]] bool trackMmoServerInventoryCommand(
         Mmo::ClientPresentation::ServerInventoryPendingCommand command);
     void rejectMmoServerInventoryCommandSubmission(
+        Mmo::ClientMmoSubmitStatus status);
+    [[nodiscard]] const Mmo::ClientPresentation::ServerCorpseLootPresentationState&
+        mmoServerCorpseLootPresentation() const noexcept {
+      return mmoServerCorpseLootPresentation_;
+    }
+    [[nodiscard]] bool trackMmoServerCorpseLootCommand(
+        Mmo::ClientPresentation::ServerCorpseLootPendingCommand command);
+    void rejectMmoServerCorpseLootCommandSubmission(
         Mmo::ClientMmoSubmitStatus status);
     void beginMmoLocalWorldObjectCatalog() noexcept;
     void registerMmoLocalWorldObject(
@@ -350,6 +359,8 @@ class GameSession final {
                                    mmoServerProjectilePresentation;
     Mmo::ClientPresentation::ServerInventoryPresentationState
                                    mmoServerInventoryPresentation_;
+    Mmo::ClientPresentation::ServerCorpseLootPresentationState
+                                   mmoServerCorpseLootPresentation_;
     Mmo::ClientPresentation::ServerWorldObjectRegistry
                                    mmoServerWorldObjects;
     std::unique_ptr<Mmo::ClientPresentation::ClientPresentationCatalogRuntime>

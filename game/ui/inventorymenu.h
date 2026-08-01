@@ -14,6 +14,7 @@
 #include "graphics/inventoryrenderer.h"
 #include "game/inventory.h"
 #include "ui/mmoserverinventorypagemodel.h"
+#include "game/mmoservercorpselootreadmodel.h"
 
 class Npc;
 class Item;
@@ -33,6 +34,7 @@ class InventoryMenu : public Tempest::Widget {
       Chest,
       Trade,
       Ransack,
+      ServerCorpse,
       LockPicking
       };
 
@@ -52,6 +54,7 @@ class InventoryMenu : public Tempest::Widget {
     void  open(Npc& pl);
     void  trade(Npc& pl,Npc& tr);
     bool  ransack(Npc& pl,Npc& tr);
+    bool  openServerCorpse(Npc& pl, Npc& corpse);
     void  open(Npc& pl,Interactive& chest);
     State isOpen() const;
     bool  isActive() const;
@@ -109,10 +112,15 @@ class InventoryMenu : public Tempest::Widget {
     };
 
     bool                      serverInventoryMode = false;
+    bool                      serverCorpseMode = false;
     bool                      serverInventoryResyncAttempted = false;
     bool                      serverInventoryResyncRequested = false;
     Mmo::ClientPresentation::ServerInventoryPageFingerprint
                               observedServerInventory{};
+    Mmo::ClientPresentation::ServerCorpseLootFingerprint
+                              observedServerCorpse{};
+    Mmo::ClientEntityHandle   serverCorpseHandle{};
+    std::string               serverCorpseTitle;
     std::vector<ServerPreviewItem> serverPreviewItems;
     std::optional<Mmo::ClientItemStackHandle> mergeSource;
     InventoryRenderer         renderer;
@@ -132,9 +140,14 @@ class InventoryMenu : public Tempest::Widget {
     const World*              world() const;
     const Mmo::ClientPresentation::ServerInventoryPresentationState*
                               serverInventoryState() const;
+    const Mmo::ClientPresentation::ServerCorpseLootPresentationState*
+                              serverCorpseState() const;
     const Mmo::ClientPresentation::ServerInventoryStack*
                               selectedServerStack() const;
+    const Mmo::ClientPresentation::ServerInventoryStack*
+                              selectedServerCorpseStack() const;
     bool                      serverInventoryActionsEnabled() const;
+    bool                      serverCorpseActionsEnabled() const;
     Item*                     serverPreviewItem(
                                   const Mmo::ClientPresentation::ServerInventoryStack& stack);
     std::string               serverItemDisplayName(
@@ -156,7 +169,17 @@ class InventoryMenu : public Tempest::Widget {
     void          trackServerCommand(
                       const Mmo::ClientMmoSubmitResult& result,
                       Mmo::ClientPresentation::ServerInventoryPendingCommand command);
+    void          trackServerCorpseCommand(
+                      const Mmo::ClientMmoSubmitResult& result,
+                      Mmo::ClientPresentation::ServerCorpseLootPendingCommand command);
+    bool          submitServerCorpseOpen();
+    void          submitServerCorpseTake(size_t amount);
+    void          submitServerCorpseTakeAll();
+    void          submitServerCorpseClose();
     void          syncServerInventoryView();
+    void          syncServerCorpseView();
+    void          showServerCorpseFeedback(
+                      Mmo::ClientPresentation::ServerCorpseLootFeedback feedback);
     void          adjustScroll();
     void          drawAll   (Tempest::Painter& p, Npc& player, DrawPass pass);
     void          drawItems (Tempest::Painter& p, DrawPass pass, const Page &inv, const PageLocal &sel, int x, int y, int wcount, int hcount);
@@ -169,6 +192,7 @@ class InventoryMenu : public Tempest::Widget {
                                  const Mmo::ClientPresentation::ServerInventoryStack& stack,
                                  const PageLocal& sel, int x, int y, size_t id);
     void          drawServerInfo(Tempest::Painter& p);
+    void          drawServerCorpseInfo(Tempest::Painter& p);
     void          drawGold  (Tempest::Painter& p, Npc &player, int x, int y);
     void          drawHeader(Tempest::Painter& p, std::string_view title, int x, int y);
     void          drawInfo  (Tempest::Painter& p);

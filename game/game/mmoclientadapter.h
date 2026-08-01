@@ -23,6 +23,7 @@ enum class ClientMmoCommandKind : std::uint16_t {
   SplitStack = 41U,
   MergeStack = 42U,
   UseItem = 56U,
+  SelectiveLoot = 70U,
 };
 
 struct ClientMmoCommandToken final {
@@ -85,6 +86,10 @@ struct ClientEntityHandle final {
     return worldId != 0U && worldGeneration != 0U && id != 0U &&
            generation != 0U;
   }
+
+  [[nodiscard]] friend constexpr bool operator==(
+      const ClientEntityHandle&,
+      const ClientEntityHandle&) noexcept = default;
 };
 
 struct ClientItemStackHandle final {
@@ -312,6 +317,32 @@ struct ClientMergeStackRequest final {
   std::uint64_t expectedInventoryRevision = 0U;
 };
 
+struct ClientOpenCorpseLootRequest final {
+  ClientEntityHandle corpse{};
+  std::uint64_t expectedCorpseRevision = 0U;
+  std::uint64_t expectedInventoryRevision = 0U;
+};
+
+struct ClientTakeCorpseLootStackRequest final {
+  ClientEntityHandle corpse{};
+  ClientItemStackHandle stack{};
+  std::uint32_t amount = 0U;
+  std::uint64_t expectedCorpseRevision = 0U;
+  std::uint64_t expectedInventoryRevision = 0U;
+};
+
+struct ClientTakeAllCorpseLootRequest final {
+  ClientEntityHandle corpse{};
+  std::uint64_t expectedCorpseRevision = 0U;
+  std::uint64_t expectedInventoryRevision = 0U;
+};
+
+struct ClientCloseCorpseLootRequest final {
+  ClientEntityHandle corpse{};
+  std::uint64_t expectedCorpseRevision = 0U;
+  std::uint64_t expectedInventoryRevision = 0U;
+};
+
 struct ClientInventoryRequest final {
   std::uint64_t clientTick = 0;
   ClientInventoryAction action = ClientInventoryAction::PickupWorldItem;
@@ -425,6 +456,14 @@ struct ClientDialogChoiceRequest final {
     const ClientSplitStackRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitClientMergeStack(
     const ClientMergeStackRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitClientOpenCorpseLoot(
+    const ClientOpenCorpseLootRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitClientTakeCorpseLootStack(
+    const ClientTakeCorpseLootStackRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitClientTakeAllCorpseLoot(
+    const ClientTakeAllCorpseLootRequest& request) noexcept;
+[[nodiscard]] ClientMmoSubmitResult submitClientCloseCorpseLoot(
+    const ClientCloseCorpseLootRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitClientWeaponState(
     const ClientWeaponStateRequest& request) noexcept;
 [[nodiscard]] ClientMmoSubmitResult submitClientCombat(

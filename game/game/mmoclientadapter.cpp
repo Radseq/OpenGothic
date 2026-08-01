@@ -130,6 +130,42 @@ ClientMmoSubmitResult submitClientMergeStack(
   return submitProtocolV2MergeStack(request);
 }
 
+ClientMmoSubmitResult submitClientOpenCorpseLoot(
+    const ClientOpenCorpseLootRequest& request) noexcept {
+  if(!isServerBoundClientModeEnabled())
+    return {};
+  if(!ClientAdapterDetail::validOpenCorpseLootRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2OpenCorpseLoot(request);
+}
+
+ClientMmoSubmitResult submitClientTakeCorpseLootStack(
+    const ClientTakeCorpseLootStackRequest& request) noexcept {
+  if(!isServerBoundClientModeEnabled())
+    return {};
+  if(!ClientAdapterDetail::validTakeCorpseLootStackRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2TakeCorpseLootStack(request);
+}
+
+ClientMmoSubmitResult submitClientTakeAllCorpseLoot(
+    const ClientTakeAllCorpseLootRequest& request) noexcept {
+  if(!isServerBoundClientModeEnabled())
+    return {};
+  if(!ClientAdapterDetail::validTakeAllCorpseLootRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2TakeAllCorpseLoot(request);
+}
+
+ClientMmoSubmitResult submitClientCloseCorpseLoot(
+    const ClientCloseCorpseLootRequest& request) noexcept {
+  if(!isServerBoundClientModeEnabled())
+    return {};
+  if(!ClientAdapterDetail::validCloseCorpseLootRequest(request))
+    return submitResult(ClientMmoSubmitStatus::InvalidIntent);
+  return submitProtocolV2CloseCorpseLoot(request);
+}
+
 ClientMmoSubmitResult submitClientWeaponState(
     const ClientWeaponStateRequest& request) noexcept {
   if(!isServerBoundClientModeEnabled())

@@ -1,6 +1,6 @@
 # Full Client Current State
 
-Last verified: 2026-07-30 against focused tests and a clean `Gothic2Notr`
+Last verified: 2026-08-01 against focused tests and a clean `Gothic2Notr`
 composition build.
 
 This document separates four evidence levels. Source remains authoritative.
@@ -42,14 +42,20 @@ This document separates four evidence levels. Source remains authoritative.
   server-backed page model builds equip, unequip, use, drop, split and merge
   requests with exact handles and revisions, disables actions while pending or
   resynchronizing, and exposes accepted, rejected and resync-required feedback.
+- The server-bound corpse page opens only from a replicated dead entity with
+  authoritative loot availability. Its bounded read model constructs open,
+  exact-stack, take-all and close requests with corpse, stack and inventory
+  revisions; it waits for authoritative snapshot/delta/closed records, disables
+  actions while pending and closes on reroute, despawn, decay or resync.
 - Typed live dialog presentation stages bounded server choice labels, renders
   them in the native menu and submits the selected stable ID with the exact
   dialog revision; the UI waits for authoritative update/end instead of closing
   optimistically.
 - Focused tests cover adapter validation, mailbox conversion, atomic bootstrap,
   route replacement, entity binding, interpolation, correction, catalog
-  admission, inventory/equipment projection, combat presentation and typed
-  projectile spawn/state/impact/despawn handling.
+  admission, inventory/equipment and corpse-loot projection, corpse-menu request
+  adaptation, combat presentation and typed projectile
+  spawn/state/impact/despawn handling.
 - Projectile state is a self-contained upsert. A bounded full-client registry
   enforces frozen identity and route ownership, interpolates two authoritative
   samples, bounds extrapolation, pins impact positions and removes exact
@@ -70,6 +76,9 @@ sandbox test target. They do not instantiate the complete OpenGothic runtime.
 - An aggregate-revision rejection blocks further inventory submissions and
   requests a bounded Protocol V2 session restart; authoritative inventory and
   equipment replacement clears the resync requirement.
+- The native corpse `ransack` path remains disabled in server-bound mode. The
+  typed corpse page and production selective-loot snapshot/delta/closed
+  projection are composition-integrated behind `TypedSelectiveLootV1`.
 - Server replicas suppress local authority and use correction/interpolation
   paths.
 - Main-menu orchestration, the full-client reconnect/resume path, bridge
@@ -89,9 +98,9 @@ sandbox test target. They do not instantiate the complete OpenGothic runtime.
 3. Live dialog choices are selectable, but subtitle/audio still depend on a
    client-side numeric line lookup and bootstrap cannot restore choices for a
    dialog that was already awaiting input.
-4. Character-attribute and loot-availability facade records are valid but are
-   intentionally not mapped because full-client presentation components do not
-   yet exist for them.
+4. Character-attribute facade records still have no full-client presentation
+   component. Loot availability and corpse session records are mapped and
+   emitted by production composition, but real graphical acceptance remains.
 5. Legacy semantic-hook and movement/NPC observation code still needs
    classification as native-only, diagnostic, intent adaptation or obsolete.
 6. No deterministic fake-facade test currently proves `mmoclientbridge`, menu

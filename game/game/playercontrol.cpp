@@ -513,12 +513,19 @@ bool PlayerControl::interact(Npc &other) {
     if(!target.has_value())
       return true;
 
+    const auto& loot = session->mmoServerCorpseLootPresentation();
+    if(loot.replicatedDead(target->handle)) {
+      if(!loot.canOpen(target->handle)) {
+        w->script().printNothingToGet();
+        return true;
+      }
+      static_cast<void>(inv.openServerCorpse(*pl,other));
+      return true;
+    }
+
     return submitMmoInteraction(
-        *w, *pl, *target,
-        other.isDown() ? Mmo::ClientInteractionVerb::Loot
-                       : Mmo::ClientInteractionVerb::Talk,
-        "PlayerControl::interact(Npc)",
-        other.isDown() ? "loot_npc" : "talk_to_npc");
+        *w, *pl, *target, Mmo::ClientInteractionVerb::Talk,
+        "PlayerControl::interact(Npc)", "talk_to_npc");
   }
 
   auto state = pl->bodyStateMasked();

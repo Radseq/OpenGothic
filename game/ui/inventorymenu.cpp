@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -142,6 +144,8 @@ InventoryMenu::~InventoryMenu() {
   }
 
 void InventoryMenu::close() {
+  if(serverCorpseMode)
+    submitServerCorpseClose();
   if(state!=State::Closed) {
     if(state==State::Trade)
       Gothic::inst().emitGlobalSound("TRADE_CLOSE"); else
@@ -150,9 +154,13 @@ void InventoryMenu::close() {
   renderer.reset(true);
   takeTimer.stop();
   serverInventoryMode = false;
+  serverCorpseMode = false;
   serverInventoryResyncAttempted = false;
   serverInventoryResyncRequested = false;
   observedServerInventory = {};
+  observedServerCorpse = {};
+  serverCorpseHandle = {};
+  serverCorpseTitle.clear();
   serverPreviewItems.clear();
   mergeSource.reset();
   state  = State::Closed;
@@ -244,6 +252,47 @@ bool InventoryMenu::ransack(Npc &pl, Npc &tr) {
   return true;
   }
 
+bool InventoryMenu::openServerCorpse(Npc& pl, Npc& corpse) {
+  if(!Mmo::isServerBoundClientModeEnabled() || pl.isDown() ||
+     pl.bodyStateMasked()==BS_UNCONSCIOUS)
+    return false;
+  auto* session = Gothic::inst().gameSession();
+  if(session==nullptr)
+    return false;
+  const auto target = session->mmoServerEntityTarget(corpse);
+  const auto& inventory = session->mmoServerInventoryPresentation().inventory();
+  if(!target.has_value() || !inventory.ready())
+    return false;
+  const auto& loot = session->mmoServerCorpseLootPresentation();
+  if(!loot.canOpen(target->handle))
+    return false;
+
+  serverCorpseHandle = target->handle;
+  serverCorpseTitle = std::string(corpse.displayName());
+  if(!submitServerCorpseOpen()) {
+    serverCorpseHandle = {};
+    serverCorpseTitle.clear();
+    return false;
+  }
+
+  state = State::ServerCorpse;
+  player = &pl;
+  trader = nullptr;
+  chest = nullptr;
+  page = 0;
+  serverInventoryMode = false;
+  serverCorpseMode = true;
+  observedServerCorpse = loot.fingerprint();
+  serverPreviewItems.clear();
+  pageLocal[1] = {};
+  pagePl.reset();
+  pageOth.reset();
+  adjustScroll();
+  update();
+  Gothic::inst().emitGlobalSound("INV_OPEN");
+  return true;
+}
+
 void InventoryMenu::open(Npc &pl, Interactive &ch) {
   if(Mmo::isServerBoundClientModeEnabled())
     return;
@@ -285,6 +334,11 @@ void InventoryMenu::onWorldChanged() {
   }
 
 void InventoryMenu::tick(uint64_t /*dt*/) {
+  if(serverCorpseMode) {
+    syncServerCorpseView();
+    if(state==State::Closed)
+      return;
+  }
   if(serverInventoryMode) {
     syncServerInventoryView();
     if(state==State::Closed)
@@ -328,9 +382,13 @@ void InventoryMenu::tick(uint64_t /*dt*/) {
 
     page = 0;
     serverInventoryMode = false;
+    serverCorpseMode = false;
     serverInventoryResyncAttempted = false;
     serverInventoryResyncRequested = false;
     observedServerInventory = {};
+    observedServerCorpse = {};
+    serverCorpseHandle = {};
+    serverCorpseTitle.clear();
     mergeSource.reset();
     renderer.reset();
     pagePl .reset();
@@ -410,7 +468,10 @@ void InventoryMenu::keyDownEvent(KeyEvent &e) {
 
   processMove(e);
 
-  if(keycodec.tr(e)==KeyCodec::Jump) {
+  if(serverCorpseMode && keycodec.tr(e)==KeyCodec::ActionRight) {
+    submitServerCorpseTakeAll();
+    }
+  else if(keycodec.tr(e)==KeyCodec::Jump) {
     lootMode = LootMode::Stack;
     takeTimer.start(200);
     onTakeStuff();
@@ -469,10 +530,14 @@ void InventoryMenu::mouseDownEvent(MouseEvent &e) {
   if(state==State::LockPicking)
     return;
 
-  if (e.button==MouseEvent::ButtonLeft)
+  if(e.button==MouseEvent::ButtonLeft)
     onItemAction(Item::NSLOT);
-  else if (e.button==MouseEvent::ButtonRight)
-    close();
+  else if(e.button==MouseEvent::ButtonRight) {
+    if(serverCorpseMode)
+      submitServerCorpseTakeAll();
+    else
+      close();
+  }
 
   adjustScroll();
 }
@@ -538,13 +603,15 @@ Size InventoryMenu::slotSize() const {
 
 int InventoryMenu::infoHeight() const {
   const float scale = Gothic::interfaceScale(this);
-  const int rows = serverInventoryMode ? 12 : Item::MAX_UI_ROWS+2;
+  const int rows = (serverInventoryMode || serverCorpseMode)
+                       ? 12
+                       : Item::MAX_UI_ROWS+2;
   return rows*int(float(Resources::font(scale).pixelSize()))+
          int(scale*10)/*padding bottom*/;
   }
 
 size_t InventoryMenu::pagesCount() const {
-  if(serverInventoryMode)
+  if(serverInventoryMode || serverCorpseMode)
     return 1;
   if(state==State::Chest || state==State::Trade)
     return 2;
@@ -568,6 +635,10 @@ InventoryMenu::PageLocal &InventoryMenu::activePageSel() {
   }
   
 size_t InventoryMenu::activePageSize() const {
+  if(serverCorpseMode) {
+    const auto* corpse = serverCorpseState();
+    return corpse != nullptr ? corpse->stacks().size() : 0U;
+  }
   if(serverInventoryMode) {
     const auto* inventory = serverInventoryState();
     return inventory != nullptr
@@ -587,6 +658,13 @@ InventoryMenu::serverInventoryState() const {
   return session != nullptr ? &session->mmoServerInventoryPresentation() : nullptr;
   }
 
+const Mmo::ClientPresentation::ServerCorpseLootPresentationState*
+InventoryMenu::serverCorpseState() const {
+  const auto* session = Gothic::inst().gameSession();
+  return session != nullptr ? &session->mmoServerCorpseLootPresentation()
+                            : nullptr;
+}
+
 const Mmo::ClientPresentation::ServerInventoryStack*
 InventoryMenu::selectedServerStack() const {
   const auto* state = serverInventoryState();
@@ -596,6 +674,12 @@ InventoryMenu::selectedServerStack() const {
       pageLocal[1].sel);
   }
 
+const Mmo::ClientPresentation::ServerInventoryStack*
+InventoryMenu::selectedServerCorpseStack() const {
+  const auto* state = serverCorpseState();
+  return state != nullptr ? state->stackAt(pageLocal[1].sel) : nullptr;
+}
+
 bool InventoryMenu::serverInventoryActionsEnabled() const {
   const auto* state = serverInventoryState();
   return state != nullptr &&
@@ -603,7 +687,24 @@ bool InventoryMenu::serverInventoryActionsEnabled() const {
              .actionsEnabled();
   }
 
+bool InventoryMenu::serverCorpseActionsEnabled() const {
+  const auto* state = serverCorpseState();
+  return state != nullptr && state->actionsEnabled();
+}
+
 void InventoryMenu::onItemAction(uint8_t slotHint) {
+  if(serverCorpseMode) {
+    const auto* state = serverCorpseState();
+    if(state==nullptr)
+      return;
+    if(!state->active()) {
+      static_cast<void>(submitServerCorpseOpen());
+      return;
+    }
+    if(serverCorpseActionsEnabled())
+      submitServerCorpseTake(1U);
+    return;
+  }
   if(serverInventoryMode) {
     if(!serverInventoryActionsEnabled())
       return;
@@ -640,6 +741,22 @@ void InventoryMenu::onItemAction(uint8_t slotHint) {
   }
 
 void InventoryMenu::onTakeStuff() { 
+  if(serverCorpseMode) {
+    if(!serverCorpseActionsEnabled())
+      return;
+    const auto* stack = selectedServerCorpseStack();
+    if(stack==nullptr)
+      return;
+    size_t amount = 1U;
+    if(lootMode==LootMode::Stack)
+      amount = stack->quantity;
+    else if(lootMode==LootMode::Ten)
+      amount = 10U;
+    else if(lootMode==LootMode::Hundred)
+      amount = 100U;
+    submitServerCorpseTake(std::min<std::size_t>(amount,stack->quantity));
+    return;
+  }
   if(serverInventoryMode) {
     if(!serverInventoryActionsEnabled())
       return;
@@ -717,6 +834,117 @@ void InventoryMenu::onTakeStuff() {
     }
   adjustScroll();
   }
+
+void InventoryMenu::trackServerCorpseCommand(
+    const Mmo::ClientMmoSubmitResult& result,
+    Mmo::ClientPresentation::ServerCorpseLootPendingCommand command) {
+  auto* session = Gothic::inst().gameSession();
+  const auto* state = serverCorpseState();
+  if(session==nullptr || state==nullptr)
+    return;
+  if(!result.submitted()) {
+    session->rejectMmoServerCorpseLootCommandSubmission(result.status);
+    observedServerCorpse = state->fingerprint();
+    update();
+    return;
+  }
+  command.command = result.command;
+  if(session->trackMmoServerCorpseLootCommand(std::move(command))) {
+    observedServerCorpse = state->fingerprint();
+    update();
+  }
+}
+
+bool InventoryMenu::submitServerCorpseOpen() {
+  auto* session = Gothic::inst().gameSession();
+  const auto* state = serverCorpseState();
+  const auto* inventory = serverInventoryState();
+  if(session==nullptr || state==nullptr || inventory==nullptr ||
+     !inventory->inventory().ready() || !serverCorpseHandle.valid()) {
+    return false;
+  }
+  const auto request = state->openRequest(
+      serverCorpseHandle, inventory->inventory().revision());
+  if(!request.has_value())
+    return false;
+  const auto result = Mmo::submitClientOpenCorpseLoot(*request);
+  trackServerCorpseCommand(result, {
+      .command = {},
+      .kind = Mmo::ClientPresentation::ServerCorpseLootPendingKind::Open,
+      .corpse = request->corpse,
+      .stack = {},
+      .amount = 0U,
+      .expectedCorpseRevision = request->expectedCorpseRevision,
+      .expectedInventoryRevision = request->expectedInventoryRevision,
+      .phase = Mmo::ClientPresentation::ServerCorpseLootPendingPhase::Submitted,
+  });
+  return result.submitted();
+}
+
+void InventoryMenu::submitServerCorpseTake(const size_t amount) {
+  const auto* state = serverCorpseState();
+  const auto* stack = selectedServerCorpseStack();
+  if(state==nullptr || stack==nullptr || amount==0U ||
+     amount>stack->quantity ||
+     amount>std::numeric_limits<std::uint32_t>::max()) {
+    return;
+  }
+  const auto request = state->takeRequest(
+      stack->handle, static_cast<std::uint32_t>(amount));
+  if(!request.has_value())
+    return;
+  const auto result = Mmo::submitClientTakeCorpseLootStack(*request);
+  trackServerCorpseCommand(result, {
+      .command = {},
+      .kind = Mmo::ClientPresentation::ServerCorpseLootPendingKind::TakeStack,
+      .corpse = request->corpse,
+      .stack = request->stack,
+      .amount = request->amount,
+      .expectedCorpseRevision = request->expectedCorpseRevision,
+      .expectedInventoryRevision = request->expectedInventoryRevision,
+      .phase = Mmo::ClientPresentation::ServerCorpseLootPendingPhase::Submitted,
+  });
+}
+
+void InventoryMenu::submitServerCorpseTakeAll() {
+  const auto* state = serverCorpseState();
+  if(state==nullptr)
+    return;
+  const auto request = state->takeAllRequest();
+  if(!request.has_value())
+    return;
+  const auto result = Mmo::submitClientTakeAllCorpseLoot(*request);
+  trackServerCorpseCommand(result, {
+      .command = {},
+      .kind = Mmo::ClientPresentation::ServerCorpseLootPendingKind::TakeAll,
+      .corpse = request->corpse,
+      .stack = {},
+      .amount = 0U,
+      .expectedCorpseRevision = request->expectedCorpseRevision,
+      .expectedInventoryRevision = request->expectedInventoryRevision,
+      .phase = Mmo::ClientPresentation::ServerCorpseLootPendingPhase::Submitted,
+  });
+}
+
+void InventoryMenu::submitServerCorpseClose() {
+  const auto* state = serverCorpseState();
+  if(state==nullptr)
+    return;
+  const auto request = state->closeRequest();
+  if(!request.has_value())
+    return;
+  const auto result = Mmo::submitClientCloseCorpseLoot(*request);
+  trackServerCorpseCommand(result, {
+      .command = {},
+      .kind = Mmo::ClientPresentation::ServerCorpseLootPendingKind::Close,
+      .corpse = request->corpse,
+      .stack = {},
+      .amount = 0U,
+      .expectedCorpseRevision = request->expectedCorpseRevision,
+      .expectedInventoryRevision = request->expectedInventoryRevision,
+      .phase = Mmo::ClientPresentation::ServerCorpseLootPendingPhase::Submitted,
+  });
+}
 
 void InventoryMenu::trackServerCommand(
     const Mmo::ClientMmoSubmitResult& result,
@@ -939,6 +1167,62 @@ void InventoryMenu::syncServerInventoryView() {
   update();
 }
 
+void InventoryMenu::showServerCorpseFeedback(
+    const Mmo::ClientPresentation::ServerCorpseLootFeedback feedback) {
+  const auto* state = serverCorpseState();
+  if(state==nullptr || state->feedback()!=feedback ||
+     state->feedbackMessage().empty()) {
+    return;
+  }
+  Gothic::inst().onPrintScreen(
+      state->feedbackMessage(),2,4,2,
+      Resources::font(Gothic::interfaceScale(this)));
+}
+
+void InventoryMenu::syncServerCorpseView() {
+  const auto* state = serverCorpseState();
+  if(state==nullptr) {
+    close();
+    return;
+  }
+  const auto fingerprint = state->fingerprint();
+  if(fingerprint==observedServerCorpse)
+    return;
+
+  if(fingerprint.replacementRevision !=
+         observedServerCorpse.replacementRevision ||
+     fingerprint.corpseRevision != observedServerCorpse.corpseRevision) {
+    serverPreviewItems.clear();
+  }
+  observedServerCorpse = fingerprint;
+
+  if(state->activeCorpse().has_value() &&
+     *state->activeCorpse()!=serverCorpseHandle) {
+    close();
+    return;
+  }
+  switch(state->feedback()) {
+    case Mmo::ClientPresentation::ServerCorpseLootFeedback::OutOfRange:
+    case Mmo::ClientPresentation::ServerCorpseLootFeedback::Empty:
+    case Mmo::ClientPresentation::ServerCorpseLootFeedback::Decayed:
+    case Mmo::ClientPresentation::ServerCorpseLootFeedback::Disconnected:
+    case Mmo::ClientPresentation::ServerCorpseLootFeedback::ResyncRequired:
+      showServerCorpseFeedback(state->feedback());
+      close();
+      return;
+    default:
+      break;
+  }
+  if(!state->active() && !state->pending() &&
+     state->feedback()==
+         Mmo::ClientPresentation::ServerCorpseLootFeedback::Ready) {
+    close();
+    return;
+  }
+  adjustScroll();
+  update();
+}
+
 void InventoryMenu::adjustScroll() {
   auto& sel  = activePageSel();
   const auto size = activePageSize();
@@ -967,6 +1251,17 @@ void InventoryMenu::drawAll(Painter &p, Npc &player, DrawPass pass) {
 
   const int wcount = int(columsCount);
   const int hcount = int(rowsCount());
+
+  if(serverCorpseMode) {
+    if(pass==DrawPass::Back)
+      drawHeader(p,serverCorpseTitle.empty() ? "Corpse Loot" : serverCorpseTitle,
+                 padd,70);
+    drawServerItems(p,pass,pageLocal[1],
+                    w()-padd-wcount*slotSize().w,iy,wcount,hcount);
+    if(pass==DrawPass::Back)
+      drawServerCorpseInfo(p);
+    return;
+  }
 
   if(serverInventoryMode) {
     if(pass==DrawPass::Back)
@@ -1133,16 +1428,24 @@ Item* InventoryMenu::serverPreviewItem(
 void InventoryMenu::drawServerItems(Painter &p, DrawPass pass,
                                     const PageLocal& sel, int x0, int y,
                                     int wcount, int hcount) {
-  const auto* state = serverInventoryState();
-  if(state==nullptr)
-    return;
+  std::span<const Mmo::ClientPresentation::ServerInventoryStack> stacks;
+  if(serverCorpseMode) {
+    const auto* state = serverCorpseState();
+    if(state==nullptr)
+      return;
+    stacks = state->stacks();
+  } else {
+    const auto* state = serverInventoryState();
+    if(state==nullptr)
+      return;
+    stacks = state->inventory().stacks();
+  }
   if(tex!=nullptr && pass==DrawPass::Back) {
     p.setBrush(*tex);
     p.drawRect(x0,y,slotSize().w*wcount,slotSize().h*hcount,
                0,0,tex->w(),tex->h());
   }
 
-  const auto stacks = state->inventory().stacks();
   size_t id = sel.scroll*size_t(wcount);
   for(int row=0; row<hcount; ++row) {
     for(int column=0; column<wcount; ++column) {
@@ -1164,11 +1467,16 @@ void InventoryMenu::drawServerSlot(
     Painter &p, DrawPass pass,
     const Mmo::ClientPresentation::ServerInventoryStack& stack,
     const PageLocal& sel, int x, int y, size_t id) {
-  const auto* state = serverInventoryState();
-  if(state==nullptr || slot==nullptr)
+  const auto* inventoryState = serverInventoryState();
+  const auto* corpseState = serverCorpseState();
+  if(slot==nullptr ||
+     (!serverCorpseMode && inventoryState==nullptr) ||
+     (serverCorpseMode && corpseState==nullptr))
     return;
   const float scale = Gothic::interfaceScale(this);
-  const auto equipped = state->equipment().slotOf(stack.handle);
+  const auto equipped = !serverCorpseMode && inventoryState!=nullptr
+                            ? inventoryState->equipment().slotOf(stack.handle)
+                            : std::optional<Mmo::ClientEquipmentSlot>{};
 
   if(pass==DrawPass::Back) {
     if(id==sel.sel && selT!=nullptr) {
@@ -1207,14 +1515,22 @@ void InventoryMenu::drawServerSlot(
     const auto label = std::string(equipmentSlotName(*equipped));
     equippedFont.drawText(p,x+6,y+int(equippedFont.pixelSize()),label);
   }
-  const Mmo::ClientPresentation::ServerInventoryPageModel pageModel(*state);
-  if(const auto phase = pageModel.pendingPhase(stack.handle)) {
+  std::optional<std::string_view> pendingLabel;
+  if(serverCorpseMode && corpseState!=nullptr) {
+    if(const auto phase = corpseState->pendingPhase(stack.handle))
+      pendingLabel = *phase==Mmo::ClientPresentation::ServerCorpseLootPendingPhase::Submitted
+                         ? "..." : "OK";
+  } else if(inventoryState!=nullptr) {
+    const Mmo::ClientPresentation::ServerInventoryPageModel pageModel(*inventoryState);
+    if(const auto phase = pageModel.pendingPhase(stack.handle))
+      pendingLabel = *phase==Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted
+                         ? "..." : "OK";
+  }
+  if(pendingLabel.has_value()) {
     auto& pendingFont = Resources::font(Resources::FontType::Red,scale);
-    pendingFont.drawText(
-        p,x+6,y+slotSize().h-8,
-        *phase==Mmo::ClientPresentation::ServerInventoryPendingPhase::Submitted
-            ? "..." : "OK");
-  } else if(mergeSource.has_value() && *mergeSource==stack.handle) {
+    pendingFont.drawText(p,x+6,y+slotSize().h-8,*pendingLabel);
+  } else if(!serverCorpseMode && mergeSource.has_value() &&
+            *mergeSource==stack.handle) {
     auto& mergeFont = Resources::font(Resources::FontType::Red,scale);
     mergeFont.drawText(p,x+6,y+slotSize().h-8,"M");
   }
@@ -1303,6 +1619,52 @@ void InventoryMenu::drawServerInfo(Painter &p) {
     fnt.drawText(p,x+20,y+int(index+2U)*fnt.pixelSize(),lines[index]);
 }
 
+void InventoryMenu::drawServerCorpseInfo(Painter& p) {
+  const auto* state = serverCorpseState();
+  const auto* stack = selectedServerCorpseStack();
+  if(state==nullptr)
+    return;
+
+  const float scale = Gothic::interfaceScale(this);
+  const int dw = std::min(w(),int(720*scale));
+  const int dh = infoHeight();
+  const int x = (w()-dw)/2;
+  const int y = h()-dh-20;
+  if(tex) {
+    p.setBrush(*tex);
+    p.drawRect(x,y,dw,dh,0,0,tex->w(),tex->h());
+  }
+
+  auto& fnt = Resources::font(scale);
+  const auto title = stack != nullptr ? serverItemDisplayName(*stack)
+                                      : std::string("Server corpse loot");
+  const auto titleSize = fnt.textSize(title);
+  fnt.drawText(p,x+(dw-titleSize.w)/2,y+int(fnt.pixelSize()),title);
+
+  std::vector<std::string> lines;
+  lines.reserve(10U);
+  if(stack != nullptr) {
+    lines.push_back("stack: "+std::to_string(stack->handle.instanceId)+":"+
+                    std::to_string(stack->handle.generation));
+    lines.push_back("quantity: "+std::to_string(stack->quantity));
+    lines.push_back("item revision: "+std::to_string(stack->itemRevision));
+  }
+  lines.push_back("corpse/inventory revision: "+
+                  std::to_string(state->corpseRevision())+"/"+
+                  std::to_string(state->inventoryRevision()));
+  lines.push_back("snapshot: "+std::to_string(state->snapshotId()));
+  if(!state->feedbackMessage().empty())
+    lines.emplace_back(state->feedbackMessage());
+  lines.push_back(state->actionsEnabled()
+                      ? "Action/Enter/left click: take one"
+                      : "Loot actions wait for authoritative state");
+  lines.push_back("Jump: take stack | Z/X: take 10/100");
+  lines.push_back("Right action/right click: take all | Inventory/Esc: close");
+
+  for(size_t index=0; index<lines.size(); ++index)
+    fnt.drawText(p,x+20,y+int(index+2U)*fnt.pixelSize(),lines[index]);
+}
+
 void InventoryMenu::drawGold(Painter &p, Npc &player, int x, int y) {
   if(!slot)
     return;
@@ -1339,6 +1701,10 @@ void InventoryMenu::drawHeader(Painter &p, std::string_view title, int x, int y)
   }
 
 void InventoryMenu::drawInfo(Painter &p) {
+  if(serverCorpseMode) {
+    drawServerCorpseInfo(p);
+    return;
+  }
   if(serverInventoryMode) {
     drawServerInfo(p);
     return;

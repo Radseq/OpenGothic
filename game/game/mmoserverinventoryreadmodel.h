@@ -565,6 +565,7 @@ class ServerInventoryPendingState final {
       return false;
     switch(command.command.kind) {
       case ClientMmoCommandKind::PickupItem:
+      case ClientMmoCommandKind::SelectiveLoot:
         return false;
       case ClientMmoCommandKind::EquipItem:
         return command.slot.has_value() &&
