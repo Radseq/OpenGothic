@@ -24,6 +24,7 @@ enum class NpcLocalGameplayEntryPoint : std::uint8_t {
   AttributeMutation,
   MovementPlanning,
   MovementMutation,
+  RotationMutation,
   AnimationGameplayEvent,
   Dialog,
   Interaction,
@@ -77,6 +78,12 @@ class NpcAuthorityGate final {
     [[nodiscard]] constexpr bool allowsLocalGameplay() const noexcept {
       return mode_ == NpcAuthorityMode::NativeSinglePlayer;
     }
+    [[nodiscard]] constexpr bool serverPlayerPositionAuthority() const noexcept {
+      return serverPlayerPositionAuthority_;
+    }
+    constexpr void setServerPlayerPositionAuthority(const bool value) noexcept {
+      serverPlayerPositionAuthority_ = value;
+    }
     [[nodiscard]] constexpr NpcAuthorityDiagnostics diagnostics() const noexcept {
       return serverReplica() ? ServerReplicaNpcAuthorityDiagnostics
                              : NativeNpcAuthorityDiagnostics;
@@ -84,7 +91,14 @@ class NpcAuthorityGate final {
 
     [[nodiscard]] bool rejectLocalGameplay(
         const NpcLocalGameplayEntryPoint entryPoint) noexcept {
-      if(allowsLocalGameplay() || applyingServerPresentation())
+      if(applyingServerPresentation())
+        return false;
+      // The local player may still turn and play local input animations, but
+      // its world position must come only from the server.
+      if(serverPlayerPositionAuthority_ &&
+         entryPoint != NpcLocalGameplayEntryPoint::MovementMutation)
+        return false;
+      if(allowsLocalGameplay())
         return false;
       const auto index = static_cast<std::size_t>(entryPoint);
       if(index >= rejected_.size())
@@ -165,6 +179,7 @@ class NpcAuthorityGate final {
     static constexpr auto EntryPointCount =
         static_cast<std::size_t>(NpcLocalGameplayEntryPoint::Count);
     NpcAuthorityMode mode_ = NpcAuthorityMode::NativeSinglePlayer;
+    bool serverPlayerPositionAuthority_ = false;
     std::array<std::uint32_t, EntryPointCount> rejected_{};
     std::uint32_t totalRejected_ = 0U;
     std::uint16_t serverPresentationDepth_ = 0U;

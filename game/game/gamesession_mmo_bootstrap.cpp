@@ -116,6 +116,7 @@ void GameSession::loadMmoClientPresentationCatalog() noexcept {
 void GameSession::beginMmoLocalWorldObjectCatalog() noexcept {
   mmoServerWorldObjects.resetLocalCatalog();
   mmoLocalItemInstanceSymbols.clear();
+  mmoLocalItemPresentationFallbacks.clear();
 }
 
 void GameSession::registerMmoLocalWorldObject(

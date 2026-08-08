@@ -190,6 +190,7 @@ class Npc final {
 
     bool       isPlayer() const;
     void       setMmoServerReplica(bool value) noexcept;
+    void       setMmoServerPlayerPositionAuthority(bool value) noexcept;
     [[nodiscard]] bool isMmoServerReplica() const noexcept {
       return mmoAuthorityGate.serverReplica();
     }
@@ -207,7 +208,12 @@ class Npc final {
     }
     void       applyMmoServerPresentationStats(
                    const PersistentStats& state);
-    void       applyMmoServerPresentationTarget(Npc* target);
+    void       applyMmoServerPresentationTarget(Npc* target,
+                                                bool faceTarget = false);
+    void       setMmoServerPresentationVerticalOffset(float offset) noexcept;
+    [[nodiscard]] bool applyMmoServerPresentationPickup(const Item& item);
+    bool       applyMmoServerPresentationPosition(
+                   const Tempest::Vec3& position, bool clearVelocity);
     bool       applyMmoServerPresentationTransform(
                    const Tempest::Vec3& position, float yaw,
                    bool clearVelocity);
@@ -726,6 +732,8 @@ class Npc final {
     bool                           mmoPresentationWeaponTransitionPending = false;
     bool                           mmoPresentationMeleeTwoHanded = false;
     bool                           mmoPresentationRangedCrossbow = false;
+    bool                           mmoPresentationFaceTarget = false;
+    float                          mmoPresentationVerticalOffset = 0.0F;
 
     // last hit
     Npc*                           lastHit          = nullptr;

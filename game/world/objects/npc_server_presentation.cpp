@@ -1,10 +1,12 @@
 #include "npc.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <Tempest/Matrix4x4>
 #include <Tempest/Log>
 
+#include "graphics/mesh/pose.h"
 #include "graphics/mesh/skeleton.h"
 #include "graphics/visualfx.h"
 #include "game/damagecalculator.h"
@@ -57,7 +59,16 @@ void Npc::setMmoServerReplica(const bool value) noexcept {
   mmoPresentationWeaponTransitionPending = false;
   mmoPresentationMeleeTwoHanded = false;
   mmoPresentationRangedCrossbow = false;
+  mmoPresentationFaceTarget = false;
+  mmoPresentationVerticalOffset = 0.0F;
   physic.setEnable(hnpc->attribute[ATR_HITPOINTS] > 0);
+}
+
+void Npc::setMmoServerPlayerPositionAuthority(const bool value) noexcept {
+  if(mmoAuthorityGate.serverPlayerPositionAuthority() == value)
+    return;
+  mmoAuthorityGate.setServerPlayerPositionAuthority(value);
+  mmoAuthorityGate.clearDiagnostics();
 }
 
 void Npc::applyMmoServerPresentationStats(
@@ -66,9 +77,48 @@ void Npc::applyMmoServerPresentationStats(
   restorePersistentStats(state);
 }
 
-void Npc::applyMmoServerPresentationTarget(Npc* const target) {
+void Npc::applyMmoServerPresentationTarget(
+    Npc* const target,
+    const bool faceTarget) {
   auto serverPresentation = mmoAuthorityGate.serverPresentationScope();
   setTarget(target);
+  mmoPresentationFaceTarget = faceTarget && target != nullptr;
+  if(mmoPresentationFaceTarget) {
+    setDirection(target->position() - position());
+  }
+}
+
+void Npc::setMmoServerPresentationVerticalOffset(const float offset) noexcept {
+  constexpr float MaximumPresentationVerticalOffset = 256.0F;
+  mmoPresentationVerticalOffset = std::isfinite(offset)
+      ? std::clamp(
+            offset,
+            -MaximumPresentationVerticalOffset,
+            MaximumPresentationVerticalOffset)
+      : 0.0F;
+}
+
+bool Npc::applyMmoServerPresentationPickup(const Item& item) {
+  auto serverPresentation = mmoAuthorityGate.serverPresentationScope();
+  const auto delta = item.midPosition() - centerPosition();
+  const auto* sequence =
+      setAnimAngGet(Anim::ItmGet, Pose::calcAniCombVert(delta));
+  if(sequence == nullptr)
+    return false;
+  implAniWait(static_cast<std::uint64_t>(sequence->totalTime()));
+  return true;
+}
+
+bool Npc::applyMmoServerPresentationPosition(
+    const Tempest::Vec3& position,
+    const bool clearVelocity) {
+  auto serverPresentation = mmoAuthorityGate.serverPresentationScope();
+  auto presentationPosition = position;
+  presentationPosition.y += mmoPresentationVerticalOffset;
+  const bool changed = setPosition(presentationPosition);
+  if(clearVelocity)
+    clearSpeed();
+  return changed;
 }
 
 bool Npc::applyMmoServerPresentationTransform(
@@ -76,8 +126,13 @@ bool Npc::applyMmoServerPresentationTransform(
     const float yaw,
     const bool clearVelocity) {
   auto serverPresentation = mmoAuthorityGate.serverPresentationScope();
-  const bool changed = setPosition(position);
+  auto presentationPosition = position;
+  presentationPosition.y += mmoPresentationVerticalOffset;
+  const bool changed = setPosition(presentationPosition);
   setDirection(yaw);
+  if(mmoPresentationFaceTarget && currentTarget != nullptr) {
+    setDirection(currentTarget->position() - presentationPosition);
+  }
   if(clearVelocity)
     clearSpeed();
   return changed;

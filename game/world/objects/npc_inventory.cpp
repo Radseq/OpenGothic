@@ -19,6 +19,7 @@
 #include "utils/versioninfo.h"
 #include "utils/fileext.h"
 #include "utils/dbgpainter.h"
+#include "utils/nativetelemetry.h"
 #include "camera.h"
 #include "gothic.h"
 #include "resources.h"
@@ -63,6 +64,7 @@ Item* Npc::takeItem(Item& item) {
   const auto sourceWorldItemPersistentId = item.persistentId();
   const auto sourceItemSymbol = item.clsId();
   const auto sourceAmount = item.count();
+  const auto sourcePosition = item.position();
 
   auto state = bodyStateMasked();
   if(state!=BS_STAND && state!=BS_SNEAK && state!=BS_SWIM && state!=BS_DIVE) {
@@ -89,6 +91,13 @@ Item* Npc::takeItem(Item& item) {
     return nullptr;
 
   it = addItem(std::move(ptr));
+  if(isPlayer() && it != nullptr) {
+    const auto playerPosition = position();
+    NativeTelemetry::itemPickedUp(
+        it->displayName(), it->clsId(), it->count(),
+        playerPosition.x, playerPosition.y, playerPosition.z, rotation(),
+        sourcePosition.x, sourcePosition.y, sourcePosition.z);
+  }
   if(it!=nullptr)
     Mmo::Hooks::onWorldItemPickedUp(*this, *it, sourceWorldItemPersistentId,
                                     sourceItemSymbol, sourceAmount,

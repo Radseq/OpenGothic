@@ -16,6 +16,8 @@ struct ServerEntityInterpolationConfig final {
   double snapDistance = 600.0;
   std::size_t maxEntities = 4096;
   double movementThreshold = 0.5;
+  double maximumHorizontalExtrapolationSpeed = 500.0;
+  double maximumVerticalExtrapolationSpeed = 1450.0;
 };
 
 struct ServerEntityPresentationTransform final {

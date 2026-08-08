@@ -110,6 +110,11 @@ CommandLine::CommandLine(int argc, const char** argv) {
       if(i<argc)
         dumpSave = argv[i];
       }
+    else if(arg=="-native-telemetry") {
+      ++i;
+      if(i<argc)
+        nativeTelemetryPath = argv[i];
+      }
     else if(arg=="-mmo-sqlite") {
       mmoSqliteOptionRequested = true;
       // Enables local MMO persistence. The path identifies the SQLite database
@@ -548,6 +553,7 @@ CommandLine::CommandLine(int argc, const char** argv) {
       }
     else {
       Log::i("MMO server-bound client mode enabled: ", mmoActionUdp);
+      Log::i("MMO graphical client contract: opengothic-mmo-graphical-v1");
       }
 
     // Conservative server-mode defaults. They apply only when the explicit

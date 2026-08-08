@@ -358,11 +358,11 @@ void DialogMenu::presentTypedServerDialog(
             typedChoicesRevision = 0U;
           }
 
-          const auto lineKey = std::to_string(value.lineId);
-          current.txt = Gothic::inst().messageByName(lineKey);
-          current.msgTime = current.txt.empty()
-                                ? 0U
-                                : Gothic::inst().messageTime(lineKey);
+          // The server sends the authoritative line text. Keep the line id
+          // only as an identity; never turn its numeric hash into a Gothic
+          // message name.
+          current.txt = value.lineText;
+          current.msgTime = current.txt.empty() ? 0U : 500U;
           current.time = current.msgTime +
                          (current.msgTime != 0U && dlgAnimation
                               ? ANIM_TIME * 2U
@@ -372,10 +372,15 @@ void DialogMenu::presentTypedServerDialog(
               (speaker != nullptr && speaker == pl);
 
           if(current.txt.empty()) {
-            Log::e("MMO typed dialog line unresolved by client presentation catalog: line=",
+            Log::e("MMO typed dialog line suppressed: opaque_line_id=",
                    value.lineId,
                    " session=", value.sessionId,
-                   " revision=", value.dialogRevision);
+                   " revision=", value.dialogRevision,
+                   " reason=server_sent_empty_line_text");
+          } else {
+            Log::i("MMO typed dialog line shown: session=", value.sessionId,
+                   " revision=", value.dialogRevision,
+                   " bytes=", value.lineText.size());
           }
           if(awaitingChoice && !completeChoices) {
             Log::e("MMO typed dialog choices incomplete: session=",
@@ -568,6 +573,8 @@ void DialogMenu::close() {
     prevPl->stopDlgAnim();
     }
   if(prevNpc && prevNpc!=prevPl){
+    if(prevNpc->isMmoServerReplica())
+      prevNpc->applyMmoServerPresentationTarget(nullptr, false);
     prevNpc->stopDlgAnim();
     }
   }

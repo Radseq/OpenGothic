@@ -1,4 +1,6 @@
 #include "gamesession.h"
+
+#include "../../../shared/game/gothic/gothic_pickup_limits.h"
 #include "savegameheader.h"
 #if OPENGOTHIC_MMO_SQLITE_TOOLING
 #include "../../tools/mmo/mmoruntimesqlite.h"
@@ -44,6 +46,7 @@
 #include "camera.h"
 #include "gothic.h"
 #include "commandline.h"
+#include "../../../shared/net/mmo/mmo_protocol_v2_live_presentation.h"
 
 using namespace Tempest;
 
@@ -210,6 +213,8 @@ MmoServerEntityMaterialization materializeMmoServerEntityNpc(
         static_cast<float>(entity.transform.posZ)};
     auto* npc = findLocalNpcForServerEntity(world, instanceSymbol, position);
     const bool materializedByMmo = npc == nullptr;
+    const auto localPresentationPosition =
+        npc != nullptr ? npc->position() : position;
     if(npc == nullptr)
       npc = world.addMmoServerReplica(instanceSymbol, position);
     if(npc == nullptr)
@@ -258,6 +263,18 @@ MmoServerEntityMaterialization materializeMmoServerEntityNpc(
           " instance_symbol=", instanceSymbol);
     }
     npc->setMmoServerReplica(true);
+    const float verticalOffset = materializedByMmo
+        ? 0.0F
+        : localPresentationPosition.y - position.y;
+    npc->setMmoServerPresentationVerticalOffset(verticalOffset);
+    if(!materializedByMmo && std::abs(verticalOffset) > 0.01F) {
+      Log::i(
+          "MMO NPC presentation ground offset: entity=", entity.handle.id,
+          " instance_symbol=", instanceSymbol,
+          " authoritative_y=", position.y,
+          " native_y=", localPresentationPosition.y,
+          " offset_y=", verticalOffset);
+    }
     return {npc, materializedByMmo};
   } catch(const std::exception& error) {
     Log::e("MMO typed entity materialization failed: ", error.what());
@@ -310,6 +327,14 @@ void GameSession::releaseMmoServerPresentationBinding(
     const Mmo::ClientPresentation::ServerEntityPresentationBinding& binding) noexcept {
   if(binding.kind == Mmo::ClientPresentation::ServerEntityKind::LocalPlayer) {
     mmoMovementCorrectionBoundary.unbindLocalPlayer();
+    if(wrld != nullptr) {
+      auto* npc = findNpcByPresentationIdentity(*wrld, binding.local);
+      if(npc != nullptr && npc->isPlayer() &&
+         npc->persistentId() == binding.local.persistentId &&
+         npc->instanceSymbol() == binding.local.instanceSymbol) {
+        npc->setMmoServerPlayerPositionAuthority(false);
+      }
+    }
     return;
   }
   if(wrld == nullptr)
@@ -404,14 +429,17 @@ GameSession::mmoServerEntityTarget(
   using Kind =
       Mmo::ClientPresentation::ServerPresentationWorldObjectKind;
   std::optional<Mmo::ClientPresentation::ServerPresentationEntityHandle> entity;
+  bool exactBinding = false;
   for(const auto kind : {Kind::Interactive, Kind::Container, Kind::Mover}) {
     entity = mmoServerWorldObjects.find(
         Mmo::ClientPresentation::LocalVobToken{
             .vobObjectId = interactive.getId(),
             .kind = kind,
         });
-    if(entity.has_value())
+    if(entity.has_value()) {
+      exactBinding = true;
       break;
+    }
   }
   if(!entity.has_value()) {
     const auto position =
@@ -432,6 +460,13 @@ GameSession::mmoServerEntityTarget(
     return std::nullopt;
   }
 
+  if(!exactBinding) {
+    Log::i("MMO interactive target lookup: binding=nearest vob=",
+           interactive.getId(), " entity=", entity->id, ":",
+           entity->generation, " position=", interactive.position().x, ",",
+           interactive.position().y, ",", interactive.position().z);
+  }
+
   std::uint64_t revision = 0U;
   if(const auto* state = mmoTypedServerPresentation.findInteractive(*entity);
      state != nullptr) {
@@ -440,11 +475,19 @@ GameSession::mmoServerEntityTarget(
             state != nullptr) {
     revision = state->stateRevision;
   } else {
+    Log::e("MMO interactive target lookup: entity has no replicated state entity=",
+           entity->id, ":", entity->generation,
+           " exact_binding=", exactBinding ? 1 : 0);
     return std::nullopt;
   }
   const auto session = Mmo::clientMmoSessionSnapshot();
   if(!session.inWorld() || session.worldId == 0U ||
      session.worldGeneration == 0U || !entity->valid()) {
+    Log::e("MMO interactive target lookup: invalid route entity=", entity->id,
+           ":", entity->generation, " in_world=", session.inWorld() ? 1 : 0,
+           " session_world=", session.worldId,
+           " session_generation=", session.worldGeneration,
+           " entity_valid=", entity->valid() ? 1 : 0);
     return std::nullopt;
   }
 
@@ -465,12 +508,31 @@ GameSession::mmoServerEntityTarget(const Item& item) const noexcept {
       mmoServerWorldItemBindings.begin(),
       mmoServerWorldItemBindings.end(),
       [&item](const auto& value) noexcept { return value.item == &item; });
-  if(binding == mmoServerWorldItemBindings.end() || binding->revision == 0U)
+  if(binding == mmoServerWorldItemBindings.end()) {
+    Log::e("MMO item target lookup: binding=0 item=", item.displayName(),
+           " object=", reinterpret_cast<std::uintptr_t>(&item),
+           " position=", item.position().x, ",", item.position().y, ",",
+           item.position().z,
+           " known_server_items=", mmoServerWorldItemBindings.size());
     return std::nullopt;
+  }
+  if(binding->revision == 0U) {
+    Log::e("MMO item target lookup: binding=1 revision=0 item=",
+           item.displayName(), " entity=", binding->entity.id, ":",
+           binding->entity.generation, " quantity=", binding->quantity);
+    return std::nullopt;
+  }
   const auto session = Mmo::clientMmoSessionSnapshot();
   if(!session.inWorld() || session.worldId != binding->entity.world.id ||
-     session.worldGeneration != binding->entity.world.generation)
+     session.worldGeneration != binding->entity.world.generation) {
+    Log::e("MMO item target lookup: route mismatch item=", item.displayName(),
+           " in_world=", session.inWorld() ? 1 : 0,
+           " session_world=", session.worldId, ":", session.worldGeneration,
+           " item_world=", binding->entity.world.id, ":",
+           binding->entity.world.generation, " entity=", binding->entity.id,
+           ":", binding->entity.generation);
     return std::nullopt;
+  }
   return MmoServerEntityTarget{
       .handle = {
           .worldId = binding->entity.world.id,
@@ -483,8 +545,40 @@ GameSession::mmoServerEntityTarget(const Item& item) const noexcept {
   };
 }
 
+bool GameSession::mmoServerPickupPending(
+    const Mmo::ClientEntityHandle& item) const noexcept {
+  return std::any_of(
+      mmoServerPendingPickups.begin(), mmoServerPendingPickups.end(),
+      [&item](const auto& pending) noexcept { return pending.item == item; });
+}
+
+void GameSession::trackMmoServerPickup(
+    const Mmo::ClientMmoCommandToken& command,
+    const Mmo::ClientEntityHandle& item) noexcept {
+  if(!command.valid() || !item.valid() || mmoServerPickupPending(item))
+    return;
+  mmoServerPendingPickups.push_back({command, item});
+}
+
+void GameSession::completeMmoServerPickup(
+    const Mmo::ClientMmoCommandToken& command) noexcept {
+  std::erase_if(
+      mmoServerPendingPickups,
+      [&command](const auto& pending) noexcept {
+        return pending.command == command;
+      });
+}
+
+void GameSession::clearMmoServerPickup(
+    const Mmo::ClientEntityHandle& item) noexcept {
+  std::erase_if(
+      mmoServerPendingPickups,
+      [&item](const auto& pending) noexcept { return pending.item == item; });
+}
+
 Item* GameSession::mmoNearestServerWorldItem(
     const Tempest::Vec3& position,
+    const float yawDegrees,
     const float maximumDistance) const noexcept {
   if(maximumDistance < 0.0F)
     return nullptr;
@@ -495,6 +589,12 @@ Item* GameSession::mmoNearestServerWorldItem(
     if(binding.item == nullptr || binding.revision == 0U)
       continue;
     const auto itemPosition = binding.item->position();
+    if(!Mmo::Gameplay::canPickUpItem(
+           {.x = position.x, .y = position.y, .z = position.z}, yawDegrees,
+           {.x = itemPosition.x, .y = itemPosition.y, .z = itemPosition.z},
+           maximumDistance)) {
+      continue;
+    }
     const auto dx = itemPosition.x - position.x;
     const auto dy = itemPosition.y - position.y;
     const auto dz = itemPosition.z - position.z;
@@ -684,14 +784,15 @@ void GameSession::applyMmoServerEntityTransform(
   if(kind == ServerEntityKind::LocalPlayer) {
     if(!mmoMovementCorrectionBoundary.bindLocalPlayer(handle, observation.route))
       return;
-    if(snap || entity.transform.teleport) {
-      if(npc->setPosition(static_cast<float>(entity.transform.posX),
-                          static_cast<float>(entity.transform.posY),
-                          static_cast<float>(entity.transform.posZ))) {
-        npc->setDirection(static_cast<float>(entity.transform.yaw));
-        npc->clearSpeed();
-      }
-    }
+    npc->setMmoServerPlayerPositionAuthority(true);
+    // The server owns the player's position. The first correction aligns the
+    // local ZEN start, while normal entity transforms keep the graphical
+    // player in the same place as the authority between movement packets.
+    static_cast<void>(npc->applyMmoServerPresentationPosition(
+        {static_cast<float>(entity.transform.posX),
+         static_cast<float>(entity.transform.posY),
+         static_cast<float>(entity.transform.posZ)},
+        snap || entity.transform.teleport));
     mmoServerEntityPresentation.touch(observation);
     return;
   }
@@ -772,7 +873,10 @@ void GameSession::applyMmoServerNpcState(
   Npc* target = nullptr;
   if((state.flags & ServerPresentationNpcTargetPresent) != 0U)
     target = resolveMmoServerEntity(state.target);
-  npc->applyMmoServerPresentationTarget(target);
+  const bool faceTarget =
+      state.activityState == ServerPresentationNpcActivityState::Dialog ||
+      state.activityState == ServerPresentationNpcActivityState::Interaction;
+  npc->applyMmoServerPresentationTarget(target, faceTarget);
 
   if(state.activityState == ServerPresentationNpcActivityState::Dialog ||
      state.activityState == ServerPresentationNpcActivityState::Interaction) {
@@ -818,6 +922,7 @@ void GameSession::resetMmoServerWorldItems() noexcept {
     }
   }
   mmoServerWorldItemBindings.clear();
+  mmoServerPendingPickups.clear();
 }
 
 void GameSession::applyMmoServerWorldItemSpawn(
@@ -851,6 +956,7 @@ void GameSession::applyMmoServerWorldItemSpawn(
   }
 
   std::optional<std::size_t> itemInstance;
+  bool usedLocalPresentationFallback = false;
   const auto catalogInstance = mmoItemInstanceName(
       event.presentation.archetypeId, event.presentation.presentationId);
   if(catalogInstance.has_value()) {
@@ -865,6 +971,7 @@ void GameSession::applyMmoServerWorldItemSpawn(
              local->vobObjectId);
          fallback != mmoLocalItemInstanceSymbols.end()) {
         itemInstance = fallback->second;
+        usedLocalPresentationFallback = true;
         Log::i(
             "MMO world-item local presentation fallback: entity=",
             event.entity.id,
@@ -901,6 +1008,40 @@ void GameSession::applyMmoServerWorldItemSpawn(
   if(item == nullptr)
     return;
   item->setCount(event.quantity);
+  if(usedLocalPresentationFallback &&
+     *itemInstance <= std::numeric_limits<std::uint32_t>::max()) {
+    const auto* symbol = vm->findSymbol(*itemInstance);
+    const auto instanceName = symbol != nullptr
+        ? std::string(symbol->name())
+        : std::string{};
+    const auto displayName = std::string(item->displayName());
+    auto fallback = std::find_if(
+        mmoLocalItemPresentationFallbacks.begin(),
+        mmoLocalItemPresentationFallbacks.end(),
+        [&event](const auto& value) noexcept {
+          return value.archetypeId == event.presentation.archetypeId &&
+                 value.presentationId == event.presentation.presentationId;
+        });
+    MmoLocalItemPresentationFallback learned{
+        .archetypeId = event.presentation.archetypeId,
+        .presentationId = event.presentation.presentationId,
+        .instanceSymbol = static_cast<std::uint32_t>(*itemInstance),
+        .instanceName = instanceName,
+        .displayName = displayName,
+    };
+    if(fallback == mmoLocalItemPresentationFallbacks.end()) {
+      mmoLocalItemPresentationFallbacks.push_back(std::move(learned));
+    } else {
+      *fallback = std::move(learned);
+    }
+    Log::i(
+        "MMO item presentation learned from native world: archetype=",
+        event.presentation.archetypeId,
+        " presentation=", event.presentation.presentationId,
+        " symbol=", *itemInstance,
+        " instance_name=", instanceName,
+        " display_name=", displayName);
+  }
   Log::i(
       "MMO world-item materialize: entity=", event.entity.id,
       " symbol=", *itemInstance,
@@ -924,6 +1065,13 @@ void GameSession::applyMmoServerWorldItemDespawn(
     const Mmo::ClientPresentation::ServerWorldItemDespawnEvent& event) noexcept {
   if(wrld == nullptr || !event.valid())
     return;
+  const Mmo::ClientEntityHandle clientEntity{
+      .worldId = event.entity.world.id,
+      .worldGeneration = event.entity.world.generation,
+      .id = event.entity.id,
+      .generation = event.entity.generation,
+  };
+  clearMmoServerPickup(clientEntity);
   const auto binding = std::find_if(
       mmoServerWorldItemBindings.begin(),
       mmoServerWorldItemBindings.end(),
@@ -931,6 +1079,16 @@ void GameSession::applyMmoServerWorldItemDespawn(
   if(binding == mmoServerWorldItemBindings.end() ||
      event.stateRevision < binding->revision)
     return;
+  if(binding->item != nullptr &&
+     event.reason == static_cast<std::uint8_t>(
+         Mmo::ProtocolV2::WorldItemDespawnReason::PickedUp) &&
+     wrld->player() != nullptr) {
+    const bool animated =
+        wrld->player()->applyMmoServerPresentationPickup(*binding->item);
+    Log::i("MMO pickup presentation: animation=", animated ? 1 : 0,
+           " reason=picked_up entity=", event.entity.id, ":",
+           event.entity.generation, " item=", binding->item->displayName());
+  }
   if(binding->item != nullptr)
     wrld->removeItem(*binding->item);
   mmoServerWorldItemBindings.erase(binding);

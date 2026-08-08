@@ -1,5 +1,7 @@
 #include "playercontrol.h"
 
+#include "../../../shared/game/gothic/gothic_pickup_limits.h"
+
 #include <Tempest/Log>
 
 #include <cmath>
@@ -18,6 +20,7 @@
 #include "gamesession.h"
 #include "gothic.h"
 #include "mmoclientbridge.h"
+#include "utils/nativetelemetry.h"
 
 namespace {
 
@@ -52,6 +55,14 @@ namespace {
       " actor_position=", position.x, ",", position.y, ",", position.z,
       " source=", source);
   const auto result = Mmo::submitClientInteraction(request);
+  Tempest::Log::i(
+      "MMO interaction submission result: status=",
+      static_cast<unsigned>(result.status),
+      " submitted=", result.submitted() ? 1 : 0,
+      " route_epoch=", result.command.routeEpoch,
+      " sequence=", result.command.sequence,
+      " dropped_count=", result.droppedCount,
+      " target=", target.handle.id, ":", target.handle.generation);
   if(!result.accepted()) {
     Tempest::Log::e("MMO interaction submission failed source=", source,
                     " status=", static_cast<unsigned>(result.status),
@@ -352,6 +363,16 @@ void PlayerControl::onKeyPressed(KeyCodec::Action a, Tempest::KeyEvent::KeyType 
     }
 
   if(a==KeyCodec::ActionGeneric) {
+    if(CommandLine::inst().mmoClientUsesServer() && pl != nullptr) {
+      const auto playerPosition = pl->position();
+      Tempest::Log::i(
+          "MMO action pressed: interactive=",
+          currentFocus.interactive != nullptr ? 1 : 0,
+          " npc=", currentFocus.npc != nullptr ? 1 : 0,
+          " item=", currentFocus.item != nullptr ? 1 : 0,
+          " player_position=", playerPosition.x, ",", playerPosition.y, ",",
+          playerPosition.z);
+    }
     FocusAction fk = ActGeneric;
     if(this->wantsToMoveForward())
       fk = ActMove;
@@ -455,19 +476,6 @@ void PlayerControl::drawVobRay(DbgPainter& p) const {
 
 void PlayerControl::tickFocus() {
   auto w = Gothic::inst().world();
-  if(w != nullptr && pendingBookRead != nullptr &&
-     w->tickCount() >= pendingBookReadAt) {
-    auto* pl = w->player();
-    auto* book = pendingBookRead;
-    pendingBookRead = nullptr;
-    pendingBookReadAt = 0U;
-    const bool attached = pl != nullptr && pl->interactive() == book;
-    Tempest::Log::i("MMO book presentation start: attached=", attached,
-                    " tick=", w->tickCount());
-    if(attached)
-      book->onKeyInput(KeyCodec::Forward);
-  }
-
   currentFocus = findFocus(&currentFocus);
   setTarget(currentFocus.npc);
 
@@ -483,7 +491,7 @@ void PlayerControl::tickFocus() {
      w->player() != nullptr) {
     if(auto* session = Gothic::inst().gameSession(); session != nullptr)
       currentFocus.item = session->mmoNearestServerWorldItem(
-          w->player()->position());
+          w->player()->position(), w->player()->rotation());
     if(currentFocus.item != nullptr)
       Tempest::Log::i(
           "MMO item focus fallback: item=", currentFocus.item->displayName(),
@@ -554,18 +562,37 @@ bool PlayerControl::interact(Interactive &it) {
     const auto verb = readBookshelf ? Mmo::ClientInteractionVerb::Read
                                     : Mmo::ClientInteractionVerb::Use;
     if(readBookshelf) {
-      // Attach immediately so the Gothic reading animation starts now. The
-      // state change that opens the document is sent after 1.5 seconds.
-      const bool attached = pl->setInteraction(&it);
-      Tempest::Log::i("MMO book animation start: attached=", attached,
-                      " tick=", w->tickCount());
-      if(attached) {
-        pendingBookRead = &it;
-        pendingBookReadAt = w->tickCount() + 1500U;
+      // Native Gothic already owns the MOBSI animation timeline and invokes
+      // doc_show from the bookshelf state function at the correct animation
+      // point. Do not add a second MMO timer/onKeyInput path: it advances the
+      // same state machine twice and makes a second click postpone/retrigger
+      // the document. The server command remains the authority admission.
+      // Native MOBSI execution is retained here only as the current graphical
+      // fallback; semantic script effects are not authoritative and must be
+      // replaced by explicit server-produced presentation events when that
+      // pipeline is available.
+      if(pl->interactive() == &it) {
         Tempest::Log::i(
-            "MMO book presentation scheduled: delay_ms=1500 tick=",
+            "MMO book duplicate action ignored: already_attached=1 tick=",
             w->tickCount());
+        return true;
       }
+      const bool attached = pl->setInteraction(&it);
+      Tempest::Log::i("MMO book native presentation attach: attached=",
+                      attached, " tick=", w->tickCount());
+      if(!attached) {
+        Tempest::Log::e(
+            "MMO book native presentation blocked: attachment rejected");
+        return true;
+      }
+      // attach() only puts the player on the bookshelf. The native MOBSI
+      // state machine needs its first Forward step; otherwise the first
+      // click only attaches and doc_show happens after a second click. The
+      // native animation still decides the exact time for the document.
+      it.onKeyInput(KeyCodec::Forward);
+      Tempest::Log::i(
+          "MMO book native presentation advance: action=forward tick=",
+          w->tickCount());
     }
     return submitMmoInteraction(
         *w, *pl, *target, verb,
@@ -653,30 +680,75 @@ bool PlayerControl::interact(Item &item) {
   if(!canInteract())
     return false;
   if(CommandLine::inst().mmoClientUsesServer()) {
+    const auto playerPosition = pl->position();
+    const auto itemPosition = item.position();
+    if(!Mmo::Gameplay::canPickUpItem(
+           {.x = playerPosition.x, .y = playerPosition.y, .z = playerPosition.z},
+           pl->rotation(),
+           {.x = itemPosition.x, .y = itemPosition.y, .z = itemPosition.z})) {
+      Tempest::Log::i("MMO pickup skipped: item outside native distance or facing angle");
+      return true;
+    }
     auto* session = Gothic::inst().gameSession();
     if(session == nullptr)
       return true;
     const auto target = session->mmoServerEntityTarget(item);
-    if(!target.has_value())
+    if(!target.has_value()) {
+      Tempest::Log::e("MMO pickup skipped: no authoritative item binding item=",
+                      item.displayName(), " position=", item.position().x, ",",
+                      item.position().y, ",", item.position().z);
       return true;
+    }
+    if(session->mmoServerPickupPending(target->handle)) {
+      Tempest::Log::i(
+          "MMO pickup duplicate ignored: entity=", target->handle.id, ":",
+          target->handle.generation);
+      return true;
+    }
     const auto& inventory = session->mmoServerInventoryPresentation().inventory();
-    if(inventory.revision() == 0U)
+    if(inventory.revision() == 0U) {
+      Tempest::Log::e(
+          "MMO pickup skipped: server inventory revision is zero entity=",
+          target->handle.id, ":", target->handle.generation,
+          " item=", item.displayName());
       return true;
+    }
     Tempest::Log::i(
         "MMO pickup submit: entity=", target->handle.id,
         " revision=", target->revision,
         " quantity=", target->quantity,
         " inventory_revision=", inventory.revision(),
         " item=", item.displayName());
-    static_cast<void>(Mmo::submitClientPickupItem({
+    const auto submitted = Mmo::submitClientPickupItem({
         .worldItem = target->handle,
         .amount = target->quantity,
         .expectedWorldItemRevision = target->revision,
         .expectedInventoryRevision = inventory.revision(),
-    }));
+    });
+    Tempest::Log::i(
+        "MMO pickup submission result: status=",
+        static_cast<unsigned>(submitted.status),
+        " submitted=", submitted.submitted() ? 1 : 0,
+        " route_epoch=", submitted.command.routeEpoch,
+        " sequence=", submitted.command.sequence,
+        " dropped_count=", submitted.droppedCount,
+        " entity=", target->handle.id, ":", target->handle.generation);
+    if(submitted.submitted())
+      session->trackMmoServerPickup(submitted.command, target->handle);
     return true;
   }
-  return pl->takeItem(item)!=nullptr;
+  const auto playerPosition = pl->position();
+  const auto playerYawDegrees = pl->rotation();
+  const auto itemPosition = item.position();
+  const std::string itemName(item.displayName());
+  const auto itemSymbol = item.clsId();
+  const auto itemAmount = item.count();
+  const auto accepted = pl->takeItem(item) != nullptr;
+  NativeTelemetry::itemPickupAttempt(
+      itemName, itemSymbol, itemAmount, accepted,
+      playerPosition.x, playerPosition.y, playerPosition.z, playerYawDegrees,
+      itemPosition.x, itemPosition.y, itemPosition.z);
+  return accepted;
   }
 
 void PlayerControl::moveFocus(FocusAction act) {

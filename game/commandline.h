@@ -50,6 +50,7 @@ class CommandLine {
     std::string_view    defaultSave()      const { return saveDef;      }
     std::string_view    dumpInitialWorld() const { return dumpInitial;  }
     std::string_view    dumpSaveWorld()    const { return dumpSave;     }
+    std::string_view    nativeTelemetry()  const { return nativeTelemetryPath; }
     std::string_view    mmoSqlite()        const { return mmoSqliteDb;   }
     uint64_t            mmoSqliteIntervalMs() const { return mmoSqliteInterval; }
     bool                mmoSqliteRestore() const { return mmoSqliteRestoreState; }
@@ -112,6 +113,7 @@ class CommandLine {
     std::string         saveDef;
     std::string         dumpInitial;
     std::string         dumpSave;
+    std::string         nativeTelemetryPath;
     std::string         mmoSqliteDb;
     uint64_t            mmoSqliteInterval = 5000;
     bool                mmoSqliteRestoreState = true;

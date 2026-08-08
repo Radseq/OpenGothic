@@ -533,7 +533,6 @@ void GameSession::applyMmoServerMovementCorrection() noexcept {
   if(hero->setPosition(static_cast<float>(accepted->posX),
                        static_cast<float>(accepted->posY),
                        static_cast<float>(accepted->posZ))) {
-    hero->setDirection(static_cast<float>(accepted->yaw));
     if(accepted->hardSnap)
       hero->clearSpeed();
     Mmo::recordClientMmoProcessGatePresentation(
@@ -642,6 +641,8 @@ void GameSession::applyMmoServerPresentationEvent(
                  " npc=", value.npc.id);
           auto* player = resolveMmoServerEntity(value.player);
           auto* npc = resolveMmoServerEntity(value.npc);
+          if(player != nullptr && npc != nullptr)
+            npc->applyMmoServerPresentationTarget(player, true);
           Gothic::inst().presentTypedServerDialog(player, npc, nullptr, event);
           Mmo::recordClientMmoProcessGatePresentation(
               Mmo::ClientMmoProcessGatePresentationEvent::DialogApplied);
@@ -739,6 +740,15 @@ void GameSession::pollMmoServerPresentationMailbox() noexcept {
   mmoServerInventorySessionInWorld = sessionInWorld;
 
   for(const auto& completion : Mmo::drainClientMmoCommandCompletions()) {
+    Log::i("MMO command completion: kind=",
+           static_cast<unsigned>(completion.command.kind),
+           " status=", static_cast<unsigned>(completion.status),
+           " rejection_code=", completion.rejectionCode,
+           " route_epoch=", completion.command.routeEpoch,
+           " sequence=", completion.command.sequence,
+           " server_tick=", completion.serverTick,
+           " aggregate_revision=", completion.aggregateRevision);
+    completeMmoServerPickup(completion.command);
     if(completion.command.kind == Mmo::ClientMmoCommandKind::SelectiveLoot)
       mmoServerCorpseLootPresentation_.complete(completion);
     else

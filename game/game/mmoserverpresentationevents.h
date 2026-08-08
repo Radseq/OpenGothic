@@ -699,6 +699,7 @@ struct ServerDialogUpdateEvent final {
   std::uint64_t sessionId = 0U;
   ServerPresentationEntityHandle speaker{};
   std::uint64_t lineId = 0U;
+  std::string lineText;
   std::uint64_t choicesRevision = 0U;
   std::uint64_t dialogRevision = 0U;
   std::uint32_t flags = 0U;

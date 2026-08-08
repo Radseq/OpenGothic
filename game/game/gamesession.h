@@ -122,9 +122,19 @@ class GameSession final {
         mmoServerEntityTarget(const Interactive& interactive) const noexcept;
     [[nodiscard]] std::optional<MmoServerEntityTarget>
         mmoServerEntityTarget(const Item& item) const noexcept;
+    [[nodiscard]] bool mmoServerPickupPending(
+        const Mmo::ClientEntityHandle& item) const noexcept;
+    void        trackMmoServerPickup(
+                    const Mmo::ClientMmoCommandToken& command,
+                    const Mmo::ClientEntityHandle& item) noexcept;
+    void        completeMmoServerPickup(
+                    const Mmo::ClientMmoCommandToken& command) noexcept;
+    void        clearMmoServerPickup(
+                    const Mmo::ClientEntityHandle& item) noexcept;
     [[nodiscard]] Item* mmoNearestServerWorldItem(
-        const Tempest::Vec3& position,
-        float maximumDistance = 180.0F) const noexcept;
+         const Tempest::Vec3& position,
+         float yawDegrees,
+         float maximumDistance = 300.0F) const noexcept;
     [[nodiscard]] std::optional<std::string_view> mmoItemInstanceName(
         std::uint64_t archetypeId,
         std::uint64_t presentationId) const noexcept;
@@ -349,7 +359,21 @@ class GameSession final {
       std::uint32_t quantity = 0U;
       std::uint64_t revision = 0U;
     };
+    struct MmoLocalItemPresentationFallback final {
+      std::uint64_t archetypeId = 0U;
+      std::uint64_t presentationId = 0U;
+      std::uint32_t instanceSymbol = 0U;
+      std::string instanceName;
+      std::string displayName;
+    };
+    struct MmoServerPendingPickup final {
+      Mmo::ClientMmoCommandToken command{};
+      Mmo::ClientEntityHandle item{};
+    };
     std::vector<MmoServerWorldItemBinding> mmoServerWorldItemBindings;
+    std::vector<MmoServerPendingPickup> mmoServerPendingPickups;
+    std::vector<MmoLocalItemPresentationFallback>
+                                   mmoLocalItemPresentationFallbacks;
     std::unordered_map<std::uint32_t, std::uint32_t>
                                    mmoLocalItemInstanceSymbols;
 

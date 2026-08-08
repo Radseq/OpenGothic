@@ -47,6 +47,23 @@ endif()
 add_test(NAME l01_server_inventory_ui_model_tests
   COMMAND l01_server_inventory_ui_model_tests)
 
+add_executable(native_single_player_telemetry_tests
+  native_telemetry_test.cpp
+  ../game/utils/nativetelemetry.cpp)
+target_include_directories(native_single_player_telemetry_tests PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../game")
+
+if(MSVC)
+  target_compile_options(native_single_player_telemetry_tests PRIVATE
+    /W4 /WX /permissive-)
+else()
+  target_compile_options(native_single_player_telemetry_tests PRIVATE
+    -Wall -Wextra -Wconversion -Werror)
+endif()
+
+add_test(NAME native_single_player_telemetry_tests
+  COMMAND native_single_player_telemetry_tests)
+
 opengothic_mmo_client_ui_test(
   l05_client_corpse_loot_adapter_tests
   mmoclientcorpselootadapter_test.cpp)

@@ -130,18 +130,44 @@ void GameSession::rejectMmoServerCorpseLootCommandSubmission(
 std::optional<std::string_view> GameSession::mmoItemInstanceName(
     const std::uint64_t archetypeId,
     const std::uint64_t presentationId) const noexcept {
-  return mmoClientPresentationCatalog != nullptr
-             ? mmoClientPresentationCatalog->itemInstanceName(
-                   archetypeId, presentationId)
+  if(mmoClientPresentationCatalog != nullptr) {
+    if(const auto value = mmoClientPresentationCatalog->itemInstanceName(
+           archetypeId, presentationId)) {
+      return value;
+    }
+  }
+  const auto fallback = std::find_if(
+      mmoLocalItemPresentationFallbacks.begin(),
+      mmoLocalItemPresentationFallbacks.end(),
+      [archetypeId, presentationId](const auto& value) noexcept {
+        return value.archetypeId == archetypeId &&
+               value.presentationId == presentationId;
+      });
+  return fallback != mmoLocalItemPresentationFallbacks.end() &&
+                 !fallback->instanceName.empty()
+             ? std::optional<std::string_view>{fallback->instanceName}
              : std::nullopt;
 }
 
 std::optional<std::string_view> GameSession::mmoItemDisplayName(
     const std::uint64_t archetypeId,
     const std::uint64_t presentationId) const noexcept {
-  return mmoClientPresentationCatalog != nullptr
-             ? mmoClientPresentationCatalog->itemDisplayName(
-                   archetypeId, presentationId)
+  if(mmoClientPresentationCatalog != nullptr) {
+    if(const auto value = mmoClientPresentationCatalog->itemDisplayName(
+           archetypeId, presentationId)) {
+      return value;
+    }
+  }
+  const auto fallback = std::find_if(
+      mmoLocalItemPresentationFallbacks.begin(),
+      mmoLocalItemPresentationFallbacks.end(),
+      [archetypeId, presentationId](const auto& value) noexcept {
+        return value.archetypeId == archetypeId &&
+               value.presentationId == presentationId;
+      });
+  return fallback != mmoLocalItemPresentationFallbacks.end() &&
+                 !fallback->displayName.empty()
+             ? std::optional<std::string_view>{fallback->displayName}
              : std::nullopt;
 }
 

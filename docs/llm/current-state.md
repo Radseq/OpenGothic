@@ -1,6 +1,6 @@
 # Full Client Current State
 
-Last verified: 2026-08-01 against focused tests and a clean `Gothic2Notr`
+Last verified: 2026-08-08 against focused tests and a clean `Gothic2Notr`
 composition build.
 
 This document separates four evidence levels. Source remains authoritative.
@@ -25,6 +25,27 @@ This document separates four evidence levels. Source remains authoritative.
 
 ## Implemented and focused-tested
 
+- Native single-player telemetry is opt-in through
+  `-native-telemetry <path.jsonl>` and is disabled when an MMO server flag is
+  present. The parameter only arms the capture: `F12` starts it and a second
+  `F12` stops it, with explicit lifecycle records in the JSONL file. While
+  active, it writes one JSONL record per mouse press/release, game tick player
+  position with yaw, and native world-item pickup attempt/success. Each record
+  has an ordered sequence and a Unix millisecond timestamp. Pickup records
+  retain player position, player yaw, source item coordinates and whether the
+  native pickup succeeded. Movement-state and mob-distance feedback are not
+  written, so this capture stays focused on the pickup distance and facing
+  angle experiment. The generic JSONL writer remains reusable for a later
+  telemetry event when another experiment needs it.
+  The latest pickup run calibrated a 300-unit horizontal pickup range and a
+  30-degree facing cone. The graphical client and sandbox reject an obviously
+  invalid pickup before submitting it; the server repeats the distance check
+  and, when it has a current movement-input yaw, the facing check.
+  The latest native run calibrated production walk/run authority to 225/500
+  units per second and bounds client/sandbox extrapolation to 500 horizontal
+  units per second and 1450 vertical fall units per second. No native sneak
+  sample was captured, so the existing sneak authority value remains unchanged.
+
 - Engine intent DTO validation fails closed for incomplete legacy movement,
   generated interaction identity and missing item-stack revisions.
 - A protocol-independent mailbox carries an optional route replacement, zero
@@ -37,6 +58,12 @@ This document separates four evidence levels. Source remains authoritative.
   stable world-object identity separately from entity lifetime.
 - Interpolation and movement correction reject stale, foreign-route and
   wrong-identity samples.
+- In graphical server-bound mode the local player applies normal authoritative
+  server transforms, not only explicit correction packets. Local Gothic
+  movement cannot mutate its world position in this mode; rotation and visual
+  input remain local, while position is owned by the server. This keeps the
+  native Gothic position used for focus/pickup aligned with the server's
+  fixed-tick position; the client-provided position remains diagnostic only.
 - Typed inventory/equipment read models retain server revisions and pending
   command completion state without optimistic quantity mutation. The
   server-backed page model builds equip, unequip, use, drop, split and merge
@@ -93,11 +120,25 @@ sandbox test target. They do not instantiate the complete OpenGothic runtime.
   startup world items use the same catalog/materialization path as dropped
   items.
 - In graphical server mode an unmapped left mouse click is treated as the
-  generic action. Book-like interactives submit `Read` and start the local
-  Gothic reading animation immediately; the document presentation starts
-  after an approximately 1.5-second delay. Item pickup submits the server
-  item and inventory revisions, with a nearby authoritative item fallback
-  when the native focus ray misses the generated item.
+  generic action. Book-like interactives submit authoritative `Read` and attach
+  once to the native Gothic MOBSI state machine; there is no second hard-coded
+  1.5-second timer or synthetic `onKeyInput` advance. A repeated action while
+  already attached is consumed instead of restarting the presentation. This is
+  still a graphical fallback: native MOBSI state functions can execute local
+  script semantics, so the final server-bound cutover still requires explicit
+  server-produced presentation events for script-affecting interactions. Item
+  pickup submits the exact server item and inventory revisions and starts only
+  the native pickup animation locally; world/inventory mutation remains server
+  owned. A pending pickup blocks repeated mouse-down submissions for the same
+  server item and is released by its receipt, despawn or transport timeout.
+  When a real native world VOB had to provide an item presentation that
+  was absent from the transported catalog, the client retains that exact
+  instance/name binding for the resulting server-backed inventory stack.
+- Reused native Gothic NPCs retain a bounded presentation-only vertical offset
+  against the authoritative transform, avoiding visible floating caused by a
+  different authored spawn anchor. During an authoritative dialog activity the
+  replica also faces its replicated target after each transform sample; neither
+  adjustment changes server position/rotation authority.
 - Main-menu orchestration, the full-client reconnect/resume path, bridge
   locking and complete engine materializers are not directly covered by the
   focused unit target. Their strongest evidence is build/process/graphical
@@ -112,9 +153,13 @@ sandbox test target. They do not instantiate the complete OpenGothic runtime.
 2. The server-backed inventory page has focused model coverage and a complete
    client build, but still needs a graphical server-bound smoke covering visible
    pending/rejection/resync feedback and native-mode non-regression.
-3. Live dialog choices are selectable, but subtitle/audio still depend on a
-   client-side numeric line lookup and bootstrap cannot restore choices for a
-   dialog that was already awaiting input.
+3. Live dialog choices are selectable and Protocol V2 now carries bounded
+   authoritative UTF-8 line text. The full client deliberately does not
+   reinterpret the stable numeric line ID as a Gothic OU/message key because
+   it can resolve the wrong subtitle. Bootstrap restoration of the current
+   line text and choices remains missing; ordinary eager startup NPCs still
+   use the server's static fallback dialog until the real Daedalus dialog
+   executor is production-composed.
 4. Character-attribute facade records still have no full-client presentation
    component. Loot availability and corpse session records are mapped and
    emitted by production composition, but real graphical acceptance remains.
@@ -123,6 +168,10 @@ sandbox test target. They do not instantiate the complete OpenGothic runtime.
 6. No deterministic fake-facade test currently proves `mmoclientbridge`, menu
    orchestration or the full `GameSession` MMO projection; the present evidence
    is the headless page-model gate, sandbox regressions and full-client build.
+7. The graphical launcher requires an explicit authority source. Real Gothic
+   II / Night of the Raven validation uses `--content-root`; `--fixture` is an
+   explicit synthetic process-gate mode and is not equivalent to the native
+   rendered world.
 
 Do not describe a feature as production-active merely because its DTO, mapper
 or engine method exists.

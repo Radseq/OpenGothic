@@ -26,8 +26,9 @@ documentation and links.
 cmake -S src/client_sandbox -B build/mmo_client_sandbox -G Ninja \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DGOTHIC_MMO_CLIENT_SANDBOX_BUILD_TESTS=ON
+JOBS=$(( $(nproc) / 2 )); [ "$JOBS" -ge 1 ] || JOBS=1
 cmake --build build/mmo_client_sandbox \
-  --target gothic_mmo_client_transport_tests -j"$(nproc)"
+  --target gothic_mmo_client_transport_tests -j"$JOBS"
 ctest --test-dir build/mmo_client_sandbox --output-on-failure
 ```
 
@@ -47,7 +48,16 @@ when mode or build separation changes.
 Use the canonical Protocol V2 process-gate runner for real-process session,
 reconnect, bootstrap/resync and multi-client transport behavior. Use
 `tools/run_mmo_graphical_client.py` with complete game assets for engine,
-renderer, audio and UI proof.
+renderer, audio and UI proof. The graphical launcher requires an explicit
+authority source: use `--content-root` for real Gothic content; use `--fixture`
+only for deliberate synthetic protocol/presentation checks. It also verifies a
+compiled graphical-client contract marker before starting either process, so a
+stale `Gothic2Notr` from another CMake build tree fails closed instead of
+producing misleading graphical evidence. Rebuild the exact directory named by
+`--client-exe` when this gate fails. `launch-mode.txt` records that executable,
+its SHA-256 and the required contract marker. A graphical run that renders
+native Gothic assets against the synthetic fixture is not a real world-content
+acceptance test.
 
 ## Data and state
 

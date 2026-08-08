@@ -48,6 +48,14 @@ ServerEntityInterpolator::ServerEntityInterpolator(
   config_.maxEntities = std::max<std::size_t>(1, config_.maxEntities);
   config_.snapDistance = std::max(0.0, config_.snapDistance);
   config_.movementThreshold = std::max(0.0, config_.movementThreshold);
+  if(!std::isfinite(config_.maximumHorizontalExtrapolationSpeed) ||
+     config_.maximumHorizontalExtrapolationSpeed < 0.0) {
+    config_.maximumHorizontalExtrapolationSpeed = 0.0;
+  }
+  if(!std::isfinite(config_.maximumVerticalExtrapolationSpeed) ||
+     config_.maximumVerticalExtrapolationSpeed < 0.0) {
+    config_.maximumVerticalExtrapolationSpeed = 0.0;
+  }
   tracks_.reserve(config_.maxEntities);
 }
 
@@ -197,15 +205,32 @@ void ServerEntityInterpolator::sample(
     const auto extrapolateMs = std::min(
         elapsedAfterLatest, config_.maxExtrapolationMs);
     const auto sourceDuration = b.receivedAtMs - a.receivedAtMs;
-    const auto ratio = sourceDuration == 0U
-                           ? 0.0
-                           : static_cast<double>(extrapolateMs) /
-                                 static_cast<double>(sourceDuration);
-    value.posX = b.posX + (b.posX - a.posX) * ratio;
-    value.posY = b.posY + (b.posY - a.posY) * ratio;
-    value.posZ = b.posZ + (b.posZ - a.posZ) * ratio;
+    const auto sourceSeconds = static_cast<double>(sourceDuration) / 1000.0;
+    auto velocityX = sourceSeconds == 0.0 ? 0.0 : (b.posX - a.posX) / sourceSeconds;
+    auto velocityY = sourceSeconds == 0.0 ? 0.0 : (b.posY - a.posY) / sourceSeconds;
+    auto velocityZ = sourceSeconds == 0.0 ? 0.0 : (b.posZ - a.posZ) / sourceSeconds;
+    const auto horizontalSpeed = std::hypot(velocityX, velocityZ);
+    if(horizontalSpeed > config_.maximumHorizontalExtrapolationSpeed &&
+       horizontalSpeed > 0.0) {
+      const auto scale = config_.maximumHorizontalExtrapolationSpeed /
+                         horizontalSpeed;
+      velocityX *= scale;
+      velocityZ *= scale;
+    }
+    velocityY = std::clamp(
+        velocityY,
+        -config_.maximumVerticalExtrapolationSpeed,
+        config_.maximumVerticalExtrapolationSpeed);
+    const auto extrapolateSeconds = static_cast<double>(extrapolateMs) / 1000.0;
+    value.posX = b.posX + velocityX * extrapolateSeconds;
+    value.posY = b.posY + velocityY * extrapolateSeconds;
+    value.posZ = b.posZ + velocityZ * extrapolateSeconds;
     value.yaw = interpolateYaw(
-        b.yaw, b.yaw + normalizeRadians(b.yaw - a.yaw), ratio);
+        b.yaw, b.yaw + normalizeRadians(b.yaw - a.yaw),
+        sourceDuration == 0U
+            ? 0.0
+            : static_cast<double>(extrapolateMs) /
+                  static_cast<double>(sourceDuration));
     value.moving = sourceMoving &&
                    elapsedAfterLatest <= config_.maxExtrapolationMs;
     out.push_back(value);

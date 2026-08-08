@@ -942,6 +942,7 @@ mapClientRuntimePresentationMailbox(
               .sessionId = value.sessionId,
               .speaker = mapHandle(value.speaker),
               .lineId = value.lineId,
+              .lineText = value.lineText,
               .choicesRevision = value.choicesRevision,
               .dialogRevision = value.dialogRevision,
               .flags = value.flags,

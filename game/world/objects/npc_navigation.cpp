@@ -132,7 +132,7 @@ void Npc::setDirection(const Tempest::Vec3& pos) {
 
 void Npc::setDirection(float rotation) {
   if(mmoAuthorityGate.rejectLocalGameplay(
-         Mmo::ClientPresentation::NpcLocalGameplayEntryPoint::MovementMutation))
+         Mmo::ClientPresentation::NpcLocalGameplayEntryPoint::RotationMutation))
     return;
   durtyTranform |= TR_Rot;
   angle = rotation;
@@ -141,7 +141,7 @@ void Npc::setDirection(float rotation) {
 
 void Npc::setDirectionY(float rotation) {
   if(mmoAuthorityGate.rejectLocalGameplay(
-         Mmo::ClientPresentation::NpcLocalGameplayEntryPoint::MovementMutation))
+         Mmo::ClientPresentation::NpcLocalGameplayEntryPoint::RotationMutation))
     return;
   if(rotation>90)
     rotation = 90;
@@ -156,7 +156,7 @@ void Npc::setDirectionY(float rotation) {
 
 void Npc::setRunAngle(float angle) {
   if(mmoAuthorityGate.rejectLocalGameplay(
-         Mmo::ClientPresentation::NpcLocalGameplayEntryPoint::MovementMutation))
+         Mmo::ClientPresentation::NpcLocalGameplayEntryPoint::RotationMutation))
     return;
   durtyTranform |= TR_Rot;
   runAng = angle;

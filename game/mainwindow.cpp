@@ -21,6 +21,7 @@
 #include "ui/videowidget.h"
 
 #include "utils/mouseutil.h"
+#include "utils/nativetelemetry.h"
 #include "utils/string_frm.h"
 #include "world/triggers/abstracttrigger.h"
 #include "world/objects/npc.h"
@@ -119,6 +120,18 @@ MainWindow::MainWindow(Device& device)
     player(dialogs,inventory) {
   Gothic::inst().onSettingsChanged.bind(this,&MainWindow::onSettings);
   onSettings();
+
+  const auto& commandLine = CommandLine::inst();
+  if(!commandLine.nativeTelemetry().empty()) {
+    if(commandLine.mmoClientUsesServer()) {
+      Log::e("-native-telemetry requires native single-player mode; telemetry disabled");
+    } else if(NativeTelemetry::configure(commandLine.nativeTelemetry())) {
+      Log::i("native single-player telemetry armed; press F12 to start: ",
+             commandLine.nativeTelemetry());
+    } else {
+      Log::e("cannot open native telemetry file: ", commandLine.nativeTelemetry());
+    }
+  }
 
   if(Gothic::inst().version().game==2)
     setWindowTitle("Gothic II"); else
@@ -395,6 +408,7 @@ void MainWindow::resizeEvent(SizeEvent&) {
   }
 
 void MainWindow::mouseDownEvent(MouseEvent &event) {
+  NativeTelemetry::mouseButton(static_cast<std::uint32_t>(event.button), true);
   if(event.button<sizeof(mouseP))
     mouseP[event.button]=true;
   auto act     = keycodec.tr(event);
@@ -409,6 +423,7 @@ void MainWindow::mouseDownEvent(MouseEvent &event) {
   }
 
 void MainWindow::mouseUpEvent(MouseEvent &event) {
+  NativeTelemetry::mouseButton(static_cast<std::uint32_t>(event.button), false);
   auto act     = keycodec.tr(event);
   if(event.button == Event::ButtonLeft && act == KeyCodec::Idle &&
      CommandLine::inst().mmoClientUsesServer())
@@ -498,6 +513,19 @@ void MainWindow::mouseWheelEvent(MouseEvent &event) {
   }
 
 void MainWindow::keyDownEvent(KeyEvent &event) {
+  if(event.key==Event::K_F12 && NativeTelemetry::configured()) {
+    if(NativeTelemetry::enabled()) {
+      NativeTelemetry::stop();
+      Log::i("native single-player telemetry stopped");
+    } else if(NativeTelemetry::start()) {
+      Log::i("native single-player telemetry started");
+    } else {
+      Log::e("cannot open native telemetry file");
+    }
+    event.accept();
+    return;
+  }
+
   if(video.isActive()){
     event.accept();
     video.keyDownEvent(event);
@@ -1029,6 +1057,11 @@ uint64_t MainWindow::tick() {
     clearInput();
   tickMouse(dt);
   player.tickMove(dt);
+  if(const auto* actor = Gothic::inst().player(); actor != nullptr) {
+    const auto position = actor->position();
+    NativeTelemetry::playerPosition(
+        position.x, position.y, position.z, actor->rotation());
+  }
   tickMmoMovement(dt);
   update();
   return dt;
