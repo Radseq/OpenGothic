@@ -177,6 +177,29 @@ ServerEntityPresentationRegistry::findLocal(
   return &entity->second;
 }
 
+const ServerEntityPresentationBinding*
+ServerEntityPresentationRegistry::findLocal(
+    const LocalNpcPresentationIdentity& local) const noexcept {
+  if(local.localObjectToken != 0U) {
+    if(const auto* binding = findLocal(local.localObjectToken);
+       binding != nullptr) {
+      return binding;
+    }
+  }
+  if(!local.valid())
+    return nullptr;
+
+  for(const auto& [unused, binding] : entries_) {
+    static_cast<void>(unused);
+    if(binding.local.localNpcId == local.localNpcId &&
+       binding.local.persistentId == local.persistentId &&
+       binding.local.instanceSymbol == local.instanceSymbol) {
+      return &binding;
+    }
+  }
+  return nullptr;
+}
+
 void ServerEntityPresentationRegistry::touch(
     const ServerEntityTransformObservation& transform) noexcept {
   if(!routeMatches(transform.route))

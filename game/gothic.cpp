@@ -244,6 +244,10 @@ Gothic::Gothic() {
   }
 
 Gothic::~Gothic() {
+  // GameSession/WorldView destructors still use Gothic::inst(). Keep the
+  // singleton alive until those objects have released their callbacks.
+  game.reset();
+  pendingGame.reset();
   instance = nullptr;
   }
 
@@ -1283,4 +1287,3 @@ void Gothic::printdebuginstch(int ch, std::string_view msg) {
   if(version().game==2)
     Log::d("[zspy,",ch,"]: ",msg);
   }
-

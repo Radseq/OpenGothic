@@ -87,6 +87,8 @@ class ServerEntityPresentationRegistry final {
         std::uint64_t worldGeneration) const noexcept;
     [[nodiscard]] const ServerEntityPresentationBinding* findLocal(
         std::uintptr_t localObjectToken) const noexcept;
+    [[nodiscard]] const ServerEntityPresentationBinding* findLocal(
+        const LocalNpcPresentationIdentity& local) const noexcept;
 
     void touch(const ServerEntityTransformObservation& transform) noexcept;
 

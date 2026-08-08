@@ -131,8 +131,10 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
     wrld->createPlayer(hero);
   wrld->postInit();
 
-  if(!testMode)
+  if(!testMode && !CommandLine::inst().mmoClientUsesServer())
     initScripts(true);
+  else if(!testMode)
+    Log::i("MMO server-bound New Game: skipping local world startup scripts; server owns NPC and item state");
 
 #if OPENGOTHIC_MMO_SQLITE_TOOLING
   if(CommandLine::inst().mmoSqliteCapturePreStartExit()) {
@@ -178,7 +180,9 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
     Log::i("MMO server-bound New Game: starting fresh local baseline without DB bootstrap snapshot");
   }
 
-  if(dbContinueRequested) {
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    Log::i("MMO server-bound world: skipping local startup trigger; server owns world entities");
+  } else if(dbContinueRequested) {
     Log::i("MMO DB continue baseline loaded: running existing-world startup trigger");
     wrld->triggerOnStart(false);
     const auto resumedNpcRoutines = wrld->resumeNpcRoutinesAfterServerRestore();
@@ -230,6 +234,11 @@ void GameSession::initPerceptions() {
   }
 
 void GameSession::initScripts(bool firstTime) {
+  if(CommandLine::inst().mmoClientUsesServer()) {
+    Log::i("MMO server-bound world: local script startup is disabled");
+    return;
+  }
+
   auto wname = wrld->name();
   auto dot   = wname.rfind('.');
   auto name  = (dot==std::string::npos ? wname : wname.substr(0,dot));

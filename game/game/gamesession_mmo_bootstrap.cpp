@@ -115,16 +115,27 @@ void GameSession::loadMmoClientPresentationCatalog() noexcept {
 
 void GameSession::beginMmoLocalWorldObjectCatalog() noexcept {
   mmoServerWorldObjects.resetLocalCatalog();
+  mmoLocalItemInstanceSymbols.clear();
 }
 
 void GameSession::registerMmoLocalWorldObject(
     const std::uint64_t worldObjectId,
     const std::uint32_t vobObjectId,
-    const Mmo::ClientPresentation::ServerPresentationWorldObjectKind kind) {
+    const Mmo::ClientPresentation::ServerPresentationWorldObjectKind kind,
+    const std::optional<Mmo::ClientPresentation::ServerWorldObjectPosition>
+        position,
+    const std::optional<std::uint32_t> itemInstanceSymbol) {
   using namespace Mmo::ClientPresentation;
   const auto status = mmoServerWorldObjects.registerLocal(
       ServerWorldObjectId{worldObjectId},
-      LocalVobToken{.vobObjectId = vobObjectId, .kind = kind});
+      LocalVobToken{.vobObjectId = vobObjectId, .kind = kind},
+      position);
+  if(status == ServerWorldObjectRegisterStatus::Registered &&
+     kind == ServerPresentationWorldObjectKind::Item &&
+     itemInstanceSymbol.has_value()) {
+    mmoLocalItemInstanceSymbols.insert_or_assign(
+        vobObjectId, *itemInstanceSymbol);
+  }
   if(status != ServerWorldObjectRegisterStatus::Registered &&
      status != ServerWorldObjectRegisterStatus::Duplicate) {
     Log::e("MMO local world-object catalog rejected VOB: world_object=",
@@ -169,7 +180,8 @@ void GameSession::installMmoServerPresentationBootstrap(
     const auto result = mmoServerWorldObjects.bindRuntime(
         object.entity,
         Mmo::ClientPresentation::ServerWorldObjectId{object.worldObjectId},
-        object.kind);
+        object.kind,
+        object.transform);
     if(result.bound())
       ++worldObjectBound;
     if(object.kind == WorldObjectKind::Mover) {
@@ -178,6 +190,30 @@ void GameSession::installMmoServerPresentationBootstrap(
         ++moverBound;
       else
         ++moverUnresolved;
+    }
+    if(object.kind == WorldObjectKind::Item && object.quantity != 0U) {
+      // Static world items are part of the server bootstrap as well. Reuse
+      // the normal item-spawn path so pickup, drop and quantity updates use
+      // the same client binding as dynamic items. An item can be outside the
+      // local VOB catalog after a content revision; it must still be visible
+      // and pickable from the server transform.
+      Mmo::ClientPresentation::ServerWorldItemSpawnEvent item{
+          .header = {
+              .route = bootstrap.route,
+              .streamSequence = bootstrap.baseline.serverTick,
+              .serverTick = bootstrap.baseline.serverTick,
+              .aggregateRevision = bootstrap.baseline.aggregateRevision,
+              .baseline = bootstrap.baseline,
+          },
+          .entity = object.entity,
+          .worldObjectId = object.worldObjectId,
+          .presentation = object.presentation,
+          .transform = object.transform,
+          .quantity = object.quantity,
+          .flags = object.flags,
+          .stateRevision = object.stateRevision,
+      };
+      applyMmoServerWorldItemSpawn(item);
     }
     if(!result.bound() &&
        mmoServerWorldObjects.shouldLogUnresolved(

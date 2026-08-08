@@ -144,6 +144,14 @@ void Npc::setVisualBody(int32_t headTexNr, int32_t teethTexNr, int32_t bodyTexNr
   durtyTranform|=TR_Pos; // update obj matrix
   }
 
+void Npc::setMmoDefaultArmor(const std::string_view armorVisual) {
+  if(armorVisual.empty())
+    return;
+  auto armor = owner.addView(armorVisual, vColor, 0, bdColor);
+  visual.setArmor(*this, std::move(armor));
+  durtyTranform |= TR_Pos;
+}
+
 void Npc::updateArmor() {
   auto  ar = invent.currentArmor();
   auto& w  = owner;

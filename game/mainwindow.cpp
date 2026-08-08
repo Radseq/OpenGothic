@@ -398,12 +398,21 @@ void MainWindow::mouseDownEvent(MouseEvent &event) {
   if(event.button<sizeof(mouseP))
     mouseP[event.button]=true;
   auto act     = keycodec.tr(event);
+  // Gothic's default keyboard layout uses Ctrl for interaction. The MMO
+  // graphical test is intentionally clickable as well, so an unmapped left
+  // click becomes the generic action without changing normal key bindings.
+  if(event.button == Event::ButtonLeft && act == KeyCodec::Idle &&
+     CommandLine::inst().mmoClientUsesServer())
+    act = KeyCodec::ActionGeneric;
   auto mapping = keycodec.mapping(event);
   player.onKeyPressed(act,KeyEvent::K_NoKey,mapping);
   }
 
 void MainWindow::mouseUpEvent(MouseEvent &event) {
   auto act     = keycodec.tr(event);
+  if(event.button == Event::ButtonLeft && act == KeyCodec::Idle &&
+     CommandLine::inst().mmoClientUsesServer())
+    act = KeyCodec::ActionGeneric;
   auto mapping = keycodec.mapping(event);
   player.onKeyReleased(act,mapping);
   if(event.button<sizeof(mouseP))
@@ -638,10 +647,14 @@ void MainWindow::keyUpEvent(KeyEvent &event) {
   else if(act==KeyCodec::Inventory && !dialogs.isActive()) {
     if(inventory.isActive()) {
       inventory.close();
+      if(CommandLine::inst().mmoClientUsesServer())
+        Log::i("MMO inventory closed");
       } else {
       auto pl = Gothic::inst().player();
       if(pl!=nullptr)
         inventory.open(*pl);
+      else if(CommandLine::inst().mmoClientUsesServer())
+        Log::e("MMO inventory open skipped: player is missing");
       }
     clearInput();
     }
@@ -1531,5 +1544,3 @@ void MainWindow::BenchmarkData::clear() {
   numFrames = 0;
   fpsSum = 0;
   }
-
-

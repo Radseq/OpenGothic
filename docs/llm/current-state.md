@@ -81,6 +81,23 @@ sandbox test target. They do not instantiate the complete OpenGothic runtime.
   projection are composition-integrated behind `TypedSelectiveLootV1`.
 - Server replicas suppress local authority and use correction/interpolation
   paths.
+- Server NPC replicas resolve the admitted presentation catalog's body, head,
+  texture variants and captured default armor before they enter the world.
+  Static MMO world objects
+  also use their server transform as a bounded fallback when a transported
+  world-object identity differs from the local VOB identity.
+- World-object binding accepts the small coordinate difference caused by
+  server quantization, so graphical interactive objects such as bookshelves
+  can still resolve to their authoritative target. Replica NPCs clear local
+  single-player weapon meshes before applying server equipment state, and
+  startup world items use the same catalog/materialization path as dropped
+  items.
+- In graphical server mode an unmapped left mouse click is treated as the
+  generic action. Book-like interactives submit `Read` and start the local
+  Gothic reading animation immediately; the document presentation starts
+  after an approximately 1.5-second delay. Item pickup submits the server
+  item and inventory revisions, with a nearby authoritative item fallback
+  when the native focus ray misses the generated item.
 - Main-menu orchestration, the full-client reconnect/resume path, bridge
   locking and complete engine materializers are not directly covered by the
   focused unit target. Their strongest evidence is build/process/graphical

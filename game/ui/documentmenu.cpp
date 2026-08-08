@@ -1,9 +1,12 @@
 #include "documentmenu.h"
 
+#include <Tempest/Log>
+
 #include "world/objects/interactive.h"
 #include "world/objects/npc.h"
 #include "utils/gthfont.h"
 #include "utils/keycodec.h"
+#include "game/mmoclientbridge.h"
 #include "gothic.h"
 
 using namespace Tempest;
@@ -17,6 +20,8 @@ DocumentMenu::DocumentMenu(const KeyCodec& key)
 void DocumentMenu::show(const DocumentMenu::Show &doc) {
   document = doc;
   active   = true;
+  if(Mmo::isServerBoundClientModeEnabled())
+    Tempest::Log::i("MMO document shown");
   update();
   }
 

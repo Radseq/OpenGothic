@@ -39,6 +39,15 @@ void Npc::setMmoServerReplica(const bool value) noexcept {
     nearestEnemy = nullptr;
     currentOther = nullptr;
     currentVictim = nullptr;
+    // The local Gothic world may already have equipped this NPC. Server
+    // replicas get their equipment only from the MMO presentation stream.
+    // Clear the local weapon before applying the server state, otherwise a
+    // NPC such as Xardas can keep a bow from the single-player world.
+    setSword(MeshObjects::Mesh{});
+    setRangedWeapon(MeshObjects::Mesh{});
+    setShield(MeshObjects::Mesh{});
+    clearSlotItem("ZS_LEFTHAND");
+    clearSlotItem("ZS_RIGHTHAND");
     return;
   }
   mmoAuthorityGate.clearDiagnostics();

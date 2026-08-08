@@ -122,6 +122,9 @@ class GameSession final {
         mmoServerEntityTarget(const Interactive& interactive) const noexcept;
     [[nodiscard]] std::optional<MmoServerEntityTarget>
         mmoServerEntityTarget(const Item& item) const noexcept;
+    [[nodiscard]] Item* mmoNearestServerWorldItem(
+        const Tempest::Vec3& position,
+        float maximumDistance = 180.0F) const noexcept;
     [[nodiscard]] std::optional<std::string_view> mmoItemInstanceName(
         std::uint64_t archetypeId,
         std::uint64_t presentationId) const noexcept;
@@ -149,7 +152,10 @@ class GameSession final {
     void registerMmoLocalWorldObject(
         std::uint64_t worldObjectId,
         std::uint32_t vobObjectId,
-        Mmo::ClientPresentation::ServerPresentationWorldObjectKind kind);
+        Mmo::ClientPresentation::ServerPresentationWorldObjectKind kind,
+        std::optional<Mmo::ClientPresentation::ServerWorldObjectPosition>
+            position = std::nullopt,
+        std::optional<std::uint32_t> itemInstanceSymbol = std::nullopt);
 
   private:
     struct ChWorld {
@@ -344,6 +350,8 @@ class GameSession final {
       std::uint64_t revision = 0U;
     };
     std::vector<MmoServerWorldItemBinding> mmoServerWorldItemBindings;
+    std::unordered_map<std::uint32_t, std::uint32_t>
+                                   mmoLocalItemInstanceSymbols;
 
     Mmo::ClientPresentation::ServerEntityPresentationRegistry
                                    mmoServerEntityPresentation;

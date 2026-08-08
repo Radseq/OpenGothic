@@ -118,6 +118,56 @@ ClientPresentationCatalogRuntime::npcInstanceName(
       archetypeId);
 }
 
+std::optional<NpcPresentationVisual>
+ClientPresentationCatalogRuntime::npcVisual(
+    const std::uint64_t archetypeId,
+    const std::uint64_t presentationId) const noexcept {
+  if(!catalog_.has_value() || archetypeId == 0U || presentationId == 0U)
+    return std::nullopt;
+
+  const auto* descriptor = Mmo::Presentation::findNpcPresentation(
+      *catalog_, Mmo::Presentation::PresentationId{presentationId});
+  if(descriptor == nullptr || descriptor->archetype.value != archetypeId)
+    return std::nullopt;
+
+  NpcPresentationVisual result{
+      .bodyVisual = {},
+      .headVisual = {},
+      .defaultArmorVisual = {},
+      .bodyTextureVariant = descriptor->bodyTextureVariant,
+      .headTextureVariant = descriptor->headTextureVariant,
+      .skinVariant = descriptor->skinVariant,
+  };
+  if(descriptor->bodyVisual.valid()) {
+    if(const auto* resource = Mmo::Presentation::findPresentationResource(
+           *catalog_, descriptor->bodyVisual);
+       resource != nullptr &&
+       resource->kind ==
+           Mmo::Presentation::PresentationResourceKind::CharacterBodyVisual) {
+      result.bodyVisual = resource->keyUtf8;
+    }
+  }
+  if(descriptor->headVisual.valid()) {
+    if(const auto* resource = Mmo::Presentation::findPresentationResource(
+           *catalog_, descriptor->headVisual);
+       resource != nullptr &&
+       resource->kind ==
+           Mmo::Presentation::PresentationResourceKind::CharacterHeadVisual) {
+      result.headVisual = resource->keyUtf8;
+    }
+  }
+  if(descriptor->defaultArmorVisual.valid()) {
+    if(const auto* resource = Mmo::Presentation::findPresentationResource(
+           *catalog_, descriptor->defaultArmorVisual);
+       resource != nullptr &&
+       resource->kind ==
+           Mmo::Presentation::PresentationResourceKind::ArmorVisual) {
+      result.defaultArmorVisual = resource->keyUtf8;
+    }
+  }
+  return result;
+}
+
 std::optional<std::string_view>
 ClientPresentationCatalogRuntime::playerInstanceName(
     const std::uint64_t archetypeId,

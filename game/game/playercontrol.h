@@ -153,6 +153,8 @@ class PlayerControl final {
 
     bool           cacheFocus=false;
     Focus          currentFocus;
+    Interactive*   pendingBookRead = nullptr;
+    uint64_t       pendingBookReadAt = 0U;
     float          rotMouse=0;
     float          rotMouseY=0;
     bool           casting = false;

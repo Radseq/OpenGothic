@@ -273,6 +273,7 @@ class Npc final {
     void       setVisualBody (int32_t headTexNr, int32_t teethTexNr,
                               int32_t bodyVer, int32_t bodyColor,
                               std::string_view body, std::string_view head);
+    void       setMmoDefaultArmor(std::string_view armorVisual);
     void       updateArmor   ();
     void       setSword      (MeshObjects::Mesh&& sword);
     void       setRangedWeapon(MeshObjects::Mesh&& bow);

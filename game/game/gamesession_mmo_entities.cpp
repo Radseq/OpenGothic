@@ -129,6 +129,29 @@ Npc* findNpcByPresentationIdentity(
   return findNpcByObjectToken(world, local.localObjectToken);
 }
 
+Npc* findLocalNpcForServerEntity(
+    World& world,
+    const std::uint32_t instanceSymbol,
+    const Tempest::Vec3 position) noexcept {
+  Npc* result = nullptr;
+  float bestDistanceSquared = 128.0F * 128.0F;
+  for(std::uint32_t id = 0U; id < world.npcCount(); ++id) {
+    auto* npc = world.npcById(id);
+    if(npc == nullptr || npc->isPlayer() || npc->isMmoServerReplica() ||
+       npc->instanceSymbol() != instanceSymbol) {
+      continue;
+    }
+    const auto delta = npc->position() - position;
+    const float distanceSquared = delta.x * delta.x + delta.y * delta.y +
+                                  delta.z * delta.z;
+    if(distanceSquared < bestDistanceSquared) {
+      result = npc;
+      bestDistanceSquared = distanceSquared;
+    }
+  }
+  return result;
+}
+
 MmoServerEntityMaterialization materializeMmoServerEntityNpc(
     World& world,
     GameScript& scripts,
@@ -142,6 +165,7 @@ MmoServerEntityMaterialization materializeMmoServerEntityNpc(
     return {};
 
   std::optional<std::uint32_t> catalogSymbol;
+  std::string_view catalogInstanceName;
   if(catalog != nullptr && catalog->installed()) {
     auto instanceName = entity.kind == Kind::RemotePlayer
                             ? catalog->playerInstanceName(
@@ -156,6 +180,7 @@ MmoServerEntityMaterialization materializeMmoServerEntityNpc(
           entity.presentation.presentationId);
     }
     if(instanceName.has_value()) {
+      catalogInstanceName = *instanceName;
       const auto symbol = scripts.findSymbolIndex(*instanceName);
       if(symbol != size_t(-1) &&
          symbol <= std::numeric_limits<std::uint32_t>::max()) {
@@ -183,10 +208,57 @@ MmoServerEntityMaterialization materializeMmoServerEntityNpc(
         static_cast<float>(entity.transform.posX),
         static_cast<float>(entity.transform.posY),
         static_cast<float>(entity.transform.posZ)};
-    auto* npc = world.addMmoServerReplica(instanceSymbol, position);
+    auto* npc = findLocalNpcForServerEntity(world, instanceSymbol, position);
+    const bool materializedByMmo = npc == nullptr;
+    if(npc == nullptr)
+      npc = world.addMmoServerReplica(instanceSymbol, position);
     if(npc == nullptr)
       return {};
-    return {npc, true};
+    if(!materializedByMmo)
+      Log::i("MMO NPC presentation: reusing local NPC instance_symbol=",
+             instanceSymbol, " position=", position.x, ",", position.y,
+             ",", position.z);
+    if(catalog != nullptr && catalog->installed()) {
+      if(const auto visual = catalog->npcVisual(
+             entity.presentation.archetypeId,
+             entity.presentation.presentationId);
+         visual.has_value() &&
+         (!visual->bodyVisual.empty() || !visual->headVisual.empty())) {
+        Log::i(
+            "MMO NPC presentation: entity=", entity.handle.id,
+            " instance_symbol=", instanceSymbol,
+            " instance_name=", catalogInstanceName,
+            " archetype=", entity.presentation.archetypeId,
+            " presentation=", entity.presentation.presentationId,
+            " body=", visual->bodyVisual,
+            " head=", visual->headVisual,
+            " armor=", visual->defaultArmorVisual,
+            " body_texture=", visual->bodyTextureVariant,
+            " head_texture=", visual->headTextureVariant,
+            " skin=", visual->skinVariant,
+            " position=", position.x, ",", position.y, ",", position.z);
+        npc->setVisualBody(
+            static_cast<std::int32_t>(visual->headTextureVariant),
+            0,
+            static_cast<std::int32_t>(visual->bodyTextureVariant),
+            static_cast<std::int32_t>(visual->skinVariant),
+            visual->bodyVisual,
+            visual->headVisual);
+        npc->setMmoDefaultArmor(visual->defaultArmorVisual);
+      } else {
+        Log::e(
+            "MMO NPC presentation missing: entity=", entity.handle.id,
+            " instance_symbol=", instanceSymbol,
+            " archetype=", entity.presentation.archetypeId,
+            " presentation=", entity.presentation.presentationId);
+      }
+    } else {
+      Log::e(
+          "MMO NPC presentation catalog unavailable: entity=", entity.handle.id,
+          " instance_symbol=", instanceSymbol);
+    }
+    npc->setMmoServerReplica(true);
+    return {npc, materializedByMmo};
   } catch(const std::exception& error) {
     Log::e("MMO typed entity materialization failed: ", error.what());
   } catch(...) {
@@ -272,20 +344,46 @@ void GameSession::releaseMmoServerEntity(
 
 std::optional<GameSession::MmoServerEntityTarget>
 GameSession::mmoServerEntityTarget(const Npc& npc) const noexcept {
-  const auto* binding = mmoServerEntityPresentation.findLocal(
-      reinterpret_cast<std::uintptr_t>(&npc));
-  if(binding == nullptr)
+  const auto local = Mmo::ClientPresentation::LocalNpcPresentationIdentity{
+      .localNpcId = wrld != nullptr ? wrld->npcId(&npc)
+                                    : Mmo::ClientPresentation::InvalidLocalNpcId,
+      .persistentId = npc.persistentId(),
+      .instanceSymbol = npc.instanceSymbol(),
+      .localObjectToken = reinterpret_cast<std::uintptr_t>(&npc),
+      .materializedByMmo = npc.isMmoServerReplica(),
+  };
+  const auto* binding = mmoServerEntityPresentation.findLocal(local);
+  if(binding == nullptr) {
+    Log::e("MMO NPC target lookup: registry_binding=0 local_npc_id=",
+           local.localNpcId, " persistent_id=", local.persistentId,
+           " instance_symbol=", local.instanceSymbol,
+           " object=", local.localObjectToken);
     return std::nullopt;
+  }
 
+  const auto session = Mmo::clientMmoSessionSnapshot();
   const Mmo::ClientPresentation::ServerPresentationEntityHandle entity{
+      .world = {
+          .id = session.worldId,
+          .generation = session.worldGeneration,
+      },
       .id = binding->handle.id,
       .generation = binding->handle.generation,
   };
   const auto* record = mmoTypedServerPresentation.findEntity(entity);
-  const auto session = Mmo::clientMmoSessionSnapshot();
-  if(record == nullptr || !session.inWorld() || session.worldId == 0U ||
+  if(record == nullptr) {
+    Log::e("MMO NPC target lookup: registry_binding=1 record=0 entity=",
+           entity.id, ":", entity.generation);
+    return std::nullopt;
+  }
+  if(!session.inWorld() || session.worldId == 0U ||
      session.worldGeneration == 0U ||
-     binding->worldGeneration != session.worldGeneration) {
+     binding->worldGeneration != mmoPresentationWorldGeneration) {
+    Log::e("MMO NPC target lookup: registry_binding=1 record=1 in_world=",
+           session.inWorld() ? 1 : 0, " session_world=", session.worldId,
+           " session_generation=", session.worldGeneration,
+           " binding_generation=", binding->worldGeneration,
+           " presentation_generation=", mmoPresentationWorldGeneration);
     return std::nullopt;
   }
 
@@ -315,8 +413,24 @@ GameSession::mmoServerEntityTarget(
     if(entity.has_value())
       break;
   }
-  if(!entity.has_value())
+  if(!entity.has_value()) {
+    const auto position =
+        Mmo::ClientPresentation::ServerWorldObjectPosition::fromFloat(
+            interactive.position().x,
+            interactive.position().y,
+            interactive.position().z);
+    for(const auto kind : {Kind::Interactive, Kind::Container, Kind::Mover}) {
+      entity = mmoServerWorldObjects.findNearest(kind, position);
+      if(entity.has_value())
+        break;
+    }
+  }
+  if(!entity.has_value()) {
+    Log::e("MMO interactive target lookup failed: vob=", interactive.getId(),
+           " position=", interactive.position().x, ",",
+           interactive.position().y, ",", interactive.position().z);
     return std::nullopt;
+  }
 
   std::uint64_t revision = 0U;
   if(const auto* state = mmoTypedServerPresentation.findInteractive(*entity);
@@ -367,6 +481,30 @@ GameSession::mmoServerEntityTarget(const Item& item) const noexcept {
       .revision = binding->revision,
       .quantity = binding->quantity,
   };
+}
+
+Item* GameSession::mmoNearestServerWorldItem(
+    const Tempest::Vec3& position,
+    const float maximumDistance) const noexcept {
+  if(maximumDistance < 0.0F)
+    return nullptr;
+  const auto maximumDistanceSquared = maximumDistance * maximumDistance;
+  Item* nearest = nullptr;
+  auto nearestDistanceSquared = maximumDistanceSquared;
+  for(const auto& binding : mmoServerWorldItemBindings) {
+    if(binding.item == nullptr || binding.revision == 0U)
+      continue;
+    const auto itemPosition = binding.item->position();
+    const auto dx = itemPosition.x - position.x;
+    const auto dy = itemPosition.y - position.y;
+    const auto dz = itemPosition.z - position.z;
+    const auto distanceSquared = dx * dx + dy * dy + dz * dz;
+    if(distanceSquared <= nearestDistanceSquared) {
+      nearestDistanceSquared = distanceSquared;
+      nearest = binding.item;
+    }
+  }
+  return nearest;
 }
 
 Npc* GameSession::resolveMmoServerEntity(
@@ -712,21 +850,50 @@ void GameSession::applyMmoServerWorldItemSpawn(
     mmoServerWorldItemBindings.erase(existing);
   }
 
-  const auto instance = mmoItemInstanceName(
+  std::optional<std::size_t> itemInstance;
+  const auto catalogInstance = mmoItemInstanceName(
       event.presentation.archetypeId, event.presentation.presentationId);
-  if(!instance.has_value()) {
-    Log::e("MMO world-item presentation unresolved: entity=", event.entity.id,
-           " archetype=", event.presentation.archetypeId,
-           " presentation=", event.presentation.presentationId);
-    return;
+  if(catalogInstance.has_value()) {
+    const auto symbol = vm->findSymbolIndex(*catalogInstance);
+    if(symbol != size_t(-1))
+      itemInstance = symbol;
   }
-  const auto symbol = vm->findSymbolIndex(*instance);
-  if(symbol == size_t(-1)) {
-    Log::e("MMO world-item Daedalus symbol missing: ", *instance);
+  if(!itemInstance.has_value()) {
+    if(const auto* local = mmoServerWorldObjects.find(event.entity);
+       local != nullptr) {
+      if(const auto fallback = mmoLocalItemInstanceSymbols.find(
+             local->vobObjectId);
+         fallback != mmoLocalItemInstanceSymbols.end()) {
+        itemInstance = fallback->second;
+        Log::i(
+            "MMO world-item local presentation fallback: entity=",
+            event.entity.id,
+            " vob=", local->vobObjectId,
+            " symbol=", *itemInstance,
+            " catalog_instance=", catalogInstance.has_value() ? 1 : 0);
+      }
+    }
+  }
+  if(!itemInstance.has_value()) {
+    Log::e(
+        "MMO world-item presentation unresolved: entity=", event.entity.id,
+        " generation=", event.entity.generation,
+        " world_object=", event.worldObjectId,
+        " archetype=", event.presentation.archetypeId,
+        " presentation=", event.presentation.presentationId,
+        " catalog_installed=", mmoClientPresentationCatalog != nullptr &&
+                                    mmoClientPresentationCatalog->installed()
+                                    ? 1
+                                    : 0,
+        " catalog_manifest=", mmoClientPresentationCatalog != nullptr
+                                  ? mmoClientPresentationCatalog->manifest().value
+                                  : 0U,
+        " position=", event.transform.posX, ",", event.transform.posY, ",",
+        event.transform.posZ);
     return;
   }
   auto* item = wrld->addItem(
-      symbol,
+      *itemInstance,
       Tempest::Vec3{
           static_cast<float>(event.transform.posX),
           static_cast<float>(event.transform.posY),
@@ -734,6 +901,14 @@ void GameSession::applyMmoServerWorldItemSpawn(
   if(item == nullptr)
     return;
   item->setCount(event.quantity);
+  Log::i(
+      "MMO world-item materialize: entity=", event.entity.id,
+      " symbol=", *itemInstance,
+      " quantity=", event.quantity,
+      " display_name=", item->displayName(),
+      " mesh=", item->bBox() != nullptr ? 1 : 0,
+      " position=", event.transform.posX, ",", event.transform.posY, ",",
+      event.transform.posZ);
   mmoServerWorldItemBindings.push_back({
       .entity = event.entity,
       .item = item,

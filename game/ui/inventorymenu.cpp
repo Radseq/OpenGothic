@@ -1,6 +1,7 @@
 #include "inventorymenu.h"
 
 #include <Tempest/Painter>
+#include <Tempest/Log>
 #include <Tempest/SoundEffect>
 
 #include <algorithm>
@@ -167,14 +168,12 @@ void InventoryMenu::close() {
   }
 
 void InventoryMenu::open(Npc &pl) {
-  if(pl.isDown() || pl.isMonster() || pl.isInAir() || pl.isSlide() || (pl.interactive()!=nullptr))
-    return;
-  if(pl.bodyStateMasked()==BS_UNCONSCIOUS || pl.bodyStateMasked()==BS_LIE)
-    return;
   if(Mmo::isServerBoundClientModeEnabled()) {
     const auto* inventory = serverInventoryState();
-    if(inventory == nullptr || !inventory->ready())
+    if(inventory == nullptr || !inventory->ready()) {
+      Tempest::Log::e("MMO inventory open skipped: server inventory is not ready");
       return;
+    }
     state = State::Equip;
     player = &pl;
     trader = nullptr;
@@ -193,8 +192,15 @@ void InventoryMenu::open(Npc &pl) {
     adjustScroll();
     update();
     Gothic::inst().emitGlobalSound("INV_OPEN");
+    Tempest::Log::i("MMO inventory opened: revision=",
+                    inventory->inventory().revision(),
+                    " stacks=", inventory->inventory().stacks().size());
     return;
   }
+  if(pl.isDown() || pl.isMonster() || pl.isInAir() || pl.isSlide() || (pl.interactive()!=nullptr))
+    return;
+  if(pl.bodyStateMasked()==BS_UNCONSCIOUS || pl.bodyStateMasked()==BS_LIE)
+    return;
   serverInventoryMode = false;
   if(pl.weaponState()!=WeaponState::NoWeapon) {
     pl.stopAnim("");

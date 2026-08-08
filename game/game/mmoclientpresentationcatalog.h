@@ -32,6 +32,15 @@ struct ClientPresentationCatalogResult final {
   }
 };
 
+struct NpcPresentationVisual final {
+  std::string_view bodyVisual;
+  std::string_view headVisual;
+  std::string_view defaultArmorVisual;
+  std::uint32_t bodyTextureVariant = 0U;
+  std::uint32_t headTextureVariant = 0U;
+  std::uint32_t skinVariant = 0U;
+};
+
 // Read-only, authority-neutral runtime view of an installed presentation
 // catalog. It resolves opaque server identities only to symbolic resources;
 // the full client remains responsible for looking up the Daedalus symbol.
@@ -48,6 +57,9 @@ public:
   [[nodiscard]] Mmo::Presentation::ContentManifestId manifest() const noexcept;
   [[nodiscard]] std::uint64_t contentFingerprint() const noexcept;
   [[nodiscard]] std::optional<std::string_view> npcInstanceName(
+      std::uint64_t archetypeId,
+      std::uint64_t presentationId) const noexcept;
+  [[nodiscard]] std::optional<NpcPresentationVisual> npcVisual(
       std::uint64_t archetypeId,
       std::uint64_t presentationId) const noexcept;
   [[nodiscard]] std::optional<std::string_view> playerInstanceName(

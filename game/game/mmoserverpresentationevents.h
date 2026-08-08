@@ -171,6 +171,7 @@ struct ServerPresentationWorldObjectRecord final {
       ServerPresentationWorldObjectKind::Item;
   ServerPresentationMapping presentation{};
   ServerPresentationTransform transform{};
+  std::uint32_t quantity = 0U;
   std::uint64_t stateRevision = 0U;
   std::uint32_t flags = 0U;
 
@@ -180,9 +181,12 @@ struct ServerPresentationWorldObjectRecord final {
                            kind == ServerPresentationWorldObjectKind::Mover ||
                            kind == ServerPresentationWorldObjectKind::Container ||
                            kind == ServerPresentationWorldObjectKind::Trigger;
+    const bool validQuantity = kind == ServerPresentationWorldObjectKind::Item
+                                   ? quantity != 0U
+                                   : quantity == 0U;
     return entity.valid() && worldObjectId != 0U && knownKind &&
-           presentation.valid() && transform.valid() && stateRevision != 0U &&
-           flags == 0U;
+           presentation.valid() && transform.valid() && validQuantity &&
+           stateRevision != 0U && flags == 0U;
   }
 };
 

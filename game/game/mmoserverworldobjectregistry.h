@@ -1,7 +1,10 @@
 #pragma once
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
+#include <cmath>
+#include <iterator>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -39,6 +42,35 @@ struct LocalVobToken final {
   [[nodiscard]] friend constexpr bool operator==(
       const LocalVobToken&,
       const LocalVobToken&) noexcept = default;
+};
+
+struct ServerWorldObjectPosition final {
+  std::uint32_t xBits = 0U;
+  std::uint32_t yBits = 0U;
+  std::uint32_t zBits = 0U;
+
+  [[nodiscard]] static ServerWorldObjectPosition fromFloat(
+      const float x,
+      const float y,
+      const float z) noexcept {
+    return {
+        .xBits = std::bit_cast<std::uint32_t>(x),
+        .yBits = std::bit_cast<std::uint32_t>(y),
+        .zBits = std::bit_cast<std::uint32_t>(z),
+    };
+  }
+
+  [[nodiscard]] static ServerWorldObjectPosition fromTransform(
+      const ServerPresentationTransform& transform) noexcept {
+    return fromFloat(
+        static_cast<float>(transform.posX),
+        static_cast<float>(transform.posY),
+        static_cast<float>(transform.posZ));
+  }
+
+  [[nodiscard]] friend constexpr bool operator==(
+      const ServerWorldObjectPosition&,
+      const ServerWorldObjectPosition&) noexcept = default;
 };
 
 enum class ServerWorldObjectRegisterStatus : std::uint8_t {
@@ -104,15 +136,18 @@ class ServerWorldObjectRegistry final {
         std::max<std::size_t>(1U, config_.maxRuntimeBindings);
     localByWorldObject_.reserve(config_.maxLocalObjects);
     worldObjectByLocal_.reserve(config_.maxLocalObjects);
+    localAnchors_.reserve(config_.maxLocalObjects);
     runtimeByEntity_.reserve(config_.maxRuntimeBindings);
     entityByWorldObject_.reserve(config_.maxRuntimeBindings);
     entityByLocal_.reserve(config_.maxRuntimeBindings);
+    unresolvedByEntity_.reserve(config_.maxRuntimeBindings);
     unresolved_.reserve(config_.maxUnresolvedLogsPerRoute);
   }
 
   [[nodiscard]] ServerWorldObjectRegisterStatus registerLocal(
       const ServerWorldObjectId worldObject,
-      const LocalVobToken local) {
+      const LocalVobToken local,
+      const std::optional<ServerWorldObjectPosition> position = std::nullopt) {
     if(!worldObject.valid() || !local.valid())
       return ServerWorldObjectRegisterStatus::Invalid;
 
@@ -134,6 +169,8 @@ class ServerWorldObjectRegistry final {
 
     localByWorldObject_.emplace(worldObject.value, local);
     worldObjectByLocal_.emplace(localKey, worldObject.value);
+    if(position.has_value())
+      localAnchors_.push_back({.local = local, .position = *position});
     return ServerWorldObjectRegisterStatus::Registered;
   }
 
@@ -141,6 +178,23 @@ class ServerWorldObjectRegistry final {
       const ServerPresentationEntityHandle entity,
       const ServerWorldObjectId worldObject,
       const ServerPresentationWorldObjectKind kind) {
+    return bindRuntime(entity, worldObject, kind, nullptr);
+  }
+
+  [[nodiscard]] ServerWorldObjectBindResult bindRuntime(
+      const ServerPresentationEntityHandle entity,
+      const ServerWorldObjectId worldObject,
+      const ServerPresentationWorldObjectKind kind,
+      const ServerPresentationTransform& transform) {
+    return bindRuntime(entity, worldObject, kind, &transform);
+  }
+
+ private:
+  [[nodiscard]] ServerWorldObjectBindResult bindRuntime(
+      const ServerPresentationEntityHandle entity,
+      const ServerWorldObjectId worldObject,
+      const ServerPresentationWorldObjectKind kind,
+      const ServerPresentationTransform* const transform) {
     if(!entity.valid() || !worldObject.valid() || !activeWorld_.valid() ||
        !knownKind(kind)) {
       return {ServerWorldObjectBindStatus::Invalid};
@@ -148,11 +202,70 @@ class ServerWorldObjectRegistry final {
     if(entity.world != activeWorld_)
       return {ServerWorldObjectBindStatus::RouteMismatch};
 
+    LocalVobToken localToken{};
     const auto local = localByWorldObject_.find(worldObject.value);
-    if(local == localByWorldObject_.end())
+    if(local != localByWorldObject_.end()) {
+      localToken = local->second;
+    } else if(transform != nullptr) {
+      const auto position = ServerWorldObjectPosition::fromTransform(*transform);
+      const auto x = std::bit_cast<float>(position.xBits);
+      const auto y = std::bit_cast<float>(position.yBits);
+      const auto z = std::bit_cast<float>(position.zBits);
+      constexpr float maximumMatchDistance = 8.0F;
+      constexpr float tieDistance = 0.01F;
+      const LocalWorldObjectAnchor* candidate = nullptr;
+      float bestDistanceSquared = maximumMatchDistance * maximumMatchDistance;
+      bool tied = false;
+      for(const auto& anchor : localAnchors_) {
+        if(anchor.local.kind != kind ||
+           entityByLocal_.contains(keyOf(anchor.local))) {
+          continue;
+        }
+        const auto anchorX = std::bit_cast<float>(anchor.position.xBits);
+        const auto anchorY = std::bit_cast<float>(anchor.position.yBits);
+        const auto anchorZ = std::bit_cast<float>(anchor.position.zBits);
+        const auto dx = x - anchorX;
+        const auto dy = y - anchorY;
+        const auto dz = z - anchorZ;
+        const auto distanceSquared = dx * dx + dy * dy + dz * dz;
+        if(distanceSquared > bestDistanceSquared)
+          continue;
+        if(candidate == nullptr ||
+           distanceSquared < bestDistanceSquared - tieDistance) {
+          candidate = &anchor;
+          bestDistanceSquared = distanceSquared;
+          tied = false;
+        } else if(std::abs(distanceSquared - bestDistanceSquared) <=
+                  tieDistance) {
+          tied = true;
+        }
+      }
+      if(candidate == nullptr) {
+        unresolvedByEntity_.insert_or_assign(
+            entity.id,
+            UnresolvedBinding{.entity = entity,
+                              .worldObject = worldObject,
+                              .kind = kind,
+                              .position = position});
+        return {ServerWorldObjectBindStatus::MissingLocal};
+      }
+      if(tied) {
+        unresolvedByEntity_.insert_or_assign(
+            entity.id,
+            UnresolvedBinding{.entity = entity,
+                              .worldObject = worldObject,
+                              .kind = kind,
+                              .position = position});
+        return {ServerWorldObjectBindStatus::Conflict};
+      }
+      localToken = candidate->local;
+    } else {
       return {ServerWorldObjectBindStatus::MissingLocal};
-    if(local->second.kind != kind)
+    }
+    if(localToken.kind != kind)
       return {ServerWorldObjectBindStatus::KindMismatch};
+
+    unresolvedByEntity_.erase(entity.id);
 
     const auto existing = runtimeByEntity_.find(entity.id);
     if(existing != runtimeByEntity_.end()) {
@@ -161,7 +274,7 @@ class ServerWorldObjectRegistry final {
       if(entity.generation == existing->second.entity.generation) {
         return existing->second.entity == entity &&
                        existing->second.worldObject == worldObject &&
-                       existing->second.local == local->second
+                       existing->second.local == localToken
                    ? ServerWorldObjectBindResult{
                          ServerWorldObjectBindStatus::Duplicate}
                    : ServerWorldObjectBindResult{
@@ -173,7 +286,7 @@ class ServerWorldObjectRegistry final {
        owner != entityByWorldObject_.end() && owner->second != entity.id) {
       return {ServerWorldObjectBindStatus::Conflict};
     }
-    const auto localKey = keyOf(local->second);
+    const auto localKey = keyOf(localToken);
     if(const auto owner = entityByLocal_.find(localKey);
        owner != entityByLocal_.end() && owner->second != entity.id) {
       return {ServerWorldObjectBindStatus::Conflict};
@@ -194,13 +307,18 @@ class ServerWorldObjectRegistry final {
     Binding binding{
         .entity = entity,
         .worldObject = worldObject,
-        .local = local->second,
+        .local = localToken,
+        .position = transform != nullptr
+                        ? ServerWorldObjectPosition::fromTransform(*transform)
+                        : ServerWorldObjectPosition{},
     };
     runtimeByEntity_.insert_or_assign(entity.id, binding);
     entityByWorldObject_.insert_or_assign(worldObject.value, entity.id);
     entityByLocal_.insert_or_assign(localKey, entity.id);
     return {status, released};
   }
+
+ public:
 
   [[nodiscard]] const LocalVobToken* find(
       const ServerPresentationEntityHandle entity) const noexcept {
@@ -221,6 +339,50 @@ class ServerWorldObjectRegistry final {
     return binding != runtimeByEntity_.end()
                ? std::optional{binding->second.entity}
                : std::nullopt;
+  }
+
+  [[nodiscard]] std::optional<ServerPresentationEntityHandle> findNearest(
+      const ServerPresentationWorldObjectKind kind,
+      const ServerWorldObjectPosition position,
+      const float maximumDistance = 128.0F) const noexcept {
+    if(!knownKind(kind) || maximumDistance < 0.0F)
+      return std::nullopt;
+
+    const float x = std::bit_cast<float>(position.xBits);
+    const float y = std::bit_cast<float>(position.yBits);
+    const float z = std::bit_cast<float>(position.zBits);
+    const float maximumDistanceSquared = maximumDistance * maximumDistance;
+    std::optional<ServerPresentationEntityHandle> nearest;
+    float nearestDistanceSquared = maximumDistanceSquared;
+    bool tied = false;
+    const auto consider = [&](const ServerPresentationEntityHandle entity,
+                              const ServerWorldObjectPosition candidatePosition,
+                              const ServerPresentationWorldObjectKind candidateKind) {
+      if(candidateKind != kind)
+        return;
+      const float dx = x - std::bit_cast<float>(candidatePosition.xBits);
+      const float dy = y - std::bit_cast<float>(candidatePosition.yBits);
+      const float dz = z - std::bit_cast<float>(candidatePosition.zBits);
+      const float distanceSquared = dx * dx + dy * dy + dz * dz;
+      if(distanceSquared > maximumDistanceSquared)
+        return;
+      if(!nearest.has_value() || distanceSquared < nearestDistanceSquared) {
+        nearest = entity;
+        nearestDistanceSquared = distanceSquared;
+        tied = false;
+      } else if(distanceSquared == nearestDistanceSquared) {
+        tied = true;
+      }
+    };
+    for(const auto& entry : runtimeByEntity_) {
+      const auto& binding = entry.second;
+      consider(binding.entity, binding.position, binding.local.kind);
+    }
+    for(const auto& entry : unresolvedByEntity_) {
+      const auto& binding = entry.second;
+      consider(binding.entity, binding.position, binding.kind);
+    }
+    return tied ? std::nullopt : nearest;
   }
 
   [[nodiscard]] std::optional<ServerWorldObjectId> worldObject(
@@ -296,6 +458,7 @@ class ServerWorldObjectRegistry final {
     runtimeByEntity_.clear();
     entityByWorldObject_.clear();
     entityByLocal_.clear();
+    unresolvedByEntity_.clear();
     unresolved_.clear();
     unresolvedLogCount_ = 0U;
     activeWorld_ = world;
@@ -305,6 +468,7 @@ class ServerWorldObjectRegistry final {
     resetRoute({});
     localByWorldObject_.clear();
     worldObjectByLocal_.clear();
+    localAnchors_.clear();
   }
 
   [[nodiscard]] std::size_t localCount() const noexcept {
@@ -322,6 +486,7 @@ class ServerWorldObjectRegistry final {
     ServerPresentationEntityHandle entity{};
     ServerWorldObjectId worldObject{};
     LocalVobToken local{};
+    ServerWorldObjectPosition position{};
     std::uint64_t appliedRevision = 0U;
     std::uint64_t appliedSignature = 0U;
     bool hasAppliedState = false;
@@ -330,6 +495,19 @@ class ServerWorldObjectRegistry final {
   struct UnresolvedRecord final {
     ServerPresentationEntityHandle entity{};
     std::uint64_t revision = 0U;
+  };
+
+  struct LocalWorldObjectAnchor final {
+    LocalVobToken local{};
+    ServerWorldObjectPosition position{};
+  };
+
+  struct UnresolvedBinding final {
+    ServerPresentationEntityHandle entity{};
+    ServerWorldObjectId worldObject{};
+    ServerPresentationWorldObjectKind kind =
+        ServerPresentationWorldObjectKind::Item;
+    ServerWorldObjectPosition position{};
   };
 
   [[nodiscard]] static constexpr bool knownKind(
@@ -356,9 +534,11 @@ class ServerWorldObjectRegistry final {
   ServerWorldInstanceHandle activeWorld_{};
   std::unordered_map<std::uint64_t, LocalVobToken> localByWorldObject_;
   std::unordered_map<std::uint64_t, std::uint64_t> worldObjectByLocal_;
+  std::vector<LocalWorldObjectAnchor> localAnchors_;
   std::unordered_map<std::uint64_t, Binding> runtimeByEntity_;
   std::unordered_map<std::uint64_t, std::uint64_t> entityByWorldObject_;
   std::unordered_map<std::uint64_t, std::uint64_t> entityByLocal_;
+  std::unordered_map<std::uint64_t, UnresolvedBinding> unresolvedByEntity_;
   std::vector<UnresolvedRecord> unresolved_;
   std::size_t unresolvedLogCount_ = 0U;
 };

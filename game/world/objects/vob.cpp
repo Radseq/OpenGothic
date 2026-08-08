@@ -18,6 +18,7 @@
 #include "world/triggers/pfxcontroller.h"
 #include "world/triggers/trigger.h"
 #include "world/triggers/touchdamage.h"
+#include "commandline.h"
 #include "world/triggers/cscamera.h"
 #include "world/worldlight.h"
 #include "world/world.h"
@@ -194,7 +195,9 @@ std::unique_ptr<Vob> Vob::load(Vob* parent, World& world, const zenkit::VirtualO
       return std::unique_ptr<Vob>(new Vob(parent,world,vob,flags));
       }
     case zenkit::VirtualObjectType::oCItem: {
-      if(flags)
+      // In server-bound MMO mode the map is only a presentation source. The
+      // server creates the authoritative item and sends its current state.
+      if(flags && !CommandLine::inst().mmoClientUsesServer())
         world.addItem(reinterpret_cast<const zenkit::VItem&>(vob));
       // FIXME
       return std::unique_ptr<Vob>(new Vob(parent,world,vob,flags));

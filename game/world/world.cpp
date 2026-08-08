@@ -2,8 +2,10 @@
 
 #include <functional>
 #include <future>
+#include <bit>
 #include <cctype>
 #include <cstdint>
+#include <limits>
 
 #include <Tempest/Log>
 #include <Tempest/Painter>
@@ -106,6 +108,61 @@ mmoLocalWorldObjectKind(const zenkit::VirtualObject& vob) noexcept {
   }
 }
 
+[[nodiscard]] std::string_view mmoCanonicalWorldObjectKind(
+    const zenkit::VirtualObject& vob) noexcept {
+  switch(vob.type) {
+    case zenkit::VirtualObjectType::oCItem: return "world_item";
+    case zenkit::VirtualObjectType::zCMover: return "mover";
+    case zenkit::VirtualObjectType::oCMobContainer: return "container";
+    case zenkit::VirtualObjectType::oCMobDoor: return "door";
+    case zenkit::VirtualObjectType::oCMobBed: return "bed";
+    case zenkit::VirtualObjectType::oCMOB:
+    case zenkit::VirtualObjectType::oCMobInter:
+    case zenkit::VirtualObjectType::oCMobSwitch:
+    case zenkit::VirtualObjectType::oCMobWheel:
+    case zenkit::VirtualObjectType::oCMobFire: return "interactive";
+    case zenkit::VirtualObjectType::zCTrigger:
+    case zenkit::VirtualObjectType::zCTriggerList:
+    case zenkit::VirtualObjectType::zCTriggerWorldStart:
+    case zenkit::VirtualObjectType::oCTriggerScript:
+    case zenkit::VirtualObjectType::oCTriggerChangeLevel:
+    case zenkit::VirtualObjectType::oCCSTrigger:
+    case zenkit::VirtualObjectType::zCMessageFilter:
+    case zenkit::VirtualObjectType::zCCodeMaster:
+    case zenkit::VirtualObjectType::zCMoverController: return "trigger";
+    default: return {};
+  }
+}
+
+[[nodiscard]] std::string mmoWorldObjectSemanticName(
+    const std::shared_ptr<zenkit::VirtualObject>& node) {
+  if(node->type == zenkit::VirtualObjectType::oCItem) {
+    if(const auto item = std::dynamic_pointer_cast<zenkit::VItem>(node);
+       item != nullptr && !item->instance.empty()) {
+      return item->instance;
+    }
+  }
+  if(!node->vob_name.empty())
+    return node->vob_name;
+  if(node->visual != nullptr && !node->visual->name.empty())
+    return node->visual->name;
+  return node->preset_name;
+}
+
+[[nodiscard]] std::string_view mmoWorldObjectTargetName(
+    const std::shared_ptr<zenkit::VirtualObject>& node) {
+  if(const auto trigger = std::dynamic_pointer_cast<zenkit::VTrigger>(node);
+     trigger != nullptr) {
+    return trigger->target;
+  }
+  if(const auto interactive =
+         std::dynamic_pointer_cast<zenkit::VInteractiveObject>(node);
+     interactive != nullptr) {
+    return interactive->target;
+  }
+  return {};
+}
+
 void registerMmoLocalWorldObjectTree(
     GameSession& game,
     const std::shared_ptr<zenkit::VirtualObject>& node,
@@ -114,9 +171,39 @@ void registerMmoLocalWorldObjectTree(
   if(node == nullptr)
     return;
   if(const auto kind = mmoLocalWorldObjectKind(*node); kind.has_value()) {
-    const auto worldObjectId = Mmo::ClientPresentation::makeStableWorldObjectId(
-        worldName, mmoWorldObjectSourceClass(*node), treePath, node->id);
-    game.registerMmoLocalWorldObject(worldObjectId, node->id, *kind);
+    const auto canonicalKind = mmoCanonicalWorldObjectKind(*node);
+    const auto worldObjectId =
+        Mmo::ClientPresentation::makeCanonicalWorldObjectId(
+            worldName,
+            canonicalKind,
+            mmoWorldObjectSemanticName(node),
+            mmoWorldObjectSourceClass(*node),
+            node->position.x,
+            node->position.y,
+            node->position.z,
+            node->visual != nullptr ? std::string_view(node->visual->name)
+                                    : std::string_view{},
+            mmoWorldObjectTargetName(node));
+    std::optional<std::uint32_t> itemInstanceSymbol;
+    if(*kind == Mmo::ClientPresentation::ServerPresentationWorldObjectKind::Item) {
+      if(const auto item = std::dynamic_pointer_cast<zenkit::VItem>(node);
+         item != nullptr && !item->instance.empty()) {
+        const auto symbol = game.script()->findSymbolIndex(item->instance);
+        if(symbol != size_t(-1) &&
+           symbol <= std::numeric_limits<std::uint32_t>::max()) {
+          itemInstanceSymbol = static_cast<std::uint32_t>(symbol);
+        }
+      }
+    }
+    game.registerMmoLocalWorldObject(
+        worldObjectId,
+        node->id,
+        *kind,
+        Mmo::ClientPresentation::ServerWorldObjectPosition::fromFloat(
+            node->position.x,
+            node->position.y,
+            node->position.z),
+        itemInstanceSymbol);
   }
   for(std::size_t childIndex = 0U; childIndex < node->children.size();
       ++childIndex) {

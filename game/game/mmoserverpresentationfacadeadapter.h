@@ -483,6 +483,7 @@ mapWorldObject(const ClientRuntimeBootstrapWorldObject& value) noexcept {
       .kind = *kind,
       .presentation = mapPresentation(value.presentation),
       .transform = *transform,
+      .quantity = value.quantity,
       .stateRevision = value.stateRevision,
       .flags = value.flags,
   };

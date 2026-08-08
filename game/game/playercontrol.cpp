@@ -3,6 +3,7 @@
 #include <Tempest/Log>
 
 #include <cmath>
+#include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -43,6 +44,13 @@ namespace {
       .world = world.name(),
       .reason = reason,
   };
+  Tempest::Log::i(
+      "MMO interaction submit: verb=", static_cast<unsigned>(verb),
+      " target=", target.handle.worldId, ":", target.handle.worldGeneration,
+      ":", target.handle.id, ":", target.handle.generation,
+      " revision=", target.revision,
+      " actor_position=", position.x, ",", position.y, ",", position.z,
+      " source=", source);
   const auto result = Mmo::submitClientInteraction(request);
   if(!result.accepted()) {
     Tempest::Log::e("MMO interaction submission failed source=", source,
@@ -51,6 +59,34 @@ namespace {
                     target.handle.generation);
   }
   return true;
+}
+
+[[nodiscard]] bool isBookInteractive(const Interactive& interactive) {
+  const auto containsBookWord = [](const std::string_view value) {
+    for(std::size_t index = 0U; index < value.size(); ++index) {
+      if(index + 3U > value.size())
+        break;
+      auto lower = [](const unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+      };
+      const auto a = lower(static_cast<unsigned char>(value[index]));
+      const auto b = lower(static_cast<unsigned char>(value[index + 1U]));
+      const auto c = lower(static_cast<unsigned char>(value[index + 2U]));
+      const auto d = index + 3U < value.size()
+                         ? lower(static_cast<unsigned char>(value[index + 3U]))
+                         : '\0';
+      if((a == 'b' && b == 'o' && c == 'o' && d == 'k') ||
+         (a == 'b' && b == 'u' && c == 'c' && d == 'h') ||
+         (a == 'r' && b == 'e' && c == 'a' && d == 'd')) {
+        return true;
+      }
+    }
+    return false;
+  };
+  return containsBookWord(interactive.tag()) ||
+         containsBookWord(interactive.focusName()) ||
+         containsBookWord(interactive.schemeName()) ||
+         containsBookWord(interactive.ownerName());
 }
 
 [[nodiscard]] std::string_view combatActionName(
@@ -418,11 +454,43 @@ void PlayerControl::drawVobRay(DbgPainter& p) const {
   }
 
 void PlayerControl::tickFocus() {
+  auto w = Gothic::inst().world();
+  if(w != nullptr && pendingBookRead != nullptr &&
+     w->tickCount() >= pendingBookReadAt) {
+    auto* pl = w->player();
+    auto* book = pendingBookRead;
+    pendingBookRead = nullptr;
+    pendingBookReadAt = 0U;
+    const bool attached = pl != nullptr && pl->interactive() == book;
+    Tempest::Log::i("MMO book presentation start: attached=", attached,
+                    " tick=", w->tickCount());
+    if(attached)
+      book->onKeyInput(KeyCodec::Forward);
+  }
+
   currentFocus = findFocus(&currentFocus);
   setTarget(currentFocus.npc);
 
   if(!ctrl[Action::ActionGeneric])
     return;
+
+  // Server world items are created after the native Gothic focus cache. If
+  // the ray misses such an item by a few pixels, still allow a nearby click
+  // to pick the nearest authoritative item.
+  if(currentFocus.interactive == nullptr && currentFocus.npc == nullptr &&
+     currentFocus.item == nullptr &&
+     CommandLine::inst().mmoClientUsesServer() && w != nullptr &&
+     w->player() != nullptr) {
+    if(auto* session = Gothic::inst().gameSession(); session != nullptr)
+      currentFocus.item = session->mmoNearestServerWorldItem(
+          w->player()->position());
+    if(currentFocus.item != nullptr)
+      Tempest::Log::i(
+          "MMO item focus fallback: item=", currentFocus.item->displayName(),
+          " position=", currentFocus.item->position().x, ",",
+          currentFocus.item->position().y, ",",
+          currentFocus.item->position().z);
+  }
 
   auto focus = currentFocus;
   if(focus.interactive!=nullptr && interact(*focus.interactive)) {
@@ -477,13 +545,34 @@ bool PlayerControl::interact(Interactive &it) {
     if(session == nullptr)
       return true;
     const auto target = session->mmoServerEntityTarget(it);
-    if(!target.has_value())
+    if(!target.has_value()) {
+      Tempest::Log::e(
+          "MMO interactive skipped: local object has no server binding");
       return true;
+    }
+    const bool readBookshelf = isBookInteractive(it);
+    const auto verb = readBookshelf ? Mmo::ClientInteractionVerb::Read
+                                    : Mmo::ClientInteractionVerb::Use;
+    if(readBookshelf) {
+      // Attach immediately so the Gothic reading animation starts now. The
+      // state change that opens the document is sent after 1.5 seconds.
+      const bool attached = pl->setInteraction(&it);
+      Tempest::Log::i("MMO book animation start: attached=", attached,
+                      " tick=", w->tickCount());
+      if(attached) {
+        pendingBookRead = &it;
+        pendingBookReadAt = w->tickCount() + 1500U;
+        Tempest::Log::i(
+            "MMO book presentation scheduled: delay_ms=1500 tick=",
+            w->tickCount());
+      }
+    }
     return submitMmoInteraction(
-        *w, *pl, *target, Mmo::ClientInteractionVerb::Use,
+        *w, *pl, *target, verb,
         "PlayerControl::interact(Interactive)",
-        it.isContainer() ? "use_container" :
-        (it.isDoor() ? "use_door" : "use_interactive"));
+        readBookshelf ? "read_bookshelf" :
+        (it.isContainer() ? "use_container" :
+        (it.isDoor() ? "use_door" : "use_interactive")));
   }
 
   if(it.isContainer()){
@@ -510,8 +599,18 @@ bool PlayerControl::interact(Npc &other) {
     const auto target = session != nullptr
                             ? session->mmoServerEntityTarget(other)
                             : std::nullopt;
-    if(!target.has_value())
+    Tempest::Log::i(
+        "MMO NPC focus: instance=", other.instanceSymbol(),
+        " persistent_id=", other.persistentId(),
+        " server_replica=", other.isMmoServerReplica() ? 1 : 0,
+        " position=", other.position().x, ",", other.position().y, ",",
+        other.position().z,
+        " target_binding=", target.has_value() ? 1 : 0);
+    if(!target.has_value()) {
+      Tempest::Log::e(
+          "MMO NPC interaction skipped: local NPC has no server binding");
       return true;
+    }
 
     const auto& loot = session->mmoServerCorpseLootPresentation();
     if(loot.replicatedDead(target->handle)) {
@@ -563,6 +662,12 @@ bool PlayerControl::interact(Item &item) {
     const auto& inventory = session->mmoServerInventoryPresentation().inventory();
     if(inventory.revision() == 0U)
       return true;
+    Tempest::Log::i(
+        "MMO pickup submit: entity=", target->handle.id,
+        " revision=", target->revision,
+        " quantity=", target->quantity,
+        " inventory_revision=", inventory.revision(),
+        " item=", item.displayName());
     static_cast<void>(Mmo::submitClientPickupItem({
         .worldItem = target->handle,
         .amount = target->quantity,
@@ -636,7 +741,11 @@ bool PlayerControl::canInteract() const {
   if(w==nullptr || w->player()==nullptr)
     return false;
   auto pl = w->player();
-  if(pl->weaponState()!=WeaponState::NoWeapon || pl->isAiBusy())
+  if(pl->weaponState()!=WeaponState::NoWeapon)
+    return false;
+  // In server-bound mode the local AI queue is only presentation state. It
+  // must not prevent sending an authoritative interaction intent.
+  if(!CommandLine::inst().mmoClientUsesServer() && pl->isAiBusy())
     return false;
   return true;
   }

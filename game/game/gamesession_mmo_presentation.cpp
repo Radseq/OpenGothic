@@ -512,14 +512,23 @@ void GameSession::applyMmoServerMovementCorrection() noexcept {
       .yaw = typed->transform.yaw,
       .hardSnap = hardSnap,
   };
-  if(mmoMovementCorrectionBoundary.observe(correction) !=
-     ServerMovementCorrectionStatus::Accepted) {
+  const auto correctionStatus =
+      mmoMovementCorrectionBoundary.observe(correction);
+  if(correctionStatus != ServerMovementCorrectionStatus::Accepted) {
+    Log::e("MMO movement correction rejected: status=",
+           static_cast<unsigned int>(correctionStatus),
+           " entity=", typed->entity.id, ":", typed->entity.generation,
+           " position=", typed->transform.posX, ",", typed->transform.posY,
+           ",", typed->transform.posZ);
     return;
   }
   const auto accepted = mmoMovementCorrectionBoundary.takePending();
   auto* hero = wrld->player();
-  if(!accepted.has_value() || hero == nullptr)
+  if(!accepted.has_value() || hero == nullptr) {
+    Log::e("MMO movement correction lost: accepted=", accepted.has_value(),
+           " hero=", hero != nullptr);
     return;
+  }
 
   if(hero->setPosition(static_cast<float>(accepted->posX),
                        static_cast<float>(accepted->posY),
@@ -529,6 +538,12 @@ void GameSession::applyMmoServerMovementCorrection() noexcept {
       hero->clearSpeed();
     Mmo::recordClientMmoProcessGatePresentation(
         Mmo::ClientMmoProcessGatePresentationEvent::MovementCorrectionApplied);
+    Log::i("MMO movement correction applied: position=", accepted->posX, ",",
+           accepted->posY, ",", accepted->posZ, " yaw=", accepted->yaw,
+           " hard_snap=", accepted->hardSnap);
+  } else {
+    Log::e("MMO movement correction could not set hero position: position=",
+           accepted->posX, ",", accepted->posY, ",", accepted->posZ);
   }
 }
 
@@ -621,6 +636,10 @@ void GameSession::applyMmoServerPresentationEvent(
         } else if constexpr(std::is_same_v<Event, ServerMoverStateEvent>) {
           applyMmoServerMoverState(value.state);
         } else if constexpr(std::is_same_v<Event, ServerDialogStartEvent>) {
+          Log::i("MMO dialog start: session=", value.sessionId,
+                 " revision=", value.dialogRevision,
+                 " player=", value.player.id,
+                 " npc=", value.npc.id);
           auto* player = resolveMmoServerEntity(value.player);
           auto* npc = resolveMmoServerEntity(value.npc);
           Gothic::inst().presentTypedServerDialog(player, npc, nullptr, event);
@@ -632,6 +651,11 @@ void GameSession::applyMmoServerPresentationEvent(
           auto* npc = resolveMmoServerEntity(dialog.npc);
           Gothic::inst().presentTypedServerDialog(player, npc, nullptr, event);
         } else if constexpr(std::is_same_v<Event, ServerDialogUpdateEvent>) {
+          Log::i("MMO dialog update: session=", value.sessionId,
+                 " revision=", value.dialogRevision,
+                 " line=", value.lineId,
+                 " flags=", value.flags,
+                 " choices_revision=", value.choicesRevision);
           const auto& dialog = mmoTypedServerPresentation.dialog();
           auto* player = resolveMmoServerEntity(dialog.player);
           auto* npc = resolveMmoServerEntity(dialog.npc);
@@ -640,10 +664,16 @@ void GameSession::applyMmoServerPresentationEvent(
           Mmo::recordClientMmoProcessGatePresentation(
               Mmo::ClientMmoProcessGatePresentationEvent::DialogApplied);
         } else if constexpr(std::is_same_v<Event, ServerDialogEndEvent>) {
+          Log::i("MMO dialog end: session=", value.sessionId,
+                 " reason=", static_cast<unsigned>(value.reason));
           Gothic::inst().presentTypedServerDialog(nullptr, nullptr, nullptr, event);
           Mmo::recordClientMmoProcessGatePresentation(
               Mmo::ClientMmoProcessGatePresentationEvent::DialogApplied);
         } else if constexpr(std::is_same_v<Event, ServerDialogBusyEvent>) {
+          Log::i("MMO dialog busy: npc=", value.npc.id,
+                 " active_session=", value.activeSessionId,
+                 " reason=", static_cast<unsigned>(value.reason),
+                 " retry_ms=", value.retryAfterMilliseconds);
           auto* npc = resolveMmoServerEntity(value.npc);
           Gothic::inst().presentTypedServerDialog(nullptr, npc, nullptr, event);
           Mmo::recordClientMmoProcessGatePresentation(
