@@ -100,6 +100,7 @@ void DialogMenu::tick(uint64_t dt) {
 
   if(current.time<=dt){
     current.time = 0;
+    drainTypedServerDialogEvents();
     if(dlgTrade && !haveToWaitOutput()) {
       startTrade();
       }
@@ -266,6 +267,22 @@ void DialogMenu::presentTypedServerDialog(
     Npc* speaker,
     const Mmo::ClientPresentation::ServerPresentationEvent& event) {
   using namespace Mmo::ClientPresentation;
+  constexpr std::size_t MaxPendingTypedDialogEvents = 256U;
+  const bool sequenceSensitive = std::holds_alternative<ServerDialogChoiceEvent>(event) ||
+                                 std::holds_alternative<ServerDialogUpdateEvent>(event) ||
+                                 std::holds_alternative<ServerDialogEndEvent>(event);
+  if(sequenceSensitive && typedServerDialogSessionId != 0U && current.time > 0U) {
+    if(typedPendingDialogEvents.size() >= MaxPendingTypedDialogEvents) {
+      Log::e("MMO typed dialog presentation queue overflow: session=",
+             typedServerDialogSessionId,
+             " pending=", typedPendingDialogEvents.size());
+      typedPendingDialogEvents.clear();
+      close();
+      return;
+    }
+    typedPendingDialogEvents.push_back(event);
+    return;
+  }
   std::visit(
       [this, player, npc, speaker](const auto& value) {
         using Event = std::decay_t<decltype(value)>;
@@ -288,9 +305,11 @@ void DialogMenu::presentTypedServerDialog(
           serverDialog.reset();
           typedServerDialogSessionId = value.sessionId;
           typedServerDialogRevision = value.dialogRevision;
+          typedServerDialogLineId = 0U;
           typedChoicesRevision = 0U;
           typedChoiceCount = 0U;
           typedChoiceIds.clear();
+          typedPendingDialogEvents.clear();
           current = {};
           currentSnd = SoundEffect();
           curentIsPl = false;
@@ -358,29 +377,44 @@ void DialogMenu::presentTypedServerDialog(
             typedChoicesRevision = 0U;
           }
 
-          // The server sends the authoritative line text. Keep the line id
-          // only as an identity; never turn its numeric hash into a Gothic
-          // message name.
-          current.txt = value.lineText;
-          current.msgTime = current.txt.empty() ? 0U : 500U;
-          current.time = current.msgTime +
-                         (current.msgTime != 0U && dlgAnimation
-                              ? ANIM_TIME * 2U
-                              : 0U);
-          curentIsPl =
-              (value.flags & ServerDialogSpeakerIsPlayer) != 0U ||
-              (speaker != nullptr && speaker == pl);
+          // A choice refresh after the last spoken output carries the current
+          // line identity again because DialogUpdate is the stable wire shape.
+          // Do not replay that line: only install the newly advertised choices.
+          const bool choicesOnlyRefresh = awaitingChoice &&
+              typedServerDialogLineId != 0U &&
+              typedServerDialogLineId == value.lineId;
+          if(!choicesOnlyRefresh) {
+            // The server sends the authoritative line text. Keep the line id
+            // only as an identity; never turn its numeric hash into a Gothic
+            // message name.
+            typedServerDialogLineId = value.lineId;
+            current.txt = value.lineText;
+            current.msgTime = current.txt.empty() ? 0U : 500U;
+            current.time = current.msgTime +
+                           (current.msgTime != 0U && dlgAnimation
+                                ? ANIM_TIME * 2U
+                                : 0U);
+            curentIsPl =
+                (value.flags & ServerDialogSpeakerIsPlayer) != 0U ||
+                (speaker != nullptr && speaker == pl);
 
-          if(current.txt.empty()) {
-            Log::e("MMO typed dialog line suppressed: opaque_line_id=",
-                   value.lineId,
-                   " session=", value.sessionId,
-                   " revision=", value.dialogRevision,
-                   " reason=server_sent_empty_line_text");
+            if(current.txt.empty()) {
+              Log::e("MMO typed dialog line suppressed: opaque_line_id=",
+                     value.lineId,
+                     " session=", value.sessionId,
+                     " revision=", value.dialogRevision,
+                     " reason=server_sent_empty_line_text");
+            } else {
+              Log::i("MMO typed dialog line shown: session=", value.sessionId,
+                     " revision=", value.dialogRevision,
+                     " bytes=", value.lineText.size());
+            }
           } else {
-            Log::i("MMO typed dialog line shown: session=", value.sessionId,
+            current.time = 0U;
+            Log::i("MMO typed dialog choices refreshed without replay: session=",
+                   value.sessionId,
                    " revision=", value.dialogRevision,
-                   " bytes=", value.lineText.size());
+                   " line_id=", value.lineId);
           }
           if(awaitingChoice && !completeChoices) {
             Log::e("MMO typed dialog choices incomplete: session=",
@@ -403,7 +437,17 @@ void DialogMenu::presentTypedServerDialog(
       event);
 }
 
+void DialogMenu::drainTypedServerDialogEvents() {
+  while(current.time == 0U && !typedPendingDialogEvents.empty() &&
+        typedServerDialogSessionId != 0U) {
+    auto event = std::move(typedPendingDialogEvents.front());
+    typedPendingDialogEvents.pop_front();
+    presentTypedServerDialog(pl, other, nullptr, event);
+  }
+}
+
 void DialogMenu::resetTypedServerDialogPresentation() {
+  typedPendingDialogEvents.clear();
   if(typedServerDialogSessionId != 0U || serverDialog.has_value())
     close();
 }
@@ -557,9 +601,11 @@ void DialogMenu::close() {
   serverDialog.reset();
   typedServerDialogSessionId = 0U;
   typedServerDialogRevision = 0U;
+  typedServerDialogLineId = 0U;
   typedChoicesRevision = 0U;
   typedChoiceCount = 0U;
   typedChoiceIds.clear();
+  typedPendingDialogEvents.clear();
   state=State::Idle;
   currentSnd = SoundEffect();
   update();

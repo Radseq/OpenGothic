@@ -29,8 +29,12 @@ Reconciliation occurs when authoritative projection arrives.
 
 Live dialog presentation uses stable server choice IDs and the exact dialog
 revision. Selecting a choice submits intent and may show pending state, but the
-UI remains open until the authoritative update or end event. Route replacement
-or dialog revision change invalidates stale selections.
+UI remains open until the authoritative update or end event. Consecutive
+validated server dialog choice/update/end events are presented through a bounded
+FIFO while a line is visible, preserving server order without turning client
+presentation time into an authority clock; an end event therefore cannot erase a
+preceding line. Route replacement or dialog revision change invalidates stale
+selections.
 
 The same rules apply to combat HUD, character attributes, loot availability,
 quests, trade and other server-owned screens:

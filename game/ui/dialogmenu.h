@@ -6,6 +6,7 @@
 #include <Tempest/Widget>
 #include <Tempest/SoundEffect>
 #include <Tempest/SoundDevice>
+#include <deque>
 #include <optional>
 
 #include "../../../shared/net/mmo/mmonetprotocol.h"
@@ -127,6 +128,7 @@ class DialogMenu : public Tempest::Widget {
 
     void startTrade();
     void skipPhrase();
+    void drainTypedServerDialogEvents();
 
     InventoryMenu&                      trade;
     Pipe                                pipe;
@@ -144,9 +146,12 @@ class DialogMenu : public Tempest::Widget {
     uint64_t                              serverChoiceSequence = 0;
     uint64_t                              typedServerDialogSessionId = 0;
     uint64_t                              typedServerDialogRevision = 0;
+    uint64_t                              typedServerDialogLineId = 0;
     uint64_t                              typedChoicesRevision = 0;
     uint16_t                              typedChoiceCount = 0;
     std::vector<uint64_t>                 typedChoiceIds;
+    std::deque<Mmo::ClientPresentation::ServerPresentationEvent>
+                                          typedPendingDialogEvents;
 
     State                               state=State::Idle;
     Entry                               current;

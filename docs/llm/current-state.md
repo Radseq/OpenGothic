@@ -76,8 +76,12 @@ This document separates four evidence levels. Source remains authoritative.
   actions while pending and closes on reroute, despawn, decay or resync.
 - Typed live dialog presentation stages bounded server choice labels, renders
   them in the native menu and submits the selected stable ID with the exact
-  dialog revision; the UI waits for authoritative update/end instead of closing
-  optimistically.
+  dialog revision. Validated choice/update/end events now enter a bounded FIFO
+  while a server line is visible, so consecutive NPC/player `AI_OUTPUT` lines
+  cannot overwrite one another and terminal end waits behind the last line;
+  choice-only refreshes install the new authoritative set without replaying the
+  previous line. The UI still waits for authoritative update/end and never
+  advances dialog or story state optimistically.
 - Focused tests cover adapter validation, mailbox conversion, atomic bootstrap,
   route replacement, entity binding, interpolation, correction, catalog
   admission, inventory/equipment and corpse-loot projection, corpse-menu request
@@ -158,8 +162,11 @@ sandbox test target. They do not instantiate the complete OpenGothic runtime.
    reinterpret the stable numeric line ID as a Gothic OU/message key because
    it can resolve the wrong subtitle. Bootstrap restoration of the current
    line text and choices remains missing; ordinary eager startup NPCs still
-   use the server's static fallback dialog until the real Daedalus dialog
-   executor is production-composed.
+   now use the production-composed Daedalus condition/information and ordered
+   dialog-process lifecycle when canonical content is available. Bootstrap
+   restoration of in-flight line/choice FIFO state and original voice/audio
+   timing remain missing, and server-initiated `important` scheduling is not yet
+   claimed as full Gothic parity.
 4. Character-attribute facade records still have no full-client presentation
    component. Loot availability and corpse session records are mapped and
    emitted by production composition, but real graphical acceptance remains.
