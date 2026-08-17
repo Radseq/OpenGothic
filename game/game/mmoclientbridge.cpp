@@ -48,6 +48,11 @@ class ClientMmoBridgeState final {
         runtime.sessionKey = config.sessionKey.empty() ? "local-dev" : config.sessionKey;
         runtime.outgoingCapacity = std::max<std::size_t>(config.queueCapacity, 1);
         runtime.bootstrapCapacity = std::max<std::size_t>(config.bootstrapCapacity, 1);
+        // Native Gothic world loading can take longer than the small
+        // protocol default. Keep the authoritative route alive while the
+        // graphical client is still materialising its scene.
+        runtime.acknowledgementTimeout = std::chrono::milliseconds{5'000};
+        runtime.serverSilenceTimeout = std::chrono::milliseconds{60'000};
         runtime.strictOverflow = config.strictOverflow;
         if(!config.processGateReportPath.empty())
           runtime.serverSilenceTimeout = std::chrono::milliseconds{1'000};
@@ -644,7 +649,8 @@ class ClientMmoBridgeState final {
     [[nodiscard]] static bool isPresentationCommand(
         const ClientSandbox::ClientRuntimeV2CommandKind kind) noexcept {
       using Kind = ClientSandbox::ClientRuntimeV2CommandKind;
-      return kind == Kind::EquipItem || kind == Kind::PickupItem ||
+      return kind == Kind::Interact || kind == Kind::DialogChoice ||
+             kind == Kind::EquipItem || kind == Kind::PickupItem ||
              kind == Kind::DropItem || kind == Kind::UnequipItem ||
              kind == Kind::SplitStack || kind == Kind::MergeStack ||
              kind == Kind::UseItem || kind == Kind::SelectiveLoot;
@@ -654,6 +660,8 @@ class ClientMmoBridgeState final {
         const ClientSandbox::ClientRuntimeV2CommandKind kind) noexcept {
       using Source = ClientSandbox::ClientRuntimeV2CommandKind;
       switch(kind) {
+        case Source::Interact: return ClientMmoCommandKind::Interact;
+        case Source::DialogChoice: return ClientMmoCommandKind::DialogChoice;
         case Source::EquipItem: return ClientMmoCommandKind::EquipItem;
         case Source::PickupItem: return ClientMmoCommandKind::PickupItem;
         case Source::DropItem: return ClientMmoCommandKind::DropItem;

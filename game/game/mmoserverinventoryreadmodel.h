@@ -564,6 +564,8 @@ class ServerInventoryPendingState final {
     if(!command.command.valid() || !command.primary.valid())
       return false;
     switch(command.command.kind) {
+      case ClientMmoCommandKind::Interact:
+      case ClientMmoCommandKind::DialogChoice:
       case ClientMmoCommandKind::PickupItem:
       case ClientMmoCommandKind::SelectiveLoot:
         return false;

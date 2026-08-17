@@ -79,6 +79,8 @@ This document separates four evidence levels. Source remains authoritative.
   dialog revision. Validated choice/update/end events now enter a bounded FIFO
   while a server line is visible, so consecutive NPC/player `AI_OUTPUT` lines
   cannot overwrite one another and terminal end waits behind the last line;
+  server-authored lines remain visible for three seconds so the player can read
+  the first line before selecting a response;
   choice-only refreshes install the new authoritative set without replaying the
   previous line. The UI still waits for authoritative update/end and never
   advances dialog or story state optimistically.
@@ -135,6 +137,10 @@ sandbox test target. They do not instantiate the complete OpenGothic runtime.
   the native pickup animation locally; world/inventory mutation remains server
   owned. A pending pickup blocks repeated mouse-down submissions for the same
   server item and is released by its receipt, despawn or transport timeout.
+  Interaction and dialog command receipts keep their typed command identity in
+  the full-client bridge, and the graphical bridge uses a longer response
+  window while the native world is still loading, so a slow scene load does not
+  discard the route before a pickup or dialog result arrives.
   When a real native world VOB had to provide an item presentation that
   was absent from the transported catalog, the client retains that exact
   instance/name binding for the resulting server-backed inventory stack.

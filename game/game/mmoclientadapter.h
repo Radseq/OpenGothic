@@ -16,6 +16,8 @@ enum class ClientMmoSubmitStatus : std::uint8_t {
 };
 
 enum class ClientMmoCommandKind : std::uint16_t {
+  Interact = 33U,
+  DialogChoice = 34U,
   EquipItem = 36U,
   PickupItem = 38U,
   DropItem = 39U,

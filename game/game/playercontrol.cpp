@@ -87,6 +87,8 @@ namespace {
                          ? lower(static_cast<unsigned char>(value[index + 3U]))
                          : '\0';
       if((a == 'b' && b == 'o' && c == 'o' && d == 'k') ||
+         (a == 's' && b == 'h' && c == 'e' && d == 'l') ||
+         (a == 'r' && b == 'e' && c == 'g' && d == 'a') ||
          (a == 'b' && b == 'u' && c == 'c' && d == 'h') ||
          (a == 'r' && b == 'e' && c == 'a' && d == 'd')) {
         return true;
@@ -559,6 +561,11 @@ bool PlayerControl::interact(Interactive &it) {
       return true;
     }
     const bool readBookshelf = isBookInteractive(it);
+    Tempest::Log::i("MMO interactive focus: tag=", it.tag(),
+                    " focus=", it.focusName(),
+                    " scheme=", it.schemeName(),
+                    " owner=", it.ownerName(),
+                    " read=", readBookshelf ? 1 : 0);
     const auto verb = readBookshelf ? Mmo::ClientInteractionVerb::Read
                                     : Mmo::ClientInteractionVerb::Use;
     if(readBookshelf) {

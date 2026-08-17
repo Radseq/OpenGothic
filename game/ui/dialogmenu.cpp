@@ -18,6 +18,10 @@
 
 using namespace Tempest;
 
+namespace {
+constexpr uint64_t TypedServerDialogMessageTimeMs = 3000U;
+}
+
 bool DialogMenu::Pipe::output(Npc &npc, std::string_view text) {
   return owner.aiOutput(npc,text);
   }
@@ -389,7 +393,9 @@ void DialogMenu::presentTypedServerDialog(
             // message name.
             typedServerDialogLineId = value.lineId;
             current.txt = value.lineText;
-            current.msgTime = current.txt.empty() ? 0U : 500U;
+            current.msgTime = current.txt.empty()
+                ? 0U
+                : TypedServerDialogMessageTimeMs;
             current.time = current.msgTime +
                            (current.msgTime != 0U && dlgAnimation
                                 ? ANIM_TIME * 2U
