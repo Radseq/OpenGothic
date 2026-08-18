@@ -931,8 +931,7 @@ mapClientRuntimePresentationMailbox(
           };
           if(event.sessionId != 0U && event.choiceId != 0U &&
              event.choicesRevision != 0U && event.dialogRevision != 0U &&
-             event.choiceCount != 0U && event.choiceIndex < event.choiceCount &&
-             !event.text.empty())
+             event.choiceCount != 0U && event.choiceIndex < event.choiceCount)
             mapped = std::move(event);
           break;
         }

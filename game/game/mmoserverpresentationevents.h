@@ -689,10 +689,11 @@ enum ServerDialogUpdateFlag : std::uint32_t {
   ServerDialogAwaitingChoice = 1U << 0U,
   ServerDialogSkippable = 1U << 1U,
   ServerDialogSpeakerIsPlayer = 1U << 2U,
+  ServerDialogMandatoryFirstChoice = 1U << 3U,
 };
 inline constexpr std::uint32_t KnownServerDialogUpdateFlags =
     ServerDialogAwaitingChoice | ServerDialogSkippable |
-    ServerDialogSpeakerIsPlayer;
+    ServerDialogSpeakerIsPlayer | ServerDialogMandatoryFirstChoice;
 
 struct ServerDialogUpdateEvent final {
   ServerPresentationEventHeader header{};

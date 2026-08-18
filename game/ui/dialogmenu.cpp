@@ -105,6 +105,21 @@ void DialogMenu::tick(uint64_t dt) {
   if(current.time<=dt){
     current.time = 0;
     drainTypedServerDialogEvents();
+    // Original Gothic enters a blank first C_INFO choice immediately. The
+    // server independently enforces the same mandatory-first rule, while the
+    // client performs the normal revisioned submit so sequence ownership stays
+    // in the protocol client rather than in presentation code. Attempt at most
+    // once for a published choice revision to avoid retry storms on disconnect.
+    if(typedServerDialogSessionId != 0U && typedChoicesRevision != 0U &&
+       typedMandatoryFirstChoice &&
+       typedMandatoryChoiceAttemptRevision != typedChoicesRevision &&
+       !choice.empty() && choice.front().title.empty() &&
+       choice.size() == typedChoiceIds.size() &&
+       typedChoiceIds.size() == typedChoiceCount && !haveToWaitOutput()) {
+      typedMandatoryChoiceAttemptRevision = typedChoicesRevision;
+      dlgSel = 0U;
+      onSelect();
+    }
     if(dlgTrade && !haveToWaitOutput()) {
       startTrade();
       }
@@ -235,9 +250,10 @@ void DialogMenu::openServerDialog(
   serverDialog = intent;
 
   current.txt = intent.text;
-  if(current.txt.empty() && !intent.lineId.empty())
+  const bool silentChoiceAnchor = current.txt.empty() && !intent.choices.empty();
+  if(!silentChoiceAnchor && current.txt.empty() && !intent.lineId.empty())
     current.txt = Gothic::inst().messageByName(intent.lineId);
-  if(current.txt.empty() && !intent.audioRef.empty()) {
+  if(!silentChoiceAnchor && current.txt.empty() && !intent.audioRef.empty()) {
     const auto normalized = Mmo::normalizeServerDialogAudioRef(intent.audioRef);
     current.txt = Gothic::inst().messageByName(normalized);
   }
@@ -311,6 +327,8 @@ void DialogMenu::presentTypedServerDialog(
           typedServerDialogRevision = value.dialogRevision;
           typedServerDialogLineId = 0U;
           typedChoicesRevision = 0U;
+          typedMandatoryChoiceAttemptRevision = 0U;
+          typedMandatoryFirstChoice = false;
           typedChoiceCount = 0U;
           typedChoiceIds.clear();
           typedPendingDialogEvents.clear();
@@ -369,6 +387,8 @@ void DialogMenu::presentTypedServerDialog(
 
           const bool awaitingChoice =
               (value.flags & ServerDialogAwaitingChoice) != 0U;
+          typedMandatoryFirstChoice = awaitingChoice &&
+              (value.flags & ServerDialogMandatoryFirstChoice) != 0U;
           const bool completeChoices = awaitingChoice &&
               typedChoicesRevision == value.choicesRevision &&
               typedChoiceCount != 0U &&
@@ -379,6 +399,7 @@ void DialogMenu::presentTypedServerDialog(
             typedChoiceIds.clear();
             typedChoiceCount = 0U;
             typedChoicesRevision = 0U;
+            typedMandatoryFirstChoice = false;
           }
 
           // A choice refresh after the last spoken output carries the current
@@ -404,7 +425,12 @@ void DialogMenu::presentTypedServerDialog(
                 (value.flags & ServerDialogSpeakerIsPlayer) != 0U ||
                 (speaker != nullptr && speaker == pl);
 
-            if(current.txt.empty()) {
+            if(current.txt.empty() && awaitingChoice) {
+              Log::i("MMO typed dialog choices shown without pre-line: session=",
+                     value.sessionId,
+                     " revision=", value.dialogRevision,
+                     " line_id=", value.lineId);
+            } else if(current.txt.empty()) {
               Log::e("MMO typed dialog line suppressed: opaque_line_id=",
                      value.lineId,
                      " session=", value.sessionId,
@@ -609,6 +635,8 @@ void DialogMenu::close() {
   typedServerDialogRevision = 0U;
   typedServerDialogLineId = 0U;
   typedChoicesRevision = 0U;
+  typedMandatoryChoiceAttemptRevision = 0U;
+  typedMandatoryFirstChoice = false;
   typedChoiceCount = 0U;
   typedChoiceIds.clear();
   typedPendingDialogEvents.clear();

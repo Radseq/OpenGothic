@@ -956,8 +956,7 @@ class ServerPresentationState final {
     if(!dialog_.active() || event.sessionId != dialog_.sessionId ||
        event.choiceId == 0U || event.choicesRevision == 0U ||
        event.dialogRevision < dialog_.dialogRevision ||
-       event.choiceCount == 0U || event.choiceIndex >= event.choiceCount ||
-       event.text.empty()) {
+       event.choiceCount == 0U || event.choiceIndex >= event.choiceCount) {
       return {ServerPresentationApplyStatus::IdentityMismatch};
     }
     return {ServerPresentationApplyStatus::Applied,
