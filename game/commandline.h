@@ -105,6 +105,8 @@ class CommandLine {
 
   private:
     bool                validateGothicPath() const;
+    void                applyRuntimeProfile(std::string_view profile);
+    void                applyRuntimeConfig(std::string_view key, std::string_view value);
 
     GraphicBackend      graphics = GraphicBackend::Vulkan;
     std::u16string      gpath, gmod;

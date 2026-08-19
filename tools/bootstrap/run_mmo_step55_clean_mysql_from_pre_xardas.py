@@ -245,7 +245,7 @@ def main() -> int:
 
     if not args.dry_run and not sqlite_source.exists():
         print(f"ERROR: SQLite capture does not exist: {sqlite_source}", file=sys.stderr)
-        print("Run the game once with -mmo-sqlite runtime/g2notr_ch1_pre_xardas.sqlite -mmo-sqlite-capture-pre-start-exit first.", file=sys.stderr)
+        print("Run the game once with a runtime config containing mmo.sqlite.path=runtime/g2notr_ch1_pre_xardas.sqlite and mmo.sqlite.capture-pre-start-exit=true first.", file=sys.stderr)
         report["status"] = "failed_missing_sqlite_capture"
     elif not args.dry_run and not args.i_understand_this_drops_database:
         print("ERROR: this drops/recreates the target MySQL database; pass --i-understand-this-drops-database", file=sys.stderr)

@@ -140,7 +140,7 @@ GameSession::GameSession(std::string file, StartupMode startupMode) {
   if(CommandLine::inst().mmoSqliteCapturePreStartExit()) {
     const auto& cmd = CommandLine::inst();
     if(cmd.mmoSqlite().empty()) {
-      Log::e("-mmo-sqlite-capture-pre-start-exit requires -mmo-sqlite <path>");
+      Log::e("mmo.sqlite.capture-pre-start-exit requires mmo.sqlite.path in the runtime config");
       std::exit(2);
       }
 

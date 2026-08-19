@@ -3,9 +3,20 @@
 #include <Tempest/Log>
 #include <Tempest/TextCodec>
 #include <cstring>
+#include <cmath>
 #include <cassert>
 #include <limits>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#if __has_include("../../shared/config/mmo_runtime_config.h")
+#include "../../shared/config/mmo_runtime_config.h"
+#define OPENGOTHIC_MMO_RUNTIME_CONFIG 1
+#else
+#define OPENGOTHIC_MMO_RUNTIME_CONFIG 0
+#endif
 
 #if defined(__APPLE__)
 #include <filesystem>
@@ -62,6 +73,49 @@ static uint32_t parseUint32Arg(const char* value, const uint32_t minimum) {
   return static_cast<uint32_t>(parsed);
   }
 
+static bool parseConfigBool(std::string_view key, std::string_view value) {
+  if(value=="true" || value=="1" || value=="yes" || value=="on")
+    return true;
+  if(value=="false" || value=="0" || value=="no" || value=="off")
+    return false;
+  throw std::invalid_argument(std::string(key)+" expects true/false");
+  }
+
+static uint64_t parseConfigUint64(std::string_view key, std::string_view value, uint64_t minimum) {
+  const std::string text(value);
+  try {
+    std::size_t consumed = 0;
+    const auto parsed = std::stoull(text,&consumed,10);
+    if(consumed!=text.size() || parsed<minimum)
+      throw std::invalid_argument("invalid");
+    return parsed;
+    }
+  catch(const std::exception&) {
+    throw std::invalid_argument(std::string(key)+" has an invalid unsigned integer value");
+    }
+  }
+
+static uint32_t parseConfigUint32(std::string_view key, std::string_view value, uint32_t minimum) {
+  const auto parsed = parseConfigUint64(key,value,minimum);
+  if(parsed>std::numeric_limits<uint32_t>::max())
+    throw std::invalid_argument(std::string(key)+" exceeds uint32 range");
+  return static_cast<uint32_t>(parsed);
+  }
+
+static float parseConfigFloat(std::string_view key, std::string_view value, float minimum) {
+  const std::string text(value);
+  try {
+    std::size_t consumed = 0;
+    const auto parsed = std::stof(text,&consumed);
+    if(consumed!=text.size() || !std::isfinite(parsed) || parsed<minimum)
+      throw std::invalid_argument("invalid");
+    return parsed;
+    }
+  catch(const std::exception&) {
+    throw std::invalid_argument(std::string(key)+" has an invalid floating-point value");
+    }
+  }
+
 CommandLine::CommandLine(int argc, const char** argv) {
   instance = this;
   if(argc<1)
@@ -69,8 +123,59 @@ CommandLine::CommandLine(int argc, const char** argv) {
 
   std::string_view mod;
   bool mmoSqliteOptionRequested = false;
+  std::string runtimeConfigPath;
+  std::string runtimeProfile;
+#if OPENGOTHIC_MMO_RUNTIME_CONFIG
+  std::vector<Mmo::RuntimeConfig::Entry> runtimeConfigEntries;
+#endif
+
+  for(int i=1;i<argc;++i) {
+    const std::string_view arg = argv[i];
+    if(arg!="-config" && arg!="-profile")
+      continue;
+    if(i+1>=argc)
+      throw std::invalid_argument(std::string(arg)+" requires value");
+    const std::string value = argv[++i];
+    if(arg=="-config") {
+      if(!runtimeConfigPath.empty())
+        throw std::invalid_argument("-config may be specified only once");
+      runtimeConfigPath = value;
+      }
+    else {
+      runtimeProfile = value;
+      }
+    }
+
+#if OPENGOTHIC_MMO_RUNTIME_CONFIG
+  if(!runtimeConfigPath.empty())
+    runtimeConfigEntries = Mmo::RuntimeConfig::load(runtimeConfigPath);
+  if(runtimeProfile.empty()) {
+    const auto configured = Mmo::RuntimeConfig::findLast(runtimeConfigEntries, "profile");
+    if(!configured.empty())
+      runtimeProfile = configured;
+    }
+#else
+  if(!runtimeConfigPath.empty())
+    throw std::invalid_argument("-config requires the OpenGothic MMO workspace build");
+#endif
+
+  if(runtimeProfile.empty())
+    runtimeProfile = "singleplayer";
+  applyRuntimeProfile(runtimeProfile);
+#if OPENGOTHIC_MMO_RUNTIME_CONFIG
+  for(const auto& entry:runtimeConfigEntries) {
+    if(entry.key.starts_with("mmo.sqlite."))
+      mmoSqliteOptionRequested = true;
+    applyRuntimeConfig(entry.key,entry.value);
+    }
+#endif
+
   for(int i=1;i<argc;++i) {
     std::string_view arg = argv[i];
+    if(arg=="-config" || arg=="-profile") {
+      ++i;
+      continue;
+      }
     if(arg.find("-game:")==0) {
       if(!mod.empty())
         Log::e("-game specified twice");
@@ -115,92 +220,16 @@ CommandLine::CommandLine(int argc, const char** argv) {
       if(i<argc)
         nativeTelemetryPath = argv[i];
       }
-    else if(arg=="-mmo-sqlite") {
-      mmoSqliteOptionRequested = true;
-      // Enables local MMO persistence. The path identifies the SQLite database
-      // opened after the world loads; it is used for capture and DB restore.
-      ++i;
-      if(i<argc)
-        mmoSqliteDb = argv[i];
-      }
-    else if(arg=="-mmo-sqlite-interval-ms") {
-      mmoSqliteOptionRequested = true;
-      // Sets the minimum interval for incremental delta flushes. This does not
-      // rebuild the canonical MMO projection; 250 ms prevents accidental I/O abuse.
-      ++i;
-      if(i<argc) {
-        try {
-          mmoSqliteInterval = std::max<uint64_t>(250, std::stoull(std::string(argv[i])));
-          }
-        catch(const std::exception&) {
-          Log::i("failed to read -mmo-sqlite-interval-ms: \"", std::string(argv[i]), "\"");
-          }
-        }
-      }
-    else if(arg=="-mmo-sqlite-no-restore") {
-      mmoSqliteOptionRequested = true;
-      // Capture-only mode: writes the current session to SQLite but leaves the
-      // world loaded from the regular save/New Game untouched by DB restore.
-      mmoSqliteRestoreState = false;
-      }
-    else if(arg=="-mmo-sqlite-capture-baseline") {
-      mmoSqliteOptionRequested = true;
-      // Creates the immutable MMO world baseline from a deterministic New Game.
-      // It is valid only for the first session of a fresh database, never a save.
-      mmoSqliteCaptureBaselineState = true;
-      }
-    else if(arg=="-mmo-sqlite-capture-pre-start-exit") {
-      mmoSqliteOptionRequested = true;
-      // One-shot deterministic baseline capture for a fresh New Game. The SQLite
-      // DB is opened and flushed before world start triggers/dialog AI can run,
-      // then the process exits. This intentionally avoids Xardas auto-dialog.
-      mmoSqliteCapturePreStartExitState = true;
-      mmoSqliteCaptureBaselineState = true;
-      mmoSqliteRestoreState = false;
-      }
-    else if(arg=="-mmo-action-jsonl") {
-      // Dev-only semantic action capture. The game thread only enqueues immutable
-      // JSONL lines; final MMO architecture is still client -> server -> DB.
-      ++i;
-      if(i<argc)
-        mmoActionJsonlPath = argv[i];
-      }
-    else if(arg=="-mmo-action-udp") {
-      // Dev-only local server boundary. The game thread still only enqueues;
-      // an async worker sends immutable JSONL envelopes to host:port over UDP.
-      ++i;
-      if(i<argc)
-        mmoActionUdp = argv[i];
-      }
-    else if(arg=="-mmo-client-server" || arg=="-mmo-use-server") {
+    else if(arg=="-mmo-client-server") {
       // Explicit opt-in for a server-bound client. Old single-player behavior
-      // is unchanged unless this flag is present. The optional value is the same
-      // host:port syntax as -mmo-action-udp.
+      // is unchanged unless this flag/profile is present. The optional value uses
+      // the same host:port syntax as the mmo.server config key.
       mmoClientUsesServerState = true;
       if(i + 1 < argc && argv[i + 1][0] != '-') {
         ++i;
         mmoServerEndpointValue = argv[i];
-        if(mmoActionUdp.empty())
-          mmoActionUdp = mmoServerEndpointValue;
+        mmoActionUdp = mmoServerEndpointValue;
         }
-      }
-    else if(arg=="-mmo-server-endpoint") {
-      // Alias kept separate from -mmo-action-udp so future code can distinguish
-      // capture-only transport from real client->server intent mode.
-      ++i;
-      if(i<argc) {
-        mmoClientUsesServerState = true;
-        mmoServerEndpointValue = argv[i];
-        if(mmoActionUdp.empty())
-          mmoActionUdp = mmoServerEndpointValue;
-        }
-      }
-    else if(arg=="-mmo-client-dialog-main-thread-observation-receipt" ||
-            arg=="-mmo-client-dialog-observation-receipt") {
-      // Optional diagnostic evidence emitted after the production main-thread
-      // presenter applies or rejects a server-owned dialog.
-      mmoClientUsesServerState = true;
-      mmoClientDialogObservationReceiptState = true;
       }
     else if(arg=="-mmo-process-gate-report") {
       ++i;
@@ -247,18 +276,6 @@ CommandLine::CommandLine(int argc, const char** argv) {
           }
         }
       }
-    else if(arg=="-mmo-process-gate-no-restart") {
-      mmoProcessGateRequireRestartState = false;
-      }
-    else if(arg=="-mmo-client-content-manifest-hash" || arg=="-mmo-content-manifest-hash") {
-      // Client-declared content pack hash for server-side content gate. The
-      // server remains authoritative; this value is only a version declaration.
-      ++i;
-      if(i<argc && argv[i][0] != '\0') {
-        mmoClientUsesServerState = true;
-        mmoClientContentManifestHashValue = argv[i];
-      }
-    }
     else if(arg=="-mmo-client-presentation-catalog") {
       ++i;
       if(i<argc && argv[i][0] != '\0')
@@ -275,31 +292,6 @@ CommandLine::CommandLine(int argc, const char** argv) {
         }
       }
     }
-    else if(arg=="-mmo-db-continue-without-native-save" || arg=="-mmo-db-continue") {
-      // Step95: explicit development bridge for DB-backed Continue. When a
-      // requested native .sav is missing, server-bound mode can bootstrap the
-      // baseline ZEN world and then apply the server snapshot. Old load remains
-      // unchanged unless this flag and -mmo-client-server are both present.
-      mmoDbContinueWithoutNativeSaveState = true;
-      }
-    else if(arg=="-mmo-db-bootstrap-world") {
-      // Optional baseline world override for -mmo-db-continue-without-native-save.
-      // Default is Gothic::defaultWorld()/the configured -w world.
-      ++i;
-      if(i<argc)
-        mmoDbBootstrapWorldValue = argv[i];
-      }
-    else if(arg=="-mmo-require-db-save-checkpoint-restore" || arg=="-mmo-strict-db-continue") {
-      // Step98: test guard for DB-native Continue. The downloaded bootstrap
-      // snapshot must explicitly come from a DB save checkpoint, not fallback
-      // live projections. Normal server-bound flow stays unchanged without it.
-      mmoRequireDbSaveCheckpointRestoreState = true;
-      }
-    else if(arg=="-mmo-server-snapshot-apply-inventory" || arg=="-mmo-bootstrap-snapshot-apply-inventory" ||
-            arg=="-mmo-server-snapshot-apply-position"  || arg=="-mmo-bootstrap-snapshot-apply-position") {
-      // Compatibility no-op. In server-bound mode the bootstrap snapshot is now
-      // the client materialization source selected by -mmo-client-server.
-      }
     else if(arg=="-mmo-action-session-key") {
       ++i;
       if(i<argc)
@@ -310,21 +302,10 @@ CommandLine::CommandLine(int argc, const char** argv) {
       if(i<argc && argv[i][0] != '\0')
         mmoCharacterKeyValue = argv[i];
       }
-    else if(arg=="-mmo-character-name" || arg=="-mmo-character-display-name") {
+    else if(arg=="-mmo-character-name") {
       ++i;
       if(i<argc && argv[i][0] != '\0')
         mmoCharacterDisplayNameValue = argv[i];
-      }
-    else if(arg=="-mmo-character-id") {
-      ++i;
-      if(i<argc) {
-        try {
-          mmoCharacterIdValue = std::stoull(std::string(argv[i]));
-          }
-        catch(const std::exception&) {
-          Log::i("failed to read -mmo-character-id: \"", std::string(argv[i]), "\"");
-          }
-        }
       }
     else if(arg=="-mmo-character-archetype") {
       ++i;
@@ -362,108 +343,6 @@ CommandLine::CommandLine(int argc, const char** argv) {
           }
         catch(const std::exception&) {
           Log::i("failed to read -mmo-content-manifest-id: \"", std::string(argv[i]), "\"");
-          }
-        }
-      }
-    else if(arg=="-mmo-action-queue-capacity") {
-      ++i;
-      if(i<argc) {
-        try {
-          mmoActionQueueCap = std::max<uint64_t>(1, std::stoull(std::string(argv[i])));
-          }
-        catch(const std::exception&) {
-          Log::i("failed to read -mmo-action-queue-capacity: \"", std::string(argv[i]), "\"");
-          }
-        }
-      }
-    else if(arg=="-mmo-action-strict-overflow") {
-      mmoActionStrictOverflowState = true;
-      }
-    else if(arg=="-mmo-action-checkpoint-interval-ms") {
-      // Step39 dev-only movement/checkpoint capture cadence. Zero disables
-      // periodic checkpoint envelopes even when the semantic action sink is on.
-      ++i;
-      if(i<argc) {
-        try {
-          auto value = std::stoull(std::string(argv[i]));
-          mmoActionCheckpointInterval = value == 0 ? 0 : std::max<uint64_t>(250, value);
-          }
-        catch(const std::exception&) {
-          Log::i("failed to read -mmo-action-checkpoint-interval-ms: \"", std::string(argv[i]), "\"");
-          }
-        }
-      }
-    else if(arg=="-mmo-action-checkpoint-min-distance") {
-      // Step39 v2: coalesce stationary checkpoints on the game side. The unit is
-      // Gothic world units; zero keeps pure interval capture semantics.
-      ++i;
-      if(i<argc) {
-        try {
-          mmoActionCheckpointMinDistanceWorld = std::max(0.f, std::stof(std::string(argv[i])));
-          }
-        catch(const std::exception&) {
-          Log::i("failed to read -mmo-action-checkpoint-min-distance: \"", std::string(argv[i]), "\"");
-          }
-        }
-      }
-    else if(arg=="-mmo-action-checkpoint-min-yaw-deg") {
-      ++i;
-      if(i<argc) {
-        try {
-          mmoActionCheckpointMinYaw = std::max(0.f, std::stof(std::string(argv[i])));
-          }
-        catch(const std::exception&) {
-          Log::i("failed to read -mmo-action-checkpoint-min-yaw-deg: \"", std::string(argv[i]), "\"");
-          }
-        }
-      }
-    else if(arg=="-mmo-action-checkpoint-force-interval-ms") {
-      // Optional keepalive interval. It emits even when position/yaw/stats are
-      // unchanged, but never more often than -mmo-action-checkpoint-interval-ms.
-      ++i;
-      if(i<argc) {
-        try {
-          auto value = std::stoull(std::string(argv[i]));
-          mmoActionCheckpointForceInterval = value == 0 ? 0 : std::max<uint64_t>(250, value);
-          }
-        catch(const std::exception&) {
-          Log::i("failed to read -mmo-action-checkpoint-force-interval-ms: \"", std::string(argv[i]), "\"");
-          }
-        }
-      }
-    else if(arg=="-mmo-action-movement-proposal-interval-ms") {
-      // Step41 dev-only movement proposal capture. This is not a DB write; it
-      // produces client intent/proposal envelopes for a server-side validator.
-      ++i;
-      if(i<argc) {
-        try {
-          auto value = std::stoull(std::string(argv[i]));
-          mmoActionMovementProposalInterval = value == 0 ? 0 : std::max<uint64_t>(50, value);
-          }
-        catch(const std::exception&) {
-          Log::i("failed to read -mmo-action-movement-proposal-interval-ms: \"", std::string(argv[i]), "\"");
-          }
-        }
-      }
-    else if(arg=="-mmo-action-movement-proposal-min-distance") {
-      ++i;
-      if(i<argc) {
-        try {
-          mmoActionMovementProposalMinDistanceWorld = std::max(0.f, std::stof(std::string(argv[i])));
-          }
-        catch(const std::exception&) {
-          Log::i("failed to read -mmo-action-movement-proposal-min-distance: \"", std::string(argv[i]), "\"");
-          }
-        }
-      }
-    else if(arg=="-mmo-action-movement-proposal-min-yaw-deg") {
-      ++i;
-      if(i<argc) {
-        try {
-          mmoActionMovementProposalMinYaw = std::max(0.f, std::stof(std::string(argv[i])));
-          }
-        catch(const std::exception&) {
-          Log::i("failed to read -mmo-action-movement-proposal-min-yaw-deg: \"", std::string(argv[i]), "\"");
           }
         }
       }
@@ -540,6 +419,11 @@ CommandLine::CommandLine(int argc, const char** argv) {
       if(i<argc)
         isRtSm = boolArg(argv[i]);
       }
+    else if(arg.starts_with("-mmo-")) {
+      throw std::invalid_argument(
+          "removed or unknown MMO command-line option: "+std::string(arg)+
+          "; use -profile or -config for runtime tuning");
+      }
     else {
       Log::i("unreacognized commandline option: \"", arg, "\"");
       }
@@ -549,15 +433,15 @@ CommandLine::CommandLine(int argc, const char** argv) {
     if(mmoServerEndpointValue.empty())
       mmoServerEndpointValue = mmoActionUdp;
     if(mmoActionUdp.empty()) {
-      Log::e("-mmo-client-server enabled without server endpoint; pass -mmo-client-server 127.0.0.1:29777 or -mmo-server-endpoint 127.0.0.1:29777");
+      Log::e("MMO server-bound mode has no endpoint; set mmo.server in config or pass -mmo-client-server HOST:PORT");
       }
     else {
       Log::i("MMO server-bound client mode enabled: ", mmoActionUdp);
       Log::i("MMO graphical client contract: opengothic-mmo-graphical-v1");
       }
 
-    // Conservative server-mode defaults. They apply only when the explicit
-    // client-server flag is present and the user did not override cadence.
+    // Conservative server-mode defaults. They apply whenever the MMO profile
+    // is active and only fill values that the config/CLI did not override.
     if(mmoActionQueueCap < 8192)
       mmoActionQueueCap = 8192;
     if(mmoActionMovementProposalInterval == 0)
@@ -602,10 +486,10 @@ CommandLine::CommandLine(int argc, const char** argv) {
     throw std::invalid_argument("MMO SQLite options require OPENGOTHIC_MMO_ENABLE_SQLITE_TOOLING=ON");
 
   if(mmoDbContinueWithoutNativeSaveState && !mmoClientUsesServerState)
-    Log::e("-mmo-db-continue-without-native-save requires -mmo-client-server");
+    Log::e("mmo.db-continue-without-native-save requires an MMO server profile/endpoint");
 
   if(mmoRequireDbSaveCheckpointRestoreState && !mmoClientUsesServerState)
-    Log::e("-mmo-require-db-save-checkpoint-restore requires -mmo-client-server");
+    Log::e("mmo.require-db-save-checkpoint-restore requires an MMO server profile/endpoint");
 
   if(!mmoProcessGateReportPath.empty() && mmoActionUdp.empty())
     Log::e("-mmo-process-gate-report requires -mmo-client-server HOST:PORT");
@@ -641,6 +525,192 @@ CommandLine::CommandLine(int argc, const char** argv) {
       Log::e("Invalid gothic path: \"",TextCodec::toUtf8(gpath),"\"");
       }
     throw GothicNotFoundException("gothic not found!"); // TODO: user-friendly message-box
+    }
+  }
+
+void CommandLine::applyRuntimeProfile(std::string_view profile) {
+  if(profile.empty() || profile=="singleplayer")
+    return;
+  if(profile=="mmo" || profile=="mmo-test") {
+    mmoClientUsesServerState = true;
+    if(mmoServerEndpointValue.empty())
+      mmoServerEndpointValue = "127.0.0.1:29777";
+    if(mmoActionUdp.empty())
+      mmoActionUdp = mmoServerEndpointValue;
+    mmoDbContinueWithoutNativeSaveState = true;
+    if(profile=="mmo-test") {
+      mmoClientDialogObservationReceiptState = true;
+      mmoActionStrictOverflowState = true;
+      }
+    return;
+    }
+  throw std::invalid_argument(
+      "unknown client profile: "+std::string(profile)+
+      " (expected singleplayer, mmo or mmo-test)");
+  }
+
+void CommandLine::applyRuntimeConfig(std::string_view key, std::string_view value) {
+  if(key=="profile")
+    return;
+  if(key=="gothic-path") {
+    gpath.assign(value.begin(),value.end());
+    }
+  else if(key=="world") {
+    wrldDef = value;
+    }
+  else if(key=="graphics.window") {
+    isWindow = parseConfigBool(key,value);
+    }
+  else if(key=="graphics.validation") {
+    isDebug = parseConfigBool(key,value);
+    }
+  else if(key=="graphics.backend") {
+    if(value=="vulkan") graphics = GraphicBackend::Vulkan;
+    else if(value=="dx12") graphics = GraphicBackend::DirectX12;
+    else throw std::invalid_argument("graphics.backend expects vulkan or dx12");
+    }
+  else if(key=="graphics.ray-query") {
+    isRQuery = parseConfigBool(key,value);
+    }
+  else if(key=="graphics.gi") {
+    isGi = parseConfigBool(key,value);
+    }
+  else if(key=="graphics.mesh-shading") {
+    isMeshSh = parseConfigBool(key,value);
+    }
+  else if(key=="graphics.aa-preset") {
+    aaPresetId = std::clamp(
+        parseConfigUint32(key,value,0U),0U,uint32_t(AaPreset::PRESETS_COUNT)-1U);
+    }
+  else if(key=="start-menu") {
+    noMenu = !parseConfigBool(key,value);
+    }
+  else if(key=="mmo.server") {
+    if(value.empty())
+      throw std::invalid_argument("mmo.server cannot be empty");
+    mmoClientUsesServerState = true;
+    mmoServerEndpointValue = value;
+    mmoActionUdp = value;
+    }
+  else if(key=="mmo.sqlite.path") {
+    mmoSqliteDb = value;
+    }
+  else if(key=="mmo.sqlite.interval-ms") {
+    mmoSqliteInterval = std::max<uint64_t>(250U,parseConfigUint64(key,value,1U));
+    }
+  else if(key=="mmo.sqlite.restore") {
+    mmoSqliteRestoreState = parseConfigBool(key,value);
+    }
+  else if(key=="mmo.sqlite.capture-baseline") {
+    mmoSqliteCaptureBaselineState = parseConfigBool(key,value);
+    }
+  else if(key=="mmo.sqlite.capture-pre-start-exit") {
+    mmoSqliteCapturePreStartExitState = parseConfigBool(key,value);
+    if(mmoSqliteCapturePreStartExitState) {
+      mmoSqliteCaptureBaselineState = true;
+      mmoSqliteRestoreState = false;
+      }
+    }
+  else if(key=="mmo.action-jsonl") {
+    mmoActionJsonlPath = value;
+    }
+  else if(key=="mmo.action-udp") {
+    mmoActionUdp = value;
+    }
+  else if(key=="mmo.dialog-observation-receipt") {
+    mmoClientDialogObservationReceiptState = parseConfigBool(key,value);
+    }
+  else if(key=="mmo.client-content-manifest-hash") {
+    mmoClientUsesServerState = true;
+    mmoClientContentManifestHashValue = value;
+    }
+  else if(key=="mmo.presentation-catalog") {
+    mmoClientPresentationCatalogPath = value;
+    }
+  else if(key=="mmo.presentation-manifest-id") {
+    mmoClientPresentationManifestIdValue = parseConfigUint64(key,value,1U);
+    }
+  else if(key=="mmo.process-gate.report") {
+    mmoClientUsesServerState = true;
+    mmoProcessGateReportPath = value;
+    }
+  else if(key=="mmo.process-gate.client-id") {
+    mmoProcessGateClientIdValue = value;
+    }
+  else if(key=="mmo.process-gate.manifest-id") {
+    mmoProcessGateContentManifestIdValue = parseConfigUint64(key,value,1U);
+    }
+  else if(key=="mmo.process-gate.archetype") {
+    mmoProcessGateArchetypeIdValue = parseConfigUint32(key,value,1U);
+    }
+  else if(key=="mmo.process-gate.appearance") {
+    mmoProcessGateAppearanceProfileIdValue = parseConfigUint32(key,value,0U);
+    }
+  else if(key=="mmo.process-gate.require-restart") {
+    mmoProcessGateRequireRestartState = parseConfigBool(key,value);
+    }
+  else if(key=="mmo.db-continue-without-native-save") {
+    mmoDbContinueWithoutNativeSaveState = parseConfigBool(key,value);
+    }
+  else if(key=="mmo.db-bootstrap-world") {
+    mmoDbBootstrapWorldValue = value;
+    }
+  else if(key=="mmo.require-db-save-checkpoint-restore") {
+    mmoRequireDbSaveCheckpointRestoreState = parseConfigBool(key,value);
+    }
+  else if(key=="mmo.action-session-key") {
+    mmoActionSession = value;
+    }
+  else if(key=="mmo.character-key") {
+    mmoCharacterKeyValue = value;
+    }
+  else if(key=="mmo.character-name") {
+    mmoCharacterDisplayNameValue = value;
+    }
+  else if(key=="mmo.character-id") {
+    mmoCharacterIdValue = parseConfigUint64(key,value,0U);
+    }
+  else if(key=="mmo.character-archetype") {
+    mmoCharacterArchetypeIdValue = parseConfigUint32(key,value,1U);
+    }
+  else if(key=="mmo.character-appearance") {
+    mmoCharacterAppearanceProfileIdValue = parseConfigUint32(key,value,0U);
+    }
+  else if(key=="mmo.content-manifest-id") {
+    mmoContentManifestIdValue = parseConfigUint64(key,value,1U);
+    }
+  else if(key=="mmo.action-queue-capacity") {
+    mmoActionQueueCap = parseConfigUint64(key,value,1U);
+    }
+  else if(key=="mmo.action-strict-overflow") {
+    mmoActionStrictOverflowState = parseConfigBool(key,value);
+    }
+  else if(key=="mmo.checkpoint.interval-ms") {
+    const auto parsed = parseConfigUint64(key,value,0U);
+    mmoActionCheckpointInterval = parsed==0U ? 0U : std::max<uint64_t>(250U,parsed);
+    }
+  else if(key=="mmo.checkpoint.min-distance") {
+    mmoActionCheckpointMinDistanceWorld = parseConfigFloat(key,value,0.f);
+    }
+  else if(key=="mmo.checkpoint.min-yaw-deg") {
+    mmoActionCheckpointMinYaw = parseConfigFloat(key,value,0.f);
+    }
+  else if(key=="mmo.checkpoint.force-interval-ms") {
+    const auto parsed = parseConfigUint64(key,value,0U);
+    mmoActionCheckpointForceInterval = parsed==0U ? 0U : std::max<uint64_t>(250U,parsed);
+    }
+  else if(key=="mmo.movement.interval-ms") {
+    const auto parsed = parseConfigUint64(key,value,0U);
+    mmoActionMovementProposalInterval = parsed==0U ? 0U : std::max<uint64_t>(50U,parsed);
+    }
+  else if(key=="mmo.movement.min-distance") {
+    mmoActionMovementProposalMinDistanceWorld = parseConfigFloat(key,value,0.f);
+    }
+  else if(key=="mmo.movement.min-yaw-deg") {
+    mmoActionMovementProposalMinYaw = parseConfigFloat(key,value,0.f);
+    }
+  else {
+    throw std::invalid_argument("unknown client config key: "+std::string(key));
     }
   }
 
