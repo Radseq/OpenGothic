@@ -1091,6 +1091,13 @@ bool Gothic::hlp_strcmp(std::string_view a, std::string_view b) {
   }
 
 void Gothic::introducechapter(std::string_view title, std::string_view subtitle, std::string_view img, std::string_view sound, int time) {
+  showChapterIntro(title, subtitle, img, sound, time);
+  if(auto* session = gameSession())
+    session->recordMmoChapterIntro(title, subtitle, img, sound, time);
+  }
+
+void Gothic::showChapterIntro(std::string_view title, std::string_view subtitle, std::string_view img, std::string_view sound, int time,
+                             std::function<void()> finished) {
   pendingChapter = true;
   ChapterScreen::Show& s = chapter;
   s.time     = time;
@@ -1098,8 +1105,7 @@ void Gothic::introducechapter(std::string_view title, std::string_view subtitle,
   s.img      = img;
   s.subtitle = subtitle;
   s.title    = title;
-  if(auto* session = gameSession())
-    session->recordMmoChapterIntro(title, subtitle, img, sound, time);
+  s.finished = std::move(finished);
   }
 
 bool Gothic::playvideo(std::string_view name) {

@@ -3,6 +3,7 @@
 #include <Tempest/Widget>
 #include <Tempest/Texture2d>
 #include <Tempest/Timer>
+#include <functional>
 
 class ChapterScreen : public Tempest::Widget {
   public:
@@ -14,6 +15,7 @@ class ChapterScreen : public Tempest::Widget {
       std::string img;
       std::string sound;
       int         time=0;
+      std::function<void()> finished;
       };
 
     void show(const Show& image);
@@ -31,6 +33,7 @@ class ChapterScreen : public Tempest::Widget {
     Tempest::Timer            timer;
 
     std::string               title, subTitle;
+    std::function<void()>      finished;
 
     void                      close();
   };

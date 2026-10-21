@@ -306,6 +306,10 @@ class Gothic final {
     int                                     hlp_random        (int max);
 
     void                                    introducechapter  (std::string_view title, std::string_view subtitle, std::string_view img, std::string_view sound, int time);
+  public:
+    void                                    showChapterIntro  (std::string_view title, std::string_view subtitle, std::string_view img, std::string_view sound, int time,
+                                                              std::function<void()> finished = {});
+  private:
     bool                                    playvideo         (std::string_view name);
     bool                                    playvideoex       (std::string_view name, bool screenBlend, bool exitSession);
     bool                                    printscreen       (std::string_view msg, int posx, int posy, std::string_view font, int timesec);

@@ -97,7 +97,26 @@ This document separates four evidence levels. Source remains authoritative.
 These tests compile selected full-client presentation components in the
 sandbox test target. They do not instantiate the complete OpenGothic runtime.
 
+Server dialog movies now stop the presentation queue until the first
+`DialogMenu::tick` after `VideoWidget` finishes or is skipped. Later speech and
+menu events retain their order and speaker. The real NK Xardas `Intro_ADDON`
+scene and his subsequent line were confirmed graphically on 2026-10-21; see
+[the scene evidence](../../../../docs/llm/dialog-video-xardas-20261021.md).
+
 ## Composition-integrated but not fully proven
+
+The typed dialog chapter flag carries a bounded five-field presentation payload
+(title, subtitle, image, sound, duration). `DialogMenu` drains earlier speech
+before calling the presentation-only `Gothic::showChapterIntro`; it closes the
+local dialog UI to expose the chapter screen. The bounded payload uses printable
+separators accepted by the protocol text validator. Closing the chapter screen
+sends a session/revision-bound receipt; the server then ends the dialog and
+resumes the NPC routine. This path does not write local
+chapter story state. The 2026-10-21 graphical run initially failed allocating
+ray-tracing geometry; a rerun with `-rt 0 -gi 0 -rtsm 0` reached the live dialog.
+The user confirmed the corrected chapter screen and that Xardas starts moving
+only after it closes; the server log confirms the accepted presentation receipt
+and subsequent native routine revision 2.
 
 - `GameSession` consumes route, bootstrap and event records and materializes
   local player, remote player, NPC, world-object, interactive, mover, inventory,

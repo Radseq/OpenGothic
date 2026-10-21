@@ -28,6 +28,12 @@
 using namespace Tempest;
 
 void Npc::setMmoServerReplica(const bool value) noexcept {
+  // The controlled hero still owns local input/prediction. Shared health or
+  // combat presentation must never turn it into an autonomous-NPC proxy.
+  if(value && isPlayer()) {
+    if(isMmoServerReplica()) setMmoServerReplica(false);
+    return;
+  }
   if(isMmoServerReplica() == value)
     return;
   mmoAuthorityGate.setMode(
@@ -135,6 +141,14 @@ bool Npc::applyMmoServerPresentationTransform(
   }
   if(clearVelocity)
     clearSpeed();
+  updateTransform();
+  static unsigned motionPoseSamples = 0U;
+  if(changed && !clearVelocity && motionPoseSamples < 8U) {
+    ++motionPoseSamples;
+    Log::i("MMO NPC motion pose: server_yaw=", yaw,
+           " applied_yaw=", rotation(), " target_override=", mmoPresentationFaceTarget,
+           " position=", presentationPosition.x, ",", presentationPosition.y, ",", presentationPosition.z);
+  }
   return changed;
 }
 

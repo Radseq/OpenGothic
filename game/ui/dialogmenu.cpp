@@ -1,4 +1,5 @@
 #include "dialogmenu.h"
+#include "../../../shared/game/gothic/gothic_chapter_intro.h"
 
 #include <Tempest/Painter>
 #include <Tempest/Log>
@@ -15,6 +16,8 @@
 #include "game/mmoserverdialogpresentation.h"
 #include "inventorymenu.h"
 #include "resources.h"
+#include "../../../shared/game/gothic/gothic_text_encoding.h"
+#include "../../../shared/game/gothic/gothic_dialog_video.h"
 
 using namespace Tempest;
 
@@ -72,6 +75,12 @@ void DialogMenu::setupSettings() {
   }
 
 void DialogMenu::tick(uint64_t dt) {
+  // MainWindow calls this only after VideoWidget has no playing or queued
+  // video. Later dialog events stay queued until that first tick after EOF.
+  if(typedServerVideoPending) {
+    typedServerVideoPending = false;
+    Log::i("MMO dialog resumed after video: session=", typedServerDialogSessionId);
+    }
   if(state==State::PreStart) {
     except.clear();
     dlgTrade=false;
@@ -291,7 +300,8 @@ void DialogMenu::presentTypedServerDialog(
   const bool sequenceSensitive = std::holds_alternative<ServerDialogChoiceEvent>(event) ||
                                  std::holds_alternative<ServerDialogUpdateEvent>(event) ||
                                  std::holds_alternative<ServerDialogEndEvent>(event);
-  if(sequenceSensitive && typedServerDialogSessionId != 0U && current.time > 0U) {
+  if(sequenceSensitive && typedServerDialogSessionId != 0U &&
+     (current.time > 0U || typedServerVideoPending)) {
     if(typedPendingDialogEvents.size() >= MaxPendingTypedDialogEvents) {
       Log::e("MMO typed dialog presentation queue overflow: session=",
              typedServerDialogSessionId,
@@ -329,6 +339,7 @@ void DialogMenu::presentTypedServerDialog(
           typedChoicesRevision = 0U;
           typedMandatoryChoiceAttemptRevision = 0U;
           typedMandatoryFirstChoice = false;
+          typedServerVideoPending = false;
           typedChoiceCount = 0U;
           typedChoiceIds.clear();
           typedPendingDialogEvents.clear();
@@ -365,7 +376,7 @@ void DialogMenu::presentTypedServerDialog(
             return;
           }
           GameScript::DlgChoice local;
-          local.title = value.text;
+          local.title = Mmo::GothicText::utf8ToWindows1250(value.text);
           local.sort = static_cast<std::int32_t>(value.choiceIndex);
           local.scriptFn = value.choiceIndex;
           choice.push_back(std::move(local));
@@ -382,6 +393,51 @@ void DialogMenu::presentTypedServerDialog(
             pl = player;
           if(npc != nullptr)
             other = npc;
+          if((value.flags & ServerDialogChapterIntro) != 0U) {
+            const auto intro = Mmo::GothicPresentation::decodeChapterIntro(
+                value.lineText);
+            if(!intro) {
+              Log::e("MMO chapter intro rejected: invalid presentation");
+              return;
+            }
+            typedServerDialogRevision = value.dialogRevision;
+            currentSnd = SoundEffect();
+            current.time = 0U;
+            Gothic::inst().showChapterIntro(
+                Mmo::GothicText::utf8ToWindows1250(intro->title),
+                Mmo::GothicText::utf8ToWindows1250(intro->subtitle), intro->image,
+                intro->sound, static_cast<int>(intro->durationMilliseconds),
+                [session = value.sessionId, revision = value.dialogRevision,
+                 sequence = ++serverChoiceSequence] {
+                  const Mmo::ClientDialogChoiceRequest receipt{
+                      .expectedRevision = revision,
+                      .clientChoiceSequence = sequence,
+                      .protocolDialogSessionId = session,
+                      .protocolChoiceId = Mmo::GothicPresentation::ChapterPresentationFinishedChoice,
+                  };
+                  if(!Mmo::submitClientDialogChoice(receipt).accepted())
+                    Log::e("MMO chapter completion receipt rejected: session=", session);
+                });
+            Log::i("MMO chapter intro: session=", value.sessionId, " image=", intro->image);
+            // Let MainWindow show the card. The server keeps the NPC stopped
+            // until the card closes and sends the receipt above.
+            close();
+            return;
+          }
+          if((value.flags & ServerDialogVideo) != 0U) {
+            typedServerDialogRevision = value.dialogRevision;
+            if(!Mmo::GothicPresentation::validDialogVideoName(value.lineText)) {
+              Log::e("MMO dialog video rejected: invalid asset name");
+              return;
+            }
+            Log::i("MMO dialog video: session=", value.sessionId,
+                   " file=", value.lineText);
+            currentSnd = SoundEffect();
+            current.time = 0U;
+            typedServerVideoPending = true;
+            Gothic::inst().onVideo(value.lineText);
+            return;
+          }
           currentSnd = SoundEffect();
           typedServerDialogRevision = value.dialogRevision;
 
@@ -413,7 +469,7 @@ void DialogMenu::presentTypedServerDialog(
             // only as an identity; never turn its numeric hash into a Gothic
             // message name.
             typedServerDialogLineId = value.lineId;
-            current.txt = value.lineText;
+            current.txt = Mmo::GothicText::utf8ToWindows1250(value.lineText);
             current.msgTime = current.txt.empty()
                 ? 0U
                 : TypedServerDialogMessageTimeMs;
@@ -470,7 +526,8 @@ void DialogMenu::presentTypedServerDialog(
 }
 
 void DialogMenu::drainTypedServerDialogEvents() {
-  while(current.time == 0U && !typedPendingDialogEvents.empty() &&
+  while(current.time == 0U && !typedServerVideoPending &&
+        !typedPendingDialogEvents.empty() &&
         typedServerDialogSessionId != 0U) {
     auto event = std::move(typedPendingDialogEvents.front());
     typedPendingDialogEvents.pop_front();
@@ -637,6 +694,7 @@ void DialogMenu::close() {
   typedChoicesRevision = 0U;
   typedMandatoryChoiceAttemptRevision = 0U;
   typedMandatoryFirstChoice = false;
+  typedServerVideoPending = false;
   typedChoiceCount = 0U;
   typedChoiceIds.clear();
   typedPendingDialogEvents.clear();

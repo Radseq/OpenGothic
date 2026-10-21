@@ -19,6 +19,7 @@ void ChapterScreen::show(const Show& s) {
   active   = true;
   title    = s.title;
   subTitle = s.subtitle;
+  finished = s.finished;
   if(s.time>0)
     timer.start(uint64_t(s.time));
   timer.timeout.bind(this,&ChapterScreen::close);
@@ -60,6 +61,10 @@ void ChapterScreen::close() {
     return;
   Gothic::inst().popPause();
   active=false;
+  timer.stop();
+  auto callback = std::move(finished);
+  if(callback)
+    callback();
   }
 
 void ChapterScreen::keyDownEvent(KeyEvent &e) {

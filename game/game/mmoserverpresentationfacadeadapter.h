@@ -1403,6 +1403,13 @@ mapClientRuntimePresentationMailbox(
             }
             observeRoute(out, event.header.route);
             out.corpseLootAvailability.push_back(std::move(event));
+          } else if constexpr(std::is_same_v<
+                                  Value, Mmo::ProtocolV2::TradeSessionSnapshot>) {
+            // The reusable client_sandbox owns the authoritative trade-session
+            // snapshot today. The graphical presentation layer has no trade UI
+            // read model yet, so consume the typed event explicitly rather than
+            // weakening the exhaustive visitor or fabricating local authority.
+            return;
           } else if constexpr(
               std::is_same_v<Value, Mmo::ProtocolV2::CharacterAttributesSnapshot> ||
               std::is_same_v<Value, Mmo::ProtocolV2::CharacterAttributesChanged>) {

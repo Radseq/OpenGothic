@@ -1133,6 +1133,17 @@ void MainWindow::tickMmoMovement(const uint64_t dt) {
   intent.reason = "player_input";
 
   const auto result = Mmo::submitClientMovement(intent);
+  static float loggedForward = 2.0F;
+  static float loggedRight = 2.0F;
+  static bool loggedJump = false;
+  if(loggedForward != input.forward || loggedRight != input.right || loggedJump != input.jump) {
+    loggedForward = input.forward;
+    loggedRight = input.right;
+    loggedJump = input.jump;
+    Log::i("MMO movement input: forward=", input.forward, " right=", input.right,
+           " jump=", input.jump, " submit_status=", static_cast<unsigned>(result.status),
+           " player_is_npc_replica=", actor->isMmoServerReplica());
+  }
   if(result.status == Mmo::ClientMmoSubmitStatus::QueueFull ||
      result.status == Mmo::ClientMmoSubmitStatus::TransportError) {
     ++mmoMovementFailureCount;

@@ -150,6 +150,7 @@ class DialogMenu : public Tempest::Widget {
     uint64_t                              typedChoicesRevision = 0;
     uint64_t                              typedMandatoryChoiceAttemptRevision = 0;
     bool                                  typedMandatoryFirstChoice = false;
+    bool                                  typedServerVideoPending = false;
     uint16_t                              typedChoiceCount = 0;
     std::vector<uint64_t>                 typedChoiceIds;
     std::deque<Mmo::ClientPresentation::ServerPresentationEvent>
