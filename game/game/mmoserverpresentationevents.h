@@ -205,6 +205,17 @@ enum class ServerPresentationNpcActivityState : std::uint8_t {
   Combat = 6U,
 };
 
+enum class ServerNpcPresentationLocomotion : std::uint8_t {
+  Stand,
+  Walk,
+  Run,
+  TurnLeft,
+  TurnRight,
+  Crouch,
+  Knockback,
+  Fall,
+};
+
 enum ServerPresentationNpcStateFlag : std::uint32_t {
   ServerPresentationNpcTargetPresent = 1U << 0U,
   ServerPresentationNpcWeaponDrawn = 1U << 1U,
@@ -229,6 +240,7 @@ struct ServerPresentationNpcStateRecord final {
   std::int32_t mana = 0;
   std::int32_t maximumMana = 0;
   std::uint64_t stateRevision = 0U;
+  std::optional<ServerNpcPresentationLocomotion> locomotion = std::nullopt;
 
   [[nodiscard]] constexpr bool valid() const noexcept {
     const bool knownLifeState =
@@ -245,7 +257,9 @@ struct ServerPresentationNpcStateRecord final {
     const bool targetPresent =
         (flags & ServerPresentationNpcTargetPresent) != 0U;
     const bool validTarget = targetPresent ? target.valid() : target.empty();
-    return entity.valid() && knownLifeState && knownActivityState &&
+    const bool knownLocomotion = !locomotion.has_value() ||
+        *locomotion <= ServerNpcPresentationLocomotion::Fall;
+    return entity.valid() && knownLifeState && knownActivityState && knownLocomotion &&
            (flags & ~KnownServerPresentationNpcStateFlags) == 0U &&
            validTarget && health >= 0 && maximumHealth >= health &&
            mana >= 0 && maximumMana >= mana && stateRevision != 0U;

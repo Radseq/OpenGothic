@@ -64,6 +64,29 @@ This document separates four evidence levels. Source remains authoritative.
   input remain local, while position is owned by the server. This keeps the
   native Gothic position used for focus/pickup aligned with the server's
   fixed-tick position; the client-provided position remains diagnostic only.
+  The 2026-10-21 correction makes that position gate effective even when the
+  hero retains native input/rotation mode; previously the native-mode fallback
+  admitted local displacement and the next server transform moved the hero back.
+  Server corrections use the scoped presentation setter. NPC interpolation uses
+  Gothic degrees throughout, including the shortest turn across ±180°, and
+  complete NPC state carries the authoritative walk/run mode into animation.
+  After the user confirmed facing and walking, delayed player updates exposed
+  a second defect: live transforms used an input counter against world tick
+  revisions. Player bootstrap/spawn and live transform revisions now share the
+  server tick. Newly created grounded replicas also receive the bounded native
+  floor offset previously available only to reused native NPCs. Those latest
+  two changes were confirmed for floor alignment and removal of delayed position
+  jumps. The user then reported an interrupted run cycle. Server-position players
+  now skip native movement physics, whose rejected root-motion attempt otherwise
+  called the collision handler and restarted Idle. Graphical confirmation of that
+  final animation correction did not close acceptance: the user clarified that
+  position still stalled for about three seconds while animation played. A later
+  facade correction removes the requirement that the current route revision equal
+  the last movement receipt revision. Other commands, including dialogs, may
+  legitimately advance it; movement preparation already uses the current route.
+  The real UDP facade regression covers that case. Graphical acceptance remains
+  pending. Full local prediction/reconciliation is not implemented by these fixes.
+  See [movement evidence](../../../../docs/llm/movement-facing-height-20261021.md).
 - Typed inventory/equipment read models retain server revisions and pending
   command completion state without optimistic quantity mutation. The
   server-backed page model builds equip, unequip, use, drop, split and merge

@@ -146,6 +146,12 @@ void MoveAlgo::tickClimb(uint64_t dt) {
   }
 
 void MoveAlgo::tick(uint64_t dt, MvFlags moveFlg) {
+  // The server already moves this player. Trying native root motion here
+  // fails the position gate and onMoveFailed would restart Idle every frame.
+  // Input and the animation solver still run independently of this physics.
+  if(npc.usesMmoServerPlayerPosition())
+    return;
+
   if(npc.isDown() && (flags==Swim || flags==Dive)) {
     // 'falling' to bottom of the lake
     setState(InAir);

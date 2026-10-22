@@ -41,6 +41,7 @@
 #include "world/objects/interactive.h"
 #include "world/world.h"
 #include "world/waypoint.h"
+#include "physics/dynamicworld.h"
 #include "sound/soundfx.h"
 #include "serialize.h"
 #include "camera.h"
@@ -263,11 +264,20 @@ MmoServerEntityMaterialization materializeMmoServerEntityNpc(
           " instance_symbol=", instanceSymbol);
     }
     npc->setMmoServerReplica(true);
-    const float verticalOffset = materializedByMmo
+    float verticalOffset = materializedByMmo
         ? 0.0F
         : localPresentationPosition.y - position.y;
+    // Script waypoint positions can be above the floor. A newly created
+    // replica has no native spawn adjustment to reuse, so align its feet once
+    // against local geometry. This is a bounded visual offset only.
+    if(materializedByMmo && entity.transform.grounded && world.physic() != nullptr) {
+      const auto ground = world.physic()->landRay(
+          position + Tempest::Vec3{0.0F, 50.0F, 0.0F}, 250.0F);
+      if(ground.hasCol)
+        verticalOffset = ground.v.y - position.y;
+    }
     npc->setMmoServerPresentationVerticalOffset(verticalOffset);
-    if(!materializedByMmo && std::abs(verticalOffset) > 0.01F) {
+    if(std::abs(verticalOffset) > 0.01F) {
       Log::i(
           "MMO NPC presentation ground offset: entity=", entity.handle.id,
           " instance_symbol=", instanceSymbol,
@@ -788,11 +798,23 @@ void GameSession::applyMmoServerEntityTransform(
     // The server owns the player's position. The first correction aligns the
     // local ZEN start, while normal entity transforms keep the graphical
     // player in the same place as the authority between movement packets.
-    static_cast<void>(npc->applyMmoServerPresentationPosition(
+    const bool positionChanged = npc->applyMmoServerPresentationPosition(
         {static_cast<float>(entity.transform.posX),
          static_cast<float>(entity.transform.posY),
          static_cast<float>(entity.transform.posZ)},
-        snap || entity.transform.teleport));
+        snap || entity.transform.teleport);
+    static unsigned positionSamples = 0U;
+    static auto previousPositionTime = std::chrono::steady_clock::time_point{};
+    if(positionChanged && positionSamples < 32U) {
+      const auto now = std::chrono::steady_clock::now();
+      const auto gap = previousPositionTime == std::chrono::steady_clock::time_point{}
+          ? 0LL : std::chrono::duration_cast<std::chrono::milliseconds>(now - previousPositionTime).count();
+      previousPositionTime = now;
+      ++positionSamples;
+      Log::i("MMO player position sample: revision=", entity.entityRevision,
+             " receive_gap_ms=", static_cast<std::int64_t>(gap), " position=", entity.transform.posX, ",",
+             entity.transform.posY, ",", entity.transform.posZ);
+    }
     mmoServerEntityPresentation.touch(observation);
     return;
   }
@@ -862,7 +884,10 @@ void GameSession::applyMmoServerNpcState(
         npc->applyMmoServerPresentationLocomotion(Npc::Anim::Idle);
         break;
       case ServerPresentationNpcActivityState::Traversal:
-        npc->applyMmoServerPresentationLocomotion(Npc::Anim::Move);
+        npc->applyMmoServerPresentationLocomotion(
+            Npc::Anim::Move,
+            state.locomotion.value_or(ServerNpcPresentationLocomotion::Walk) ==
+                ServerNpcPresentationLocomotion::Walk);
         break;
       case ServerPresentationNpcActivityState::Interaction:
       case ServerPresentationNpcActivityState::Combat:

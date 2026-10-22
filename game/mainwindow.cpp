@@ -1133,6 +1133,12 @@ void MainWindow::tickMmoMovement(const uint64_t dt) {
   intent.reason = "player_input";
 
   const auto result = Mmo::submitClientMovement(intent);
+  static unsigned movementHeartbeatSamples = 0U;
+  if((input.forward != 0.0F || input.right != 0.0F) && movementHeartbeatSamples < 24U) {
+    ++movementHeartbeatSamples;
+    Log::i("MMO movement heartbeat: real_ms=", Application::tickCount(),
+           " simulation_dt_ms=", dt, " interval_ms=", interval);
+  }
   static float loggedForward = 2.0F;
   static float loggedRight = 2.0F;
   static bool loggedJump = false;
@@ -1142,7 +1148,8 @@ void MainWindow::tickMmoMovement(const uint64_t dt) {
     loggedJump = input.jump;
     Log::i("MMO movement input: forward=", input.forward, " right=", input.right,
            " jump=", input.jump, " submit_status=", static_cast<unsigned>(result.status),
-           " player_is_npc_replica=", actor->isMmoServerReplica());
+           " player_is_npc_replica=", actor->isMmoServerReplica(),
+           " interval_ms=", interval, " real_ms=", Application::tickCount());
   }
   if(result.status == Mmo::ClientMmoSubmitStatus::QueueFull ||
      result.status == Mmo::ClientMmoSubmitStatus::TransportError) {

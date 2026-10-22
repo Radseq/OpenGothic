@@ -242,7 +242,7 @@ void Npc::setProcessPolicy(NpcProcessPolicy t) {
 
 void Npc::setWalkMode(WalkBit m) {
   if(mmoAuthorityGate.rejectLocalGameplay(
-         Mmo::ClientPresentation::NpcLocalGameplayEntryPoint::MovementMutation))
+         Mmo::ClientPresentation::NpcLocalGameplayEntryPoint::MovementPlanning))
     return;
   wlkMode = m;
   }

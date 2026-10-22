@@ -22,18 +22,13 @@ namespace {
   return dx * dx + dz * dz;
 }
 
-[[nodiscard]] double normalizeRadians(double value) noexcept {
-  constexpr double Pi = 3.14159265358979323846264338327950288;
-  constexpr double TwoPi = Pi * 2.0;
-  while(value > Pi)
-    value -= TwoPi;
-  while(value < -Pi)
-    value += TwoPi;
+[[nodiscard]] double normalizeDegrees(double value) noexcept {
+  value = std::remainder(value, 360.0);
   return value;
 }
 
 [[nodiscard]] double interpolateYaw(double from, double to, double t) noexcept {
-  return normalizeRadians(from + normalizeRadians(to - from) * t);
+  return normalizeDegrees(from + normalizeDegrees(to - from) * t);
 }
 
 [[nodiscard]] double lerp(double from, double to, double t) noexcept {
@@ -226,7 +221,7 @@ void ServerEntityInterpolator::sample(
     value.posY = b.posY + velocityY * extrapolateSeconds;
     value.posZ = b.posZ + velocityZ * extrapolateSeconds;
     value.yaw = interpolateYaw(
-        b.yaw, b.yaw + normalizeRadians(b.yaw - a.yaw),
+        b.yaw, b.yaw + normalizeDegrees(b.yaw - a.yaw),
         sourceDuration == 0U
             ? 0.0
             : static_cast<double>(extrapolateMs) /

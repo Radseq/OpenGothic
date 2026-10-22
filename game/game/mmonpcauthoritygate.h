@@ -98,7 +98,7 @@ class NpcAuthorityGate final {
       if(serverPlayerPositionAuthority_ &&
          entryPoint != NpcLocalGameplayEntryPoint::MovementMutation)
         return false;
-      if(allowsLocalGameplay())
+      if(!serverPlayerPositionAuthority_ && allowsLocalGameplay())
         return false;
       const auto index = static_cast<std::size_t>(entryPoint);
       if(index >= rejected_.size())

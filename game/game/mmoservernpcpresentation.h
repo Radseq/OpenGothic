@@ -11,17 +11,6 @@
 
 namespace Mmo::ClientPresentation {
 
-enum class ServerNpcPresentationLocomotion : std::uint8_t {
-  Stand,
-  Walk,
-  Run,
-  TurnLeft,
-  TurnRight,
-  Crouch,
-  Knockback,
-  Fall,
-};
-
 enum class ServerNpcPresentationActionKind : std::uint8_t {
   None,
   Kneel,

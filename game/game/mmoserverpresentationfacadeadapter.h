@@ -544,7 +544,12 @@ mapWorldObject(const ClientRuntimeBootstrapWorldObject& value) noexcept {
       .maximumMana = value.maximumMana,
       .stateRevision = value.stateRevision,
   };
-  return mapNpc(source);
+  auto out = mapNpc(source);
+  if(out && value.locomotion.has_value()) {
+    out->locomotion = static_cast<ServerNpcPresentationLocomotion>(*value.locomotion);
+    if(!out->valid()) return std::nullopt;
+  }
+  return out;
 }
 
 [[nodiscard]] inline std::optional<ServerPresentationInteractiveStateRecord>

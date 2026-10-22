@@ -191,6 +191,9 @@ class Npc final {
     bool       isPlayer() const;
     void       setMmoServerReplica(bool value) noexcept;
     void       setMmoServerPlayerPositionAuthority(bool value) noexcept;
+    [[nodiscard]] bool usesMmoServerPlayerPosition() const noexcept {
+      return mmoAuthorityGate.serverPlayerPositionAuthority();
+    }
     [[nodiscard]] bool isMmoServerReplica() const noexcept {
       return mmoAuthorityGate.serverReplica();
     }
@@ -219,7 +222,7 @@ class Npc final {
                    bool clearVelocity);
     bool       applyMmoServerPresentationTranslation(
                    const Tempest::Vec3& delta);
-    void       applyMmoServerPresentationLocomotion(Anim animation);
+    void       applyMmoServerPresentationLocomotion(Anim animation, bool walking = false);
     void       applyMmoServerPresentationLifecycle(
                    int32_t healthCurrent, int32_t healthMax,
                    MmoPresentationLifeState lifeState);

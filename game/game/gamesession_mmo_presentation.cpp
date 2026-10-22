@@ -530,11 +530,10 @@ void GameSession::applyMmoServerMovementCorrection() noexcept {
     return;
   }
 
-  if(hero->setPosition(static_cast<float>(accepted->posX),
-                       static_cast<float>(accepted->posY),
-                       static_cast<float>(accepted->posZ))) {
-    if(accepted->hardSnap)
-      hero->clearSpeed();
+  if(hero->applyMmoServerPresentationPosition(
+         {static_cast<float>(accepted->posX),
+          static_cast<float>(accepted->posY),
+          static_cast<float>(accepted->posZ)}, accepted->hardSnap)) {
     Mmo::recordClientMmoProcessGatePresentation(
         Mmo::ClientMmoProcessGatePresentationEvent::MovementCorrectionApplied);
     Log::i("MMO movement correction applied: position=", accepted->posX, ",",
