@@ -41,10 +41,12 @@ This document separates four evidence levels. Source remains authoritative.
   30-degree facing cone. The graphical client and sandbox reject an obviously
   invalid pickup before submitting it; the server repeats the distance check
   and, when it has a current movement-input yaw, the facing check.
-  The latest native run calibrated production walk/run authority to 225/500
+  The earlier native capture reported walk/run maxima of 225/500
   units per second and bounds client/sandbox extrapolation to 500 horizontal
   units per second and 1450 vertical fall units per second. No native sneak
   sample was captured, so the existing sneak authority value remains unchanged.
+  Production sustained run tuning is now 300 units/s after the user reported
+  500 as too fast; graphical speed acceptance remains open.
 
 - Engine intent DTO validation fails closed for incomplete legacy movement,
   generated interaction identity and missing item-stack revisions.
@@ -87,6 +89,12 @@ This document separates four evidence levels. Source remains authoritative.
   The real UDP facade regression covers that case. Graphical acceptance remains
   pending. Full local prediction/reconciliation is not implemented by these fixes.
   See [movement evidence](../../../../docs/llm/movement-facing-height-20261021.md).
+  The 2026-10-24 follow-up removes receipt-by-receipt waiting, separates movement
+  from inventory/dialog aggregate revision and prevents delayed input from
+  undoing Stop. Real UDP loss and server-process restart gates pass, and the
+  graphical executable builds. No active display is available for graphical
+  acceptance in this environment. See the
+  [current movement contract](../../../../docs/llm/player-movement-stream-20261024.md).
 - Typed inventory/equipment read models retain server revisions and pending
   command completion state without optimistic quantity mutation. The
   server-backed page model builds equip, unequip, use, drop, split and merge
