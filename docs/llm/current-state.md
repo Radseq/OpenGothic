@@ -22,6 +22,11 @@ This document separates four evidence levels. Source remains authoritative.
 - In server-bound mode the normal inventory action opens a dedicated page over
   `ServerInventoryPresentationState`; native inventory behavior remains
   unchanged outside that mode.
+- The 2026-10-30 inventory default action chooses Equip for weapons and wearable
+  items, Unequip for an equipped stack, and Use for consumables. Equipment still
+  waits for server approval. The graphical executable builds; mouse/Enter/3
+  acceptance is pending the user's next run. See
+  [gameplay fixes](../../../../docs/llm/gameplay-fixes-20261030.md).
 
 ## Implemented and focused-tested
 

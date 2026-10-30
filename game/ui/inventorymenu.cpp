@@ -1000,6 +1000,27 @@ void InventoryMenu::submitServerUseOrUnequip() {
     return;
   }
 
+  // The preview selects an intent only. The server still owns item compatibility,
+  // requirements and the equipment mutation, just as for the numbered slots.
+  if(const auto* item = serverPreviewItem(*stack)) {
+    using Slot = Mmo::ClientEquipmentSlot;
+    std::optional<Slot> slot;
+    if(item->mainFlag() & ITM_CAT_NF) slot = Slot::MeleeWeapon;
+    else if(item->mainFlag() & ITM_CAT_FF) slot = Slot::RangedWeapon;
+    else if(item->isArmor()) slot = Slot::Armor;
+    else if(item->isSpellOrRune()) slot = Slot::Spell;
+    else if(item->itemFlag() & ITM_AMULET) slot = Slot::Amulet;
+    else if(item->itemFlag() & ITM_BELT) slot = Slot::Belt;
+    else if(item->isRing()) {
+      slot = pageModel.equipment().at(Slot::RingLeft) == nullptr
+          ? Slot::RingLeft : Slot::RingRight;
+    }
+    if(slot.has_value()) {
+      submitServerEquip(*slot);
+      return;
+    }
+  }
+
   const auto request = pageModel.useRequest(stack->handle);
   if(!request.has_value())
     return;
@@ -1024,6 +1045,10 @@ void InventoryMenu::submitServerEquip(const Mmo::ClientEquipmentSlot slot) {
   const auto request = pageModel.equipRequest(stack->handle, slot);
   if(!request.has_value())
     return;
+
+  Log::i("MMO equip submit: item=", serverItemDisplayName(*stack).c_str(),
+         " slot=", equipmentSlotName(slot).data(),
+         " archetype=", stack->archetypeId);
 
   Mmo::ClientItemStackHandle replaced{};
   if(const auto* current = pageModel.equipment().at(slot);
